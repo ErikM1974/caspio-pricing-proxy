@@ -28,20 +28,11 @@ let tokenExpiryTime = 0;
 // --- Middleware ---
 app.use(express.json()); // Parse JSON bodies (for potential future POST requests)
 
-// CORS Middleware - Allow requests from specific origins
+// CORS Middleware - Allow requests from all origins for testing
 app.use((req, res, next) => {
-    // Define allowed origins
-    const allowedOrigins = [
-        'http://localhost:3001',                                  // Local test server
-        'https://caspio-pricing-proxy-ab30a049961a.herokuapp.com' // Production server
-    ];
-    
-    const origin = req.headers.origin;
-    
-    // Check if the request origin is in our allowed list
-    if (allowedOrigins.includes(origin)) {
-        res.setHeader('Access-Control-Allow-Origin', origin);
-    }
+    // Allow requests from any origin for testing purposes
+    // In production, this should be restricted to specific domains
+    res.setHeader('Access-Control-Allow-Origin', '*');
     
     res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
