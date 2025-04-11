@@ -344,17 +344,20 @@ app.get('/api/stylesearch', async (req, res) => {
         };
         const result = await makeCaspioRequest('get', resource, params);
 
-        // --- CHANGE 2: Map result directly (server-side dedupe less critical now) ---
-        // q.distinct on a single field should be reliable, but filtering nulls is good.
+        // --- CHANGE 2: Ensure we have truly unique style numbers ---
+        // Filter out nulls first
         const validResults = result.filter(item => item.STYLE);
-
-        // Limit results again if needed (e.g., if distinct wasn't perfect)
-        const limitedResults = validResults.slice(0, 15);
-
+        
+        // Use a Set to deduplicate style numbers
+        const uniqueStyles = [...new Set(validResults.map(item => item.STYLE))];
+        
+        // Limit to 15 results
+        const limitedResults = uniqueStyles.slice(0, 15);
+        
         // Format for autocomplete: label and value are both the STYLE
-        const suggestions = limitedResults.map(item => ({
-             label: item.STYLE, // Show only the style number
-             value: item.STYLE  // Use the style number when selected
+        const suggestions = limitedResults.map(style => ({
+             label: style, // Show only the style number
+             value: style  // Use the style number when selected
          }));
 
         res.json(suggestions);
