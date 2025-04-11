@@ -437,31 +437,38 @@ app.get('/api/stylesearch', async (req, res) => {
 });
 
 
-// --- NEW Endpoint: Product Details ---
+// --- UPDATED Endpoint: Product Details ---
 // Example: /api/product-details?styleNumber=PC61&color=Red
 app.get('/api/product-details', async (req, res) => {
-    const { styleNumber, color } = req.query; // 'color' param currently unused in query, only for context if needed later
+    const { styleNumber, color } = req.query;
     if (!styleNumber) {
         return res.status(400).json({ error: 'Missing required query parameter: styleNumber' });
     }
     try {
         const resource = '/tables/Sanmar_Bulk_251816_Feb2024/records';
-        // Find one representative row for the style number to get common details
+        let whereClause = `STYLE='${styleNumber}'`;
+        
+        // If color is provided, use it to filter results
+        if (color) {
+            whereClause += ` AND CATALOG_COLOR='${color}'`;
+        }
+        
         const params = {
-            'q.where': `STYLE='${styleNumber}'`,
-            // Select fields needed for product display (user confirmed names)
-            'q.select': 'PRODUCT_TITLE, PRODUCT_DESCRIPTION, FRONT_FLAT, FRONT_MODEL, BACK_FLAT, BACK_MODEL',
-            'q.limit': 1 // Just need one row for general text details
+            'q.where': whereClause,
+            // Added COLOR_NAME and CATALOG_COLOR to the selected fields
+            'q.select': 'PRODUCT_TITLE, PRODUCT_DESCRIPTION, FRONT_FLAT, FRONT_MODEL, BACK_FLAT, BACK_MODEL, COLOR_NAME, CATALOG_COLOR',
+            'q.limit': 1 // Just need one row for details
         };
+        
+        console.log(`Product Details: Fetching for Style=${styleNumber}, Color=${color || 'Any'}`);
         const result = await makeCaspioRequest('get', resource, params);
 
         if (result.length === 0) {
-             return res.status(404).json({ error: `Product details not found for style: ${styleNumber}` });
+            return res.status(404).json({ error: `Product details not found for style: ${styleNumber}${color ? ` and color: ${color}` : ''}` });
         }
+        
         // Return the first record found
         res.json(result[0]);
-        // Note: Image fields here are assumed to be consistent per style.
-        // If specific images depend on the COLOR parameter, this logic might need enhancement.
 
     } catch (error) {
         res.status(500).json({ error: error.message || 'Failed to fetch product details.' });
