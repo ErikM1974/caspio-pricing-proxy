@@ -131,6 +131,68 @@ async function makeCaspioRequest(method, resourcePath, params = {}, data = null)
     }
 }
 
+/**
+ * Fetches ALL records from a Caspio resource, handling pagination.
+ * @param {string} resourcePath - Path relative to base API URL (e.g., '/tables/YourTable/records')
+ * @param {object} [initialParams={}] - Initial URL query parameters (e.g., { 'q.where': "Field='value'" })
+ * @returns {Promise<object[]>} - The combined 'Result' array from all pages.
+ */
+async function fetchAllCaspioPages(resourcePath, initialParams = {}) {
+    let allResults = [];
+    let params = { ...initialParams };
+    // Ensure a reasonable limit is set, Caspio default is often 100, max might be 1000
+    params['q.limit'] = params['q.limit'] || 1000;
+    let nextPageUrl = `${caspioApiBaseUrl}${resourcePath}`; // Start with base resource URL
+
+    console.log(`Fetching all pages for: ${resourcePath} with initial params: ${JSON.stringify(initialParams)}`);
+
+    try {
+        const token = await getCaspioAccessToken();
+        let pageCount = 0;
+
+        while (nextPageUrl) {
+            pageCount++;
+            console.log(`Fetching page ${pageCount} from: ${nextPageUrl.replace(caspioApiBaseUrl, '')}`);
+            const config = {
+                method: 'get',
+                url: nextPageUrl, // Use the full URL provided by Caspio or the initial one
+                headers: { 'Authorization': `Bearer ${token}` },
+                // PARAMS for the *first* request are added here, subsequent requests use the full nextPageUrl from Caspio
+                params: (pageCount === 1) ? params : undefined,
+                timeout: 20000 // Increase timeout slightly for potentially longer multi-page fetches
+            };
+
+            const response = await axios(config);
+
+            if (response.data && response.data.Result) {
+                allResults = allResults.concat(response.data.Result);
+                // Check for the @nextpage link in the response body
+                nextPageUrl = response.data['@nextpage'] ? response.data['@nextpage'] : null;
+                if (nextPageUrl) {
+                     console.log(`Found next page link.`);
+                     // Ensure the next URL uses the correct base if it's relative (it shouldn't be with Caspio v2)
+                     if (!nextPageUrl.startsWith('http')) {
+                          console.warn("Received relative next page URL, prepending base. Check Caspio API version/response.");
+                          nextPageUrl = caspioApiBaseUrl + (nextPageUrl.startsWith('/') ? '' : '/') + nextPageUrl;
+                     }
+                } else {
+                     console.log(`No more pages found.`);
+                }
+            } else {
+                console.warn("Caspio API response page did not contain 'Result':", response.data);
+                nextPageUrl = null; // Stop if response format is wrong
+            }
+        } // End while loop
+
+        console.log(`Finished fetching ${pageCount} page(s), total ${allResults.length} records for ${resourcePath}.`);
+        return allResults;
+
+    } catch (error) {
+        console.error(`Error fetching all pages for ${resourcePath}:`, error.response ? JSON.stringify(error.response.data) : error.message);
+        throw new Error(`Failed to fetch all data from Caspio resource: ${resourcePath}. Status: ${error.response?.status}`);
+    }
+}
+
 // --- API Endpoints ---
 
 // Simple status check
@@ -407,7 +469,7 @@ app.get('/api/product-details', async (req, res) => {
 });
 
 
-// --- NEW Endpoint: Color Swatches ---
+// --- UPDATED Endpoint: Color Swatches (Handles Pagination) ---
 // Example: /api/color-swatches?styleNumber=PC61
 app.get('/api/color-swatches', async (req, res) => {
     const { styleNumber } = req.query;
@@ -418,42 +480,48 @@ app.get('/api/color-swatches', async (req, res) => {
         const resource = '/tables/Sanmar_Bulk_251816_Feb2024/records';
         const params = {
             'q.where': `STYLE='${styleNumber}'`,
-            // Select fields needed for swatches (user confirmed names)
             'q.select': 'COLOR_NAME, CATALOG_COLOR, COLOR_SQUARE_IMAGE',
-            'q.distinct': true, // Get unique color combinations for this style
-            'q.orderby': 'COLOR_NAME ASC', // Optional: sort colors alphabetically
-            'q.limit': 100 // Max swatches per style
+            // 'q.distinct': true, // Leave distinct OFF to get all variations
+            'q.orderby': 'COLOR_NAME ASC',
+            'q.limit': 1000 // Ask for max per page
         };
-        const result = await makeCaspioRequest('get', resource, params);
-         // Filter out results where essential swatch info might be missing
-         const validSwatches = result.filter(item => item.COLOR_NAME && item.CATALOG_COLOR && item.COLOR_SQUARE_IMAGE);
-        res.json(validSwatches); // Return array: [{COLOR_NAME: "Red", CATALOG_COLOR: "...", COLOR_SQUARE_IMAGE: "..."}, ...]
+        // Use the new function to fetch all pages
+        const result = await fetchAllCaspioPages(resource, params);
+        // Filter out results where essential swatch info might be missing
+        const validSwatches = result.filter(item => item.COLOR_NAME && item.CATALOG_COLOR && item.COLOR_SQUARE_IMAGE);
+        // JS deduplication will happen in index.html loadSwatches function if needed
+        res.json(validSwatches);
     } catch (error) {
         res.status(500).json({ error: error.message || 'Failed to fetch color swatches.' });
     }
 });
-// --- NEW Endpoint: Get All Inventory Fields ---
-// Example: /api/inventory?styleNumber=S100
+// --- UPDATED Endpoint: Get Inventory Data (Handles Pagination) ---
+// Example: /api/inventory?styleNumber=S100&color=Red
 app.get('/api/inventory', async (req, res) => {
-    const { styleNumber } = req.query;
+    const { styleNumber, color } = req.query;
     if (!styleNumber) {
         return res.status(400).json({ error: 'Missing required query parameter: styleNumber' });
     }
     try {
-        // Use Inventory table
         const resource = '/tables/Inventory/records';
+        let whereClause = `catalog_no='${styleNumber}'`;
+        if (color) {
+            whereClause += ` AND catalog_color='${color}'`;
+        }
         const params = {
-            'q.where': `catalog_no='${styleNumber}'`,
-            // No q.select parameter to get all fields
-            'q.limit': 2000 // Fetch all relevant records for the style
+            'q.where': whereClause,
+            'q.select': 'WarehouseName, size, quantity, WarehouseSort, SizeSortOrder',
+            'q.orderby': 'WarehouseSort ASC, SizeSortOrder ASC',
+            'q.limit': 1000 // Ask for max per page
         };
-        const result = await makeCaspioRequest('get', resource, params);
+        // Use the new function to fetch all pages
+        const result = await fetchAllCaspioPages(resource, params);
         
         if (result.length === 0) {
-            console.warn(`No inventory data found for style: ${styleNumber}`);
+            console.warn(`No inventory data found for style: ${styleNumber}${color ? ` and color: ${color}` : ''}`);
         }
         
-        res.json(result); // Return all fields for each record
+        res.json(result);
         
     } catch (error) {
         res.status(500).json({ error: error.message || 'Failed to fetch inventory data.' });
