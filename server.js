@@ -28,13 +28,24 @@ let tokenExpiryTime = 0;
 // --- Middleware ---
 app.use(express.json()); // Parse JSON bodies (for potential future POST requests)
 
-// CORS Middleware - IMPORTANT: Restrict origin in production
+// CORS Middleware - Allow requests from specific origins
 app.use((req, res, next) => {
-    // Replace '*' with your actual frontend domain(s) in production for security
-    // e.g., res.setHeader('Access-Control-Allow-Origin', 'https://yourcaspiosite.com');
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS'); // Allow GET and preflight OPTIONS
+    // Define allowed origins
+    const allowedOrigins = [
+        'http://localhost:3001',                                  // Local test server
+        'https://caspio-pricing-proxy-ab30a049961a.herokuapp.com' // Production server
+    ];
+    
+    const origin = req.headers.origin;
+    
+    // Check if the request origin is in our allowed list
+    if (allowedOrigins.includes(origin)) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+    }
+    
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    
     if (req.method === 'OPTIONS') {
         return res.sendStatus(200);
     }
@@ -102,14 +113,19 @@ async function makeCaspioRequest(method, resourcePath, params = {}, data = null)
             method: method,
             url: url,
             headers: {
-                'Authorization': `Bearer ${token}`
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
             },
             params: params, // Axios handles query string building
             data: data,     // Axios handles request body
             timeout: 15000 // Add timeout (15 seconds)
         };
 
+        console.log(`Request config: ${JSON.stringify(config, (key, value) =>
+            key === 'Authorization' ? '***REDACTED***' : value)}`);
+
         const response = await axios(config);
+        console.log(`Response status: ${response.status}`);
 
         if (response.data && response.data.Result) {
             return response.data.Result;
