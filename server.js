@@ -468,7 +468,6 @@ app.get('/api/product-details', async (req, res) => {
     }
 });
 
-
 // --- UPDATED Endpoint: Color Swatches (Handles Pagination) ---
 // Example: /api/color-swatches?styleNumber=PC61
 app.get('/api/color-swatches', async (req, res) => {
@@ -489,8 +488,20 @@ app.get('/api/color-swatches', async (req, res) => {
         const result = await fetchAllCaspioPages(resource, params);
         // Filter out results where essential swatch info might be missing
         const validSwatches = result.filter(item => item.COLOR_NAME && item.CATALOG_COLOR && item.COLOR_SQUARE_IMAGE);
-        // JS deduplication will happen in index.html loadSwatches function if needed
-        res.json(validSwatches);
+        
+        // Deduplicate swatches based on COLOR_NAME to ensure each color appears only once
+        const uniqueSwatches = [];
+        const seenColors = new Set();
+        
+        for (const swatch of validSwatches) {
+            if (!seenColors.has(swatch.COLOR_NAME)) {
+                seenColors.add(swatch.COLOR_NAME);
+                uniqueSwatches.push(swatch);
+            }
+        }
+        
+        console.log(`Returning ${uniqueSwatches.length} unique colors out of ${validSwatches.length} total swatches for style ${styleNumber}`);
+        res.json(uniqueSwatches);
     } catch (error) {
         res.status(500).json({ error: error.message || 'Failed to fetch color swatches.' });
     }
