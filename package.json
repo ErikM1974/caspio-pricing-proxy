@@ -1,0 +1,22 @@
+{
+  "name": "caspio-pricing-proxy",
+  "version": "1.0.0",
+  "description": "API Proxy for Caspio Pricing Data",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "caspio",
+    "api",
+    "proxy"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^1.8.4",
+    "dotenv": "^16.5.0",
+    "express": "^5.1.0"
+  }
+}
