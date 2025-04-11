@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Caspio API Connection Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1 {
+            color: #333;
+        }
+        .test-section {
+            margin-bottom: 20px;
+            border: 1px solid #ddd;
+            padding: 15px;
+            border-radius: 5px;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 8px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 10px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        pre {
+            background-color: #f5f5f5;
+            padding: 10px;
+            border-radius: 5px;
+            overflow-x: auto;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .error {
+            color: red;
+            font-weight: bold;
+        }
+        .success {
+            color: green;
+        }
+        .config-section {
+            background-color: #f9f9f9;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Caspio API Connection Test</h1>
+    
+    <div class="config-section">
+        <h2>API Configuration</h2>
+        <div>
+            <label for="apiUrl">API Base URL:</label>
+            <input type="text" id="apiUrl" value="https://caspio-pricing-proxy-ab30a049961a.herokuapp.com" style="width: 400px;">
+            <div style="margin-top: 10px;">
+                <button onclick="setLocalUrl()">Use Local Server</button>
+                <button onclick="setHerokuUrl()">Use Heroku Server</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="test-section">
+        <h2>Status Check</h2>
+        <button onclick="testStatus()">Test Status</button>
+        <pre id="statusResult">Results will appear here...</pre>
+    </div>
+
+    <div class="test-section">
+        <h2>Style Search</h2>
+        <input type="text" id="styleSearchTerm" value="PC61" placeholder="Enter style number (e.g., PC61)">
+        <button onclick="testStyleSearch()">Test Style Search</button>
+        <pre id="styleSearchResult">Results will appear here...</pre>
+    </div>
+
+    <div class="test-section">
+        <h2>Product Details</h2>
+        <input type="text" id="productStyleNumber" value="PC61" placeholder="Enter style number (e.g., PC61)">
+        <button onclick="testProductDetails()">Test Product Details</button>
+        <pre id="productDetailsResult">Results will appear here...</pre>
+    </div>
+
+    <div class="test-section">
+        <h2>Color Swatches</h2>
+        <input type="text" id="swatchStyleNumber" value="PC61" placeholder="Enter style number (e.g., PC61)">
+        <button onclick="testColorSwatches()">Test Color Swatches</button>
+        <pre id="colorSwatchesResult">Results will appear here...</pre>
+    </div>
+
+    <div class="test-section">
+        <h2>All Inventory Fields</h2>
+        <input type="text" id="inventoryStyleNumber" value="S100" placeholder="Enter style number (e.g., S100)">
+        <button onclick="testInventory()">Test Inventory</button>
+        <pre id="inventoryResult">Results will appear here...</pre>
+    </div>
+
+    <div class="test-section">
+        <h2>Pricing Tiers</h2>
+        <select id="decorationMethod">
+            <option value="DTG">DTG</option>
+            <option value="ScreenPrint">ScreenPrint</option>
+            <option value="Embroidery">Embroidery</option>
+        </select>
+        <button onclick="testPricingTiers()">Test Pricing Tiers</button>
+        <pre id="pricingTiersResult">Results will appear here...</pre>
+    </div>
+
+    <script>
+        // Helper functions to switch between environments
+        function setLocalUrl() {
+            document.getElementById('apiUrl').value = 'http://localhost:3000';
+            console.log("Switched to local server URL");
+        }
+        
+        function setHerokuUrl() {
+            document.getElementById('apiUrl').value = 'https://caspio-pricing-proxy-ab30a049961a.herokuapp.com';
+            console.log("Switched to Heroku server URL");
+        }
+
+        // Helper function to display results
+        function displayResult(elementId, data, isError = false) {
+            const element = document.getElementById(elementId);
+            if (isError) {
+                element.innerHTML = `<span class="error">ERROR: ${JSON.stringify(data, null, 2)}</span>`;
+                console.error("Error:", data);
+            } else {
+                element.innerHTML = `<span class="success">SUCCESS:</span> ${JSON.stringify(data, null, 2)}`;
+                console.log("Success:", data);
+            }
+        }
+
+        // Helper function to get the API base URL
+        function getApiBaseUrl() {
+            return document.getElementById('apiUrl').value.trim();
+        }
+
+        // Test Status endpoint
+        async function testStatus() {
+            const statusElement = document.getElementById('statusResult');
+            statusElement.textContent = "Testing status endpoint...";
+            const apiUrl = getApiBaseUrl();
+            console.log("Testing status endpoint:", apiUrl);
+            
+            try {
+                const response = await fetch(`${apiUrl}/status`);
+                console.log("Status response:", response.status);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                displayResult('statusResult', data);
+            } catch (error) {
+                displayResult('statusResult', error.message, true);
+                console.error("Status check failed:", error);
+            }
+        }
+
+        // Test Style Search endpoint
+        async function testStyleSearch() {
+            const resultElement = document.getElementById('styleSearchResult');
+            resultElement.textContent = "Testing style search endpoint...";
+            const term = document.getElementById('styleSearchTerm').value;
+            const apiUrl = getApiBaseUrl();
+            
+            try {
+                const response = await fetch(`${apiUrl}/api/stylesearch?term=${encodeURIComponent(term)}`);
+                console.log("Style search response status:", response.status);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                displayResult('styleSearchResult', data);
+            } catch (error) {
+                displayResult('styleSearchResult', error.message, true);
+                console.error("Style search failed:", error);
+            }
+        }
+
+        // Test Product Details endpoint
+        async function testProductDetails() {
+            const resultElement = document.getElementById('productDetailsResult');
+            resultElement.textContent = "Testing product details endpoint...";
+            const styleNumber = document.getElementById('productStyleNumber').value;
+            const apiUrl = getApiBaseUrl();
+            
+            try {
+                const response = await fetch(`${apiUrl}/api/product-details?styleNumber=${encodeURIComponent(styleNumber)}`);
+                console.log("Product details response status:", response.status);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                displayResult('productDetailsResult', data);
+            } catch (error) {
+                displayResult('productDetailsResult', error.message, true);
+                console.error("Product details failed:", error);
+            }
+        }
+
+        // Test Color Swatches endpoint
+        async function testColorSwatches() {
+            const resultElement = document.getElementById('colorSwatchesResult');
+            resultElement.textContent = "Testing color swatches endpoint...";
+            const styleNumber = document.getElementById('swatchStyleNumber').value;
+            const apiUrl = getApiBaseUrl();
+            
+            try {
+                const response = await fetch(`${apiUrl}/api/color-swatches?styleNumber=${encodeURIComponent(styleNumber)}`);
+                console.log("Color swatches response status:", response.status);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                displayResult('colorSwatchesResult', data);
+            } catch (error) {
+                displayResult('colorSwatchesResult', error.message, true);
+                console.error("Color swatches failed:", error);
+            }
+        }
+
+        // Test Inventory endpoint
+        async function testInventory() {
+            const resultElement = document.getElementById('inventoryResult');
+            resultElement.textContent = "Testing inventory endpoint...";
+            const styleNumber = document.getElementById('inventoryStyleNumber').value;
+            const apiUrl = getApiBaseUrl();
+            
+            try {
+                const response = await fetch(`${apiUrl}/api/inventory?styleNumber=${encodeURIComponent(styleNumber)}`);
+                console.log("Inventory response status:", response.status);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                displayResult('inventoryResult', data);
+            } catch (error) {
+                displayResult('inventoryResult', error.message, true);
+                console.error("Inventory request failed:", error);
+            }
+        }
+
+        // Test Pricing Tiers endpoint
+        async function testPricingTiers() {
+            const resultElement = document.getElementById('pricingTiersResult');
+            resultElement.textContent = "Testing pricing tiers endpoint...";
+            const method = document.getElementById('decorationMethod').value;
+            const apiUrl = getApiBaseUrl();
+            
+            try {
+                const response = await fetch(`${apiUrl}/api/pricing-tiers?method=${encodeURIComponent(method)}`);
+                console.log("Pricing tiers response status:", response.status);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                displayResult('pricingTiersResult', data);
+            } catch (error) {
+                displayResult('pricingTiersResult', error.message, true);
+                console.error("Pricing tiers failed:", error);
+            }
+        }
+
+        // Initialize with a connection test
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log("Test client loaded. API URL:", getApiBaseUrl());
+        });
+    </script>
+</body>
+</html>

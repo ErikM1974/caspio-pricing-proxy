@@ -1,0 +1,581 @@
+{
+	"info": {
+		"_postman_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+		"name": "Caspio Pricing Proxy API",
+		"description": "Collection of endpoints for the Caspio Pricing Proxy API deployed on Heroku",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Status",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/status",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"status"
+					]
+				},
+				"description": "Simple status check to verify the API is running"
+			},
+			"response": []
+		},
+		{
+			"name": "Pricing Tiers - DTG",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/pricing-tiers?method=DTG",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"pricing-tiers"
+					],
+					"query": [
+						{
+							"key": "method",
+							"value": "DTG",
+							"description": "Decoration method (DTG, ScreenPrint, Embroidery)"
+						}
+					]
+				},
+				"description": "Get pricing tiers based on decoration method"
+			},
+			"response": []
+		},
+		{
+			"name": "Pricing Tiers - ScreenPrint",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/pricing-tiers?method=ScreenPrint",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"pricing-tiers"
+					],
+					"query": [
+						{
+							"key": "method",
+							"value": "ScreenPrint",
+							"description": "Decoration method (DTG, ScreenPrint, Embroidery)"
+						}
+					]
+				},
+				"description": "Get pricing tiers based on decoration method"
+			},
+			"response": []
+		},
+		{
+			"name": "Pricing Tiers - Embroidery",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/pricing-tiers?method=Embroidery",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"pricing-tiers"
+					],
+					"query": [
+						{
+							"key": "method",
+							"value": "Embroidery",
+							"description": "Decoration method (DTG, ScreenPrint, Embroidery)"
+						}
+					]
+				},
+				"description": "Get pricing tiers based on decoration method"
+			},
+			"response": []
+		},
+		{
+			"name": "Embroidery Costs - Cap 5000",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/embroidery-costs?itemType=Cap&stitchCount=5000",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"embroidery-costs"
+					],
+					"query": [
+						{
+							"key": "itemType",
+							"value": "Cap",
+							"description": "Type of item (Cap, Shirt, etc.)"
+						},
+						{
+							"key": "stitchCount",
+							"value": "5000",
+							"description": "Stitch count (5000, 8000, 10000)"
+						}
+					]
+				},
+				"description": "Get embroidery costs based on item type and stitch count"
+			},
+			"response": []
+		},
+		{
+			"name": "Embroidery Costs - Cap 8000",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/embroidery-costs?itemType=Cap&stitchCount=8000",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"embroidery-costs"
+					],
+					"query": [
+						{
+							"key": "itemType",
+							"value": "Cap",
+							"description": "Type of item (Cap, Shirt, etc.)"
+						},
+						{
+							"key": "stitchCount",
+							"value": "8000",
+							"description": "Stitch count (5000, 8000, 10000)"
+						}
+					]
+				},
+				"description": "Get embroidery costs based on item type and stitch count"
+			},
+			"response": []
+		},
+		{
+			"name": "Embroidery Costs - Shirt 10000",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/embroidery-costs?itemType=Shirt&stitchCount=10000",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"embroidery-costs"
+					],
+					"query": [
+						{
+							"key": "itemType",
+							"value": "Shirt",
+							"description": "Type of item (Cap, Shirt, etc.)"
+						},
+						{
+							"key": "stitchCount",
+							"value": "10000",
+							"description": "Stitch count (5000, 8000, 10000)"
+						}
+					]
+				},
+				"description": "Get embroidery costs based on item type and stitch count"
+			},
+			"response": []
+		},
+		{
+			"name": "DTG Costs",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/dtg-costs",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"dtg-costs"
+					]
+				},
+				"description": "Get all DTG costs by print location and tier"
+			},
+			"response": []
+		},
+		{
+			"name": "Screenprint Costs - Primary Location",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/screenprint-costs?costType=PrimaryLocation",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"screenprint-costs"
+					],
+					"query": [
+						{
+							"key": "costType",
+							"value": "PrimaryLocation",
+							"description": "Cost type (PrimaryLocation or AdditionalLocation)"
+						}
+					]
+				},
+				"description": "Get screenprint costs for primary location by tier and color count"
+			},
+			"response": []
+		},
+		{
+			"name": "Screenprint Costs - Additional Location",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/screenprint-costs?costType=AdditionalLocation",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"screenprint-costs"
+					],
+					"query": [
+						{
+							"key": "costType",
+							"value": "AdditionalLocation",
+							"description": "Cost type (PrimaryLocation or AdditionalLocation)"
+						}
+					]
+				},
+				"description": "Get screenprint costs for additional locations by tier and color count"
+			},
+			"response": []
+		},
+		{
+			"name": "Pricing Rules - ScreenPrint",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/pricing-rules?method=ScreenPrint",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"pricing-rules"
+					],
+					"query": [
+						{
+							"key": "method",
+							"value": "ScreenPrint",
+							"description": "Decoration method (DTG, ScreenPrint, Embroidery)"
+						}
+					]
+				},
+				"description": "Get pricing rules based on decoration method"
+			},
+			"response": []
+		},
+		{
+			"name": "Pricing Rules - DTG",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/pricing-rules?method=DTG",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"pricing-rules"
+					],
+					"query": [
+						{
+							"key": "method",
+							"value": "DTG",
+							"description": "Decoration method (DTG, ScreenPrint, Embroidery)"
+						}
+					]
+				},
+				"description": "Get pricing rules based on decoration method"
+			},
+			"response": []
+		},
+		{
+			"name": "Pricing Rules - Embroidery",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/pricing-rules?method=Embroidery",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"pricing-rules"
+					],
+					"query": [
+						{
+							"key": "method",
+							"value": "Embroidery",
+							"description": "Decoration method (DTG, ScreenPrint, Embroidery)"
+						}
+					]
+				},
+				"description": "Get pricing rules based on decoration method"
+			},
+			"response": []
+		},
+		{
+			"name": "Base Item Costs",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/base-item-costs?styleNumber=3001C",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"base-item-costs"
+					],
+					"query": [
+						{
+							"key": "styleNumber",
+							"value": "3001C",
+							"description": "Style number of the item"
+						}
+					]
+				},
+				"description": "Get base item costs (max case price per size) for a specific style"
+			},
+			"response": []
+		},
+		{
+			"name": "Test Sanmar Bulk",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/test-sanmar-bulk",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"test-sanmar-bulk"
+					]
+				},
+				"description": "Test endpoint for Sanmar_Bulk_251816_Feb2024 table (limited to 10 records)"
+			},
+			"response": []
+		},
+		{
+			"name": "Style Search Autocomplete",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/stylesearch?term=PC",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"stylesearch"
+					],
+					"query": [
+						{
+							"key": "term",
+							"value": "PC",
+							"description": "Search term (minimum 2 characters)"
+						}
+					]
+				},
+				"description": "Search for styles by partial style number"
+			},
+			"response": []
+		},
+		{
+			"name": "Product Details",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/product-details?styleNumber=PC61",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"product-details"
+					],
+					"query": [
+						{
+							"key": "styleNumber",
+							"value": "PC61",
+							"description": "Style number of the product"
+						}
+					]
+				},
+				"description": "Get product details including title, description, and images"
+			},
+			"response": []
+		},
+		{
+			"name": "Color Swatches",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/color-swatches?styleNumber=PC61",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"color-swatches"
+					],
+					"query": [
+						{
+							"key": "styleNumber",
+							"value": "PC61",
+							"description": "Style number of the product"
+						}
+					]
+				},
+				"description": "Get color swatches for a specific style"
+			},
+			"response": []
+		},
+		{
+			"name": "All Inventory Fields",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/inventory?styleNumber=S100",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"inventory"
+					],
+					"query": [
+						{
+							"key": "styleNumber",
+							"value": "S100",
+							"description": "Style number of the product"
+						}
+					]
+				},
+				"description": "Get all fields from the Inventory table for a specific style"
+			},
+			"response": []
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com",
+			"type": "string"
+		}
+	]
+}

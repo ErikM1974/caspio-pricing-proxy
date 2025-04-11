@@ -432,6 +432,33 @@ app.get('/api/color-swatches', async (req, res) => {
         res.status(500).json({ error: error.message || 'Failed to fetch color swatches.' });
     }
 });
+// --- NEW Endpoint: Get All Inventory Fields ---
+// Example: /api/inventory?styleNumber=S100
+app.get('/api/inventory', async (req, res) => {
+    const { styleNumber } = req.query;
+    if (!styleNumber) {
+        return res.status(400).json({ error: 'Missing required query parameter: styleNumber' });
+    }
+    try {
+        // Use Inventory table
+        const resource = '/tables/Inventory/records';
+        const params = {
+            'q.where': `catalog_no='${styleNumber}'`,
+            // No q.select parameter to get all fields
+            'q.limit': 2000 // Fetch all relevant records for the style
+        };
+        const result = await makeCaspioRequest('get', resource, params);
+        
+        if (result.length === 0) {
+            console.warn(`No inventory data found for style: ${styleNumber}`);
+        }
+        
+        res.json(result); // Return all fields for each record
+        
+    } catch (error) {
+        res.status(500).json({ error: error.message || 'Failed to fetch inventory data.' });
+    }
+});
 
 // --- Error Handling Middleware (Basic) ---
 // Catches errors from endpoint handlers
@@ -439,6 +466,7 @@ app.use((err, req, res, next) => {
     console.error("Unhandled Error:", err.stack || err);
     res.status(500).json({ error: 'An unexpected internal server error occurred.' });
 });
+
 
 
 // --- Start the Server ---
