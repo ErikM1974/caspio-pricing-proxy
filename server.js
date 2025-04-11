@@ -324,6 +324,94 @@ app.get('/api/test-sanmar-bulk', async (req, res) => {
     }
 });
 
+// --- NEW Endpoint: Style Search Autocomplete ---
+// Example: /api/stylesearch?term=PC6
+app.get('/api/stylesearch', async (req, res) => {
+    const { term } = req.query;
+    if (!term || term.length < 2) { // Require at least 2 characters
+        return res.json([]); // Return empty array if term is too short
+    }
+    try {
+        const resource = '/tables/Sanmar_Bulk_251816_Feb2024/records';
+        const whereClause = `STYLE LIKE '%${term}%'`; // Simple LIKE search
+        const params = {
+            'q.where': whereClause,
+            'q.select': 'STYLE, PRODUCT_TITLE', // Return Style and Title
+            'q.distinct': true, // Get distinct styles
+            'q.limit': 15 // Limit number of suggestions
+        };
+        const result = await makeCaspioRequest('get', resource, params);
+        // Format for simple autocomplete { label: "STYLE - TITLE", value: "STYLE" }
+        const suggestions = result.map(item => ({
+             label: `${item.STYLE} - ${item.PRODUCT_TITLE || ''}`,
+             value: item.STYLE
+         }));
+        res.json(suggestions);
+    } catch (error) {
+        console.error("Style search error:", error.message);
+        res.status(500).json({ error: 'Failed to perform style search.' });
+    }
+});
+
+
+// --- NEW Endpoint: Product Details ---
+// Example: /api/product-details?styleNumber=PC61&color=Red
+app.get('/api/product-details', async (req, res) => {
+    const { styleNumber, color } = req.query; // 'color' param currently unused in query, only for context if needed later
+    if (!styleNumber) {
+        return res.status(400).json({ error: 'Missing required query parameter: styleNumber' });
+    }
+    try {
+        const resource = '/tables/Sanmar_Bulk_251816_Feb2024/records';
+        // Find one representative row for the style number to get common details
+        const params = {
+            'q.where': `STYLE='${styleNumber}'`,
+            // Select fields needed for product display (user confirmed names)
+            'q.select': 'PRODUCT_TITLE, PRODUCT_DESCRIPTION, FRONT_FLAT, FRONT_MODEL, BACK_FLAT, BACK_MODEL',
+            'q.limit': 1 // Just need one row for general text details
+        };
+        const result = await makeCaspioRequest('get', resource, params);
+
+        if (result.length === 0) {
+             return res.status(404).json({ error: `Product details not found for style: ${styleNumber}` });
+        }
+        // Return the first record found
+        res.json(result[0]);
+        // Note: Image fields here are assumed to be consistent per style.
+        // If specific images depend on the COLOR parameter, this logic might need enhancement.
+
+    } catch (error) {
+        res.status(500).json({ error: error.message || 'Failed to fetch product details.' });
+    }
+});
+
+
+// --- NEW Endpoint: Color Swatches ---
+// Example: /api/color-swatches?styleNumber=PC61
+app.get('/api/color-swatches', async (req, res) => {
+    const { styleNumber } = req.query;
+    if (!styleNumber) {
+        return res.status(400).json({ error: 'Missing required query parameter: styleNumber' });
+    }
+    try {
+        const resource = '/tables/Sanmar_Bulk_251816_Feb2024/records';
+        const params = {
+            'q.where': `STYLE='${styleNumber}'`,
+            // Select fields needed for swatches (user confirmed names)
+            'q.select': 'COLOR_NAME, CATALOG_COLOR, COLOR_SQUARE_IMAGE',
+            'q.distinct': true, // Get unique color combinations for this style
+            'q.orderby': 'COLOR_NAME ASC', // Optional: sort colors alphabetically
+            'q.limit': 100 // Max swatches per style
+        };
+        const result = await makeCaspioRequest('get', resource, params);
+         // Filter out results where essential swatch info might be missing
+         const validSwatches = result.filter(item => item.COLOR_NAME && item.CATALOG_COLOR && item.COLOR_SQUARE_IMAGE);
+        res.json(validSwatches); // Return array: [{COLOR_NAME: "Red", CATALOG_COLOR: "...", COLOR_SQUARE_IMAGE: "..."}, ...]
+    } catch (error) {
+        res.status(500).json({ error: error.message || 'Failed to fetch color swatches.' });
+    }
+});
+
 // --- Error Handling Middleware (Basic) ---
 // Catches errors from endpoint handlers
 app.use((err, req, res, next) => {
