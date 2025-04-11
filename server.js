@@ -324,28 +324,39 @@ app.get('/api/test-sanmar-bulk', async (req, res) => {
     }
 });
 
-// --- NEW Endpoint: Style Search Autocomplete ---
-// Example: /api/stylesearch?term=PC6
+// --- CORRECTED Endpoint: Style Search Autocomplete (Style Number Only) ---
+// Example: /api/stylesearch?term=PC
 app.get('/api/stylesearch', async (req, res) => {
     const { term } = req.query;
     if (!term || term.length < 2) { // Require at least 2 characters
-        return res.json([]); // Return empty array if term is too short
+        return res.json([]);
     }
     try {
         const resource = '/tables/Sanmar_Bulk_251816_Feb2024/records';
-        const whereClause = `STYLE LIKE '%${term}%'`; // Simple LIKE search
+        // Use "Starts With" matching
+        const whereClause = `STYLE LIKE '${term}%'`;
         const params = {
             'q.where': whereClause,
-            'q.select': 'STYLE, PRODUCT_TITLE', // Return Style and Title
-            'q.distinct': true, // Get distinct styles
-            'q.limit': 15 // Limit number of suggestions
+            // --- CHANGE 1: Select ONLY the STYLE field ---
+            'q.select': 'STYLE',
+            'q.distinct': true, // Now asks Caspio for distinct STYLE values directly
+            'q.limit': 25 // Limit initial results
         };
         const result = await makeCaspioRequest('get', resource, params);
-        // Format for simple autocomplete { label: "STYLE - TITLE", value: "STYLE" }
-        const suggestions = result.map(item => ({
-             label: `${item.STYLE} - ${item.PRODUCT_TITLE || ''}`,
-             value: item.STYLE
+
+        // --- CHANGE 2: Map result directly (server-side dedupe less critical now) ---
+        // q.distinct on a single field should be reliable, but filtering nulls is good.
+        const validResults = result.filter(item => item.STYLE);
+
+        // Limit results again if needed (e.g., if distinct wasn't perfect)
+        const limitedResults = validResults.slice(0, 15);
+
+        // Format for autocomplete: label and value are both the STYLE
+        const suggestions = limitedResults.map(item => ({
+             label: item.STYLE, // Show only the style number
+             value: item.STYLE  // Use the style number when selected
          }));
+
         res.json(suggestions);
     } catch (error) {
         console.error("Style search error:", error.message);
