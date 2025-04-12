@@ -642,8 +642,10 @@ app.get('/api/products-by-brand', async (req, res) => {
             'q.select': 'STYLE, PRODUCT_TITLE, COLOR_NAME, FRONT_FLAT, BRAND_NAME, BRAND_LOGO_IMAGE',
             // Remove distinct to get all results
             'q.orderby': 'STYLE ASC',
-            'q.limit': 1000 // Increase limit to get more results
+            'q.limit': 5000 // Increase limit to get more results
         };
+        
+        console.log(`Fetching all pages from Caspio for brand: ${brand}`);
         
         // Use fetchAllCaspioPages to get all results
         const result = await fetchAllCaspioPages(resource, params);
@@ -693,8 +695,10 @@ app.get('/api/products-by-category', async (req, res) => {
             'q.select': 'STYLE, PRODUCT_TITLE, COLOR_NAME, FRONT_FLAT, BRAND_NAME, BRAND_LOGO_IMAGE',
             // Remove distinct to get all results
             'q.orderby': 'STYLE ASC',
-            'q.limit': 1000 // Increase limit to get more results
+            'q.limit': 5000 // Increase limit to get more results
         };
+        
+        console.log(`Fetching all pages from Caspio for category: ${category}`);
         // Use fetchAllCaspioPages to handle pagination
         const result = await fetchAllCaspioPages(resource, params);
         console.log(`Found ${result.length} total records matching category: ${category}`);
@@ -733,8 +737,10 @@ app.get('/api/products-by-subcategory', async (req, res) => {
             'q.select': 'STYLE, PRODUCT_TITLE, COLOR_NAME, FRONT_FLAT, BRAND_NAME, BRAND_LOGO_IMAGE',
             // Remove distinct to get all results
             'q.orderby': 'STYLE ASC',
-            'q.limit': 1000 // Increase limit to get more results
+            'q.limit': 5000 // Increase limit to get more results
         };
+        
+        console.log(`Fetching all pages from Caspio for subcategory: ${subcategory}`);
         // Use fetchAllCaspioPages to handle pagination
         const result = await fetchAllCaspioPages(resource, params);
         console.log(`Found ${result.length} total records matching subcategory: ${subcategory}`);
@@ -803,17 +809,29 @@ app.get('/api/all-brands', async (req, res) => {
 // Example: /api/all-subcategories
 app.get('/api/all-subcategories', async (req, res) => {
     try {
-        // Return the hardcoded list of subcategories that match the UI
-        // These are derived from the categories list
-        const subcategories = [
-            "Men's",
-            "Women's",
-            "Youth",
-            "Unisex"
-        ];
+        console.log("Fetching all unique subcategories from Caspio");
         
-        console.log("Returning hardcoded subcategories to match UI");
-        res.json(subcategories);
+        const resource = '/tables/Sanmar_Bulk_251816_Feb2024/records';
+        const params = {
+            'q.select': 'SUBCATEGORY_NAME',
+            'q.distinct': true,
+            'q.orderby': 'SUBCATEGORY_NAME ASC',
+            'q.limit': 5000 // Set a high limit to get all subcategories
+        };
+        
+        // Use fetchAllCaspioPages to handle pagination
+        const result = await fetchAllCaspioPages(resource, params);
+        
+        // Extract subcategory names and filter out nulls or empty strings
+        const subcategories = result
+            .map(item => item.SUBCATEGORY_NAME)
+            .filter(name => name && name.trim() !== '');
+        
+        // Remove duplicates (just in case)
+        const uniqueSubcategories = [...new Set(subcategories)];
+        
+        console.log(`Returning ${uniqueSubcategories.length} unique subcategories from database`);
+        res.json(uniqueSubcategories);
     } catch (error) {
         console.error("Error fetching subcategories:", error);
         res.status(500).json({ error: error.message || 'Failed to fetch subcategories.' });
@@ -824,26 +842,29 @@ app.get('/api/all-subcategories', async (req, res) => {
 // Example: /api/all-categories
 app.get('/api/all-categories', async (req, res) => {
     try {
-        // Return the hardcoded list of categories that match the UI
-        const categories = [
-            "T-Shirts",
-            "Polos/Knits",
-            "Sweatshirts/Fleece",
-            "Caps",
-            "Activewear",
-            "Outerwear",
-            "Woven/Dress Shirts",
-            "Bottoms",
-            "Workwear",
-            "Bags",
-            "Accessories",
-            "Personal Protection",
-            "Women's",
-            "Youth"
-        ];
+        console.log("Fetching all unique categories from Caspio");
         
-        console.log("Returning hardcoded categories to match UI");
-        res.json(categories);
+        const resource = '/tables/Sanmar_Bulk_251816_Feb2024/records';
+        const params = {
+            'q.select': 'CATEGORY_NAME',
+            'q.distinct': true,
+            'q.orderby': 'CATEGORY_NAME ASC',
+            'q.limit': 5000 // Set a high limit to get all categories
+        };
+        
+        // Use fetchAllCaspioPages to handle pagination
+        const result = await fetchAllCaspioPages(resource, params);
+        
+        // Extract category names and filter out nulls or empty strings
+        const categories = result
+            .map(item => item.CATEGORY_NAME)
+            .filter(name => name && name.trim() !== '');
+        
+        // Remove duplicates (just in case)
+        const uniqueCategories = [...new Set(categories)];
+        
+        console.log(`Returning ${uniqueCategories.length} unique categories from database`);
+        res.json(uniqueCategories);
     } catch (error) {
         console.error("Error fetching categories:", error);
         res.status(500).json({ error: error.message || 'Failed to fetch categories.' });
@@ -859,45 +880,30 @@ app.get('/api/subcategories-by-category', async (req, res) => {
             return res.status(400).json({ error: 'Missing required query parameter: category' });
         }
 
-        // Define subcategories for each category
-        const subcategoriesByCategory = {
-            'T-Shirts': ['Men\'s', 'Women\'s', 'Youth', 'Unisex'],
-            'Polos/Knits': ['Men\'s', 'Women\'s', 'Youth', 'Performance'],
-            'Sweatshirts/Fleece': ['Hoodies', 'Crewnecks', 'Quarter-Zips', 'Full-Zips'],
-            'Caps': [
-                'Stretch-to-Fit',
-                'Safety',
-                'Performance/Team',
-                'Full Brim',
-                'Flexfit',
-                'Visors',
-                'Mesh Back',
-                'Fleece/Beanies',
-                'Structured',
-                'Twill',
-                'Unstructured',
-                'Youth',
-                'Pigment/Garment Dyed',
-                'Essentials',
-                'Camouflage'
-            ],
-            'Activewear': ['Performance', 'Athletic', 'Moisture-Wicking'],
-            'Outerwear': ['Jackets', 'Vests', 'Rainwear', 'Windbreakers'],
-            'Woven/Dress Shirts': ['Button-Down', 'Oxford', 'Poplin'],
-            'Bottoms': ['Pants', 'Shorts', 'Skirts'],
-            'Workwear': ['Industrial', 'Safety', 'Uniforms'],
-            'Bags': ['Backpacks', 'Totes', 'Duffels', 'Laptop Bags'],
-            'Accessories': ['Hats', 'Scarves', 'Gloves', 'Socks'],
-            'Personal Protection': ['Masks', 'Gloves', 'Face Shields'],
-            'Women\'s': ['Tops', 'Bottoms', 'Dresses', 'Outerwear'],
-            'Youth': ['T-Shirts', 'Polos', 'Sweatshirts', 'Caps']
-        };
-
-        // Return subcategories for the requested category
-        const subcategories = subcategoriesByCategory[category] || [];
+        console.log(`Fetching subcategories for category: ${category} from Caspio`);
         
-        console.log(`Returning ${subcategories.length} subcategories for category: ${category}`);
-        res.json(subcategories);
+        const resource = '/tables/Sanmar_Bulk_251816_Feb2024/records';
+        const params = {
+            'q.where': `CATEGORY_NAME LIKE '%${category}%'`,
+            'q.select': 'SUBCATEGORY_NAME',
+            'q.distinct': true,
+            'q.orderby': 'SUBCATEGORY_NAME ASC',
+            'q.limit': 5000 // Set a high limit to get all subcategories
+        };
+        
+        // Use fetchAllCaspioPages to handle pagination
+        const result = await fetchAllCaspioPages(resource, params);
+        
+        // Extract subcategory names and filter out nulls or empty strings
+        const subcategories = result
+            .map(item => item.SUBCATEGORY_NAME)
+            .filter(name => name && name.trim() !== '');
+        
+        // Remove duplicates (just in case)
+        const uniqueSubcategories = [...new Set(subcategories)];
+        
+        console.log(`Returning ${uniqueSubcategories.length} unique subcategories for category: ${category} from database`);
+        res.json(uniqueSubcategories);
     } catch (error) {
         console.error("Error fetching subcategories by category:", error);
         res.status(500).json({ error: error.message || 'Failed to fetch subcategories by category.' });
@@ -922,8 +928,10 @@ app.get('/api/products-by-category-subcategory', async (req, res) => {
                         (SUBCATEGORY_NAME LIKE '%${subcategory}%' OR PRODUCT_TITLE LIKE '%${subcategory}%')`,
             'q.select': 'STYLE, PRODUCT_TITLE, COLOR_NAME, FRONT_FLAT, BRAND_NAME, BRAND_LOGO_IMAGE, CASE_PRICE, PRODUCT_STATUS',
             'q.orderby': 'STYLE ASC',
-            'q.limit': 1000 // Increase limit to get more results
+            'q.limit': 5000 // Increase limit to get more results
         };
+        
+        console.log(`Fetching all pages from Caspio for category: ${category} and subcategory: ${subcategory}`);
         
         // Use fetchAllCaspioPages to get all results
         const result = await fetchAllCaspioPages(resource, params);
