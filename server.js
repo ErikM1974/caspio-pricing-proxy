@@ -688,8 +688,8 @@ app.get('/api/products-by-category', async (req, res) => {
     try {
         const resource = '/tables/Sanmar_Bulk_251816_Feb2024/records';
         const params = {
-            // Use simple equality for category
-            'q.where': `CATEGORY = '${category}'`,
+            // Use LIKE instead of exact equality to be more flexible
+            'q.where': `CATEGORY_NAME LIKE '%${category}%' OR PRODUCT_TITLE LIKE '%${category}%'`,
             'q.select': 'STYLE, PRODUCT_TITLE, COLOR_NAME, FRONT_FLAT, BRAND_NAME, BRAND_LOGO_IMAGE',
             // Remove distinct to get all results
             'q.orderby': 'STYLE ASC',
@@ -728,8 +728,8 @@ app.get('/api/products-by-subcategory', async (req, res) => {
     try {
         const resource = '/tables/Sanmar_Bulk_251816_Feb2024/records';
         const params = {
-            // Use simple equality for subcategory
-            'q.where': `SUBCATEGORY = '${subcategory}'`,
+            // Use LIKE instead of exact equality to be more flexible
+            'q.where': `SUBCATEGORY_NAME LIKE '%${subcategory}%' OR PRODUCT_TITLE LIKE '%${subcategory}%'`,
             'q.select': 'STYLE, PRODUCT_TITLE, COLOR_NAME, FRONT_FLAT, BRAND_NAME, BRAND_LOGO_IMAGE',
             // Remove distinct to get all results
             'q.orderby': 'STYLE ASC',
@@ -796,6 +796,167 @@ app.get('/api/all-brands', async (req, res) => {
     } catch (error) {
         console.error("Error fetching brands:", error);
         res.status(500).json({ error: error.message || 'Failed to fetch brands.' });
+    }
+});
+
+// --- NEW Endpoint: Get All Subcategories ---
+// Example: /api/all-subcategories
+app.get('/api/all-subcategories', async (req, res) => {
+    try {
+        // Return the hardcoded list of subcategories that match the UI
+        // These are derived from the categories list
+        const subcategories = [
+            "Men's",
+            "Women's",
+            "Youth",
+            "Unisex"
+        ];
+        
+        console.log("Returning hardcoded subcategories to match UI");
+        res.json(subcategories);
+    } catch (error) {
+        console.error("Error fetching subcategories:", error);
+        res.status(500).json({ error: error.message || 'Failed to fetch subcategories.' });
+    }
+});
+
+// --- NEW Endpoint: Get All Categories ---
+// Example: /api/all-categories
+app.get('/api/all-categories', async (req, res) => {
+    try {
+        // Return the hardcoded list of categories that match the UI
+        const categories = [
+            "T-Shirts",
+            "Polos/Knits",
+            "Sweatshirts/Fleece",
+            "Caps",
+            "Activewear",
+            "Outerwear",
+            "Woven/Dress Shirts",
+            "Bottoms",
+            "Workwear",
+            "Bags",
+            "Accessories",
+            "Personal Protection",
+            "Women's",
+            "Youth"
+        ];
+        
+        console.log("Returning hardcoded categories to match UI");
+        res.json(categories);
+    } catch (error) {
+        console.error("Error fetching categories:", error);
+        res.status(500).json({ error: error.message || 'Failed to fetch categories.' });
+    }
+});
+
+// --- NEW Endpoint: Get Subcategories by Category ---
+// Example: /api/subcategories-by-category?category=Caps
+app.get('/api/subcategories-by-category', async (req, res) => {
+    try {
+        const { category } = req.query;
+        if (!category) {
+            return res.status(400).json({ error: 'Missing required query parameter: category' });
+        }
+
+        // Define subcategories for each category
+        const subcategoriesByCategory = {
+            'T-Shirts': ['Men\'s', 'Women\'s', 'Youth', 'Unisex'],
+            'Polos/Knits': ['Men\'s', 'Women\'s', 'Youth', 'Performance'],
+            'Sweatshirts/Fleece': ['Hoodies', 'Crewnecks', 'Quarter-Zips', 'Full-Zips'],
+            'Caps': [
+                'Stretch-to-Fit',
+                'Safety',
+                'Performance/Team',
+                'Full Brim',
+                'Flexfit',
+                'Visors',
+                'Mesh Back',
+                'Fleece/Beanies',
+                'Structured',
+                'Twill',
+                'Unstructured',
+                'Youth',
+                'Pigment/Garment Dyed',
+                'Essentials',
+                'Camouflage'
+            ],
+            'Activewear': ['Performance', 'Athletic', 'Moisture-Wicking'],
+            'Outerwear': ['Jackets', 'Vests', 'Rainwear', 'Windbreakers'],
+            'Woven/Dress Shirts': ['Button-Down', 'Oxford', 'Poplin'],
+            'Bottoms': ['Pants', 'Shorts', 'Skirts'],
+            'Workwear': ['Industrial', 'Safety', 'Uniforms'],
+            'Bags': ['Backpacks', 'Totes', 'Duffels', 'Laptop Bags'],
+            'Accessories': ['Hats', 'Scarves', 'Gloves', 'Socks'],
+            'Personal Protection': ['Masks', 'Gloves', 'Face Shields'],
+            'Women\'s': ['Tops', 'Bottoms', 'Dresses', 'Outerwear'],
+            'Youth': ['T-Shirts', 'Polos', 'Sweatshirts', 'Caps']
+        };
+
+        // Return subcategories for the requested category
+        const subcategories = subcategoriesByCategory[category] || [];
+        
+        console.log(`Returning ${subcategories.length} subcategories for category: ${category}`);
+        res.json(subcategories);
+    } catch (error) {
+        console.error("Error fetching subcategories by category:", error);
+        res.status(500).json({ error: error.message || 'Failed to fetch subcategories by category.' });
+    }
+});
+
+// --- NEW Endpoint: Get Products by Category and Subcategory ---
+// Example: /api/products-by-category-subcategory?category=Caps&subcategory=Mesh%20Back
+app.get('/api/products-by-category-subcategory', async (req, res) => {
+    try {
+        const { category, subcategory } = req.query;
+        if (!category || !subcategory) {
+            return res.status(400).json({ error: 'Missing required query parameters: category, subcategory' });
+        }
+
+        console.log(`Searching for products with category: "${category}" and subcategory: "${subcategory}"`);
+        
+        const resource = '/tables/Sanmar_Bulk_251816_Feb2024/records';
+        const params = {
+            // Use LIKE for more flexible matching
+            'q.where': `(CATEGORY_NAME LIKE '%${category}%' OR PRODUCT_TITLE LIKE '%${category}%') AND
+                        (SUBCATEGORY_NAME LIKE '%${subcategory}%' OR PRODUCT_TITLE LIKE '%${subcategory}%')`,
+            'q.select': 'STYLE, PRODUCT_TITLE, COLOR_NAME, FRONT_FLAT, BRAND_NAME, BRAND_LOGO_IMAGE, CASE_PRICE, PRODUCT_STATUS',
+            'q.orderby': 'STYLE ASC',
+            'q.limit': 1000 // Increase limit to get more results
+        };
+        
+        // Use fetchAllCaspioPages to get all results
+        const result = await fetchAllCaspioPages(resource, params);
+        console.log(`Found ${result.length} total records matching category: ${category} and subcategory: ${subcategory}`);
+        
+        // Deduplicate by STYLE to get unique products
+        const uniqueProducts = [];
+        const seenStyles = new Set();
+        
+        for (const product of result) {
+            if (!seenStyles.has(product.STYLE)) {
+                seenStyles.add(product.STYLE);
+                
+                // Format the product for the gallery view
+                const formattedProduct = {
+                    style: product.STYLE,
+                    title: product.PRODUCT_TITLE,
+                    image: product.FRONT_FLAT,
+                    brand: product.BRAND_NAME,
+                    brandLogo: product.BRAND_LOGO_IMAGE,
+                    price: product.CASE_PRICE ? `$${product.CASE_PRICE}+` : 'Call for pricing',
+                    isNew: product.PRODUCT_STATUS === 'New' || product.PRODUCT_STATUS === 'Active'
+                };
+                
+                uniqueProducts.push(formattedProduct);
+            }
+        }
+        
+        console.log(`Returning ${uniqueProducts.length} unique products for category: ${category} and subcategory: ${subcategory}`);
+        res.json(uniqueProducts);
+    } catch (error) {
+        console.error("Error in products-by-category-subcategory:", error);
+        res.status(500).json({ error: error.message || 'Failed to fetch products by category and subcategory.' });
     }
 });
 

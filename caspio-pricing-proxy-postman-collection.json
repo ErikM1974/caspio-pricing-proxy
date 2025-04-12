@@ -658,6 +658,113 @@
 				"description": "Get products by subcategory name"
 			},
 			"response": []
+		},
+		{
+			"name": "All Categories",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/all-categories",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"all-categories"
+					]
+				},
+				"description": "Get all available product categories"
+			},
+			"response": []
+		},
+		{
+			"name": "All Subcategories",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/all-subcategories",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"all-subcategories"
+					]
+				},
+				"description": "Get all available product subcategories"
+			},
+			"response": []
+		},
+		{
+			"name": "Subcategories by Category",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/subcategories-by-category?category=Caps",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"subcategories-by-category"
+					],
+					"query": [
+						{
+							"key": "category",
+							"value": "Caps",
+							"description": "Category name (e.g., T-Shirts, Polos/Knits, Caps)"
+						}
+					]
+				},
+				"description": "Get subcategories for a specific category"
+			},
+			"response": []
+		},
+		{
+			"name": "Products by Category and Subcategory",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/products-by-category-subcategory?category=T-Shirts&subcategory=Youth",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"products-by-category-subcategory"
+					],
+					"query": [
+						{
+							"key": "category",
+							"value": "T-Shirts",
+							"description": "Category name (e.g., T-Shirts, Polos/Knits, Caps)"
+						},
+						{
+							"key": "subcategory",
+							"value": "Youth",
+							"description": "Subcategory name (e.g., Youth, Men's, Women's)"
+						}
+					]
+				},
+				"description": "Get products for a specific category and subcategory combination"
+			},
+			"response": []
 		}
 	],
 	"event": [
