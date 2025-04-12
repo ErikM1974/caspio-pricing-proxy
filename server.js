@@ -93,6 +93,10 @@ async function getCaspioAccessToken() {
  * @param {object} [params={}] - URL query parameters (e.g., { 'q.where': "Field='value'" })
  * @param {object} [data=null] - Request body data (for POST/PUT)
  * @returns {Promise<object>} - The 'Result' array from the Caspio response
+ *
+ * @deprecated Use fetchAllCaspioPages instead to handle Caspio pagination properly
+ * This function only fetches a single page of results and should not be used for endpoints
+ * where the result set might be large or paginated.
  */
 async function makeCaspioRequest(method, resourcePath, params = {}, data = null) {
     try {
@@ -132,6 +136,15 @@ async function makeCaspioRequest(method, resourcePath, params = {}, data = null)
 }
 
 /**
+ * IMPORTANT: Caspio API uses pagination, which means that results may be split across multiple pages.
+ * When querying large datasets or when you're not sure about the size of the result set,
+ * ALWAYS use this function instead of makeCaspioRequest to ensure you get ALL records.
+ *
+ * DEVELOPER NOTE: For ALL new endpoints, ALWAYS use this function instead of makeCaspioRequest.
+ * Failure to do so will result in incomplete data when the result set spans multiple pages.
+ * We've seen this issue with brands like "OGIO" which were on the second page and were not
+ * being returned when using makeCaspioRequest.
+ *
  * Fetches ALL records from a Caspio resource, handling pagination.
  * @param {string} resourcePath - Path relative to base API URL (e.g., '/tables/YourTable/records')
  * @param {object} [initialParams={}] - Initial URL query parameters (e.g., { 'q.where': "Field='value'" })
@@ -216,7 +229,8 @@ app.get('/api/pricing-tiers', async (req, res) => {
             'q.select': 'TierLabel,MinQuantity,MaxQuantity,LTM_Fee,MarginDenominator,TargetMargin',
             'q.limit': 100 // Ensure all tiers are fetched
         };
-        const result = await makeCaspioRequest('get', resource, params);
+        // Use fetchAllCaspioPages to handle pagination
+        const result = await fetchAllCaspioPages(resource, params);
         res.json(result);
     } catch (error) {
         res.status(500).json({ error: error.message || 'Failed to fetch pricing tiers.' });
@@ -243,7 +257,8 @@ app.get('/api/embroidery-costs', async (req, res) => {
             'q.select': 'TierLabel,EmbroideryCost', // Select needed fields
             'q.limit': 100
         };
-        const result = await makeCaspioRequest('get', resource, params);
+        // Use fetchAllCaspioPages to handle pagination
+        const result = await fetchAllCaspioPages(resource, params);
         // Return as an object keyed by TierLabel for easier lookup in frontend
         const costs = {};
         result.forEach(item => {
@@ -264,7 +279,8 @@ app.get('/api/dtg-costs', async (req, res) => {
              'q.select': 'PrintLocationCode,TierLabel,PrintCost',
              'q.limit': 500 // Ensure all location/tier combos are fetched
         };
-        const result = await makeCaspioRequest('get', resource, params);
+        // Use fetchAllCaspioPages to handle pagination
+        const result = await fetchAllCaspioPages(resource, params);
          // Return as nested object: { LC: { '1-23': 7.00, ... }, FF: { ... } }
          const costs = {};
          result.forEach(item => {
@@ -294,7 +310,8 @@ app.get('/api/screenprint-costs', async (req, res) => {
              'q.select': 'TierLabel,ColorCount,BasePrintCost',
              'q.limit': 500 // Ensure all tier/color combos are fetched
         };
-        const result = await makeCaspioRequest('get', resource, params);
+        // Use fetchAllCaspioPages to handle pagination
+        const result = await fetchAllCaspioPages(resource, params);
          // Return as nested object: { '13-36': { 1: 2.35, 2: 2.85, ... }, '37-72': { ... } }
          const costs = {};
          result.forEach(item => {
@@ -325,7 +342,8 @@ app.get('/api/pricing-rules', async (req, res) => {
              'q.select': 'RuleName,RuleValue',
              'q.limit': 100
         };
-        const result = await makeCaspioRequest('get', resource, params);
+        // Use fetchAllCaspioPages to handle pagination
+        const result = await fetchAllCaspioPages(resource, params);
          // Return as object: { RoundingMethod: 'CeilDollar', FlashCharge: '0.35', ... }
          const rules = {};
          result.forEach(item => {
@@ -352,7 +370,8 @@ app.get('/api/base-item-costs', async (req, res) => {
             'q.select': 'size,case_price', // Select only needed fields
             'q.limit': 2000 // Fetch all relevant size/color records for the style
         };
-        const result = await makeCaspioRequest('get', resource, params);
+        // Use fetchAllCaspioPages to handle pagination
+        const result = await fetchAllCaspioPages(resource, params);
 
         // Process results server-side to find max case price per size
         const maxPrices = {};
@@ -386,7 +405,8 @@ app.get('/api/test-sanmar-bulk', async (req, res) => {
         const params = {
             'q.limit': 10 // Limit to 10 records for testing
         };
-        const result = await makeCaspioRequest('get', resource, params);
+        // Use fetchAllCaspioPages to handle pagination
+        const result = await fetchAllCaspioPages(resource, params);
         res.json(result);
     } catch (error) {
         res.status(500).json({ error: error.message || 'Failed to fetch Sanmar bulk data.' });
@@ -411,7 +431,8 @@ app.get('/api/stylesearch', async (req, res) => {
             'q.distinct': true, // Now asks Caspio for distinct STYLE values directly
             'q.limit': 25 // Limit initial results
         };
-        const result = await makeCaspioRequest('get', resource, params);
+        // Use fetchAllCaspioPages to handle pagination
+        const result = await fetchAllCaspioPages(resource, params);
 
         // --- CHANGE 2: Ensure we have truly unique style numbers ---
         // Filter out nulls first
@@ -463,9 +484,10 @@ app.get('/api/product-details', async (req, res) => {
             'q.select': 'PRODUCT_TITLE, PRODUCT_DESCRIPTION, COLOR_NAME, CATALOG_COLOR',
             'q.limit': 1 // Just need one row for basic details
         };
-        
         console.log(`Product Details: Fetching for Style=${styleNumber}, Color=${colorParam || 'Any'}`);
-        const result = await makeCaspioRequest('get', resource, params);
+        // Use fetchAllCaspioPages to handle pagination
+        const result = await fetchAllCaspioPages(resource, params);
+
 
         if (result.length === 0) {
             return res.status(404).json({ error: `Product details not found for style: ${styleNumber}${colorParam ? ` and color: ${colorParam}` : ''}` });
@@ -485,9 +507,10 @@ app.get('/api/product-details', async (req, res) => {
             'q.select': 'FRONT_FLAT, FRONT_MODEL, BACK_FLAT, BACK_MODEL, COLOR_NAME, CATALOG_COLOR',
             'q.limit': 10 // Get a few records to find one with images
         };
-        
         console.log(`Product Images: Fetching for Style=${styleNumber}, Color=${colorParam || 'Any'}`);
-        const imageResults = await makeCaspioRequest('get', resource, imageParams);
+        // Use fetchAllCaspioPages to handle pagination
+        const imageResults = await fetchAllCaspioPages(resource, imageParams);
+        
         
         // First, try to find a record with the exact requested color that has images
         let imageRecord = null;
@@ -603,7 +626,7 @@ app.get('/api/inventory', async (req, res) => {
     }
 });
 
-// --- NEW Endpoint: Product Search by Brand ---
+// --- UPDATED Endpoint: Product Search by Brand ---
 // Example: /api/products-by-brand?brand=Bella+%2B+Canvas
 app.get('/api/products-by-brand', async (req, res) => {
     const { brand } = req.query;
@@ -611,16 +634,30 @@ app.get('/api/products-by-brand', async (req, res) => {
         return res.status(400).json({ error: 'Missing required query parameter: brand' });
     }
     try {
+        console.log(`Searching for products with brand containing: "${brand}"`);
         const resource = '/tables/Sanmar_Bulk_251816_Feb2024/records';
         const params = {
-            'q.where': `BRAND='${brand}'`,
-            'q.select': 'STYLE, PRODUCT_TITLE, COLOR_NAME, FRONT_FLAT',
-            'q.distinct': true,
+            // Try a simpler approach without UPPER() function
+            'q.where': `BRAND_NAME LIKE '%${brand}%'`,
+            'q.select': 'STYLE, PRODUCT_TITLE, COLOR_NAME, FRONT_FLAT, BRAND_NAME, BRAND_LOGO_IMAGE',
+            // Remove distinct to get all results
             'q.orderby': 'STYLE ASC',
-            'q.limit': 100
+            'q.limit': 1000 // Increase limit to get more results
         };
         
-        const result = await makeCaspioRequest('get', resource, params);
+        // Use fetchAllCaspioPages to get all results
+        const result = await fetchAllCaspioPages(resource, params);
+        console.log(`Found ${result.length} total records matching brand: ${brand}`);
+        
+        // Log the first few results to see what brands are being returned
+        if (result.length > 0) {
+            console.log("Sample brands found:");
+            const sampleBrands = new Set();
+            result.slice(0, Math.min(10, result.length)).forEach(item => {
+                sampleBrands.add(item.BRAND_NAME);
+            });
+            console.log([...sampleBrands]);
+        }
         
         // Deduplicate by STYLE to get unique products
         const uniqueProducts = [];
@@ -636,6 +673,7 @@ app.get('/api/products-by-brand', async (req, res) => {
         console.log(`Returning ${uniqueProducts.length} unique products for brand: ${brand}`);
         res.json(uniqueProducts);
     } catch (error) {
+        console.error("Error in products-by-brand:", error);
         res.status(500).json({ error: error.message || 'Failed to fetch products by brand.' });
     }
 });
@@ -650,14 +688,17 @@ app.get('/api/products-by-category', async (req, res) => {
     try {
         const resource = '/tables/Sanmar_Bulk_251816_Feb2024/records';
         const params = {
-            'q.where': `CATEGORY='${category}'`,
-            'q.select': 'STYLE, PRODUCT_TITLE, COLOR_NAME, FRONT_FLAT',
+            // Use simple equality for category
+            'q.where': `CATEGORY = '${category}'`,
+            'q.select': 'STYLE, PRODUCT_TITLE, COLOR_NAME, FRONT_FLAT, BRAND_NAME, BRAND_LOGO_IMAGE',
             'q.distinct': true,
             'q.orderby': 'STYLE ASC',
             'q.limit': 100
         };
+        // Use fetchAllCaspioPages to handle pagination
+        const result = await fetchAllCaspioPages(resource, params);
+        console.log(`Found ${result.length} total records matching category: ${category}`);
         
-        const result = await makeCaspioRequest('get', resource, params);
         
         // Deduplicate by STYLE to get unique products
         const uniqueProducts = [];
@@ -687,14 +728,17 @@ app.get('/api/products-by-subcategory', async (req, res) => {
     try {
         const resource = '/tables/Sanmar_Bulk_251816_Feb2024/records';
         const params = {
-            'q.where': `SUBCATEGORY='${subcategory}'`,
-            'q.select': 'STYLE, PRODUCT_TITLE, COLOR_NAME, FRONT_FLAT',
+            // Use simple equality for subcategory
+            'q.where': `SUBCATEGORY = '${subcategory}'`,
+            'q.select': 'STYLE, PRODUCT_TITLE, COLOR_NAME, FRONT_FLAT, BRAND_NAME, BRAND_LOGO_IMAGE',
             'q.distinct': true,
             'q.orderby': 'STYLE ASC',
             'q.limit': 100
         };
+        // Use fetchAllCaspioPages to handle pagination
+        const result = await fetchAllCaspioPages(resource, params);
+        console.log(`Found ${result.length} total records matching subcategory: ${subcategory}`);
         
-        const result = await makeCaspioRequest('get', resource, params);
         
         // Deduplicate by STYLE to get unique products
         const uniqueProducts = [];
@@ -711,6 +755,47 @@ app.get('/api/products-by-subcategory', async (req, res) => {
         res.json(uniqueProducts);
     } catch (error) {
         res.status(500).json({ error: error.message || 'Failed to fetch products by subcategory.' });
+    }
+});
+
+// --- TEMPORARY Endpoint: Get All Brands (without distinct) ---
+// Example: /api/all-brands
+app.get('/api/all-brands', async (req, res) => {
+    try {
+        const resource = '/tables/Sanmar_Bulk_251816_Feb2024/records';
+        const params = {
+            'q.select': 'BRAND_NAME, STYLE',
+            // Remove distinct to get all brand names with their styles
+            'q.orderby': 'BRAND_NAME ASC',
+            'q.limit': 1000
+        };
+        
+        const result = await fetchAllCaspioPages(resource, params);
+        console.log(`Found ${result.length} brand records`);
+        
+        // Group by brand name and collect styles
+        const brandMap = {};
+        result.forEach(item => {
+            if (item.BRAND_NAME) {
+                if (!brandMap[item.BRAND_NAME]) {
+                    brandMap[item.BRAND_NAME] = {
+                        name: item.BRAND_NAME,
+                        styles: []
+                    };
+                }
+                if (item.STYLE && !brandMap[item.BRAND_NAME].styles.includes(item.STYLE)) {
+                    brandMap[item.BRAND_NAME].styles.push(item.STYLE);
+                }
+            }
+        });
+        
+        // Convert to array
+        const brands = Object.values(brandMap);
+        
+        res.json(brands);
+    } catch (error) {
+        console.error("Error fetching brands:", error);
+        res.status(500).json({ error: error.message || 'Failed to fetch brands.' });
     }
 });
 
