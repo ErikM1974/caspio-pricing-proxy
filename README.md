@@ -144,6 +144,105 @@ Failure to use `fetchAllCaspioPages` will result in incomplete data when the res
 - **Description**: Get products by subcategory name
 - **Example**: `https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/products-by-subcategory?subcategory=Youth`
 
+### All Categories
+
+- **URL**: `/api/all-categories`
+- **Method**: `GET`
+- **Description**: Get all available product categories
+- **Example**: `https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/all-categories`
+
+### All Subcategories
+
+- **URL**: `/api/all-subcategories`
+- **Method**: `GET`
+- **Description**: Get all available product subcategories
+- **Example**: `https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/all-subcategories`
+
+### Subcategories by Category
+
+- **URL**: `/api/subcategories-by-category`
+- **Method**: `GET`
+- **Query Parameters**:
+  - `category` (required): Category name (e.g., T-Shirts, Polos/Knits, Caps)
+- **Description**: Get subcategories for a specific category
+- **Example**: `https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/subcategories-by-category?category=Caps`
+
+### Products by Category and Subcategory
+
+- **URL**: `/api/products-by-category-subcategory`
+- **Method**: `GET`
+- **Query Parameters**:
+  - `category` (required): Category name (e.g., T-Shirts, Polos/Knits, Caps)
+  - `subcategory` (required): Subcategory name (e.g., Youth, Men's, Women's)
+- **Description**: Get products for a specific category and subcategory combination
+- **Example**: `https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/products-by-category-subcategory?category=T-Shirts&subcategory=Youth`
+
+### Search Products
+
+- **URL**: `/api/search`
+- **Method**: `GET`
+- **Query Parameters**:
+  - `q` (required): Search query (minimum 2 characters)
+- **Description**: Search across all products by keyword (searches style, title, description, brand, category, and subcategory)
+- **Example**: `https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/search?q=hoodie`
+
+### Featured Products
+
+- **URL**: `/api/featured-products`
+- **Method**: `GET`
+- **Description**: Get featured/new products (products with 'New' status)
+- **Example**: `https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/featured-products`
+
+### Related Products
+
+- **URL**: `/api/related-products`
+- **Method**: `GET`
+- **Query Parameters**:
+  - `styleNumber` (required): Style number of the reference product
+- **Description**: Get products related to a specific style (same category, subcategory, or brand)
+- **Example**: `https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/related-products?styleNumber=PC61`
+
+### Advanced Filtering
+
+- **URL**: `/api/filter-products`
+- **Method**: `GET`
+- **Query Parameters**:
+  - `category` (optional): Category name
+  - `subcategory` (optional): Subcategory name
+  - `color` (optional): Color name
+  - `brand` (optional): Brand name
+  - `minPrice` (optional): Minimum price
+  - `maxPrice` (optional): Maximum price
+- **Description**: Filter products by multiple criteria (category, subcategory, color, brand, price range)
+- **Example**: `https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/filter-products?category=T-Shirts&color=Red&minPrice=10&maxPrice=30&brand=Bella`
+
+### Product Recommendations
+
+- **URL**: `/api/recommendations`
+- **Method**: `GET`
+- **Query Parameters**:
+  - `styleNumber` (required): Style number of the reference product
+- **Description**: Get personalized product recommendations based on a reference product (similar category, brand, and price range)
+- **Example**: `https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/recommendations?styleNumber=PC61`
+
+### Quick View
+
+- **URL**: `/api/quick-view`
+- **Method**: `GET`
+- **Query Parameters**:
+  - `styleNumber` (required): Style number of the product
+- **Description**: Get lightweight product details for hover/modal views (essential fields only)
+- **Example**: `https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/quick-view?styleNumber=PC61`
+
+### Product Comparison
+
+- **URL**: `/api/compare-products`
+- **Method**: `GET`
+- **Query Parameters**:
+  - `styles` (required): Comma-separated list of style numbers to compare
+- **Description**: Compare multiple products side-by-side (requires at least 2 style numbers)
+- **Example**: `https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/compare-products?styles=PC61,3001C,5000`
+
 ## Testing with Postman
 
 A Postman collection is available in the repository (`caspio-pricing-proxy-postman-collection.json`). Import this collection into Postman to test all the available endpoints.
