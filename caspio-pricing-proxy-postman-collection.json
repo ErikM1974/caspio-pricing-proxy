@@ -23,7 +23,7 @@
 						"status"
 					]
 				},
-				"description": "Simple status check to verify the API is running"
+				"description": "Simple status check to verify the API is running. Does not access any Caspio tables."
 			},
 			"response": []
 		},
@@ -52,7 +52,7 @@
 						}
 					]
 				},
-				"description": "Get pricing tiers based on decoration method"
+				"description": "Get pricing tiers based on decoration method. Uses the Pricing_Tiers table."
 			},
 			"response": []
 		},
@@ -81,7 +81,7 @@
 						}
 					]
 				},
-				"description": "Get pricing tiers based on decoration method"
+				"description": "Get pricing tiers based on decoration method. Uses the Pricing_Tiers table."
 			},
 			"response": []
 		},
@@ -110,7 +110,7 @@
 						}
 					]
 				},
-				"description": "Get pricing tiers based on decoration method"
+				"description": "Get pricing tiers based on decoration method. Uses the Pricing_Tiers table."
 			},
 			"response": []
 		},
@@ -140,11 +140,11 @@
 						{
 							"key": "stitchCount",
 							"value": "5000",
-							"description": "Stitch count (5000, 8000, 10000)"
+							"description": "Stitch count (valid values: 5000, 8000, 10000)"
 						}
 					]
 				},
-				"description": "Get embroidery costs based on item type and stitch count"
+				"description": "Get embroidery costs based on item type and stitch count. Returns costs for each pricing tier. Uses the Embroidery_Costs table."
 			},
 			"response": []
 		},
@@ -174,11 +174,11 @@
 						{
 							"key": "stitchCount",
 							"value": "8000",
-							"description": "Stitch count (5000, 8000, 10000)"
+							"description": "Stitch count (valid values: 5000, 8000, 10000)"
 						}
 					]
 				},
-				"description": "Get embroidery costs based on item type and stitch count"
+				"description": "Get embroidery costs based on item type and stitch count. Returns costs for each pricing tier. Uses the Embroidery_Costs table."
 			},
 			"response": []
 		},
@@ -208,11 +208,11 @@
 						{
 							"key": "stitchCount",
 							"value": "10000",
-							"description": "Stitch count (5000, 8000, 10000)"
+							"description": "Stitch count (valid values: 5000, 8000, 10000)"
 						}
 					]
 				},
-				"description": "Get embroidery costs based on item type and stitch count"
+				"description": "Get embroidery costs based on item type and stitch count. Returns costs for each pricing tier. Uses the Embroidery_Costs table."
 			},
 			"response": []
 		},
@@ -234,7 +234,7 @@
 						"dtg-costs"
 					]
 				},
-				"description": "Get all DTG costs by print location and tier"
+				"description": "Get all DTG costs by print location and tier. Returns a nested object organized by print location code and tier. Uses the DTG_Costs table."
 			},
 			"response": []
 		},
@@ -259,11 +259,11 @@
 						{
 							"key": "costType",
 							"value": "PrimaryLocation",
-							"description": "Cost type (PrimaryLocation or AdditionalLocation)"
+							"description": "Cost type (must be either PrimaryLocation or AdditionalLocation)"
 						}
 					]
 				},
-				"description": "Get screenprint costs for primary location by tier and color count"
+				"description": "Get screenprint costs for primary location by tier and color count. Returns a nested object with tiers and color counts. Uses the Screenprint_Costs table."
 			},
 			"response": []
 		},
@@ -288,11 +288,11 @@
 						{
 							"key": "costType",
 							"value": "AdditionalLocation",
-							"description": "Cost type (PrimaryLocation or AdditionalLocation)"
+							"description": "Cost type (must be either PrimaryLocation or AdditionalLocation)"
 						}
 					]
 				},
-				"description": "Get screenprint costs for additional locations by tier and color count"
+				"description": "Get screenprint costs for additional locations by tier and color count. Returns a nested object with tiers and color counts. Uses the Screenprint_Costs table."
 			},
 			"response": []
 		},
@@ -321,7 +321,7 @@
 						}
 					]
 				},
-				"description": "Get pricing rules based on decoration method"
+				"description": "Get pricing rules based on decoration method. Uses the Pricing_Rules table."
 			},
 			"response": []
 		},
@@ -350,7 +350,7 @@
 						}
 					]
 				},
-				"description": "Get pricing rules based on decoration method"
+				"description": "Get pricing rules based on decoration method. Uses the Pricing_Rules table."
 			},
 			"response": []
 		},
@@ -379,7 +379,7 @@
 						}
 					]
 				},
-				"description": "Get pricing rules based on decoration method"
+				"description": "Get pricing rules based on decoration method. Uses the Pricing_Rules table."
 			},
 			"response": []
 		},
@@ -408,7 +408,7 @@
 						}
 					]
 				},
-				"description": "Get base item costs (max case price per size) for a specific style"
+				"description": "Get base item costs (max case price per size) for a specific style. Uses the Inventory table."
 			},
 			"response": []
 		},
@@ -430,7 +430,7 @@
 						"test-sanmar-bulk"
 					]
 				},
-				"description": "Test endpoint for Sanmar_Bulk_251816_Feb2024 table (limited to 10 records)"
+				"description": "Test endpoint for Sanmar_Bulk_251816_Feb2024 table (limited to 10 records). Used for testing the connection to the Sanmar bulk data table. Uses the Sanmar_Bulk_251816_Feb2024 table."
 			},
 			"response": []
 		},
@@ -459,7 +459,7 @@
 						}
 					]
 				},
-				"description": "Search for styles by partial style number"
+				"description": "Search for styles by partial style number. Returns unique style numbers that start with the search term. Uses the Sanmar_Bulk_251816_Feb2024 table."
 			},
 			"response": []
 		},
@@ -469,7 +469,7 @@
 				"method": "GET",
 				"header": [],
 				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/product-details?styleNumber=PC61",
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/product-details?styleNumber=PC61&color=Jet Black",
 					"protocol": "https",
 					"host": [
 						"caspio-pricing-proxy-ab30a049961a",
@@ -485,10 +485,15 @@
 							"key": "styleNumber",
 							"value": "PC61",
 							"description": "Style number of the product"
+						},
+						{
+							"key": "color",
+							"value": "Jet Black",
+							"description": "Optional: Color name to get color-specific images"
 						}
 					]
 				},
-				"description": "Get product details including title, description, and images"
+				"description": "Get product details including title, description, and images. Optionally filter by color to get color-specific images. Uses the Sanmar_Bulk_251816_Feb2024 table."
 			},
 			"response": []
 		},
@@ -517,7 +522,7 @@
 						}
 					]
 				},
-				"description": "Get color swatches for a specific style"
+				"description": "Get color swatches for a specific style. Returns unique colors with their names and swatch images. Uses the Sanmar_Bulk_251816_Feb2024 table."
 			},
 			"response": []
 		},
@@ -527,7 +532,7 @@
 				"method": "GET",
 				"header": [],
 				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/inventory?styleNumber=S100",
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/inventory?styleNumber=S100&color=Jet Black",
 					"protocol": "https",
 					"host": [
 						"caspio-pricing-proxy-ab30a049961a",
@@ -543,10 +548,102 @@
 							"key": "styleNumber",
 							"value": "S100",
 							"description": "Style number of the product"
+						},
+						{
+							"key": "color",
+							"value": "Jet Black",
+							"description": "Optional: Filter inventory by color"
 						}
 					]
 				},
-				"description": "Get all fields from the Inventory table for a specific style"
+				"description": "Get inventory data including warehouse, size, and quantity information for a specific style. Optionally filter by color. Uses the Inventory table."
+			},
+			"response": []
+		},
+		{
+			"name": "Product Search by Brand",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/products-by-brand?brand=Bella+%2B+Canvas",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"products-by-brand"
+					],
+					"query": [
+						{
+							"key": "brand",
+							"value": "Bella+%2B+Canvas",
+							"description": "Brand name to filter products"
+						}
+					]
+				},
+				"description": "Get products filtered by brand name. Uses the Sanmar_Bulk_251816_Feb2024 table."
+			},
+			"response": []
+		},
+		{
+			"name": "Product Search by Category",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/products-by-category?category=T-Shirts",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"products-by-category"
+					],
+					"query": [
+						{
+							"key": "category",
+							"value": "T-Shirts",
+							"description": "Product category to filter by"
+						}
+					]
+				},
+				"description": "Get products filtered by category. Uses the Sanmar_Bulk_251816_Feb2024 table."
+			},
+			"response": []
+		},
+		{
+			"name": "Product Search by Subcategory",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/products-by-subcategory?subcategory=Youth",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"products-by-subcategory"
+					],
+					"query": [
+						{
+							"key": "subcategory",
+							"value": "Youth",
+							"description": "Product subcategory to filter by"
+						}
+					]
+				},
+				"description": "Get products filtered by subcategory. Uses the Sanmar_Bulk_251816_Feb2024 table."
 			},
 			"response": []
 		}
@@ -575,7 +672,8 @@
 		{
 			"key": "baseUrl",
 			"value": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com",
-			"type": "string"
+			"type": "string",
+			"description": "Base URL for the Caspio Pricing Proxy API"
 		}
 	]
 }

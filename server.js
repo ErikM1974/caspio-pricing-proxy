@@ -603,6 +603,117 @@ app.get('/api/inventory', async (req, res) => {
     }
 });
 
+// --- NEW Endpoint: Product Search by Brand ---
+// Example: /api/products-by-brand?brand=Bella+%2B+Canvas
+app.get('/api/products-by-brand', async (req, res) => {
+    const { brand } = req.query;
+    if (!brand) {
+        return res.status(400).json({ error: 'Missing required query parameter: brand' });
+    }
+    try {
+        const resource = '/tables/Sanmar_Bulk_251816_Feb2024/records';
+        const params = {
+            'q.where': `BRAND='${brand}'`,
+            'q.select': 'STYLE, PRODUCT_TITLE, COLOR_NAME, FRONT_FLAT',
+            'q.distinct': true,
+            'q.orderby': 'STYLE ASC',
+            'q.limit': 100
+        };
+        
+        const result = await makeCaspioRequest('get', resource, params);
+        
+        // Deduplicate by STYLE to get unique products
+        const uniqueProducts = [];
+        const seenStyles = new Set();
+        
+        for (const product of result) {
+            if (!seenStyles.has(product.STYLE)) {
+                seenStyles.add(product.STYLE);
+                uniqueProducts.push(product);
+            }
+        }
+        
+        console.log(`Returning ${uniqueProducts.length} unique products for brand: ${brand}`);
+        res.json(uniqueProducts);
+    } catch (error) {
+        res.status(500).json({ error: error.message || 'Failed to fetch products by brand.' });
+    }
+});
+
+// --- NEW Endpoint: Product Search by Category ---
+// Example: /api/products-by-category?category=T-Shirts
+app.get('/api/products-by-category', async (req, res) => {
+    const { category } = req.query;
+    if (!category) {
+        return res.status(400).json({ error: 'Missing required query parameter: category' });
+    }
+    try {
+        const resource = '/tables/Sanmar_Bulk_251816_Feb2024/records';
+        const params = {
+            'q.where': `CATEGORY='${category}'`,
+            'q.select': 'STYLE, PRODUCT_TITLE, COLOR_NAME, FRONT_FLAT',
+            'q.distinct': true,
+            'q.orderby': 'STYLE ASC',
+            'q.limit': 100
+        };
+        
+        const result = await makeCaspioRequest('get', resource, params);
+        
+        // Deduplicate by STYLE to get unique products
+        const uniqueProducts = [];
+        const seenStyles = new Set();
+        
+        for (const product of result) {
+            if (!seenStyles.has(product.STYLE)) {
+                seenStyles.add(product.STYLE);
+                uniqueProducts.push(product);
+            }
+        }
+        
+        console.log(`Returning ${uniqueProducts.length} unique products for category: ${category}`);
+        res.json(uniqueProducts);
+    } catch (error) {
+        res.status(500).json({ error: error.message || 'Failed to fetch products by category.' });
+    }
+});
+
+// --- NEW Endpoint: Product Search by Subcategory ---
+// Example: /api/products-by-subcategory?subcategory=Youth
+app.get('/api/products-by-subcategory', async (req, res) => {
+    const { subcategory } = req.query;
+    if (!subcategory) {
+        return res.status(400).json({ error: 'Missing required query parameter: subcategory' });
+    }
+    try {
+        const resource = '/tables/Sanmar_Bulk_251816_Feb2024/records';
+        const params = {
+            'q.where': `SUBCATEGORY='${subcategory}'`,
+            'q.select': 'STYLE, PRODUCT_TITLE, COLOR_NAME, FRONT_FLAT',
+            'q.distinct': true,
+            'q.orderby': 'STYLE ASC',
+            'q.limit': 100
+        };
+        
+        const result = await makeCaspioRequest('get', resource, params);
+        
+        // Deduplicate by STYLE to get unique products
+        const uniqueProducts = [];
+        const seenStyles = new Set();
+        
+        for (const product of result) {
+            if (!seenStyles.has(product.STYLE)) {
+                seenStyles.add(product.STYLE);
+                uniqueProducts.push(product);
+            }
+        }
+        
+        console.log(`Returning ${uniqueProducts.length} unique products for subcategory: ${subcategory}`);
+        res.json(uniqueProducts);
+    } catch (error) {
+        res.status(500).json({ error: error.message || 'Failed to fetch products by subcategory.' });
+    }
+});
+
 // --- Error Handling Middleware (Basic) ---
 // Catches errors from endpoint handlers
 app.use((err, req, res, next) => {
