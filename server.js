@@ -963,6 +963,381 @@ app.get('/api/products-by-category-subcategory', async (req, res) => {
         res.status(500).json({ error: error.message || 'Failed to fetch products by category and subcategory.' });
     }
 });
+// --- NEW Endpoint: Search Across All Products ---
+// Example: /api/search?q=hoodie
+app.get('/api/search', async (req, res) => {
+    const { q } = req.query;
+    if (!q || q.length < 2) { // Require at least 2 characters
+        return res.status(400).json({ error: 'Search query must be at least 2 characters' });
+    }
+    try {
+        console.log(`Performing search for query: "${q}"`);
+        const resource = '/tables/Sanmar_Bulk_251816_Feb2024/records';
+        const params = {
+            // Search across multiple fields
+            'q.where': `STYLE LIKE '%${q}%' OR PRODUCT_TITLE LIKE '%${q}%' OR PRODUCT_DESCRIPTION LIKE '%${q}%' OR BRAND_NAME LIKE '%${q}%' OR CATEGORY_NAME LIKE '%${q}%' OR SUBCATEGORY_NAME LIKE '%${q}%'`,
+            'q.select': 'STYLE, PRODUCT_TITLE, COLOR_NAME, FRONT_FLAT, BRAND_NAME, BRAND_LOGO_IMAGE, CATEGORY_NAME, SUBCATEGORY_NAME',
+            'q.orderby': 'STYLE ASC',
+            'q.limit': 10000 // High limit to get comprehensive results
+        };
+        
+        console.log(`Fetching search results from Caspio for query: ${q}`);
+        const result = await fetchAllCaspioPages(resource, params);
+        console.log(`Found ${result.length} total records matching search query: ${q}`);
+        
+        // Deduplicate by STYLE to get unique products
+        const uniqueProducts = [];
+        const seenStyles = new Set();
+        
+        for (const product of result) {
+            if (!seenStyles.has(product.STYLE)) {
+                seenStyles.add(product.STYLE);
+                uniqueProducts.push(product);
+            }
+        }
+        
+        console.log(`Returning ${uniqueProducts.length} unique products for search query: ${q}`);
+        res.json(uniqueProducts);
+    } catch (error) {
+        console.error("Search error:", error.message);
+        res.status(500).json({ error: 'Failed to perform search.' });
+    }
+});
+
+// --- NEW Endpoint: Featured/New Products ---
+// Example: /api/featured-products
+app.get('/api/featured-products', async (req, res) => {
+    try {
+        console.log("Fetching featured/new products");
+        const resource = '/tables/Sanmar_Bulk_251816_Feb2024/records';
+        const params = {
+            // Get products with "New" status
+            'q.where': `PRODUCT_STATUS='New'`,
+            'q.select': 'STYLE, PRODUCT_TITLE, COLOR_NAME, FRONT_FLAT, BRAND_NAME, BRAND_LOGO_IMAGE, CATEGORY_NAME, PRODUCT_STATUS',
+            'q.orderby': 'STYLE ASC',
+            'q.limit': 100 // Limit to a reasonable number for featured items
+        };
+        
+        const result = await fetchAllCaspioPages(resource, params);
+        console.log(`Found ${result.length} total new/featured products`);
+        
+        // Deduplicate by STYLE to get unique products
+        const uniqueProducts = [];
+        const seenStyles = new Set();
+        
+        for (const product of result) {
+            if (!seenStyles.has(product.STYLE)) {
+                seenStyles.add(product.STYLE);
+                uniqueProducts.push(product);
+            }
+        }
+        
+        console.log(`Returning ${uniqueProducts.length} unique featured products`);
+        res.json(uniqueProducts);
+    } catch (error) {
+        console.error("Featured products error:", error.message);
+        res.status(500).json({ error: 'Failed to fetch featured products.' });
+    }
+});
+
+// --- NEW Endpoint: Related Products ---
+// Example: /api/related-products?styleNumber=PC61
+app.get('/api/related-products', async (req, res) => {
+    const { styleNumber } = req.query;
+    if (!styleNumber) {
+        return res.status(400).json({ error: 'Missing required query parameter: styleNumber' });
+    }
+    
+    try {
+        // First, get the category and subcategory of the reference product
+        console.log(`Finding related products for style: ${styleNumber}`);
+        const resource = '/tables/Sanmar_Bulk_251816_Feb2024/records';
+        
+        // Get the reference product details
+        const referenceParams = {
+            'q.where': `STYLE='${styleNumber}'`,
+            'q.select': 'CATEGORY_NAME, SUBCATEGORY_NAME, BRAND_NAME',
+            'q.limit': 1
+        };
+        
+        const referenceResult = await fetchAllCaspioPages(resource, referenceParams);
+        
+        if (referenceResult.length === 0) {
+            return res.status(404).json({ error: `Product not found: ${styleNumber}` });
+        }
+        
+        const referenceProduct = referenceResult[0];
+        const category = referenceProduct.CATEGORY_NAME;
+        const subcategory = referenceProduct.SUBCATEGORY_NAME;
+        const brand = referenceProduct.BRAND_NAME;
+        
+        console.log(`Finding products related to ${styleNumber} (Category: ${category}, Subcategory: ${subcategory}, Brand: ${brand})`);
+        
+        // Find products in the same category/subcategory but exclude the reference product
+        const relatedParams = {
+            'q.where': `STYLE<>'${styleNumber}' AND (CATEGORY_NAME='${category}' OR SUBCATEGORY_NAME='${subcategory}' OR BRAND_NAME='${brand}')`,
+            'q.select': 'STYLE, PRODUCT_TITLE, COLOR_NAME, FRONT_FLAT, BRAND_NAME, BRAND_LOGO_IMAGE, CATEGORY_NAME, SUBCATEGORY_NAME',
+            'q.orderby': 'STYLE ASC',
+            'q.limit': 50 // Limit to a reasonable number of related products
+        };
+        
+        const relatedResult = await fetchAllCaspioPages(resource, relatedParams);
+        console.log(`Found ${relatedResult.length} total related records`);
+        
+        // Deduplicate by STYLE to get unique products
+        const uniqueProducts = [];
+        const seenStyles = new Set();
+        
+        for (const product of relatedResult) {
+            if (!seenStyles.has(product.STYLE)) {
+                seenStyles.add(product.STYLE);
+                uniqueProducts.push(product);
+            }
+        }
+        
+        console.log(`Returning ${uniqueProducts.length} unique related products for style: ${styleNumber}`);
+        res.json(uniqueProducts);
+    } catch (error) {
+        console.error("Related products error:", error.message);
+        res.status(500).json({ error: 'Failed to fetch related products.' });
+    }
+});
+
+// --- NEW Endpoint: Advanced Filtering ---
+// Example: /api/filter-products?category=T-Shirts&color=Red&minPrice=10&maxPrice=30&brand=Bella
+app.get('/api/filter-products', async (req, res) => {
+    const { category, subcategory, color, brand, minPrice, maxPrice } = req.query;
+    
+    // At least one filter must be provided
+    if (!category && !subcategory && !color && !brand && !minPrice && !maxPrice) {
+        return res.status(400).json({ error: 'At least one filter parameter must be provided' });
+    }
+    
+    try {
+        console.log(`Filtering products with criteria: ${JSON.stringify(req.query)}`);
+        const resource = '/tables/Sanmar_Bulk_251816_Feb2024/records';
+        
+        // Build the where clause based on provided filters
+        let whereClause = [];
+        
+        if (category) {
+            whereClause.push(`CATEGORY_NAME='${category}'`);
+        }
+        
+        if (subcategory) {
+            whereClause.push(`SUBCATEGORY_NAME='${subcategory}'`);
+        }
+        
+        if (color) {
+            whereClause.push(`(COLOR_NAME LIKE '%${color}%' OR CATALOG_COLOR LIKE '%${color}%')`);
+        }
+        
+        if (brand) {
+            whereClause.push(`BRAND_NAME LIKE '%${brand}%'`);
+        }
+        
+        if (minPrice && !isNaN(minPrice)) {
+            whereClause.push(`CASE_PRICE >= ${minPrice}`);
+        }
+        
+        if (maxPrice && !isNaN(maxPrice)) {
+            whereClause.push(`CASE_PRICE <= ${maxPrice}`);
+        }
+        
+        const params = {
+            'q.where': whereClause.join(' AND '),
+            'q.select': 'STYLE, PRODUCT_TITLE, COLOR_NAME, FRONT_FLAT, BRAND_NAME, BRAND_LOGO_IMAGE, CATEGORY_NAME, SUBCATEGORY_NAME, CASE_PRICE',
+            'q.orderby': 'STYLE ASC',
+            'q.limit': 10000 // High limit to get comprehensive results
+        };
+        
+        console.log(`Filter query: ${whereClause.join(' AND ')}`);
+        const result = await fetchAllCaspioPages(resource, params);
+        console.log(`Found ${result.length} total records matching filters`);
+        
+        // Deduplicate by STYLE to get unique products
+        const uniqueProducts = [];
+        const seenStyles = new Set();
+        
+        for (const product of result) {
+            if (!seenStyles.has(product.STYLE)) {
+                seenStyles.add(product.STYLE);
+                uniqueProducts.push(product);
+            }
+        }
+        
+        console.log(`Returning ${uniqueProducts.length} unique filtered products`);
+        res.json(uniqueProducts);
+    } catch (error) {
+        console.error("Filter products error:", error.message);
+        res.status(500).json({ error: 'Failed to filter products.' });
+    }
+});
+
+// --- NEW Endpoint: Quick View ---
+// Example: /api/quick-view?styleNumber=PC61
+app.get('/api/quick-view', async (req, res) => {
+    const { styleNumber } = req.query;
+    if (!styleNumber) {
+        return res.status(400).json({ error: 'Missing required query parameter: styleNumber' });
+    }
+    
+    try {
+        console.log(`Fetching quick view data for style: ${styleNumber}`);
+        const resource = '/tables/Sanmar_Bulk_251816_Feb2024/records';
+        
+        const params = {
+            'q.where': `STYLE='${styleNumber}'`,
+            // Select only essential fields for a lightweight response
+            'q.select': 'STYLE, PRODUCT_TITLE, FRONT_FLAT, BRAND_NAME, CATEGORY_NAME, CASE_PRICE',
+            'q.limit': 1
+        };
+        
+        const result = await fetchAllCaspioPages(resource, params);
+        
+        if (result.length === 0) {
+            return res.status(404).json({ error: `Product not found: ${styleNumber}` });
+        }
+        
+        // Get the first result as the quick view data
+        const quickViewData = result[0];
+        
+        // Get available colors (just the count)
+        const colorParams = {
+            'q.where': `STYLE='${styleNumber}'`,
+            'q.select': 'COLOR_NAME',
+            'q.distinct': true,
+            'q.limit': 1000
+        };
+        
+        const colorResults = await fetchAllCaspioPages(resource, colorParams);
+        const uniqueColors = [...new Set(colorResults.map(item => item.COLOR_NAME).filter(Boolean))];
+        
+        // Add color count to the response
+        quickViewData.availableColors = uniqueColors.length;
+        
+        console.log(`Returning quick view data for style: ${styleNumber}`);
+        res.json(quickViewData);
+    } catch (error) {
+        console.error("Quick view error:", error.message);
+        res.status(500).json({ error: 'Failed to fetch quick view data.' });
+    }
+});
+
+// --- NEW Endpoint: Product Comparison ---
+// Example: /api/compare-products?styles=PC61,3001C,5000
+app.get('/api/compare-products', async (req, res) => {
+    const { styles } = req.query;
+    if (!styles) {
+        return res.status(400).json({ error: 'Missing required query parameter: styles (comma-separated list)' });
+    }
+    
+    try {
+        const styleList = styles.split(',').map(s => s.trim());
+        if (styleList.length < 2) {
+            return res.status(400).json({ error: 'At least 2 styles are required for comparison' });
+        }
+        
+        console.log(`Comparing products: ${styleList.join(', ')}`);
+        const resource = '/tables/Sanmar_Bulk_251816_Feb2024/records';
+        
+        // Create a where clause to match any of the provided styles
+        const whereClause = styleList.map(style => `STYLE='${style}'`).join(' OR ');
+        
+        const params = {
+            'q.where': whereClause,
+            'q.select': 'STYLE, PRODUCT_TITLE, PRODUCT_DESCRIPTION, FRONT_FLAT, BRAND_NAME, CATEGORY_NAME, SUBCATEGORY_NAME, CASE_PRICE, PRODUCT_STATUS',
+            'q.limit': 10000
+        };
+        
+        const result = await fetchAllCaspioPages(resource, params);
+        console.log(`Found ${result.length} total records for comparison`);
+        
+        // Group by style and take the first record for each style
+        const comparisonData = {};
+        
+        for (const product of result) {
+            if (!comparisonData[product.STYLE]) {
+                comparisonData[product.STYLE] = product;
+            }
+        }
+        
+        // Convert to array for the response
+        const comparisonArray = Object.values(comparisonData);
+        
+        console.log(`Returning comparison data for ${comparisonArray.length} products`);
+        res.json(comparisonArray);
+    } catch (error) {
+        console.error("Product comparison error:", error.message);
+        res.status(500).json({ error: 'Failed to fetch product comparison data.' });
+    }
+});
+
+// --- NEW Endpoint: Product Recommendations ---
+// Example: /api/recommendations?styleNumber=PC61
+app.get('/api/recommendations', async (req, res) => {
+    const { styleNumber } = req.query;
+    if (!styleNumber) {
+        return res.status(400).json({ error: 'Missing required query parameter: styleNumber' });
+    }
+    
+    try {
+        // First, get the category and brand of the reference product
+        console.log(`Finding recommendations for style: ${styleNumber}`);
+        const resource = '/tables/Sanmar_Bulk_251816_Feb2024/records';
+        
+        // Get the reference product details
+        const referenceParams = {
+            'q.where': `STYLE='${styleNumber}'`,
+            'q.select': 'CATEGORY_NAME, BRAND_NAME, CASE_PRICE',
+            'q.limit': 1
+        };
+        
+        const referenceResult = await fetchAllCaspioPages(resource, referenceParams);
+        
+        if (referenceResult.length === 0) {
+            return res.status(404).json({ error: `Product not found: ${styleNumber}` });
+        }
+        
+        const referenceProduct = referenceResult[0];
+        const category = referenceProduct.CATEGORY_NAME;
+        const brand = referenceProduct.BRAND_NAME;
+        const price = referenceProduct.CASE_PRICE || 0;
+        
+        // Find popular products in the same category or from the same brand
+        // but exclude the reference product
+        // Also find products in a similar price range (±30%)
+        const minPrice = price * 0.7;
+        const maxPrice = price * 1.3;
+        
+        const recommendParams = {
+            'q.where': `STYLE<>'${styleNumber}' AND (CATEGORY_NAME='${category}' OR BRAND_NAME='${brand}') AND (CASE_PRICE BETWEEN ${minPrice} AND ${maxPrice} OR CASE_PRICE IS NULL)`,
+            'q.select': 'STYLE, PRODUCT_TITLE, COLOR_NAME, FRONT_FLAT, BRAND_NAME, BRAND_LOGO_IMAGE, CATEGORY_NAME, CASE_PRICE',
+            'q.orderby': 'STYLE ASC',
+            'q.limit': 20 // Limit to a reasonable number of recommendations
+        };
+        
+        const recommendResult = await fetchAllCaspioPages(resource, recommendParams);
+        console.log(`Found ${recommendResult.length} total recommendation records`);
+        
+        // Deduplicate by STYLE to get unique products
+        const uniqueProducts = [];
+        const seenStyles = new Set();
+        
+        for (const product of recommendResult) {
+            if (!seenStyles.has(product.STYLE)) {
+                seenStyles.add(product.STYLE);
+                uniqueProducts.push(product);
+            }
+        }
+        
+        console.log(`Returning ${uniqueProducts.length} unique product recommendations for style: ${styleNumber}`);
+        res.json(uniqueProducts);
+    } catch (error) {
+        console.error("Recommendations error:", error.message);
+        res.status(500).json({ error: 'Failed to fetch product recommendations.' });
+    }
+});
 
 // --- Error Handling Middleware (Basic) ---
 // Catches errors from endpoint handlers
@@ -970,6 +1345,7 @@ app.use((err, req, res, next) => {
     console.error("Unhandled Error:", err.stack || err);
     res.status(500).json({ error: 'An unexpected internal server error occurred.' });
 });
+
 
 
 
