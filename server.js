@@ -691,9 +691,9 @@ app.get('/api/products-by-category', async (req, res) => {
             // Use simple equality for category
             'q.where': `CATEGORY = '${category}'`,
             'q.select': 'STYLE, PRODUCT_TITLE, COLOR_NAME, FRONT_FLAT, BRAND_NAME, BRAND_LOGO_IMAGE',
-            'q.distinct': true,
+            // Remove distinct to get all results
             'q.orderby': 'STYLE ASC',
-            'q.limit': 100
+            'q.limit': 1000 // Increase limit to get more results
         };
         // Use fetchAllCaspioPages to handle pagination
         const result = await fetchAllCaspioPages(resource, params);
@@ -731,9 +731,9 @@ app.get('/api/products-by-subcategory', async (req, res) => {
             // Use simple equality for subcategory
             'q.where': `SUBCATEGORY = '${subcategory}'`,
             'q.select': 'STYLE, PRODUCT_TITLE, COLOR_NAME, FRONT_FLAT, BRAND_NAME, BRAND_LOGO_IMAGE',
-            'q.distinct': true,
+            // Remove distinct to get all results
             'q.orderby': 'STYLE ASC',
-            'q.limit': 100
+            'q.limit': 1000 // Increase limit to get more results
         };
         // Use fetchAllCaspioPages to handle pagination
         const result = await fetchAllCaspioPages(resource, params);
