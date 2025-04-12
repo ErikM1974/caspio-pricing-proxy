@@ -690,12 +690,12 @@ app.get('/api/products-by-category', async (req, res) => {
     try {
         const resource = '/tables/Sanmar_Bulk_251816_Feb2024/records';
         const params = {
-            // Use LIKE instead of exact equality to be more flexible
-            'q.where': `CATEGORY_NAME LIKE '%${category}%' OR PRODUCT_TITLE LIKE '%${category}%'`,
+            // Use exact match for category name to ensure we get all T-shirts
+            'q.where': `CATEGORY_NAME='${category}'`,
             'q.select': 'STYLE, PRODUCT_TITLE, COLOR_NAME, FRONT_FLAT, BRAND_NAME, BRAND_LOGO_IMAGE',
             // Remove distinct to get all results
             'q.orderby': 'STYLE ASC',
-            'q.limit': 5000 // Increase limit to get more results
+            'q.limit': 10000 // Increase limit to get more results
         };
         
         console.log(`Fetching all pages from Caspio for category: ${category}`);
