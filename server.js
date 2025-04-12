@@ -764,41 +764,39 @@ app.get('/api/products-by-subcategory', async (req, res) => {
     }
 });
 
-// --- TEMPORARY Endpoint: Get All Brands (without distinct) ---
+// --- Endpoint: Get All Brands ---
 // Example: /api/all-brands
 app.get('/api/all-brands', async (req, res) => {
     try {
+        console.log("Fetching all unique brands from Caspio");
+        
         const resource = '/tables/Sanmar_Bulk_251816_Feb2024/records';
         const params = {
-            'q.select': 'BRAND_NAME, STYLE',
-            // Remove distinct to get all brand names with their styles
+            'q.select': 'BRAND_NAME',
             'q.orderby': 'BRAND_NAME ASC',
-            'q.limit': 1000
+            'q.limit': 5000 // Set a high limit to get all brands
         };
         
+        // Use fetchAllCaspioPages to handle pagination
         const result = await fetchAllCaspioPages(resource, params);
         console.log(`Found ${result.length} brand records`);
         
-        // Group by brand name and collect styles
-        const brandMap = {};
-        result.forEach(item => {
-            if (item.BRAND_NAME) {
-                if (!brandMap[item.BRAND_NAME]) {
-                    brandMap[item.BRAND_NAME] = {
-                        name: item.BRAND_NAME,
-                        styles: []
-                    };
-                }
-                if (item.STYLE && !brandMap[item.BRAND_NAME].styles.includes(item.STYLE)) {
-                    brandMap[item.BRAND_NAME].styles.push(item.STYLE);
-                }
-            }
-        });
+        // Extract brand names and filter out nulls or empty strings
+        const brands = result
+            .map(item => item.BRAND_NAME)
+            .filter(name => name && name.trim() !== '');
         
-        // Convert to array
-        const brands = Object.values(brandMap);
+        // Remove duplicates
+        const uniqueBrands = [...new Set(brands)];
         
-        res.json(brands);
+        // Format the response to match the expected structure
+        const formattedBrands = uniqueBrands.map(brandName => ({
+            name: brandName,
+            styles: [] // We're not collecting styles here for simplicity
+        }));
+        
+        console.log(`Returning ${formattedBrands.length} unique brands from database`);
+        res.json(formattedBrands);
     } catch (error) {
         console.error("Error fetching brands:", error);
         res.status(500).json({ error: error.message || 'Failed to fetch brands.' });
@@ -814,7 +812,6 @@ app.get('/api/all-subcategories', async (req, res) => {
         const resource = '/tables/Sanmar_Bulk_251816_Feb2024/records';
         const params = {
             'q.select': 'SUBCATEGORY_NAME',
-            'q.distinct': true,
             'q.orderby': 'SUBCATEGORY_NAME ASC',
             'q.limit': 5000 // Set a high limit to get all subcategories
         };
@@ -827,11 +824,11 @@ app.get('/api/all-subcategories', async (req, res) => {
             .map(item => item.SUBCATEGORY_NAME)
             .filter(name => name && name.trim() !== '');
         
-        // Remove duplicates (just in case)
+        // Remove duplicates
         const uniqueSubcategories = [...new Set(subcategories)];
         
         console.log(`Returning ${uniqueSubcategories.length} unique subcategories from database`);
-        res.json(uniqueSubcategories);
+        res.json(uniqueSubcategories.sort());
     } catch (error) {
         console.error("Error fetching subcategories:", error);
         res.status(500).json({ error: error.message || 'Failed to fetch subcategories.' });
@@ -847,7 +844,6 @@ app.get('/api/all-categories', async (req, res) => {
         const resource = '/tables/Sanmar_Bulk_251816_Feb2024/records';
         const params = {
             'q.select': 'CATEGORY_NAME',
-            'q.distinct': true,
             'q.orderby': 'CATEGORY_NAME ASC',
             'q.limit': 5000 // Set a high limit to get all categories
         };
@@ -860,11 +856,11 @@ app.get('/api/all-categories', async (req, res) => {
             .map(item => item.CATEGORY_NAME)
             .filter(name => name && name.trim() !== '');
         
-        // Remove duplicates (just in case)
+        // Remove duplicates
         const uniqueCategories = [...new Set(categories)];
         
         console.log(`Returning ${uniqueCategories.length} unique categories from database`);
-        res.json(uniqueCategories);
+        res.json(uniqueCategories.sort());
     } catch (error) {
         console.error("Error fetching categories:", error);
         res.status(500).json({ error: error.message || 'Failed to fetch categories.' });
@@ -903,7 +899,7 @@ app.get('/api/subcategories-by-category', async (req, res) => {
         const uniqueSubcategories = [...new Set(subcategories)];
         
         console.log(`Returning ${uniqueSubcategories.length} unique subcategories for category: ${category} from database`);
-        res.json(uniqueSubcategories);
+        res.json(uniqueSubcategories.sort());
     } catch (error) {
         console.error("Error fetching subcategories by category:", error);
         res.status(500).json({ error: error.message || 'Failed to fetch subcategories by category.' });
