@@ -438,9 +438,13 @@ app.get('/api/stylesearch', async (req, res) => {
 
 
 // --- UPDATED Endpoint: Product Details with Color-Specific Images ---
-// Example: /api/product-details?styleNumber=PC61&color=Red
+// Example: /api/product-details?styleNumber=PC61&color=Red or /api/product-details?styleNumber=PC61&COLOR_NAME=Red
 app.get('/api/product-details', async (req, res) => {
-    const { styleNumber, color } = req.query;
+    // Accept both 'color' and 'COLOR_NAME' parameters for flexibility
+    const { styleNumber, color, COLOR_NAME, CATALOG_COLOR } = req.query;
+    // Use the first available color parameter (prioritize 'color' for backward compatibility)
+    const colorParam = color || COLOR_NAME || CATALOG_COLOR;
+    
     if (!styleNumber) {
         return res.status(400).json({ error: 'Missing required query parameter: styleNumber' });
     }
@@ -450,8 +454,8 @@ app.get('/api/product-details', async (req, res) => {
         let whereClause = `STYLE='${styleNumber}'`;
         
         // If color is provided, use it to filter results
-        if (color) {
-            whereClause += ` AND CATALOG_COLOR='${color}'`;
+        if (colorParam) {
+            whereClause += ` AND (CATALOG_COLOR='${colorParam}' OR COLOR_NAME='${colorParam}')`;
         }
         
         const params = {
@@ -460,35 +464,52 @@ app.get('/api/product-details', async (req, res) => {
             'q.limit': 1 // Just need one row for basic details
         };
         
-        console.log(`Product Details: Fetching for Style=${styleNumber}, Color=${color || 'Any'}`);
+        console.log(`Product Details: Fetching for Style=${styleNumber}, Color=${colorParam || 'Any'}`);
         const result = await makeCaspioRequest('get', resource, params);
 
         if (result.length === 0) {
-            return res.status(404).json({ error: `Product details not found for style: ${styleNumber}${color ? ` and color: ${color}` : ''}` });
+            return res.status(404).json({ error: `Product details not found for style: ${styleNumber}${colorParam ? ` and color: ${colorParam}` : ''}` });
         }
         
         // Get the basic product details
         const productDetails = result[0];
-        const colorName = productDetails.COLOR_NAME || color || '';
+        const colorName = productDetails.COLOR_NAME || colorParam || '';
         
         // Now, get color-specific images
         // If color is provided, get images for that specific color
         // Otherwise, get images for any color of the style
         const imageParams = {
-            'q.where': color ?
-                `STYLE='${styleNumber}' AND CATALOG_COLOR='${color}'` :
+            'q.where': colorParam ?
+                `STYLE='${styleNumber}' AND (CATALOG_COLOR='${colorParam}' OR COLOR_NAME='${colorParam}')` :
                 `STYLE='${styleNumber}'`,
             'q.select': 'FRONT_FLAT, FRONT_MODEL, BACK_FLAT, BACK_MODEL, COLOR_NAME, CATALOG_COLOR',
             'q.limit': 10 // Get a few records to find one with images
         };
         
-        console.log(`Product Images: Fetching for Style=${styleNumber}, Color=${color || 'Any'}`);
+        console.log(`Product Images: Fetching for Style=${styleNumber}, Color=${colorParam || 'Any'}`);
         const imageResults = await makeCaspioRequest('get', resource, imageParams);
         
-        // Find a record with images
-        const imageRecord = imageResults.find(record =>
-            record.FRONT_MODEL || record.FRONT_FLAT || record.BACK_MODEL || record.BACK_FLAT
-        ) || {};
+        // First, try to find a record with the exact requested color that has images
+        let imageRecord = null;
+        
+        if (colorParam) {
+            // Look for records that match the requested color AND have images
+            imageRecord = imageResults.find(record =>
+                (record.CATALOG_COLOR === colorParam || record.COLOR_NAME === colorParam) &&
+                (record.FRONT_MODEL || record.FRONT_FLAT || record.BACK_MODEL || record.BACK_FLAT)
+            );
+            
+            console.log(`Product Images: ${imageRecord ? 'Found' : 'Did not find'} images for exact color match: ${colorParam}`);
+        }
+        
+        // If no color-specific record with images was found, fall back to any record with images
+        if (!imageRecord) {
+            imageRecord = imageResults.find(record =>
+                record.FRONT_MODEL || record.FRONT_FLAT || record.BACK_MODEL || record.BACK_FLAT
+            ) || {};
+            
+            console.log(`Product Images: Using fallback images from color: ${imageRecord.COLOR_NAME || 'unknown'}`);
+        }
         
         // Combine the basic details with the images
         const response = {
