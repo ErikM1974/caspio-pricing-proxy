@@ -437,7 +437,7 @@ app.get('/api/stylesearch', async (req, res) => {
 });
 
 
-// --- UPDATED Endpoint: Product Details ---
+// --- UPDATED Endpoint: Product Details with Color-Specific Images ---
 // Example: /api/product-details?styleNumber=PC61&color=Red
 app.get('/api/product-details', async (req, res) => {
     const { styleNumber, color } = req.query;
@@ -445,6 +445,7 @@ app.get('/api/product-details', async (req, res) => {
         return res.status(400).json({ error: 'Missing required query parameter: styleNumber' });
     }
     try {
+        // First, get basic product details (title, description)
         const resource = '/tables/Sanmar_Bulk_251816_Feb2024/records';
         let whereClause = `STYLE='${styleNumber}'`;
         
@@ -455,9 +456,8 @@ app.get('/api/product-details', async (req, res) => {
         
         const params = {
             'q.where': whereClause,
-            // Added COLOR_NAME and CATALOG_COLOR to the selected fields
-            'q.select': 'PRODUCT_TITLE, PRODUCT_DESCRIPTION, FRONT_FLAT, FRONT_MODEL, BACK_FLAT, BACK_MODEL, COLOR_NAME, CATALOG_COLOR',
-            'q.limit': 1 // Just need one row for details
+            'q.select': 'PRODUCT_TITLE, PRODUCT_DESCRIPTION, COLOR_NAME, CATALOG_COLOR',
+            'q.limit': 1 // Just need one row for basic details
         };
         
         console.log(`Product Details: Fetching for Style=${styleNumber}, Color=${color || 'Any'}`);
@@ -467,10 +467,46 @@ app.get('/api/product-details', async (req, res) => {
             return res.status(404).json({ error: `Product details not found for style: ${styleNumber}${color ? ` and color: ${color}` : ''}` });
         }
         
-        // Return the first record found
-        res.json(result[0]);
+        // Get the basic product details
+        const productDetails = result[0];
+        const colorName = productDetails.COLOR_NAME || color || '';
+        
+        // Now, get color-specific images
+        // If color is provided, get images for that specific color
+        // Otherwise, get images for any color of the style
+        const imageParams = {
+            'q.where': color ?
+                `STYLE='${styleNumber}' AND CATALOG_COLOR='${color}'` :
+                `STYLE='${styleNumber}'`,
+            'q.select': 'FRONT_FLAT, FRONT_MODEL, BACK_FLAT, BACK_MODEL, COLOR_NAME, CATALOG_COLOR',
+            'q.limit': 10 // Get a few records to find one with images
+        };
+        
+        console.log(`Product Images: Fetching for Style=${styleNumber}, Color=${color || 'Any'}`);
+        const imageResults = await makeCaspioRequest('get', resource, imageParams);
+        
+        // Find a record with images
+        const imageRecord = imageResults.find(record =>
+            record.FRONT_MODEL || record.FRONT_FLAT || record.BACK_MODEL || record.BACK_FLAT
+        ) || {};
+        
+        // Combine the basic details with the images
+        const response = {
+            ...productDetails,
+            FRONT_FLAT: imageRecord.FRONT_FLAT || '',
+            FRONT_MODEL: imageRecord.FRONT_MODEL || '',
+            BACK_FLAT: imageRecord.BACK_FLAT || '',
+            BACK_MODEL: imageRecord.BACK_MODEL || '',
+            // Include the color information from the image record if it exists
+            COLOR_NAME: productDetails.COLOR_NAME || imageRecord.COLOR_NAME || '',
+            CATALOG_COLOR: productDetails.CATALOG_COLOR || imageRecord.CATALOG_COLOR || ''
+        };
+        
+        console.log(`Product Details: Returning details for Style=${styleNumber}, Color=${response.COLOR_NAME}`);
+        res.json(response);
 
     } catch (error) {
+        console.error("Product Details Error:", error);
         res.status(500).json({ error: error.message || 'Failed to fetch product details.' });
     }
 });
