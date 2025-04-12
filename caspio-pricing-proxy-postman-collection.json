@@ -765,6 +765,222 @@
 				"description": "Get products for a specific category and subcategory combination"
 			},
 			"response": []
+		},
+		{
+			"name": "Search Products",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/search?q=hoodie",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"search"
+					],
+					"query": [
+						{
+							"key": "q",
+							"value": "hoodie",
+							"description": "Search query (minimum 2 characters)"
+						}
+					]
+				},
+				"description": "Search across all products by keyword (searches style, title, description, brand, category, and subcategory)"
+			},
+			"response": []
+		},
+		{
+			"name": "Featured Products",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/featured-products",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"featured-products"
+					]
+				},
+				"description": "Get featured/new products (products with 'New' status)"
+			},
+			"response": []
+		},
+		{
+			"name": "Related Products",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/related-products?styleNumber=PC61",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"related-products"
+					],
+					"query": [
+						{
+							"key": "styleNumber",
+							"value": "PC61",
+							"description": "Style number of the reference product"
+						}
+					]
+				},
+				"description": "Get products related to a specific style (same category, subcategory, or brand)"
+			},
+			"response": []
+		},
+		{
+			"name": "Advanced Filtering",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/filter-products?category=T-Shirts&color=Red&minPrice=10&maxPrice=30&brand=Bella",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"filter-products"
+					],
+					"query": [
+						{
+							"key": "category",
+							"value": "T-Shirts",
+							"description": "Category name (optional)"
+						},
+						{
+							"key": "color",
+							"value": "Red",
+							"description": "Color name (optional)"
+						},
+						{
+							"key": "minPrice",
+							"value": "10",
+							"description": "Minimum price (optional)"
+						},
+						{
+							"key": "maxPrice",
+							"value": "30",
+							"description": "Maximum price (optional)"
+						},
+						{
+							"key": "brand",
+							"value": "Bella",
+							"description": "Brand name (optional)"
+						}
+					]
+				},
+				"description": "Filter products by multiple criteria (category, subcategory, color, brand, price range)"
+			},
+			"response": []
+		},
+		{
+			"name": "Product Recommendations",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/recommendations?styleNumber=PC61",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"recommendations"
+					],
+					"query": [
+						{
+							"key": "styleNumber",
+							"value": "PC61",
+							"description": "Style number of the reference product"
+						}
+					]
+				},
+				"description": "Get personalized product recommendations based on a reference product (similar category, brand, and price range)"
+			},
+			"response": []
+		},
+		{
+			"name": "Quick View",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/quick-view?styleNumber=PC61",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"quick-view"
+					],
+					"query": [
+						{
+							"key": "styleNumber",
+							"value": "PC61",
+							"description": "Style number of the product"
+						}
+					]
+				},
+				"description": "Get lightweight product details for hover/modal views (essential fields only)"
+			},
+			"response": []
+		},
+		{
+			"name": "Product Comparison",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/compare-products?styles=PC61,3001C,5000",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"compare-products"
+					],
+					"query": [
+						{
+							"key": "styles",
+							"value": "PC61,3001C,5000",
+							"description": "Comma-separated list of style numbers to compare"
+						}
+					]
+				},
+				"description": "Compare multiple products side-by-side (requires at least 2 style numbers)"
+			},
+			"response": []
 		}
 	],
 	"event": [
