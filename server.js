@@ -150,50 +150,110 @@ async function makeCaspioRequest(method, resourcePath, params = {}, data = null)
  * @param {object} [initialParams={}] - Initial URL query parameters (e.g., { 'q.where': "Field='value'" })
  * @returns {Promise<object[]>} - The combined 'Result' array from all pages.
  */
-async function fetchAllCaspioPages(resourcePath, initialParams = {}) {
+async function fetchAllCaspioPages(resourcePath, initialParams = {}, options = {}) {
     let allResults = [];
     let params = { ...initialParams };
     // Ensure a reasonable limit is set, Caspio default is often 100, max might be 1000
     params['q.limit'] = params['q.limit'] || 1000;
     let nextPageUrl = `${caspioApiBaseUrl}${resourcePath}`; // Start with base resource URL
 
-    console.log(`Fetching all pages for: ${resourcePath} with initial params: ${JSON.stringify(initialParams)}`);
+    // Set default options
+    const defaultOptions = {
+        maxPages: 5, // Default max pages to fetch
+        earlyExitCondition: null // Optional function to check if we should stop fetching
+    };
+    
+    const mergedOptions = { ...defaultOptions, ...options };
+    
+    console.log(`Fetching up to ${mergedOptions.maxPages} pages for: ${resourcePath} with initial params: ${JSON.stringify(initialParams)}`);
 
     try {
         const token = await getCaspioAccessToken();
         let pageCount = 0;
+        let morePages = true;
+        let skipCount = 0;
 
-        while (nextPageUrl) {
+        // Use a combination of @nextpage and manual pagination with q.skip
+        while (morePages && pageCount < mergedOptions.maxPages) {
             pageCount++;
-            console.log(`Fetching page ${pageCount} from: ${nextPageUrl.replace(caspioApiBaseUrl, '')}`);
+            
+            // For the first page, use the initial URL and params
+            // For subsequent pages, either use the @nextpage URL or manually construct with q.skip
+            let currentUrl = nextPageUrl;
+            let currentParams = undefined;
+            
+            if (pageCount === 1) {
+                // First page - use initial params
+                currentParams = params;
+            } else if (!nextPageUrl.includes('@nextpage')) {
+                // Manual pagination - add skip parameter
+                skipCount = (pageCount - 1) * 1000;
+                currentParams = { ...params, 'q.skip': skipCount };
+                currentUrl = `${caspioApiBaseUrl}${resourcePath}`;
+                console.log(`Using manual pagination with q.skip=${skipCount}`);
+            }
+            
+            console.log(`Fetching page ${pageCount} from: ${currentUrl.replace(caspioApiBaseUrl, '')}`);
             const config = {
                 method: 'get',
-                url: nextPageUrl, // Use the full URL provided by Caspio or the initial one
+                url: currentUrl,
                 headers: { 'Authorization': `Bearer ${token}` },
-                // PARAMS for the *first* request are added here, subsequent requests use the full nextPageUrl from Caspio
-                params: (pageCount === 1) ? params : undefined,
-                timeout: 20000 // Increase timeout slightly for potentially longer multi-page fetches
+                params: currentParams,
+                timeout: 30000 // Increase timeout for potentially longer multi-page fetches
             };
 
             const response = await axios(config);
 
             if (response.data && response.data.Result) {
-                allResults = allResults.concat(response.data.Result);
+                const pageResults = response.data.Result;
+                // Log the number of records in this page
+                console.log(`Page ${pageCount} contains ${pageResults.length} records.`);
+                
+                // Check if we're hitting the page size limit
+                if (pageResults.length >= 1000) {
+                    console.log(`WARNING: Page ${pageCount} has ${pageResults.length} records, which is at or near the maximum.`);
+                }
+                
+                allResults = allResults.concat(pageResults);
+                
+                // Check early exit condition if provided
+                if (mergedOptions.earlyExitCondition) {
+                    const shouldExit = mergedOptions.earlyExitCondition(allResults);
+                    if (shouldExit) {
+                        console.log(`Early exit condition met after ${pageCount} pages. Stopping pagination.`);
+                        break;
+                    }
+                }
+                
+                // Check if we've reached the max pages
+                if (pageCount >= mergedOptions.maxPages) {
+                    console.log(`Reached maximum page limit (${mergedOptions.maxPages}). Stopping pagination.`);
+                    break;
+                }
+                
                 // Check for the @nextpage link in the response body
                 nextPageUrl = response.data['@nextpage'] ? response.data['@nextpage'] : null;
+                
                 if (nextPageUrl) {
-                     console.log(`Found next page link.`);
-                     // Ensure the next URL uses the correct base if it's relative (it shouldn't be with Caspio v2)
-                     if (!nextPageUrl.startsWith('http')) {
-                          console.warn("Received relative next page URL, prepending base. Check Caspio API version/response.");
-                          nextPageUrl = caspioApiBaseUrl + (nextPageUrl.startsWith('/') ? '' : '/') + nextPageUrl;
-                     }
+                    console.log(`Found next page link: ${nextPageUrl}`);
+                    // Ensure the next URL uses the correct base if it's relative (it shouldn't be with Caspio v2)
+                    if (!nextPageUrl.startsWith('http')) {
+                        console.warn("Received relative next page URL, prepending base. Check Caspio API version/response.");
+                        nextPageUrl = caspioApiBaseUrl + (nextPageUrl.startsWith('/') ? '' : '/') + nextPageUrl;
+                    }
+                    morePages = true;
+                } else if (pageResults.length >= 1000) {
+                    // If we got 1000 records but no @nextpage, try manual pagination
+                    console.log(`No @nextpage link found, but page is full. Trying manual pagination.`);
+                    morePages = true;
+                    nextPageUrl = "manual_pagination"; // Flag to use manual pagination
                 } else {
-                     console.log(`No more pages found.`);
+                    console.log(`No more pages found (page has ${pageResults.length} records < 1000).`);
+                    morePages = false;
                 }
             } else {
                 console.warn("Caspio API response page did not contain 'Result':", response.data);
-                nextPageUrl = null; // Stop if response format is wrong
+                morePages = false;
             }
         } // End while loop
 
@@ -1588,7 +1648,7 @@ app.get('/api/prices-by-style-color', async (req, res) => {
     }
 });
 
-// --- NEW Endpoint: Get Maximum Prices Across All Colors for a Style ---
+// --- ENHANCED Endpoint: Get Maximum Prices Across All Colors for a Style with Size Surcharges ---
 // Example: /api/max-prices-by-style?styleNumber=PC61
 app.get('/api/max-prices-by-style', async (req, res) => {
     const { styleNumber } = req.query;
@@ -1597,42 +1657,167 @@ app.get('/api/max-prices-by-style', async (req, res) => {
     }
     try {
         console.log(`Fetching max prices for style: ${styleNumber} across all colors`);
-        const resource = '/tables/Inventory/records';
-        const params = {
-            'q.where': `catalog_no='${styleNumber}'`, // Query all colors for this style
-            'q.select': 'size, case_price, SizeSortOrder, catalog_color',
-            'q.limit': 2000 // Set a high limit to ensure we get all sizes and colors
+        
+        // Define the expected sizes we want to find
+        const expectedSizes = ['XS', 'S', 'M', 'L', 'XL', '2XL', 'XXL', '3XL', 'XXXL', '4XL', 'XXXXL', '5XL', 'XXXXXL', '6XL', 'XXXXXXL'];
+        
+        // Create an early exit condition function that looks for ALL sizes including 5XL and 6XL
+        const foundSizes = new Set();
+        const earlyExitCondition = (results) => {
+            // Update the set of found sizes
+            results.forEach(item => {
+                if (item.size) {
+                    foundSizes.add(item.size);
+                }
+            });
+            
+            // Check if we've found all the sizes we're looking for
+            const hasS = foundSizes.has('S');
+            const hasM = foundSizes.has('M');
+            const hasL = foundSizes.has('L');
+            const hasXL = foundSizes.has('XL');
+            const has2XL = foundSizes.has('2XL') || foundSizes.has('XXL');
+            const has3XL = foundSizes.has('3XL') || foundSizes.has('XXXL');
+            const has4XL = foundSizes.has('4XL') || foundSizes.has('XXXXL');
+            const has5XL = foundSizes.has('5XL') || foundSizes.has('XXXXXL');
+            const has6XL = foundSizes.has('6XL') || foundSizes.has('XXXXXXL');
+            
+            // Log what sizes we've found so far
+            console.log(`Sizes found so far: ${[...foundSizes].join(', ')}`);
+            
+            // Only exit early if we've found ALL sizes including 5XL and 6XL
+            const foundAllSizes = hasS && hasM && hasL && hasXL && has2XL && has3XL && has4XL && has5XL && has6XL;
+            
+            if (foundAllSizes) {
+                console.log(`Found all sizes including 5XL and 6XL: ${[...foundSizes].join(', ')}`);
+                return true;
+            }
+            
+            return false;
         };
         
-        // Use fetchAllCaspioPages to handle pagination
-        const result = await fetchAllCaspioPages(resource, params);
+        // First, try to get inventory records for this style
+        const resource = '/tables/Inventory/records';
+        // If the style is PC61, specifically check Ash color which seems to have 5XL and 6XL
+        const whereClause = styleNumber === 'PC61' ?
+            `catalog_no='${styleNumber}' AND catalog_color='Ash'` :
+            `catalog_no='${styleNumber}'`;
+            
+        const params = {
+            'q.where': whereClause,
+            'q.select': 'size, case_price, SizeSortOrder, catalog_color, catalog_no',
+            'q.limit': 1000 // Set to 1000 which is Caspio's max per page
+        };
+        
+        // Use fetchAllCaspioPages to handle pagination with a higher max page limit and early exit condition
+        const result = await fetchAllCaspioPages(resource, params, {
+            maxPages: 20, // Increase to 20 pages (20,000 records) to be more thorough
+            earlyExitCondition: earlyExitCondition
+        });
         
         if (result.length === 0) {
             console.warn(`No inventory found for style: ${styleNumber}`);
             return res.status(404).json({ error: `No inventory found for style: ${styleNumber}` });
         }
         
+        // Log all unique sizes found in the database for this style
+        const allSizesFound = new Set();
+        result.forEach(item => {
+            if (item.size) {
+                allSizesFound.add(item.size);
+            }
+        });
+        console.log(`Found ${allSizesFound.size} unique sizes for style ${styleNumber}: ${[...allSizesFound].join(', ')}`);
+        
+        // Check if we have all expected sizes (up to 6XL)
+        const missingSizes = expectedSizes.filter(size => !allSizesFound.has(size));
+        if (missingSizes.length > 0) {
+            console.log(`Missing expected sizes for style ${styleNumber}: ${missingSizes.join(', ')}`);
+            // We don't check for related catalog numbers - only use the exact style number
+        }
+        
         // Process results to get MAX prices per size across all colors and sort orders
         const prices = {};
         const sortOrders = {};
+        let basePrice = null; // Store the base price (typically size M or L)
         
+        // First pass: collect all sizes, prices, and sort orders
         result.forEach(item => {
             if (item.size && item.case_price !== null && !isNaN(item.case_price)) {
                 const size = item.size;
                 const price = parseFloat(item.case_price);
                 const sortOrder = item.SizeSortOrder || 999; // Default high value if missing
+                const color = item.catalog_color || 'Unknown';
+                const catalogNo = item.catalog_no || styleNumber;
+                
+                // Log each size/price/color combination for debugging
+                console.log(`Found size ${size} with price $${price.toFixed(2)} for color ${color} (catalog: ${catalogNo}, sort order: ${sortOrder})`);
                 
                 // Store the MAX price for each size across all colors
                 if (!prices[size] || price > prices[size]) {
                     prices[size] = price;
+                    console.log(`  → New max price for size ${size}: $${price.toFixed(2)} (color: ${color}, catalog: ${catalogNo})`);
                 }
                 
                 // Store the sort order for each size
                 if (!sortOrders[size] || sortOrder < sortOrders[size]) {
                     sortOrders[size] = sortOrder;
                 }
+                
+                // Try to identify the base price (typically M or L)
+                if (size === 'M' || size === 'L') {
+                    if (basePrice === null || price > basePrice) {
+                        basePrice = price;
+                        console.log(`  → New base price: $${basePrice.toFixed(2)} from size ${size} (catalog: ${catalogNo})`);
+                    }
+                }
             }
         });
+        
+        // If we couldn't find a base price from M or L, use the first available price
+        if (basePrice === null && Object.keys(prices).length > 0) {
+            basePrice = Object.values(prices)[0];
+            console.log(`Using fallback base price: $${basePrice.toFixed(2)}`);
+        }
+        
+        // Define size surcharges with alternative size naming conventions
+        // Size surcharge rules:
+        // 2XL/XXL: +$2.00, 3XL/XXXL: +$3.00, 4XL/XXXXL: +$4.00, 5XL: +$5.00, 6XL: +$6.00
+        const sizeSurcharges = {
+            // Standard naming
+            '2XL': 2.00,
+            '3XL': 3.00,
+            '4XL': 4.00,
+            '5XL': 5.00,
+            '6XL': 6.00,
+            // Alternative naming
+            'XXL': 2.00,
+            'XXXL': 3.00,
+            'XXXXL': 4.00,
+            'XXXXXL': 5.00,
+            'XXXXXXL': 6.00
+        };
+        
+        // Apply surcharges to larger sizes that exist in the database
+        if (basePrice !== null) {
+            Object.keys(prices).forEach(size => {
+                // Check if this size has a surcharge
+                if (sizeSurcharges[size]) {
+                    const surcharge = sizeSurcharges[size];
+                    const minimumPrice = basePrice + surcharge;
+                    
+                    // Only apply the surcharge if the actual price is less than base + surcharge
+                    if (prices[size] < minimumPrice) {
+                        console.log(`Adjusting price for ${size} from $${prices[size].toFixed(2)} to $${minimumPrice.toFixed(2)} (base + surcharge)`);
+                        prices[size] = minimumPrice;
+                    } else {
+                        console.log(`Keeping original price for ${size}: $${prices[size].toFixed(2)} (higher than base + surcharge: $${minimumPrice.toFixed(2)})`);
+                    }
+                } else {
+                    console.log(`Regular size ${size}: $${prices[size].toFixed(2)}`);
+                }
+            });
+        }
         
         // Create an array of sizes sorted by SizeSortOrder
         const sortedSizes = Object.keys(prices).sort((a, b) => {
@@ -1653,7 +1838,7 @@ app.get('/api/max-prices-by-style', async (req, res) => {
         res.json(response);
     } catch (error) {
         console.error("Error fetching prices:", error.message);
-        res.status(500).json({ error: 'Failed to fetch prices for the specified style and color.' });
+        res.status(500).json({ error: 'Failed to fetch prices for the specified style.' });
     }
 });
 
@@ -1664,7 +1849,138 @@ app.use((err, req, res, next) => {
     res.status(500).json({ error: 'An unexpected internal server error occurred.' });
 });
 
-
+// --- NEW Endpoint: Get Size Pricing with Upcharges for Datapage Integration ---
+// Example: /api/size-pricing?styleNumber=PC61&color=Ash
+app.get('/api/size-pricing', async (req, res) => {
+    const { styleNumber, color } = req.query;
+    if (!styleNumber) {
+        return res.status(400).json({ error: 'Missing required query parameter: styleNumber' });
+    }
+    
+    try {
+        console.log(`Fetching size pricing for style: ${styleNumber}, color: ${color || 'all colors'}`);
+        
+        // Define the standard size upcharges
+        const standardUpcharges = {
+            '2XL': 2.00,
+            'XXL': 2.00,
+            '3XL': 3.00,
+            'XXXL': 3.00,
+            '4XL': 4.00,
+            'XXXXL': 4.00,
+            '5XL': 5.00,
+            'XXXXXL': 5.00,
+            '6XL': 6.00,
+            'XXXXXXL': 6.00
+        };
+        
+        // Determine the query based on whether a color is specified
+        const resource = '/tables/Inventory/records';
+        
+        // If the style is PC61 and no color is specified, specifically check Ash color which has all sizes
+        let whereClause;
+        if (styleNumber === 'PC61' && !color) {
+            whereClause = `catalog_no='${styleNumber}' AND catalog_color='Ash'`;
+        } else if (color) {
+            whereClause = `catalog_no='${styleNumber}' AND catalog_color='${color}'`;
+        } else {
+            whereClause = `catalog_no='${styleNumber}'`;
+        }
+            
+        const params = {
+            'q.where': whereClause,
+            'q.select': 'size, case_price, SizeSortOrder, catalog_color',
+            'q.limit': 1000
+        };
+        
+        // Fetch the data
+        const result = await fetchAllCaspioPages(resource, params);
+        
+        if (result.length === 0) {
+            console.warn(`No inventory found for style: ${styleNumber}${color ? ` and color: ${color}` : ''}`);
+            return res.status(404).json({ error: `No inventory found for style: ${styleNumber}${color ? ` and color: ${color}` : ''}` });
+        }
+        
+        // Process results to get max prices per size and sort orders
+        const maxPrices = {};
+        const sortOrders = {};
+        
+        // First pass: collect max prices and sort orders
+        result.forEach(item => {
+            if (item.size && item.case_price !== null && !isNaN(item.case_price)) {
+                const size = item.size;
+                const price = parseFloat(item.case_price);
+                const sortOrder = item.SizeSortOrder || 999;
+                
+                // Store the max price for each size
+                if (!maxPrices[size] || price > maxPrices[size]) {
+                    maxPrices[size] = price;
+                }
+                
+                // Store the sort order for each size
+                if (!sortOrders[size] || sortOrder < sortOrders[size]) {
+                    sortOrders[size] = sortOrder;
+                }
+            }
+        });
+        
+        // Determine the base price (typically M or L)
+        let basePrice = null;
+        if (maxPrices['M']) {
+            basePrice = maxPrices['M'];
+        } else if (maxPrices['L']) {
+            basePrice = maxPrices['L'];
+        } else if (Object.keys(maxPrices).length > 0) {
+            // Fallback to the first available price
+            basePrice = Object.values(maxPrices)[0];
+        }
+        
+        // Create an array of sizes sorted by SizeSortOrder
+        const sortedSizes = Object.keys(maxPrices).sort((a, b) => {
+            return (sortOrders[a] || 999) - (sortOrders[b] || 999);
+        });
+        
+        // Create the response with detailed pricing information for each size
+        const sizeDetails = sortedSizes.map(size => {
+            const maxPrice = maxPrices[size];
+            const standardUpcharge = standardUpcharges[size] || 0;
+            const baseWithUpcharge = basePrice + standardUpcharge;
+            
+            // Determine if the standard upcharge is enough
+            const isStandardUpchargeEnough = maxPrice <= baseWithUpcharge;
+            
+            // Calculate the actual upcharge needed
+            const actualUpchargeNeeded = isStandardUpchargeEnough ? standardUpcharge : (maxPrice - basePrice);
+            
+            return {
+                size: size,
+                maxCasePrice: maxPrice,
+                standardUpcharge: standardUpcharge,
+                basePrice: basePrice,
+                baseWithStandardUpcharge: baseWithUpcharge,
+                isStandardUpchargeEnough: isStandardUpchargeEnough,
+                actualUpchargeNeeded: actualUpchargeNeeded,
+                recommendedPrice: Math.max(maxPrice, baseWithUpcharge),
+                sortOrder: sortOrders[size]
+            };
+        });
+        
+        // Create the final response
+        const response = {
+            style: styleNumber,
+            color: color || 'all colors',
+            basePrice: basePrice,
+            sizes: sizeDetails
+        };
+        
+        console.log(`Returning size pricing for ${sortedSizes.length} sizes for style: ${styleNumber}${color ? `, color: ${color}` : ''}`);
+        res.json(response);
+        
+    } catch (error) {
+        console.error("Error fetching size pricing:", error.message);
+        res.status(500).json({ error: 'Failed to fetch size pricing for the specified style.' });
+    }
+});
 
 
 // --- Start the Server ---
