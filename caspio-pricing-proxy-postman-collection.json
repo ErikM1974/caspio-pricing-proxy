@@ -1044,6 +1044,40 @@
 				"description": "Get inventory data in a tabular format with warehouses as rows and sizes as columns"
 			},
 			"response": []
+		},
+		{
+			"name": "Size Pricing with Upcharges",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/size-pricing?styleNumber=PC61&color=White",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"size-pricing"
+					],
+					"query": [
+						{
+							"key": "styleNumber",
+							"value": "PC61",
+							"description": "Style number of the product"
+						},
+						{
+							"key": "color",
+							"value": "White",
+							"description": "Color name (optional - if not provided, uses Ash for PC61 or all colors for other styles)"
+						}
+					]
+				},
+				"description": "Get detailed size pricing information including base price, standard upcharges, actual upcharges needed, and recommended prices for each size. Provides transparency into how size upcharges are calculated."
+			},
+			"response": []
 		}
 	],
 	"event": [
