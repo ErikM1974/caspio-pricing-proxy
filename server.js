@@ -367,7 +367,7 @@ app.get('/api/base-item-costs', async (req, res) => {
         const resource = '/tables/Inventory/records'; // Using Inventory table
         const params = {
             'q.where': `catalog_no='${styleNumber}'`, // Ensure field name matches your table/view
-            'q.select': 'size,case_price', // Select only needed fields
+            'q.select': 'size,case_price,SizeSortOrder', // Added SizeSortOrder for proper size sorting
             'q.limit': 2000 // Fetch all relevant size/color records for the style
         };
         // Use fetchAllCaspioPages to handle pagination
@@ -375,10 +375,20 @@ app.get('/api/base-item-costs', async (req, res) => {
 
         // Process results server-side to find max case price per size
         const maxPrices = {};
+        const sizeSortOrders = {};
+        
         result.forEach(item => {
             if (item.size && item.case_price !== null && !isNaN(item.case_price)) {
                 const size = item.size;
                 const price = parseFloat(item.case_price);
+                const sortOrder = item.SizeSortOrder || 999; // Default high value if missing
+                
+                // Store the sort order for each size
+                if (!sizeSortOrders[size] || sortOrder < sizeSortOrders[size]) {
+                    sizeSortOrders[size] = sortOrder;
+                }
+                
+                // Find the max price for each size
                 if (!maxPrices[size] || price > maxPrices[size]) {
                     maxPrices[size] = price;
                 }
@@ -387,11 +397,17 @@ app.get('/api/base-item-costs', async (req, res) => {
 
         if (Object.keys(maxPrices).length === 0) {
             // Optional: Return 404 if no data found for the style? Or just empty object?
-             console.warn(`No inventory cost data found for style: ${styleNumber}`);
+            console.warn(`No inventory cost data found for style: ${styleNumber}`);
             // return res.status(404).json({ error: `No inventory cost data found for style: ${styleNumber}` });
         }
 
-        res.json(maxPrices); // Return object: { "S": 10.50, "M": 10.50, "L": 11.00 }
+        // Create a response that includes both the original format and the sort orders
+        const response = {
+            prices: maxPrices,
+            sortOrders: sizeSortOrders
+        };
+
+        res.json(response); // Return object: { prices: { "S": 10.50, "M": 10.50 }, sortOrders: { "S": 10, "M": 20 } }
 
     } catch (error) {
         res.status(500).json({ error: error.message || 'Failed to fetch base item costs.' });
@@ -1499,6 +1515,145 @@ app.get('/api/sizes-by-style-color', async (req, res) => {
     } catch (error) {
         console.error("Error fetching sizes:", error.message);
         res.status(500).json({ error: 'Failed to fetch sizes for the specified style and color.' });
+    }
+});
+
+// --- NEW Endpoint: Get Prices by Style and Color with Ordered Sizes ---
+// Example: /api/prices-by-style-color?styleNumber=PC61&color=White
+app.get('/api/prices-by-style-color', async (req, res) => {
+    const { styleNumber, color } = req.query;
+    if (!styleNumber || !color) {
+        return res.status(400).json({ error: 'Missing required query parameters: styleNumber, color' });
+    }
+    try {
+        console.log(`Fetching prices for style: ${styleNumber}, color: ${color}`);
+        const resource = '/tables/Inventory/records';
+        const params = {
+            'q.where': `catalog_no='${styleNumber}' AND catalog_color='${color}'`,
+            'q.select': 'size, case_price, SizeSortOrder',
+            'q.limit': 1000 // Set a high limit to ensure we get all sizes
+        };
+        
+        // Use fetchAllCaspioPages to handle pagination
+        const result = await fetchAllCaspioPages(resource, params);
+        
+        if (result.length === 0) {
+            console.warn(`No inventory found for style: ${styleNumber} and color: ${color}`);
+            return res.status(404).json({ error: `No inventory found for style: ${styleNumber} and color: ${color}` });
+        }
+        
+        // Process results to get prices per size and sort orders
+        const prices = {};
+        const sortOrders = {};
+        
+        result.forEach(item => {
+            if (item.size && item.case_price !== null && !isNaN(item.case_price)) {
+                const size = item.size;
+                const price = parseFloat(item.case_price);
+                const sortOrder = item.SizeSortOrder || 999; // Default high value if missing
+                
+                // Store the price for each size
+                if (!prices[size] || price > prices[size]) {
+                    prices[size] = price;
+                }
+                
+                // Store the sort order for each size
+                if (!sortOrders[size] || sortOrder < sortOrders[size]) {
+                    sortOrders[size] = sortOrder;
+                }
+            }
+        });
+        
+        // Create an array of sizes sorted by SizeSortOrder
+        const sortedSizes = Object.keys(prices).sort((a, b) => {
+            return (sortOrders[a] || 999) - (sortOrders[b] || 999);
+        });
+        
+        // Create the response with ordered sizes and prices
+        const response = {
+            style: styleNumber,
+            color: color,
+            sizes: sortedSizes.map(size => ({
+                size: size,
+                price: prices[size],
+                sortOrder: sortOrders[size]
+            }))
+        };
+        
+        console.log(`Returning prices for ${sortedSizes.length} sizes for style: ${styleNumber}, color: ${color}`);
+        res.json(response);
+    } catch (error) {
+        console.error("Error fetching prices:", error.message);
+        res.status(500).json({ error: 'Failed to fetch prices for the specified style and color.' });
+    }
+});
+
+// --- NEW Endpoint: Get Maximum Prices Across All Colors for a Style ---
+// Example: /api/max-prices-by-style?styleNumber=PC61
+app.get('/api/max-prices-by-style', async (req, res) => {
+    const { styleNumber } = req.query;
+    if (!styleNumber) {
+        return res.status(400).json({ error: 'Missing required query parameter: styleNumber' });
+    }
+    try {
+        console.log(`Fetching max prices for style: ${styleNumber} across all colors`);
+        const resource = '/tables/Inventory/records';
+        const params = {
+            'q.where': `catalog_no='${styleNumber}'`, // Query all colors for this style
+            'q.select': 'size, case_price, SizeSortOrder, catalog_color',
+            'q.limit': 2000 // Set a high limit to ensure we get all sizes and colors
+        };
+        
+        // Use fetchAllCaspioPages to handle pagination
+        const result = await fetchAllCaspioPages(resource, params);
+        
+        if (result.length === 0) {
+            console.warn(`No inventory found for style: ${styleNumber}`);
+            return res.status(404).json({ error: `No inventory found for style: ${styleNumber}` });
+        }
+        
+        // Process results to get MAX prices per size across all colors and sort orders
+        const prices = {};
+        const sortOrders = {};
+        
+        result.forEach(item => {
+            if (item.size && item.case_price !== null && !isNaN(item.case_price)) {
+                const size = item.size;
+                const price = parseFloat(item.case_price);
+                const sortOrder = item.SizeSortOrder || 999; // Default high value if missing
+                
+                // Store the MAX price for each size across all colors
+                if (!prices[size] || price > prices[size]) {
+                    prices[size] = price;
+                }
+                
+                // Store the sort order for each size
+                if (!sortOrders[size] || sortOrder < sortOrders[size]) {
+                    sortOrders[size] = sortOrder;
+                }
+            }
+        });
+        
+        // Create an array of sizes sorted by SizeSortOrder
+        const sortedSizes = Object.keys(prices).sort((a, b) => {
+            return (sortOrders[a] || 999) - (sortOrders[b] || 999);
+        });
+        
+        // Create the response with ordered sizes and MAX prices across all colors
+        const response = {
+            style: styleNumber,
+            sizes: sortedSizes.map(size => ({
+                size: size,
+                price: prices[size],
+                sortOrder: sortOrders[size]
+            }))
+        };
+        
+        console.log(`Returning MAX prices for ${sortedSizes.length} sizes for style: ${styleNumber} across all colors`);
+        res.json(response);
+    } catch (error) {
+        console.error("Error fetching prices:", error.message);
+        res.status(500).json({ error: 'Failed to fetch prices for the specified style and color.' });
     }
 });
 
