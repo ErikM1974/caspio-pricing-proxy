@@ -413,7 +413,7 @@ app.get('/api/test-sanmar-bulk', async (req, res) => {
     }
 });
 
-// --- OPTIMIZED Endpoint: Style Search Autocomplete (Smart Search) ---
+// --- ENHANCED Endpoint: Style Search Autocomplete with Improved Pagination ---
 // Example: /api/stylesearch?term=PC
 app.get('/api/stylesearch', async (req, res) => {
     const { term } = req.query;
@@ -424,6 +424,10 @@ app.get('/api/stylesearch', async (req, res) => {
         console.log(`Style search for term: "${term}" (${term.length} characters)`);
         const resource = '/tables/Sanmar_Bulk_251816_Feb2024/records';
         
+        // IMPORTANT: Set a very high limit to ensure we get as many results per page as possible
+        // This helps with pagination by reducing the number of API calls needed
+        const MAX_LIMIT = 1000;
+        
         // First, try to find styles that START with the search term (highest priority)
         const startsWithClause = `STYLE LIKE '${term}%'`;
         
@@ -431,12 +435,13 @@ app.get('/api/stylesearch', async (req, res) => {
             'q.where': startsWithClause,
             'q.select': 'STYLE, PRODUCT_TITLE',
             'q.orderby': 'STYLE ASC',
-            'q.limit': 100
+            'q.limit': MAX_LIMIT // Use maximum limit for better pagination handling
         };
         
-        // Use fetchAllCaspioPages to handle pagination
+        console.log(`Fetching all styles that START with "${term}" using pagination...`);
+        // Use fetchAllCaspioPages to handle pagination - this will get ALL pages
         const startsWithResults = await fetchAllCaspioPages(resource, startsWithParams);
-        console.log(`Style search found ${startsWithResults.length} "starts with" matches for "${term}"`);
+        console.log(`Style search found ${startsWithResults.length} total "starts with" matches for "${term}" across all pages`);
 
         // If we have enough "starts with" results, we can skip the "contains" search
         let containsResults = [];
@@ -449,18 +454,21 @@ app.get('/api/stylesearch', async (req, res) => {
                 'q.where': containsClause,
                 'q.select': 'STYLE, PRODUCT_TITLE',
                 'q.orderby': 'STYLE ASC',
-                'q.limit': 50
+                'q.limit': MAX_LIMIT // Use maximum limit for better pagination handling
             };
             
+            console.log(`Fetching all styles that CONTAIN "${term}" using pagination...`);
             containsResults = await fetchAllCaspioPages(resource, containsParams);
-            console.log(`Style search found ${containsResults.length} additional "contains" matches for "${term}"`);
+            console.log(`Style search found ${containsResults.length} additional "contains" matches for "${term}" across all pages`);
         }
         
         // Combine results, with "starts with" matches first
         const combinedResults = [...startsWithResults, ...containsResults];
+        console.log(`Combined results before filtering: ${combinedResults.length}`);
         
         // Filter out nulls and empty strings
         const validResults = combinedResults.filter(item => item.STYLE && item.STYLE.trim() !== '');
+        console.log(`Valid results after filtering: ${validResults.length}`);
         
         // Deduplicate by STYLE
         const styleMap = new Map();
@@ -470,11 +478,16 @@ app.get('/api/stylesearch', async (req, res) => {
             }
         });
         
-        // Convert to array and limit to 50 results
-        const uniqueResults = Array.from(styleMap.values()).slice(0, 50);
+        // Convert to array and sort alphabetically
+        const uniqueResults = Array.from(styleMap.values());
+        uniqueResults.sort((a, b) => a.STYLE.localeCompare(b.STYLE));
+        console.log(`Unique styles after deduplication: ${uniqueResults.length}`);
+        
+        // Limit to 100 results (increased from 50 for more comprehensive results)
+        const limitedResults = uniqueResults.slice(0, 100);
         
         // Format for autocomplete with enhanced labels
-        const suggestions = uniqueResults.map(item => {
+        const suggestions = limitedResults.map(item => {
             const titleSuffix = item.PRODUCT_TITLE ? ` - ${item.PRODUCT_TITLE}` : '';
             
             return {
