@@ -413,6 +413,35 @@
 			"response": []
 		},
 		{
+			"name": "Max Prices by Style",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/max-prices-by-style?styleNumber=PC61",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"max-prices-by-style"
+					],
+					"query": [
+						{
+							"key": "styleNumber",
+							"value": "PC61",
+							"description": "Style number of the item"
+						}
+					]
+				},
+				"description": "Get maximum prices across all colors for each size of a style, with sizes sorted in the correct order"
+			},
+			"response": []
+		},
+		{
 			"name": "Test Sanmar Bulk",
 			"request": {
 				"method": "GET",
@@ -979,6 +1008,40 @@
 					]
 				},
 				"description": "Compare multiple products side-by-side (requires at least 2 style numbers)"
+			},
+			"response": []
+		},
+		{
+			"name": "Inventory Table by Style and Color",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/sizes-by-style-color?styleNumber=PC61&color=Ash",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"sizes-by-style-color"
+					],
+					"query": [
+						{
+							"key": "styleNumber",
+							"value": "PC61",
+							"description": "Style number of the product"
+						},
+						{
+							"key": "color",
+							"value": "Ash",
+							"description": "Color name to filter results"
+						}
+					]
+				},
+				"description": "Get inventory data in a tabular format with warehouses as rows and sizes as columns"
 			},
 			"response": []
 		}
