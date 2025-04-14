@@ -115,6 +115,28 @@
 			"response": []
 		},
 		{
+			"name": "Pricing Tiers - EmbroideryCaps",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/pricing-tiers-caps",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"pricing-tiers-caps"
+					]
+				},
+				"description": "Get pricing tiers for Embroidery Caps"
+			},
+			"response": []
+		},
+		{
 			"name": "Embroidery Costs - Cap 5000",
 			"request": {
 				"method": "GET",

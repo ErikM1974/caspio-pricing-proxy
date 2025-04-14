@@ -283,10 +283,20 @@ app.get('/api/pricing-tiers', async (req, res) => {
     try {
         // Use Pricing_Tiers table instead of view
         const resource = '/tables/Pricing_Tiers/records';
+        
+        // Special handling for Embroidery - map to EmbroideryShirts
+        let whereClause;
+        if (method === 'Embroidery') {
+            whereClause = `DecorationMethod='EmbroideryShirts'`;
+            console.log(`Special handling for Embroidery method: querying for EmbroideryShirts`);
+        } else {
+            whereClause = `DecorationMethod='${method}'`;
+        }
+        
         const params = {
-            'q.where': `DecorationMethod='${method}'`,
-            // Select only needed fields with correct column names
-            'q.select': 'TierLabel,MinQuantity,MaxQuantity,LTM_Fee,MarginDenominator,TargetMargin',
+            'q.where': whereClause,
+            // Select all fields from the Pricing_Tiers table
+            'q.select': 'PK_ID,TierID,DecorationMethod,TierLabel,MinQuantity,MaxQuantity,MarginDenominator,TargetMargin,LTM_Fee',
             'q.limit': 100 // Ensure all tiers are fetched
         };
         // Use fetchAllCaspioPages to handle pagination
@@ -294,6 +304,28 @@ app.get('/api/pricing-tiers', async (req, res) => {
         res.json(result);
     } catch (error) {
         res.status(500).json({ error: error.message || 'Failed to fetch pricing tiers.' });
+    }
+});
+
+// Get Pricing Tiers for Embroidery Caps
+// Example: /api/pricing-tiers-caps
+app.get('/api/pricing-tiers-caps', async (req, res) => {
+    try {
+        console.log(`Fetching pricing tiers for EmbroideryCaps`);
+        
+        const resource = '/tables/Pricing_Tiers/records';
+        const params = {
+            'q.where': `DecorationMethod='EmbroideryCaps'`,
+            // Select all fields from the Pricing_Tiers table
+            'q.select': 'PK_ID,TierID,DecorationMethod,TierLabel,MinQuantity,MaxQuantity,MarginDenominator,TargetMargin,LTM_Fee',
+            'q.limit': 100 // Ensure all tiers are fetched
+        };
+        
+        // Use fetchAllCaspioPages to handle pagination
+        const result = await fetchAllCaspioPages(resource, params);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ error: error.message || 'Failed to fetch pricing tiers for caps.' });
     }
 });
 
@@ -1874,52 +1906,110 @@ app.get('/api/size-pricing', async (req, res) => {
             'XXXXXXL': 6.00
         };
         
-        // Determine the query based on whether a color is specified
-        const resource = '/tables/Inventory/records';
+        // OPTIMIZATION: First check the Sanmar_Bulk table to get available sizes using SIZE field
+        console.log(`First checking Sanmar_Bulk table for available sizes for style: ${styleNumber}`);
+        const bulkResource = '/tables/Sanmar_Bulk_251816_Feb2024/records';
+        const bulkParams = {
+            'q.where': `STYLE='${styleNumber}'`,
+            'q.select': 'SIZE, SIZE_INDEX',
+            'q.distinct': true,
+            'q.orderby': 'SIZE_INDEX ASC',
+            'q.limit': 100 // Should be enough for all sizes
+        };
         
-        // If the style is PC61 and no color is specified, specifically check Ash color which has all sizes
-        let whereClause;
-        if (styleNumber === 'PC61' && !color) {
-            whereClause = `catalog_no='${styleNumber}' AND catalog_color='Ash'`;
-        } else if (color) {
-            whereClause = `catalog_no='${styleNumber}' AND catalog_color='${color}'`;
-        } else {
-            whereClause = `catalog_no='${styleNumber}'`;
-        }
-            
-        const params = {
-            'q.where': whereClause,
+        // Get available sizes from the bulk table
+        const bulkResult = await fetchAllCaspioPages(bulkResource, bulkParams);
+        console.log(`Found ${bulkResult.length} sizes in Sanmar_Bulk table for style: ${styleNumber}`);
+        
+        // Extract unique sizes from the bulk table
+        const availableSizes = new Set();
+        bulkResult.forEach(item => {
+            if (item.SIZE) {
+                availableSizes.add(item.SIZE);
+            }
+        });
+        
+        console.log(`Available sizes from Sanmar_Bulk: ${[...availableSizes].join(', ')}`);
+        
+        // Now query the Inventory table for pricing information
+        // OPTIMIZATION: Only query by style number, not by color
+        // We'll filter by color later if needed
+        const resource = '/tables/Inventory/records';
+        const inventoryParams = {
+            'q.where': `catalog_no='${styleNumber}'`,
             'q.select': 'size, case_price, SizeSortOrder, catalog_color',
             'q.limit': 1000
         };
         
-        // Fetch the data
-        const result = await fetchAllCaspioPages(resource, params);
+        // Create an early exit condition function based on the sizes we found in the Sanmar_Bulk table
+        const foundSizes = new Set();
+        const earlyExitCondition = (results) => {
+            // Update the set of found sizes
+            results.forEach(item => {
+                if (item.size) {
+                    foundSizes.add(item.size);
+                }
+            });
+            
+            // Check if we've found all the sizes from the Sanmar_Bulk table
+            let foundAllSizes = true;
+            for (const size of availableSizes) {
+                if (!foundSizes.has(size)) {
+                    foundAllSizes = false;
+                    break;
+                }
+            }
+            
+            // Log what sizes we've found so far
+            console.log(`Sizes found so far: ${[...foundSizes].join(', ')}`);
+            
+            // Exit early if we've found all the sizes from Sanmar_Bulk
+            if (foundAllSizes) {
+                console.log(`Found all sizes from Sanmar_Bulk: ${[...foundSizes].join(', ')}`);
+                return true;
+            }
+            
+            return false;
+        };
         
-        if (result.length === 0) {
-            console.warn(`No inventory found for style: ${styleNumber}${color ? ` and color: ${color}` : ''}`);
-            return res.status(404).json({ error: `No inventory found for style: ${styleNumber}${color ? ` and color: ${color}` : ''}` });
+        // Fetch data for all colors to get prices
+        console.log(`Fetching prices for style: ${styleNumber} across all colors`);
+        const inventoryResult = await fetchAllCaspioPages(resource, inventoryParams, {
+            maxPages: 10,  // Use 10 pages for better performance
+            earlyExitCondition: earlyExitCondition  // Add early exit condition based on Sanmar_Bulk sizes
+        });
+        
+        if (inventoryResult.length === 0) {
+            console.warn(`No inventory found for style: ${styleNumber}`);
+            return res.status(404).json({ error: `No inventory found for style: ${styleNumber}` });
         }
         
         // Process results to get max prices per size and sort orders
         const maxPrices = {};
         const sortOrders = {};
+        const colorSpecificPrices = {};
         
-        // First pass: collect max prices and sort orders
-        result.forEach(item => {
+        // First pass: collect max prices across ALL colors
+        inventoryResult.forEach(item => {
             if (item.size && item.case_price !== null && !isNaN(item.case_price)) {
                 const size = item.size;
                 const price = parseFloat(item.case_price);
                 const sortOrder = item.SizeSortOrder || 999;
                 
-                // Store the max price for each size
+                // Store the max price for each size across ALL colors
                 if (!maxPrices[size] || price > maxPrices[size]) {
                     maxPrices[size] = price;
+                    console.log(`Found new max price for size ${size}: $${price.toFixed(2)} (color: ${item.catalog_color || 'unknown'})`);
                 }
                 
                 // Store the sort order for each size
                 if (!sortOrders[size] || sortOrder < sortOrders[size]) {
                     sortOrders[size] = sortOrder;
+                }
+                
+                // If a specific color is requested, collect prices for that color
+                if (color && item.catalog_color === color) {
+                    colorSpecificPrices[size] = price;
                 }
             }
         });
@@ -1942,25 +2032,34 @@ app.get('/api/size-pricing', async (req, res) => {
         
         // Create the response with detailed pricing information for each size
         const sizeDetails = sortedSizes.map(size => {
-            const maxPrice = maxPrices[size];
+            // Always use the max price across all colors for calculations
+            const maxPriceAcrossAllColors = maxPrices[size];
+            
+            // Get the color-specific price if available (for the requested color)
+            const requestedColorPrice = colorSpecificPrices[size] || maxPriceAcrossAllColors;
+            
             const standardUpcharge = standardUpcharges[size] || 0;
-            const baseWithUpcharge = basePrice + standardUpcharge;
+            const baseSizePlusUpcharge = basePrice + standardUpcharge;
             
-            // Determine if the standard upcharge is enough
-            const isStandardUpchargeEnough = maxPrice <= baseWithUpcharge;
+            // Determine if the standard upcharge is enough (based on max price across all colors)
+            const isStandardUpchargeEnough = maxPriceAcrossAllColors <= baseSizePlusUpcharge;
             
-            // Calculate the actual upcharge needed
-            const actualUpchargeNeeded = isStandardUpchargeEnough ? standardUpcharge : (maxPrice - basePrice);
+            // Calculate the actual upcharge needed (based on max price across all colors)
+            const actualUpchargeNeeded = isStandardUpchargeEnough ? standardUpcharge : (maxPriceAcrossAllColors - basePrice);
+            
+            // Always use the higher of max price or base+upcharge for the recommended price
+            const recommendedPrice = Math.max(maxPriceAcrossAllColors, baseSizePlusUpcharge);
             
             return {
                 size: size,
-                maxCasePrice: maxPrice,
-                standardUpcharge: standardUpcharge,
-                basePrice: basePrice,
-                baseWithStandardUpcharge: baseWithUpcharge,
+                maxPriceAcrossAllColors: maxPriceAcrossAllColors,  // Highest price for this size across all colors
+                requestedColorPrice: requestedColorPrice,          // Price for this size in the requested color
+                standardUpcharge: standardUpcharge,                // Standard upcharge for this size
+                baseSizePrice: basePrice,                          // Price of the base size (M or L)
+                baseSizePlusUpcharge: baseSizePlusUpcharge,        // Base size price + standard upcharge
                 isStandardUpchargeEnough: isStandardUpchargeEnough,
                 actualUpchargeNeeded: actualUpchargeNeeded,
-                recommendedPrice: Math.max(maxPrice, baseWithUpcharge),
+                recommendedPrice: recommendedPrice,                // Final recommended price
                 sortOrder: sortOrders[size]
             };
         });
@@ -1969,7 +2068,7 @@ app.get('/api/size-pricing', async (req, res) => {
         const response = {
             style: styleNumber,
             color: color || 'all colors',
-            basePrice: basePrice,
+            baseSizePrice: basePrice,  // Renamed to match the field in sizeDetails
             sizes: sizeDetails
         };
         
