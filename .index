@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Caspio API Test Client</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1 {
+            color: #333;
+        }
+        .endpoint-section {
+            margin-bottom: 30px;
+            border: 1px solid #ddd;
+            padding: 15px;
+            border-radius: 5px;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 8px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 10px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        pre {
+            background-color: #f5f5f5;
+            padding: 10px;
+            border-radius: 5px;
+            overflow-x: auto;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .error {
+            color: red;
+            font-weight: bold;
+        }
+        .success {
+            color: green;
+        }
+        input, select {
+            padding: 8px;
+            margin: 5px 0;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+        }
+        .config-section {
+            background-color: #f9f9f9;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Caspio API Test Client</h1>
+    
+    <div class="config-section">
+        <h2>API Configuration</h2>
+        <div>
+            <label for="apiUrl">API Base URL:</label>
+            <input type="text" id="apiUrl" value="http://localhost:3000" style="width: 400px;">
+            <div style="margin-top: 10px;">
+                <button onclick="setLocalUrl()">Use Local Server</button>
+                <button onclick="setHerokuUrl()">Use Heroku Server</button>
+            </div>
+        </div>
+        <p>
+            <button onclick="testConnection()">Test Connection</button>
+            <span id="connectionStatus"></span>
+        </p>
+    </div>
+
+    <div class="endpoint-section">
+        <h2>Status Check</h2>
+        <button onclick="fetchStatus()">Check Status</button>
+        <pre id="statusResult">Results will appear here...</pre>
+    </div>
+
+    <div class="endpoint-section">
+        <h2>Pricing Tiers</h2>
+        <label for="decorationMethod">Decoration Method:</label>
+        <select id="decorationMethod">
+            <option value="DTG">DTG</option>
+            <option value="ScreenPrint">ScreenPrint</option>
+            <option value="Embroidery">Embroidery</option>
+        </select>
+        <button onclick="fetchPricingTiers()">Get Pricing Tiers</button>
+        <pre id="pricingTiersResult">Results will appear here...</pre>
+    </div>
+
+    <div class="endpoint-section">
+        <h2>Style Search</h2>
+        <label for="styleSearch">Search Term:</label>
+        <input type="text" id="styleSearch" placeholder="Enter style number (e.g., PC61)">
+        <button onclick="searchStyles()">Search</button>
+        <pre id="styleSearchResult">Results will appear here...</pre>
+    </div>
+
+    <div class="endpoint-section">
+        <h2>Product Details</h2>
+        <label for="styleNumber">Style Number:</label>
+        <input type="text" id="styleNumber" placeholder="Enter style number (e.g., PC61)">
+        <button onclick="fetchProductDetails()">Get Details</button>
+        <pre id="productDetailsResult">Results will appear here...</pre>
+    </div>
+
+    <script>
+        // Helper functions to switch between environments
+        function setLocalUrl() {
+            document.getElementById('apiUrl').value = 'http://localhost:3000';
+            document.getElementById('connectionStatus').textContent = '';
+            document.getElementById('connectionStatus').className = '';
+            console.log("Switched to local server URL");
+        }
+        
+        function setHerokuUrl() {
+            document.getElementById('apiUrl').value = 'https://caspio-pricing-proxy-ab30a049961a.herokuapp.com';
+            document.getElementById('connectionStatus').textContent = '';
+            document.getElementById('connectionStatus').className = '';
+            console.log("Switched to Heroku server URL");
+        }
+        // Helper function to display results
+        function displayResult(elementId, data, isError = false) {
+            const element = document.getElementById(elementId);
+            if (isError) {
+                element.innerHTML = `<span class="error">ERROR: ${JSON.stringify(data, null, 2)}</span>`;
+            } else {
+                element.innerHTML = `<span class="success">SUCCESS:</span> ${JSON.stringify(data, null, 2)}`;
+            }
+        }
+
+        // Helper function to get the API base URL
+        function getApiBaseUrl() {
+            return document.getElementById('apiUrl').value.trim();
+        }
+
+        // Test the API connection
+        async function testConnection() {
+            const statusElement = document.getElementById('connectionStatus');
+            statusElement.textContent = "Testing connection...";
+            statusElement.className = "";
+            const apiUrl = getApiBaseUrl();
+            console.log("Testing connection to:", apiUrl);
+            
+            try {
+                const response = await fetch(`${apiUrl}/status`);
+                console.log("Connection response status:", response.status);
+                if (response.ok) {
+                    const data = await response.json();
+                    statusElement.textContent = "✅ Connection successful!";
+                    statusElement.className = "success";
+                    console.log("Connection test successful:", data);
+                } else {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+            } catch (error) {
+                statusElement.textContent = `❌ Connection failed: ${error.message}`;
+                statusElement.className = "error";
+                console.error("Connection test failed:", error);
+            }
+        }
+
+        // Fetch API status
+        async function fetchStatus() {
+            const apiUrl = getApiBaseUrl();
+            console.log("Fetching status from:", apiUrl);
+            try {
+                const response = await fetch(`${apiUrl}/status`);
+                console.log("Status response:", response.status);
+                const data = await response.json();
+                displayResult('statusResult', data);
+            } catch (error) {
+                displayResult('statusResult', error.message, true);
+                console.error("Status check failed:", error);
+            }
+        }
+
+        // Fetch pricing tiers
+        async function fetchPricingTiers() {
+            try {
+                const method = document.getElementById('decorationMethod').value;
+                const apiUrl = `${getApiBaseUrl()}/api/pricing-tiers?method=${method}`;
+                console.log("Fetching pricing tiers from:", apiUrl);
+                
+                const response = await fetch(apiUrl);
+                console.log("Pricing tiers response status:", response.status);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                displayResult('pricingTiersResult', data);
+            } catch (error) {
+                displayResult('pricingTiersResult', error.message, true);
+                console.error("Pricing tiers fetch failed:", error);
+            }
+        }
+
+        // Search styles
+        async function searchStyles() {
+            try {
+                const term = document.getElementById('styleSearch').value;
+                if (!term || term.length < 2) {
+                    displayResult('styleSearchResult', "Please enter at least 2 characters", true);
+                    return;
+                }
+                const response = await fetch(`${getApiBaseUrl()}/api/stylesearch?term=${term}`);
+                const data = await response.json();
+                displayResult('styleSearchResult', data);
+            } catch (error) {
+                displayResult('styleSearchResult', error.message, true);
+                console.error("Style search failed:", error);
+            }
+        }
+
+        // Fetch product details
+        async function fetchProductDetails() {
+            try {
+                const styleNumber = document.getElementById('styleNumber').value;
+                if (!styleNumber) {
+                    displayResult('productDetailsResult', "Please enter a style number", true);
+                    return;
+                }
+                const response = await fetch(`${getApiBaseUrl()}/api/product-details?styleNumber=${styleNumber}`);
+                const data = await response.json();
+                displayResult('productDetailsResult', data);
+            } catch (error) {
+                displayResult('productDetailsResult', error.message, true);
+                console.error("Product details fetch failed:", error);
+            }
+        }
+
+        // Initialize with a connection test
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log("Test client loaded. API URL:", getApiBaseUrl());
+        });
+    </script>
+</body>
+</html>

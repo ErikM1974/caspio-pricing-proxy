@@ -2463,6 +2463,195 @@ app.delete('/api/cart-items/:id', async (req, res) => {
     }
 });
 
+// --- NEW Endpoint: Cart Item Sizes CRUD Operations ---
+// GET: /api/cart-item-sizes - Get all cart item sizes or filter by query parameters
+// POST: /api/cart-item-sizes - Create a new cart item size
+// PUT: /api/cart-item-sizes/:id - Update a cart item size
+// DELETE: /api/cart-item-sizes/:id - Delete a cart item size
+app.get('/api/cart-item-sizes', async (req, res) => {
+    try {
+        console.log("Fetching cart item sizes information");
+        const resource = '/tables/Cart_Item_Sizes/records';
+        
+        // Build query parameters based on request query
+        const params = {};
+        
+        // Add any filter parameters from the request
+        if (Object.keys(req.query).length > 0) {
+            const whereConditions = [];
+            
+            // Handle common filter fields
+            if (req.query.cartItemID) {
+                whereConditions.push(`CartItemID=${req.query.cartItemID}`);
+            }
+            if (req.query.size) {
+                whereConditions.push(`Size='${req.query.size}'`);
+            }
+            
+            // Add the WHERE clause if we have conditions
+            if (whereConditions.length > 0) {
+                params['q.where'] = whereConditions.join(' AND ');
+            }
+        }
+        
+        // Set ordering and limit
+        params['q.orderby'] = 'SizeItemID ASC';
+        params['q.limit'] = 1000;
+        
+        // Use fetchAllCaspioPages to handle pagination
+        const result = await fetchAllCaspioPages(resource, params);
+        console.log(`Found ${result.length} cart item size records`);
+        
+        res.json(result);
+    } catch (error) {
+        console.error("Error fetching cart item sizes information:", error.message);
+        res.status(500).json({ error: 'Failed to fetch cart item sizes information.' });
+    }
+});
+
+// Create a new cart item size
+app.post('/api/cart-item-sizes', express.json(), async (req, res) => {
+    try {
+        // Validate required fields
+        const requiredFields = ['CartItemID', 'Size', 'Quantity'];
+        for (const field of requiredFields) {
+            if (!req.body[field]) {
+                return res.status(400).json({ error: `Missing required field: ${field}` });
+            }
+        }
+        
+        // Create a new object with only the allowed fields
+        // Exclude auto-generated fields like SizeItemID and PK_ID
+        const cartItemSizeData = {
+            CartItemID: req.body.CartItemID,
+            Size: req.body.Size,
+            Quantity: req.body.Quantity,
+            UnitPrice: req.body.UnitPrice || null
+        };
+        
+        console.log(`Creating new cart item size for cart item: ${cartItemSizeData.CartItemID}, size: ${cartItemSizeData.Size}`);
+        const resource = '/tables/Cart_Item_Sizes/records';
+        
+        // Get token for the request
+        const token = await getCaspioAccessToken();
+        const url = `${caspioApiBaseUrl}${resource}`;
+        
+        // Prepare the request
+        const config = {
+            method: 'post',
+            url: url,
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            data: cartItemSizeData,
+            timeout: 15000
+        };
+        
+        // Make the request directly using axios
+        const response = await axios(config);
+        
+        console.log(`Cart item size created successfully: ${response.status}`);
+        res.status(201).json({
+            message: 'Cart item size created successfully',
+            cartItemSize: response.data
+        });
+    } catch (error) {
+        console.error("Error creating cart item size:", error.response ? JSON.stringify(error.response.data) : error.message);
+        res.status(500).json({ error: 'Failed to create cart item size.' });
+    }
+});
+
+// Update a cart item size by ID
+app.put('/api/cart-item-sizes/:id', express.json(), async (req, res) => {
+    const { id } = req.params;
+    if (!id) {
+        return res.status(400).json({ error: 'Missing required parameter: id' });
+    }
+    
+    try {
+        console.log(`Updating cart item size with ID: ${id}`);
+        const resource = `/tables/Cart_Item_Sizes/records?q.where=PK_ID=${id}`;
+        
+        // Create a new object with only the allowed fields
+        // Exclude auto-generated fields like SizeItemID and PK_ID
+        const cartItemSizeData = {};
+        
+        // Only include fields that are provided in the request body
+        if (req.body.CartItemID !== undefined) cartItemSizeData.CartItemID = req.body.CartItemID;
+        if (req.body.Size !== undefined) cartItemSizeData.Size = req.body.Size;
+        if (req.body.Quantity !== undefined) cartItemSizeData.Quantity = req.body.Quantity;
+        if (req.body.UnitPrice !== undefined) cartItemSizeData.UnitPrice = req.body.UnitPrice;
+        
+        // Get token for the request
+        const token = await getCaspioAccessToken();
+        const url = `${caspioApiBaseUrl}${resource}`;
+        
+        // Prepare the request
+        const config = {
+            method: 'put',
+            url: url,
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            data: cartItemSizeData,
+            timeout: 15000
+        };
+        
+        // Make the request directly using axios
+        const response = await axios(config);
+        
+        console.log(`Cart item size updated successfully: ${response.status}`);
+        res.json({
+            message: 'Cart item size updated successfully',
+            cartItemSize: response.data
+        });
+    } catch (error) {
+        console.error("Error updating cart item size:", error.response ? JSON.stringify(error.response.data) : error.message);
+        res.status(500).json({ error: 'Failed to update cart item size.' });
+    }
+});
+
+// Delete a cart item size by ID
+app.delete('/api/cart-item-sizes/:id', async (req, res) => {
+    const { id } = req.params;
+    if (!id) {
+        return res.status(400).json({ error: 'Missing required parameter: id' });
+    }
+    
+    try {
+        console.log(`Deleting cart item size with ID: ${id}`);
+        const resource = `/tables/Cart_Item_Sizes/records?q.where=PK_ID=${id}`;
+        
+        // Get token for the request
+        const token = await getCaspioAccessToken();
+        const url = `${caspioApiBaseUrl}${resource}`;
+        
+        // Prepare the request
+        const config = {
+            method: 'delete',
+            url: url,
+            headers: {
+                'Authorization': `Bearer ${token}`
+            },
+            timeout: 15000
+        };
+        
+        // Make the request directly using axios
+        const response = await axios(config);
+        
+        console.log(`Cart item size deleted successfully: ${response.status}`);
+        res.json({
+            message: 'Cart item size deleted successfully',
+            recordsAffected: response.data.RecordsAffected
+        });
+    } catch (error) {
+        console.error("Error deleting cart item size:", error.response ? JSON.stringify(error.response.data) : error.message);
+        res.status(500).json({ error: 'Failed to delete cart item size.' });
+    }
+});
+
 // --- Start the Server ---
 app.listen(PORT, () => {
     console.log(`Caspio Proxy Server listening on port ${PORT}`);

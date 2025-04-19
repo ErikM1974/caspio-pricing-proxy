@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cart Item Sizes API Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1, h2 {
+            color: #333;
+        }
+        .section {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        button {
+            padding: 8px 16px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        input, select {
+            padding: 8px;
+            margin: 5px 0;
+            display: inline-block;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: inline-block;
+            width: 120px;
+        }
+        #response {
+            background-color: #f8f8f8;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin-top: 20px;
+            white-space: pre-wrap;
+        }
+        .action-buttons {
+            display: flex;
+            gap: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Cart Item Sizes API Test</h1>
+    
+    <div class="section">
+        <h2>Get All Cart Item Sizes</h2>
+        <button id="getCartItemSizes">Fetch Cart Item Sizes</button>
+        <div id="cartItemSizesList">
+            <table id="cartItemSizesTable">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Size Item ID</th>
+                        <th>Cart Item ID</th>
+                        <th>Size</th>
+                        <th>Quantity</th>
+                        <th>Unit Price</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <!-- Cart item sizes data will be inserted here -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+    
+    <div class="section">
+        <h2>Create New Cart Item Size</h2>
+        <div class="form-group">
+            <label for="createCartItemID">Cart Item ID:</label>
+            <input type="text" id="createCartItemID" placeholder="Cart Item ID">
+        </div>
+        <div class="form-group">
+            <label for="createSize">Size:</label>
+            <input type="text" id="createSize" placeholder="Size">
+        </div>
+        <div class="form-group">
+            <label for="createQuantity">Quantity:</label>
+            <input type="number" id="createQuantity" placeholder="Quantity">
+        </div>
+        <div class="form-group">
+            <label for="createUnitPrice">Unit Price:</label>
+            <input type="number" id="createUnitPrice" placeholder="Unit Price" step="0.01">
+        </div>
+        <button id="createCartItemSize">Create Cart Item Size</button>
+    </div>
+    
+    <div class="section">
+        <h2>Update Cart Item Size</h2>
+        <div class="form-group">
+            <label for="updateId">Size Item ID:</label>
+            <select id="updateId">
+                <option value="">Select a cart item size</option>
+                <!-- Options will be populated dynamically -->
+            </select>
+        </div>
+        <div class="form-group">
+            <label for="updateCartItemID">Cart Item ID:</label>
+            <input type="text" id="updateCartItemID" placeholder="Cart Item ID">
+        </div>
+        <div class="form-group">
+            <label for="updateSize">Size:</label>
+            <input type="text" id="updateSize" placeholder="Size">
+        </div>
+        <div class="form-group">
+            <label for="updateQuantity">Quantity:</label>
+            <input type="number" id="updateQuantity" placeholder="Quantity">
+        </div>
+        <div class="form-group">
+            <label for="updateUnitPrice">Unit Price:</label>
+            <input type="number" id="updateUnitPrice" placeholder="Unit Price" step="0.01">
+        </div>
+        <button id="updateCartItemSize">Update Cart Item Size</button>
+    </div>
+    
+    <div class="section">
+        <h2>Delete Cart Item Size</h2>
+        <div class="form-group">
+            <label for="deleteId">Size Item ID:</label>
+            <select id="deleteId">
+                <option value="">Select a cart item size</option>
+                <!-- Options will be populated dynamically -->
+            </select>
+        </div>
+        <button id="deleteCartItemSize">Delete Cart Item Size</button>
+    </div>
+    
+    <div class="section">
+        <h2>API Response</h2>
+        <div id="response"></div>
+    </div>
+    
+    <script>
+        // Base URL for API
+        const API_URL = 'http://localhost:3000/api/cart-item-sizes';
+        
+        // Helper function to display API response
+        function displayResponse(data) {
+            const responseElement = document.getElementById('response');
+            responseElement.textContent = typeof data === 'object' ? 
+                JSON.stringify(data, null, 2) : data;
+        }
+        
+        // Helper function to populate cart item size dropdowns
+        function populateCartItemSizeDropdowns(cartItemSizes) {
+            const updateSelect = document.getElementById('updateId');
+            const deleteSelect = document.getElementById('deleteId');
+            
+            // Clear existing options
+            updateSelect.innerHTML = '<option value="">Select a cart item size</option>';
+            deleteSelect.innerHTML = '<option value="">Select a cart item size</option>';
+            
+            // Add cart item size options
+            cartItemSizes.forEach(item => {
+                const option = document.createElement('option');
+                option.value = item.PK_ID;
+                option.textContent = `${item.PK_ID}: CartItem ${item.CartItemID} - Size ${item.Size} (Qty: ${item.Quantity})`;
+                
+                updateSelect.appendChild(option.cloneNode(true));
+                deleteSelect.appendChild(option);
+            });
+        }
+        
+        // Function to fetch and display all cart item sizes
+        async function fetchCartItemSizes() {
+            try {
+                const response = await fetch(API_URL);
+                const data = await response.json();
+                
+                displayResponse(data);
+                
+                // Populate the cart item sizes table
+                const tableBody = document.querySelector('#cartItemSizesTable tbody');
+                tableBody.innerHTML = '';
+                
+                data.forEach(item => {
+                    const row = document.createElement('tr');
+                    
+                    row.innerHTML = `
+                        <td>${item.PK_ID}</td>
+                        <td>${item.SizeItemID}</td>
+                        <td>${item.CartItemID}</td>
+                        <td>${item.Size}</td>
+                        <td>${item.Quantity}</td>
+                        <td>${item.UnitPrice || ''}</td>
+                        <td class="action-buttons">
+                            <button class="edit-btn" data-id="${item.PK_ID}">Edit</button>
+                            <button class="delete-btn" data-id="${item.PK_ID}">Delete</button>
+                        </td>
+                    `;
+                    
+                    tableBody.appendChild(row);
+                });
+                
+                // Add event listeners to edit and delete buttons
+                document.querySelectorAll('.edit-btn').forEach(button => {
+                    button.addEventListener('click', function() {
+                        const itemId = this.getAttribute('data-id');
+                        const item = data.find(c => c.PK_ID == itemId);
+                        
+                        document.getElementById('updateId').value = item.PK_ID;
+                        document.getElementById('updateCartItemID').value = item.CartItemID;
+                        document.getElementById('updateSize').value = item.Size;
+                        document.getElementById('updateQuantity').value = item.Quantity;
+                        document.getElementById('updateUnitPrice').value = item.UnitPrice || '';
+                    });
+                });
+                
+                document.querySelectorAll('.delete-btn').forEach(button => {
+                    button.addEventListener('click', function() {
+                        const itemId = this.getAttribute('data-id');
+                        document.getElementById('deleteId').value = itemId;
+                    });
+                });
+                
+                // Populate cart item size dropdowns
+                populateCartItemSizeDropdowns(data);
+                
+            } catch (error) {
+                displayResponse(`Error: ${error.message}`);
+            }
+        }
+        
+        // Function to create a new cart item size
+        async function createCartItemSize() {
+            const cartItemID = document.getElementById('createCartItemID').value;
+            const size = document.getElementById('createSize').value;
+            const quantity = document.getElementById('createQuantity').value;
+            const unitPrice = document.getElementById('createUnitPrice').value;
+            
+            if (!cartItemID || !size || !quantity) {
+                displayResponse('Error: Cart Item ID, Size, and Quantity are required fields');
+                return;
+            }
+            
+            const cartItemSizeData = {
+                CartItemID: parseInt(cartItemID),
+                Size: size,
+                Quantity: parseInt(quantity),
+                UnitPrice: unitPrice ? parseFloat(unitPrice) : null
+            };
+            
+            try {
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(cartItemSizeData)
+                });
+                
+                const data = await response.json();
+                displayResponse(data);
+                
+                // Clear form fields
+                document.getElementById('createCartItemID').value = '';
+                document.getElementById('createSize').value = '';
+                document.getElementById('createQuantity').value = '';
+                document.getElementById('createUnitPrice').value = '';
+                
+                // Refresh cart item sizes list
+                fetchCartItemSizes();
+                
+            } catch (error) {
+                displayResponse(`Error: ${error.message}`);
+            }
+        }
+        
+        // Function to update a cart item size
+        async function updateCartItemSize() {
+            const id = document.getElementById('updateId').value;
+            const cartItemID = document.getElementById('updateCartItemID').value;
+            const size = document.getElementById('updateSize').value;
+            const quantity = document.getElementById('updateQuantity').value;
+            const unitPrice = document.getElementById('updateUnitPrice').value;
+            
+            if (!id) {
+                displayResponse('Error: Please select a cart item size to update');
+                return;
+            }
+            
+            if (!cartItemID || !size || !quantity) {
+                displayResponse('Error: Cart Item ID, Size, and Quantity are required fields');
+                return;
+            }
+            
+            const cartItemSizeData = {
+                CartItemID: parseInt(cartItemID),
+                Size: size,
+                Quantity: parseInt(quantity),
+                UnitPrice: unitPrice ? parseFloat(unitPrice) : null
+            };
+            
+            try {
+                const response = await fetch(`${API_URL}/${id}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(cartItemSizeData)
+                });
+                
+                const data = await response.json();
+                displayResponse(data);
+                
+                // Clear form fields
+                document.getElementById('updateId').value = '';
+                document.getElementById('updateCartItemID').value = '';
+                document.getElementById('updateSize').value = '';
+                document.getElementById('updateQuantity').value = '';
+                document.getElementById('updateUnitPrice').value = '';
+                
+                // Refresh cart item sizes list
+                fetchCartItemSizes();
+                
+            } catch (error) {
+                displayResponse(`Error: ${error.message}`);
+            }
+        }
+        
+        // Function to delete a cart item size
+        async function deleteCartItemSize() {
+            const id = document.getElementById('deleteId').value;
+            
+            if (!id) {
+                displayResponse('Error: Please select a cart item size to delete');
+                return;
+            }
+            
+            if (!confirm(`Are you sure you want to delete cart item size with ID ${id}?`)) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${API_URL}/${id}`, {
+                    method: 'DELETE'
+                });
+                
+                const data = await response.json();
+                displayResponse(data);
+                
+                // Clear selection
+                document.getElementById('deleteId').value = '';
+                
+                // Refresh cart item sizes list
+                fetchCartItemSizes();
+                
+            } catch (error) {
+                displayResponse(`Error: ${error.message}`);
+            }
+        }
+        
+        // Add event listeners
+        document.getElementById('getCartItemSizes').addEventListener('click', fetchCartItemSizes);
+        document.getElementById('createCartItemSize').addEventListener('click', createCartItemSize);
+        document.getElementById('updateCartItemSize').addEventListener('click', updateCartItemSize);
+        document.getElementById('deleteCartItemSize').addEventListener('click', deleteCartItemSize);
+        
+        // Fetch cart item sizes on page load
+        document.addEventListener('DOMContentLoaded', fetchCartItemSizes);
+    </script>
+</body>
+</html>

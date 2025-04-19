@@ -243,6 +243,16 @@ Failure to use `fetchAllCaspioPages` will result in incomplete data when the res
 - **Description**: Compare multiple products side-by-side (requires at least 2 style numbers)
 - **Example**: `https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/compare-products?styles=PC61,3001C,5000`
 
+### Inventory Table by Style and Color
+
+- **URL**: `/api/sizes-by-style-color`
+- **Method**: `GET`
+- **Query Parameters**:
+  - `styleNumber` (required): Style number of the product
+  - `color` (required): Color name to filter results
+- **Description**: Get inventory data in a tabular format with warehouses as rows and sizes as columns. Returns a structured response with style, color, sizes array, warehouses array (each with inventory quantities), size totals, and a grand total.
+- **Example**: `https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/sizes-by-style-color?styleNumber=PC61&color=Ash`
+
 ## Testing with Postman
 
 A Postman collection is available in the repository (`caspio-pricing-proxy-postman-collection.json`). Import this collection into Postman to test all the available endpoints.
