@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Customer API Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1, h2 {
+            color: #333;
+        }
+        .section {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        button {
+            padding: 8px 16px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        input, select {
+            padding: 8px;
+            margin: 5px 0;
+            display: inline-block;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: inline-block;
+            width: 100px;
+        }
+        #response {
+            background-color: #f8f8f8;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin-top: 20px;
+            white-space: pre-wrap;
+        }
+        .action-buttons {
+            display: flex;
+            gap: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Customer API Test</h1>
+    
+    <div class="section">
+        <h2>Get All Customers</h2>
+        <button id="getCustomers">Fetch Customers</button>
+        <div id="customerList">
+            <table id="customerTable">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Customer ID</th>
+                        <th>Name</th>
+                        <th>Email</th>
+                        <th>Company</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <!-- Customer data will be inserted here -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+    
+    <div class="section">
+        <h2>Create New Customer</h2>
+        <div class="form-group">
+            <label for="createName">Name:</label>
+            <input type="text" id="createName" placeholder="Full Name">
+        </div>
+        <div class="form-group">
+            <label for="createEmail">Email:</label>
+            <input type="email" id="createEmail" placeholder="email@example.com">
+        </div>
+        <div class="form-group">
+            <label for="createPhone">Phone:</label>
+            <input type="text" id="createPhone" placeholder="123-456-7890">
+        </div>
+        <div class="form-group">
+            <label for="createCompany">Company:</label>
+            <input type="text" id="createCompany" placeholder="Company Name">
+        </div>
+        <button id="createCustomer">Create Customer</button>
+    </div>
+    
+    <div class="section">
+        <h2>Update Customer</h2>
+        <div class="form-group">
+            <label for="updateId">Customer ID:</label>
+            <select id="updateId">
+                <option value="">Select a customer</option>
+                <!-- Options will be populated dynamically -->
+            </select>
+        </div>
+        <div class="form-group">
+            <label for="updateName">Name:</label>
+            <input type="text" id="updateName" placeholder="Full Name">
+        </div>
+        <div class="form-group">
+            <label for="updateEmail">Email:</label>
+            <input type="email" id="updateEmail" placeholder="email@example.com">
+        </div>
+        <div class="form-group">
+            <label for="updatePhone">Phone:</label>
+            <input type="text" id="updatePhone" placeholder="123-456-7890">
+        </div>
+        <div class="form-group">
+            <label for="updateCompany">Company:</label>
+            <input type="text" id="updateCompany" placeholder="Company Name">
+        </div>
+        <button id="updateCustomer">Update Customer</button>
+    </div>
+    
+    <div class="section">
+        <h2>Delete Customer</h2>
+        <div class="form-group">
+            <label for="deleteId">Customer ID:</label>
+            <select id="deleteId">
+                <option value="">Select a customer</option>
+                <!-- Options will be populated dynamically -->
+            </select>
+        </div>
+        <button id="deleteCustomer">Delete Customer</button>
+    </div>
+    
+    <div class="section">
+        <h2>API Response</h2>
+        <div id="response"></div>
+    </div>
+    
+    <script>
+        // Base URL for API
+        const API_URL = 'http://localhost:3000/api/customers';
+        
+        // Helper function to display API response
+        function displayResponse(data) {
+            const responseElement = document.getElementById('response');
+            responseElement.textContent = typeof data === 'object' ? 
+                JSON.stringify(data, null, 2) : data;
+        }
+        
+        // Helper function to populate customer dropdowns
+        function populateCustomerDropdowns(customers) {
+            const updateSelect = document.getElementById('updateId');
+            const deleteSelect = document.getElementById('deleteId');
+            
+            // Clear existing options
+            updateSelect.innerHTML = '<option value="">Select a customer</option>';
+            deleteSelect.innerHTML = '<option value="">Select a customer</option>';
+            
+            // Add customer options
+            customers.forEach(customer => {
+                const option = document.createElement('option');
+                option.value = customer.PK_ID;
+                option.textContent = `${customer.PK_ID}: ${customer.Name}`;
+                
+                updateSelect.appendChild(option.cloneNode(true));
+                deleteSelect.appendChild(option);
+            });
+        }
+        
+        // Function to fetch and display all customers
+        async function fetchCustomers() {
+            try {
+                const response = await fetch(API_URL);
+                const data = await response.json();
+                
+                displayResponse(data);
+                
+                // Populate the customer table
+                const tableBody = document.querySelector('#customerTable tbody');
+                tableBody.innerHTML = '';
+                
+                data.forEach(customer => {
+                    const row = document.createElement('tr');
+                    
+                    row.innerHTML = `
+                        <td>${customer.PK_ID}</td>
+                        <td>${customer.CustomerID}</td>
+                        <td>${customer.Name}</td>
+                        <td>${customer.Email}</td>
+                        <td>${customer.Company || ''}</td>
+                        <td class="action-buttons">
+                            <button class="edit-btn" data-id="${customer.PK_ID}">Edit</button>
+                            <button class="delete-btn" data-id="${customer.PK_ID}">Delete</button>
+                        </td>
+                    `;
+                    
+                    tableBody.appendChild(row);
+                });
+                
+                // Add event listeners to edit and delete buttons
+                document.querySelectorAll('.edit-btn').forEach(button => {
+                    button.addEventListener('click', function() {
+                        const customerId = this.getAttribute('data-id');
+                        const customer = data.find(c => c.PK_ID == customerId);
+                        
+                        document.getElementById('updateId').value = customer.PK_ID;
+                        document.getElementById('updateName').value = customer.Name;
+                        document.getElementById('updateEmail').value = customer.Email;
+                        document.getElementById('updatePhone').value = customer.Phone || '';
+                        document.getElementById('updateCompany').value = customer.Company || '';
+                    });
+                });
+                
+                document.querySelectorAll('.delete-btn').forEach(button => {
+                    button.addEventListener('click', function() {
+                        const customerId = this.getAttribute('data-id');
+                        document.getElementById('deleteId').value = customerId;
+                    });
+                });
+                
+                // Populate customer dropdowns
+                populateCustomerDropdowns(data);
+                
+            } catch (error) {
+                displayResponse(`Error: ${error.message}`);
+            }
+        }
+        
+        // Function to create a new customer
+        async function createCustomer() {
+            const name = document.getElementById('createName').value;
+            const email = document.getElementById('createEmail').value;
+            const phone = document.getElementById('createPhone').value;
+            const company = document.getElementById('createCompany').value;
+            
+            if (!name || !email) {
+                displayResponse('Error: Name and Email are required fields');
+                return;
+            }
+            
+            const customerData = {
+                Name: name,
+                Email: email,
+                Phone: phone,
+                Company: company
+            };
+            
+            try {
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(customerData)
+                });
+                
+                const data = await response.json();
+                displayResponse(data);
+                
+                // Clear form fields
+                document.getElementById('createName').value = '';
+                document.getElementById('createEmail').value = '';
+                document.getElementById('createPhone').value = '';
+                document.getElementById('createCompany').value = '';
+                
+                // Refresh customer list
+                fetchCustomers();
+                
+            } catch (error) {
+                displayResponse(`Error: ${error.message}`);
+            }
+        }
+        
+        // Function to update a customer
+        async function updateCustomer() {
+            const id = document.getElementById('updateId').value;
+            const name = document.getElementById('updateName').value;
+            const email = document.getElementById('updateEmail').value;
+            const phone = document.getElementById('updatePhone').value;
+            const company = document.getElementById('updateCompany').value;
+            
+            if (!id) {
+                displayResponse('Error: Please select a customer to update');
+                return;
+            }
+            
+            if (!name || !email) {
+                displayResponse('Error: Name and Email are required fields');
+                return;
+            }
+            
+            const customerData = {
+                Name: name,
+                Email: email,
+                Phone: phone,
+                Company: company
+            };
+            
+            try {
+                const response = await fetch(`${API_URL}/${id}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(customerData)
+                });
+                
+                const data = await response.json();
+                displayResponse(data);
+                
+                // Clear form fields
+                document.getElementById('updateId').value = '';
+                document.getElementById('updateName').value = '';
+                document.getElementById('updateEmail').value = '';
+                document.getElementById('updatePhone').value = '';
+                document.getElementById('updateCompany').value = '';
+                
+                // Refresh customer list
+                fetchCustomers();
+                
+            } catch (error) {
+                displayResponse(`Error: ${error.message}`);
+            }
+        }
+        
+        // Function to delete a customer
+        async function deleteCustomer() {
+            const id = document.getElementById('deleteId').value;
+            
+            if (!id) {
+                displayResponse('Error: Please select a customer to delete');
+                return;
+            }
+            
+            if (!confirm(`Are you sure you want to delete customer with ID ${id}?`)) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${API_URL}/${id}`, {
+                    method: 'DELETE'
+                });
+                
+                const data = await response.json();
+                displayResponse(data);
+                
+                // Clear selection
+                document.getElementById('deleteId').value = '';
+                
+                // Refresh customer list
+                fetchCustomers();
+                
+            } catch (error) {
+                displayResponse(`Error: ${error.message}`);
+            }
+        }
+        
+        // Add event listeners
+        document.getElementById('getCustomers').addEventListener('click', fetchCustomers);
+        document.getElementById('createCustomer').addEventListener('click', createCustomer);
+        document.getElementById('updateCustomer').addEventListener('click', updateCustomer);
+        document.getElementById('deleteCustomer').addEventListener('click', deleteCustomer);
+        
+        // Fetch customers on page load
+        document.addEventListener('DOMContentLoaded', fetchCustomers);
+    </script>
+</body>
+</html>
