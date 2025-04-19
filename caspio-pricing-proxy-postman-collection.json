@@ -28,6 +28,554 @@
 			"response": []
 		},
 		{
+			"name": "Cart Sessions - GET All",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/cart-sessions",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"cart-sessions"
+					]
+				},
+				"description": "Get all cart sessions"
+			},
+			"response": []
+		},
+		{
+			"name": "Cart Sessions - GET by SessionID",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/cart-sessions?sessionID=1234",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"cart-sessions"
+					],
+					"query": [
+						{
+							"key": "sessionID",
+							"value": "1234",
+							"description": "Filter by session ID"
+						}
+					]
+				},
+				"description": "Get cart sessions filtered by session ID"
+			},
+			"response": []
+		},
+		{
+			"name": "Cart Sessions - POST",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"SessionID\": \"9876\",\n    \"UserID\": 9876,\n    \"IPAddress\": \"10.0.0.1\",\n    \"UserAgent\": \"Mobile Browser\",\n    \"IsActive\": true\n}"
+				},
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/cart-sessions",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"cart-sessions"
+					]
+				},
+				"description": "Create a new cart session"
+			},
+			"response": []
+		},
+		{
+			"name": "Cart Sessions - PUT",
+			"request": {
+				"method": "PUT",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"UserID\": 5678,\n    \"IPAddress\": \"192.168.1.1\",\n    \"UserAgent\": \"Test Browser\",\n    \"IsActive\": true\n}"
+				},
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/cart-sessions/2",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"cart-sessions",
+						"2"
+					]
+				},
+				"description": "Update a cart session by ID"
+			},
+			"response": []
+		},
+		{
+			"name": "Cart Sessions - DELETE",
+			"request": {
+				"method": "DELETE",
+				"header": [],
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/cart-sessions/2",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"cart-sessions",
+						"2"
+					]
+				},
+				"description": "Delete a cart session by ID"
+			},
+			"response": []
+		},
+		{
+			"name": "Cart Items - GET All",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/cart-items",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"cart-items"
+					]
+				},
+				"description": "Get all cart items"
+			},
+			"response": []
+		},
+		{
+			"name": "Cart Items - GET by SessionID",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/cart-items?sessionID=4323",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"cart-items"
+					],
+					"query": [
+						{
+							"key": "sessionID",
+							"value": "4323",
+							"description": "Filter by session ID"
+						}
+					]
+				},
+				"description": "Get cart items filtered by session ID"
+			},
+			"response": []
+		},
+		{
+			"name": "Cart Items - POST",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"SessionID\": \"9876\",\n    \"ProductID\": \"ABC123\",\n    \"StyleNumber\": \"PC61\",\n    \"Color\": \"Navy\",\n    \"ImprintType\": \"DTG\",\n    \"CartStatus\": \"Active\"\n}"
+				},
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/cart-items",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"cart-items"
+					]
+				},
+				"description": "Create a new cart item"
+			},
+			"response": []
+		},
+		{
+			"name": "Cart Items - PUT",
+			"request": {
+				"method": "PUT",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"ImprintType\": \"Screenprint\",\n    \"CartStatus\": \"Inactive\",\n    \"OrderID\": 12345\n}"
+				},
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/cart-items/1",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"cart-items",
+						"1"
+					]
+				},
+				"description": "Update a cart item by ID"
+			},
+			"response": []
+		},
+		{
+			"name": "Cart Items - DELETE",
+			"request": {
+				"method": "DELETE",
+				"header": [],
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/cart-items/1",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"cart-items",
+						"1"
+					]
+				},
+				"description": "Delete a cart item by ID"
+			},
+			"response": []
+		},
+		{
+			"name": "Cart Item Sizes - GET All",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/cart-item-sizes",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"cart-item-sizes"
+					]
+				},
+				"description": "Get all cart item sizes"
+			},
+			"response": []
+		},
+		{
+			"name": "Cart Item Sizes - GET by CartItemID",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/cart-item-sizes?cartItemID=4444",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"cart-item-sizes"
+					],
+					"query": [
+						{
+							"key": "cartItemID",
+							"value": "4444",
+							"description": "Filter by cart item ID"
+						}
+					]
+				},
+				"description": "Get cart item sizes filtered by cart item ID"
+			},
+			"response": []
+		},
+		{
+			"name": "Cart Item Sizes - POST",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"CartItemID\": 5555,\n    \"Size\": \"XL\",\n    \"Quantity\": 10,\n    \"UnitPrice\": 25.99\n}"
+				},
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/cart-item-sizes",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"cart-item-sizes"
+					]
+				},
+				"description": "Create a new cart item size"
+			},
+			"response": []
+		},
+		{
+			"name": "Cart Item Sizes - PUT",
+			"request": {
+				"method": "PUT",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"Quantity\": 20,\n    \"UnitPrice\": 24.99\n}"
+				},
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/cart-item-sizes/4",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"cart-item-sizes",
+						"4"
+					]
+				},
+				"description": "Update a cart item size by ID"
+			},
+			"response": []
+		},
+		{
+			"name": "Cart Item Sizes - DELETE",
+			"request": {
+				"method": "DELETE",
+				"header": [],
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/cart-item-sizes/4",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"cart-item-sizes",
+						"4"
+					]
+				},
+				"description": "Delete a cart item size by ID"
+			},
+			"response": []
+		},
+		{
+			"name": "Customers - GET All",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/customers",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"customers"
+					]
+				},
+				"description": "Get all customers"
+			},
+			"response": []
+		},
+		{
+			"name": "Customers - GET by Email",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/customers?email=erik@go2shirt.com",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"customers"
+					],
+					"query": [
+						{
+							"key": "email",
+							"value": "erik@go2shirt.com",
+							"description": "Filter by email"
+						}
+					]
+				},
+				"description": "Get customers filtered by email"
+			},
+			"response": []
+		},
+		{
+			"name": "Customers - POST",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"Name\": \"John Doe\",\n    \"Email\": \"john.doe@example.com\",\n    \"Phone\": \"555-123-4567\",\n    \"Company\": \"Example Corp\",\n    \"Address1\": \"123 Main St\",\n    \"City\": \"Seattle\",\n    \"State\": \"WA\",\n    \"ZipCode\": \"98101\",\n    \"Country\": \"USA\",\n    \"Notes\": \"Test customer\"\n}"
+				},
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/customers",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"customers"
+					]
+				},
+				"description": "Create a new customer"
+			},
+			"response": []
+		},
+		{
+			"name": "Customers - PUT",
+			"request": {
+				"method": "PUT",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"Phone\": \"555-987-6543\",\n    \"Address1\": \"456 Oak St\",\n    \"City\": \"Bellevue\",\n    \"Notes\": \"Updated customer info\"\n}"
+				},
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/customers/1",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"customers",
+						"1"
+					]
+				},
+				"description": "Update a customer by ID"
+			},
+			"response": []
+		},
+		{
+			"name": "Customers - DELETE",
+			"request": {
+				"method": "DELETE",
+				"header": [],
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/customers/5",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"customers",
+						"5"
+					]
+				},
+				"description": "Delete a customer by ID"
+			},
+			"response": []
+		},
+		{
 			"name": "Pricing Tiers - DTG",
 			"request": {
 				"method": "GET",
@@ -314,94 +862,7 @@
 						}
 					]
 				},
-				"description": "Get screenprint costs for additional locations by tier and color count"
-			},
-			"response": []
-		},
-		{
-			"name": "Pricing Rules - ScreenPrint",
-			"request": {
-				"method": "GET",
-				"header": [],
-				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/pricing-rules?method=ScreenPrint",
-					"protocol": "https",
-					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
-					],
-					"path": [
-						"api",
-						"pricing-rules"
-					],
-					"query": [
-						{
-							"key": "method",
-							"value": "ScreenPrint",
-							"description": "Decoration method (DTG, ScreenPrint, Embroidery)"
-						}
-					]
-				},
-				"description": "Get pricing rules based on decoration method"
-			},
-			"response": []
-		},
-		{
-			"name": "Pricing Rules - DTG",
-			"request": {
-				"method": "GET",
-				"header": [],
-				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/pricing-rules?method=DTG",
-					"protocol": "https",
-					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
-					],
-					"path": [
-						"api",
-						"pricing-rules"
-					],
-					"query": [
-						{
-							"key": "method",
-							"value": "DTG",
-							"description": "Decoration method (DTG, ScreenPrint, Embroidery)"
-						}
-					]
-				},
-				"description": "Get pricing rules based on decoration method"
-			},
-			"response": []
-		},
-		{
-			"name": "Pricing Rules - Embroidery",
-			"request": {
-				"method": "GET",
-				"header": [],
-				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/pricing-rules?method=Embroidery",
-					"protocol": "https",
-					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
-					],
-					"path": [
-						"api",
-						"pricing-rules"
-					],
-					"query": [
-						{
-							"key": "method",
-							"value": "Embroidery",
-							"description": "Decoration method (DTG, ScreenPrint, Embroidery)"
-						}
-					]
-				},
-				"description": "Get pricing rules based on decoration method"
+				"description": "Get screenprint costs for additional location by tier and color count"
 			},
 			"response": []
 		},
@@ -411,7 +872,7 @@
 				"method": "GET",
 				"header": [],
 				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/base-item-costs?styleNumber=3001C",
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/base-item-costs?styleNumber=PC61",
 					"protocol": "https",
 					"host": [
 						"caspio-pricing-proxy-ab30a049961a",
@@ -425,12 +886,12 @@
 					"query": [
 						{
 							"key": "styleNumber",
-							"value": "3001C",
-							"description": "Style number of the item"
+							"value": "PC61",
+							"description": "Style number of the product"
 						}
 					]
 				},
-				"description": "Get base item costs (max case price per size) for a specific style"
+				"description": "Get base item costs by style number"
 			},
 			"response": []
 		},
@@ -440,7 +901,7 @@
 				"method": "GET",
 				"header": [],
 				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/max-prices-by-style?styleNumber=PC61",
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/max-prices?styleNumber=PC61",
 					"protocol": "https",
 					"host": [
 						"caspio-pricing-proxy-ab30a049961a",
@@ -449,68 +910,17 @@
 					],
 					"path": [
 						"api",
-						"max-prices-by-style"
+						"max-prices"
 					],
 					"query": [
 						{
 							"key": "styleNumber",
 							"value": "PC61",
-							"description": "Style number of the item"
+							"description": "Style number of the product"
 						}
 					]
 				},
-				"description": "Get maximum prices across all colors for each size of a style, with sizes sorted in the correct order"
-			},
-			"response": []
-		},
-		{
-			"name": "Test Sanmar Bulk",
-			"request": {
-				"method": "GET",
-				"header": [],
-				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/test-sanmar-bulk",
-					"protocol": "https",
-					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
-					],
-					"path": [
-						"api",
-						"test-sanmar-bulk"
-					]
-				},
-				"description": "Test endpoint for Sanmar_Bulk_251816_Feb2024 table (limited to 10 records)"
-			},
-			"response": []
-		},
-		{
-			"name": "Style Search Autocomplete",
-			"request": {
-				"method": "GET",
-				"header": [],
-				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/stylesearch?term=PC",
-					"protocol": "https",
-					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
-					],
-					"path": [
-						"api",
-						"stylesearch"
-					],
-					"query": [
-						{
-							"key": "term",
-							"value": "PC",
-							"description": "Search term (minimum 2 characters)"
-						}
-					]
-				},
-				"description": "Search for styles by partial style number"
+				"description": "Get maximum prices by style number"
 			},
 			"response": []
 		},
@@ -539,7 +949,7 @@
 						}
 					]
 				},
-				"description": "Get product details including title, description, and images"
+				"description": "Get detailed product information by style number"
 			},
 			"response": []
 		},
@@ -568,17 +978,17 @@
 						}
 					]
 				},
-				"description": "Get color swatches for a specific style"
+				"description": "Get color swatches by style number"
 			},
 			"response": []
 		},
 		{
-			"name": "All Inventory Fields",
+			"name": "Inventory Levels",
 			"request": {
 				"method": "GET",
 				"header": [],
 				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/inventory?styleNumber=S100",
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/inventory?styleNumber=PC61&color=Navy",
 					"protocol": "https",
 					"host": [
 						"caspio-pricing-proxy-ab30a049961a",
@@ -592,12 +1002,17 @@
 					"query": [
 						{
 							"key": "styleNumber",
-							"value": "S100",
+							"value": "PC61",
 							"description": "Style number of the product"
+						},
+						{
+							"key": "color",
+							"value": "Navy",
+							"description": "Color of the product"
 						}
 					]
 				},
-				"description": "Get all fields from the Inventory table for a specific style"
+				"description": "Get inventory levels by style number and color"
 			},
 			"response": []
 		},
@@ -607,7 +1022,7 @@
 				"method": "GET",
 				"header": [],
 				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/all-brands",
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/brands",
 					"protocol": "https",
 					"host": [
 						"caspio-pricing-proxy-ab30a049961a",
@@ -616,10 +1031,10 @@
 					],
 					"path": [
 						"api",
-						"all-brands"
+						"brands"
 					]
 				},
-				"description": "Get all brands with sample styles"
+				"description": "Get all available brands"
 			},
 			"response": []
 		},
@@ -629,7 +1044,7 @@
 				"method": "GET",
 				"header": [],
 				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/products-by-brand?brand=OGIO",
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/products?brand=Port%20%26%20Company",
 					"protocol": "https",
 					"host": [
 						"caspio-pricing-proxy-ab30a049961a",
@@ -638,75 +1053,17 @@
 					],
 					"path": [
 						"api",
-						"products-by-brand"
+						"products"
 					],
 					"query": [
 						{
 							"key": "brand",
-							"value": "OGIO",
-							"description": "Brand name (partial match)"
+							"value": "Port%20%26%20Company",
+							"description": "Brand name"
 						}
 					]
 				},
-				"description": "Get products by brand name (partial match)"
-			},
-			"response": []
-		},
-		{
-			"name": "Products by Category",
-			"request": {
-				"method": "GET",
-				"header": [],
-				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/products-by-category?category=T-Shirts",
-					"protocol": "https",
-					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
-					],
-					"path": [
-						"api",
-						"products-by-category"
-					],
-					"query": [
-						{
-							"key": "category",
-							"value": "T-Shirts",
-							"description": "Category name (exact match)"
-						}
-					]
-				},
-				"description": "Get products by category name"
-			},
-			"response": []
-		},
-		{
-			"name": "Products by Subcategory",
-			"request": {
-				"method": "GET",
-				"header": [],
-				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/products-by-subcategory?subcategory=Youth",
-					"protocol": "https",
-					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
-					],
-					"path": [
-						"api",
-						"products-by-subcategory"
-					],
-					"query": [
-						{
-							"key": "subcategory",
-							"value": "Youth",
-							"description": "Subcategory name (exact match)"
-						}
-					]
-				},
-				"description": "Get products by subcategory name"
+				"description": "Get products filtered by brand"
 			},
 			"response": []
 		},
@@ -716,7 +1073,7 @@
 				"method": "GET",
 				"header": [],
 				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/all-categories",
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/categories",
 					"protocol": "https",
 					"host": [
 						"caspio-pricing-proxy-ab30a049961a",
@@ -725,20 +1082,20 @@
 					],
 					"path": [
 						"api",
-						"all-categories"
+						"categories"
 					]
 				},
-				"description": "Get all available product categories"
+				"description": "Get all product categories"
 			},
 			"response": []
 		},
 		{
-			"name": "All Subcategories",
+			"name": "Products by Category",
 			"request": {
 				"method": "GET",
 				"header": [],
 				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/all-subcategories",
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/products?category=T-Shirts",
 					"protocol": "https",
 					"host": [
 						"caspio-pricing-proxy-ab30a049961a",
@@ -747,83 +1104,27 @@
 					],
 					"path": [
 						"api",
-						"all-subcategories"
-					]
-				},
-				"description": "Get all available product subcategories"
-			},
-			"response": []
-		},
-		{
-			"name": "Subcategories by Category",
-			"request": {
-				"method": "GET",
-				"header": [],
-				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/subcategories-by-category?category=Caps",
-					"protocol": "https",
-					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
-					],
-					"path": [
-						"api",
-						"subcategories-by-category"
-					],
-					"query": [
-						{
-							"key": "category",
-							"value": "Caps",
-							"description": "Category name (e.g., T-Shirts, Polos/Knits, Caps)"
-						}
-					]
-				},
-				"description": "Get subcategories for a specific category"
-			},
-			"response": []
-		},
-		{
-			"name": "Products by Category and Subcategory",
-			"request": {
-				"method": "GET",
-				"header": [],
-				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/products-by-category-subcategory?category=T-Shirts&subcategory=Youth",
-					"protocol": "https",
-					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
-					],
-					"path": [
-						"api",
-						"products-by-category-subcategory"
+						"products"
 					],
 					"query": [
 						{
 							"key": "category",
 							"value": "T-Shirts",
-							"description": "Category name (e.g., T-Shirts, Polos/Knits, Caps)"
-						},
-						{
-							"key": "subcategory",
-							"value": "Youth",
-							"description": "Subcategory name (e.g., Youth, Men's, Women's)"
+							"description": "Category name"
 						}
 					]
 				},
-				"description": "Get products for a specific category and subcategory combination"
+				"description": "Get products filtered by category"
 			},
 			"response": []
 		},
 		{
-			"name": "Search Products",
+			"name": "Style Search Autocomplete",
 			"request": {
 				"method": "GET",
 				"header": [],
 				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/search?q=hoodie",
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/search-autocomplete?query=PC",
 					"protocol": "https",
 					"host": [
 						"caspio-pricing-proxy-ab30a049961a",
@@ -832,238 +1133,17 @@
 					],
 					"path": [
 						"api",
-						"search"
+						"search-autocomplete"
 					],
 					"query": [
 						{
-							"key": "q",
-							"value": "hoodie",
-							"description": "Search query (minimum 2 characters)"
+							"key": "query",
+							"value": "PC",
+							"description": "Search query string"
 						}
 					]
 				},
-				"description": "Search across all products by keyword (searches style, title, description, brand, category, and subcategory)"
-			},
-			"response": []
-		},
-		{
-			"name": "Featured Products",
-			"request": {
-				"method": "GET",
-				"header": [],
-				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/featured-products",
-					"protocol": "https",
-					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
-					],
-					"path": [
-						"api",
-						"featured-products"
-					]
-				},
-				"description": "Get featured/new products (products with 'New' status)"
-			},
-			"response": []
-		},
-		{
-			"name": "Related Products",
-			"request": {
-				"method": "GET",
-				"header": [],
-				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/related-products?styleNumber=PC61",
-					"protocol": "https",
-					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
-					],
-					"path": [
-						"api",
-						"related-products"
-					],
-					"query": [
-						{
-							"key": "styleNumber",
-							"value": "PC61",
-							"description": "Style number of the reference product"
-						}
-					]
-				},
-				"description": "Get products related to a specific style (same category, subcategory, or brand)"
-			},
-			"response": []
-		},
-		{
-			"name": "Advanced Filtering",
-			"request": {
-				"method": "GET",
-				"header": [],
-				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/filter-products?category=T-Shirts&color=Red&minPrice=10&maxPrice=30&brand=Bella",
-					"protocol": "https",
-					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
-					],
-					"path": [
-						"api",
-						"filter-products"
-					],
-					"query": [
-						{
-							"key": "category",
-							"value": "T-Shirts",
-							"description": "Category name (optional)"
-						},
-						{
-							"key": "color",
-							"value": "Red",
-							"description": "Color name (optional)"
-						},
-						{
-							"key": "minPrice",
-							"value": "10",
-							"description": "Minimum price (optional)"
-						},
-						{
-							"key": "maxPrice",
-							"value": "30",
-							"description": "Maximum price (optional)"
-						},
-						{
-							"key": "brand",
-							"value": "Bella",
-							"description": "Brand name (optional)"
-						}
-					]
-				},
-				"description": "Filter products by multiple criteria (category, subcategory, color, brand, price range)"
-			},
-			"response": []
-		},
-		{
-			"name": "Product Recommendations",
-			"request": {
-				"method": "GET",
-				"header": [],
-				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/recommendations?styleNumber=PC61",
-					"protocol": "https",
-					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
-					],
-					"path": [
-						"api",
-						"recommendations"
-					],
-					"query": [
-						{
-							"key": "styleNumber",
-							"value": "PC61",
-							"description": "Style number of the reference product"
-						}
-					]
-				},
-				"description": "Get personalized product recommendations based on a reference product (similar category, brand, and price range)"
-			},
-			"response": []
-		},
-		{
-			"name": "Quick View",
-			"request": {
-				"method": "GET",
-				"header": [],
-				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/quick-view?styleNumber=PC61",
-					"protocol": "https",
-					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
-					],
-					"path": [
-						"api",
-						"quick-view"
-					],
-					"query": [
-						{
-							"key": "styleNumber",
-							"value": "PC61",
-							"description": "Style number of the product"
-						}
-					]
-				},
-				"description": "Get lightweight product details for hover/modal views (essential fields only)"
-			},
-			"response": []
-		},
-		{
-			"name": "Product Comparison",
-			"request": {
-				"method": "GET",
-				"header": [],
-				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/compare-products?styles=PC61,3001C,5000",
-					"protocol": "https",
-					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
-					],
-					"path": [
-						"api",
-						"compare-products"
-					],
-					"query": [
-						{
-							"key": "styles",
-							"value": "PC61,3001C,5000",
-							"description": "Comma-separated list of style numbers to compare"
-						}
-					]
-				},
-				"description": "Compare multiple products side-by-side (requires at least 2 style numbers)"
-			},
-			"response": []
-		},
-		{
-			"name": "Inventory Table by Style and Color",
-			"request": {
-				"method": "GET",
-				"header": [],
-				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/sizes-by-style-color?styleNumber=PC61&color=Ash",
-					"protocol": "https",
-					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
-					],
-					"path": [
-						"api",
-						"sizes-by-style-color"
-					],
-					"query": [
-						{
-							"key": "styleNumber",
-							"value": "PC61",
-							"description": "Style number of the product"
-						},
-						{
-							"key": "color",
-							"value": "Ash",
-							"description": "Color name to filter results"
-						}
-					]
-				},
-				"description": "Get inventory data in a tabular format with warehouses as rows and sizes as columns"
+				"description": "Get style number autocomplete suggestions"
 			},
 			"response": []
 		},
@@ -1073,7 +1153,7 @@
 				"method": "GET",
 				"header": [],
 				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/size-pricing?styleNumber=PC61&color=White",
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/size-pricing?styleNumber=PC61",
 					"protocol": "https",
 					"host": [
 						"caspio-pricing-proxy-ab30a049961a",
@@ -1089,15 +1169,10 @@
 							"key": "styleNumber",
 							"value": "PC61",
 							"description": "Style number of the product"
-						},
-						{
-							"key": "color",
-							"value": "White",
-							"description": "Color name (optional - if not provided, uses Ash for PC61 or all colors for other styles)"
 						}
 					]
 				},
-				"description": "Get detailed size pricing information including base price, standard upcharges, actual upcharges needed, and recommended prices for each size. Provides transparency into how size upcharges are calculated."
+				"description": "Get size pricing with upcharges by style number"
 			},
 			"response": []
 		}
