@@ -27,6 +27,7 @@ let tokenExpiryTime = 0;
 
 // --- Middleware ---
 app.use(express.json()); // Parse JSON bodies (for potential future POST requests)
+app.use(express.static('.')); // Serve static files from the current directory
 
 // CORS Middleware - Allow requests from all origins for testing
 app.use((req, res, next) => {
@@ -2649,6 +2650,207 @@ app.delete('/api/cart-item-sizes/:id', async (req, res) => {
     } catch (error) {
         console.error("Error deleting cart item size:", error.response ? JSON.stringify(error.response.data) : error.message);
         res.status(500).json({ error: 'Failed to delete cart item size.' });
+    }
+});
+
+// --- NEW Endpoint: Cart Sessions CRUD Operations ---
+// GET: /api/cart-sessions - Get all cart sessions or filter by query parameters
+// POST: /api/cart-sessions - Create a new cart session
+// PUT: /api/cart-sessions/:id - Update a cart session by ID
+// DELETE: /api/cart-sessions/:id - Delete a cart session by ID
+app.get('/api/cart-sessions', async (req, res) => {
+    try {
+        console.log("Fetching cart sessions information");
+        const resource = '/tables/Cart_Sessions/records';
+        
+        // Build query parameters based on request query
+        const params = {};
+        
+        // Add any filter parameters from the request
+        if (Object.keys(req.query).length > 0) {
+            const whereConditions = [];
+            
+            // Handle common filter fields
+            if (req.query.sessionID) {
+                whereConditions.push(`SessionID='${req.query.sessionID}'`);
+            }
+            if (req.query.userID) {
+                whereConditions.push(`UserID=${req.query.userID}`);
+            }
+            if (req.query.isActive !== undefined) {
+                whereConditions.push(`IsActive=${req.query.isActive}`);
+            }
+            
+            // Add the WHERE clause if we have conditions
+            if (whereConditions.length > 0) {
+                params['q.where'] = whereConditions.join(' AND ');
+            }
+        }
+        
+        // Set ordering and limit
+        params['q.orderby'] = 'PK_ID ASC';
+        params['q.limit'] = 1000;
+        
+        // Use fetchAllCaspioPages to handle pagination
+        const result = await fetchAllCaspioPages(resource, params);
+        console.log(`Found ${result.length} cart session records`);
+        
+        res.json(result);
+    } catch (error) {
+        console.error("Error fetching cart sessions information:", error.message);
+        res.status(500).json({ error: 'Failed to fetch cart sessions information.' });
+    }
+});
+
+// Create a new cart session
+app.post('/api/cart-sessions', express.json(), async (req, res) => {
+    try {
+        // Validate required fields
+        const requiredFields = ['SessionID'];
+        for (const field of requiredFields) {
+            if (!req.body[field]) {
+                return res.status(400).json({ error: `Missing required field: ${field}` });
+            }
+        }
+        
+        // Create a new object with only the allowed fields
+        // Exclude auto-generated fields like PK_ID
+        // Create an object with properly typed fields based on the Caspio table structure
+        const cartSessionData = {
+            SessionID: req.body.SessionID, // Text (255)
+            
+            // Optional fields with proper type handling
+            UserID: req.body.UserID ? Number(req.body.UserID) : null, // Number
+            // CreateDate is excluded as it's likely auto-generated
+            // LastActivity is excluded as it's likely auto-managed
+            IPAddress: req.body.IPAddress || null, // Text (255)
+            UserAgent: req.body.UserAgent || null, // Text (255)
+            IsActive: req.body.IsActive === true // Yes/No (boolean)
+        };
+        
+        console.log(`Creating new cart session: ${cartSessionData.SessionID}`);
+        const resource = '/tables/Cart_Sessions/records';
+        
+        // Get token for the request
+        const token = await getCaspioAccessToken();
+        const url = `${caspioApiBaseUrl}${resource}`;
+        
+        // Prepare the request
+        const config = {
+            method: 'post',
+            url: url,
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            data: cartSessionData,
+            timeout: 15000
+        };
+        
+        // Make the request directly using axios
+        const response = await axios(config);
+        
+        console.log(`Cart session created successfully: ${response.status}`);
+        res.status(201).json({
+            message: 'Cart session created successfully',
+            cartSession: response.data
+        });
+    } catch (error) {
+        console.error("Error creating cart session:", error.response ? JSON.stringify(error.response.data) : error.message);
+        res.status(500).json({ error: 'Failed to create cart session.' });
+    }
+});
+
+// Update a cart session by ID
+app.put('/api/cart-sessions/:id', express.json(), async (req, res) => {
+    const { id } = req.params;
+    if (!id) {
+        return res.status(400).json({ error: 'Missing required parameter: id' });
+    }
+    
+    try {
+        console.log(`Updating cart session with ID: ${id}`);
+        const resource = `/tables/Cart_Sessions/records?q.where=PK_ID=${id}`;
+        
+        // Create a new object with only the allowed fields
+        // Exclude auto-generated fields like PK_ID
+        const cartSessionData = {};
+        
+        // Only include fields that are provided in the request body
+        if (req.body.SessionID !== undefined) cartSessionData.SessionID = req.body.SessionID;
+        if (req.body.UserID !== undefined) cartSessionData.UserID = req.body.UserID;
+        if (req.body.LastActivity !== undefined) cartSessionData.LastActivity = req.body.LastActivity;
+        if (req.body.IPAddress !== undefined) cartSessionData.IPAddress = req.body.IPAddress;
+        if (req.body.UserAgent !== undefined) cartSessionData.UserAgent = req.body.UserAgent;
+        if (req.body.IsActive !== undefined) cartSessionData.IsActive = req.body.IsActive;
+        // Don't update CreateDate as it should be set only when the session is created
+        
+        // Get token for the request
+        const token = await getCaspioAccessToken();
+        const url = `${caspioApiBaseUrl}${resource}`;
+        
+        // Prepare the request
+        const config = {
+            method: 'put',
+            url: url,
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            data: cartSessionData,
+            timeout: 15000
+        };
+        
+        // Make the request directly using axios
+        const response = await axios(config);
+        
+        console.log(`Cart session updated successfully: ${response.status}`);
+        res.json({
+            message: 'Cart session updated successfully',
+            cartSession: response.data
+        });
+    } catch (error) {
+        console.error("Error updating cart session:", error.response ? JSON.stringify(error.response.data) : error.message);
+        res.status(500).json({ error: 'Failed to update cart session.' });
+    }
+});
+
+// Delete a cart session by ID
+app.delete('/api/cart-sessions/:id', async (req, res) => {
+    const { id } = req.params;
+    if (!id) {
+        return res.status(400).json({ error: 'Missing required parameter: id' });
+    }
+    
+    try {
+        console.log(`Deleting cart session with ID: ${id}`);
+        const resource = `/tables/Cart_Sessions/records?q.where=PK_ID=${id}`;
+        
+        // Get token for the request
+        const token = await getCaspioAccessToken();
+        const url = `${caspioApiBaseUrl}${resource}`;
+        
+        // Prepare the request
+        const config = {
+            method: 'delete',
+            url: url,
+            headers: {
+                'Authorization': `Bearer ${token}`
+            },
+            timeout: 15000
+        };
+        
+        // Make the request directly using axios
+        const response = await axios(config);
+        
+        console.log(`Cart session deleted successfully: ${response.status}`);
+        res.json({
+            message: 'Cart session deleted successfully',
+            recordsAffected: response.data.RecordsAffected
+        });
+    } catch (error) {
+        console.error("Error deleting cart session:", error.response ? JSON.stringify(error.response.data) : error.message);
+        res.status(500).json({ error: 'Failed to delete cart session.' });
     }
 });
 
