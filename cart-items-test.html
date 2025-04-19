@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cart Items API Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1, h2 {
+            color: #333;
+        }
+        .section {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        button {
+            padding: 8px 16px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        input, select {
+            padding: 8px;
+            margin: 5px 0;
+            display: inline-block;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: inline-block;
+            width: 120px;
+        }
+        #response {
+            background-color: #f8f8f8;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin-top: 20px;
+            white-space: pre-wrap;
+        }
+        .action-buttons {
+            display: flex;
+            gap: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Cart Items API Test</h1>
+    
+    <div class="section">
+        <h2>Get All Cart Items</h2>
+        <button id="getCartItems">Fetch Cart Items</button>
+        <div id="cartItemsList">
+            <table id="cartItemsTable">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Cart Item ID</th>
+                        <th>Session ID</th>
+                        <th>Product ID</th>
+                        <th>Style Number</th>
+                        <th>Color</th>
+                        <th>Imprint Type</th>
+                        <th>Cart Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <!-- Cart items data will be inserted here -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+    
+    <div class="section">
+        <h2>Create New Cart Item</h2>
+        <div class="form-group">
+            <label for="createSessionID">Session ID:</label>
+            <input type="text" id="createSessionID" placeholder="Session ID">
+        </div>
+        <div class="form-group">
+            <label for="createProductID">Product ID:</label>
+            <input type="text" id="createProductID" placeholder="Product ID">
+        </div>
+        <div class="form-group">
+            <label for="createStyleNumber">Style Number:</label>
+            <input type="text" id="createStyleNumber" placeholder="Style Number">
+        </div>
+        <div class="form-group">
+            <label for="createColor">Color:</label>
+            <input type="text" id="createColor" placeholder="Color">
+        </div>
+        <div class="form-group">
+            <label for="createImprintType">Imprint Type:</label>
+            <input type="text" id="createImprintType" placeholder="Imprint Type">
+        </div>
+        <div class="form-group">
+            <label for="createCartStatus">Cart Status:</label>
+            <input type="text" id="createCartStatus" placeholder="Active" value="Active">
+        </div>
+        <div class="form-group">
+            <label for="createOrderID">Order ID:</label>
+            <input type="text" id="createOrderID" placeholder="Order ID (optional)">
+        </div>
+        <button id="createCartItem">Create Cart Item</button>
+    </div>
+    
+    <div class="section">
+        <h2>Update Cart Item</h2>
+        <div class="form-group">
+            <label for="updateId">Cart Item ID:</label>
+            <select id="updateId">
+                <option value="">Select a cart item</option>
+                <!-- Options will be populated dynamically -->
+            </select>
+        </div>
+        <div class="form-group">
+            <label for="updateSessionID">Session ID:</label>
+            <input type="text" id="updateSessionID" placeholder="Session ID">
+        </div>
+        <div class="form-group">
+            <label for="updateProductID">Product ID:</label>
+            <input type="text" id="updateProductID" placeholder="Product ID">
+        </div>
+        <div class="form-group">
+            <label for="updateStyleNumber">Style Number:</label>
+            <input type="text" id="updateStyleNumber" placeholder="Style Number">
+        </div>
+        <div class="form-group">
+            <label for="updateColor">Color:</label>
+            <input type="text" id="updateColor" placeholder="Color">
+        </div>
+        <div class="form-group">
+            <label for="updateImprintType">Imprint Type:</label>
+            <input type="text" id="updateImprintType" placeholder="Imprint Type">
+        </div>
+        <div class="form-group">
+            <label for="updateCartStatus">Cart Status:</label>
+            <input type="text" id="updateCartStatus" placeholder="Cart Status">
+        </div>
+        <div class="form-group">
+            <label for="updateOrderID">Order ID:</label>
+            <input type="text" id="updateOrderID" placeholder="Order ID (optional)">
+        </div>
+        <button id="updateCartItem">Update Cart Item</button>
+    </div>
+    
+    <div class="section">
+        <h2>Delete Cart Item</h2>
+        <div class="form-group">
+            <label for="deleteId">Cart Item ID:</label>
+            <select id="deleteId">
+                <option value="">Select a cart item</option>
+                <!-- Options will be populated dynamically -->
+            </select>
+        </div>
+        <button id="deleteCartItem">Delete Cart Item</button>
+    </div>
+    
+    <div class="section">
+        <h2>API Response</h2>
+        <div id="response"></div>
+    </div>
+    
+    <script>
+        // Base URL for API
+        const API_URL = 'http://localhost:3000/api/cart-items';
+        
+        // Helper function to display API response
+        function displayResponse(data) {
+            const responseElement = document.getElementById('response');
+            responseElement.textContent = typeof data === 'object' ? 
+                JSON.stringify(data, null, 2) : data;
+        }
+        
+        // Helper function to populate cart item dropdowns
+        function populateCartItemDropdowns(cartItems) {
+            const updateSelect = document.getElementById('updateId');
+            const deleteSelect = document.getElementById('deleteId');
+            
+            // Clear existing options
+            updateSelect.innerHTML = '<option value="">Select a cart item</option>';
+            deleteSelect.innerHTML = '<option value="">Select a cart item</option>';
+            
+            // Add cart item options
+            cartItems.forEach(item => {
+                const option = document.createElement('option');
+                option.value = item.PK_ID;
+                option.textContent = `${item.PK_ID}: ${item.ProductID} - ${item.StyleNumber} (${item.Color})`;
+                
+                updateSelect.appendChild(option.cloneNode(true));
+                deleteSelect.appendChild(option);
+            });
+        }
+        
+        // Function to fetch and display all cart items
+        async function fetchCartItems() {
+            try {
+                const response = await fetch(API_URL);
+                const data = await response.json();
+                
+                displayResponse(data);
+                
+                // Populate the cart items table
+                const tableBody = document.querySelector('#cartItemsTable tbody');
+                tableBody.innerHTML = '';
+                
+                data.forEach(item => {
+                    const row = document.createElement('tr');
+                    
+                    row.innerHTML = `
+                        <td>${item.PK_ID}</td>
+                        <td>${item.CartItemID}</td>
+                        <td>${item.SessionID}</td>
+                        <td>${item.ProductID}</td>
+                        <td>${item.StyleNumber}</td>
+                        <td>${item.Color}</td>
+                        <td>${item.ImprintType}</td>
+                        <td>${item.CartStatus}</td>
+                        <td class="action-buttons">
+                            <button class="edit-btn" data-id="${item.PK_ID}">Edit</button>
+                            <button class="delete-btn" data-id="${item.PK_ID}">Delete</button>
+                        </td>
+                    `;
+                    
+                    tableBody.appendChild(row);
+                });
+                
+                // Add event listeners to edit and delete buttons
+                document.querySelectorAll('.edit-btn').forEach(button => {
+                    button.addEventListener('click', function() {
+                        const itemId = this.getAttribute('data-id');
+                        const item = data.find(c => c.PK_ID == itemId);
+                        
+                        document.getElementById('updateId').value = item.PK_ID;
+                        document.getElementById('updateSessionID').value = item.SessionID;
+                        document.getElementById('updateProductID').value = item.ProductID;
+                        document.getElementById('updateStyleNumber').value = item.StyleNumber;
+                        document.getElementById('updateColor').value = item.Color;
+                        document.getElementById('updateImprintType').value = item.ImprintType;
+                        document.getElementById('updateCartStatus').value = item.CartStatus;
+                        document.getElementById('updateOrderID').value = item.OrderID || '';
+                    });
+                });
+                
+                document.querySelectorAll('.delete-btn').forEach(button => {
+                    button.addEventListener('click', function() {
+                        const itemId = this.getAttribute('data-id');
+                        document.getElementById('deleteId').value = itemId;
+                    });
+                });
+                
+                // Populate cart item dropdowns
+                populateCartItemDropdowns(data);
+                
+            } catch (error) {
+                displayResponse(`Error: ${error.message}`);
+            }
+        }
+        
+        // Function to create a new cart item
+        async function createCartItem() {
+            const sessionID = document.getElementById('createSessionID').value;
+            const productID = document.getElementById('createProductID').value;
+            const styleNumber = document.getElementById('createStyleNumber').value;
+            const color = document.getElementById('createColor').value;
+            const imprintType = document.getElementById('createImprintType').value;
+            const cartStatus = document.getElementById('createCartStatus').value;
+            const orderID = document.getElementById('createOrderID').value;
+            
+            if (!sessionID || !productID || !styleNumber || !color) {
+                displayResponse('Error: Session ID, Product ID, Style Number, and Color are required fields');
+                return;
+            }
+            
+            const cartItemData = {
+                SessionID: sessionID,
+                ProductID: productID,
+                StyleNumber: styleNumber,
+                Color: color,
+                ImprintType: imprintType,
+                CartStatus: cartStatus || 'Active',
+                OrderID: orderID || null
+            };
+            
+            try {
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(cartItemData)
+                });
+                
+                const data = await response.json();
+                displayResponse(data);
+                
+                // Clear form fields
+                document.getElementById('createSessionID').value = '';
+                document.getElementById('createProductID').value = '';
+                document.getElementById('createStyleNumber').value = '';
+                document.getElementById('createColor').value = '';
+                document.getElementById('createImprintType').value = '';
+                document.getElementById('createCartStatus').value = 'Active';
+                document.getElementById('createOrderID').value = '';
+                
+                // Refresh cart items list
+                fetchCartItems();
+                
+            } catch (error) {
+                displayResponse(`Error: ${error.message}`);
+            }
+        }
+        
+        // Function to update a cart item
+        async function updateCartItem() {
+            const id = document.getElementById('updateId').value;
+            const sessionID = document.getElementById('updateSessionID').value;
+            const productID = document.getElementById('updateProductID').value;
+            const styleNumber = document.getElementById('updateStyleNumber').value;
+            const color = document.getElementById('updateColor').value;
+            const imprintType = document.getElementById('updateImprintType').value;
+            const cartStatus = document.getElementById('updateCartStatus').value;
+            const orderID = document.getElementById('updateOrderID').value;
+            
+            if (!id) {
+                displayResponse('Error: Please select a cart item to update');
+                return;
+            }
+            
+            if (!sessionID || !productID || !styleNumber || !color) {
+                displayResponse('Error: Session ID, Product ID, Style Number, and Color are required fields');
+                return;
+            }
+            
+            const cartItemData = {
+                SessionID: sessionID,
+                ProductID: productID,
+                StyleNumber: styleNumber,
+                Color: color,
+                ImprintType: imprintType,
+                CartStatus: cartStatus,
+                OrderID: orderID || null
+            };
+            
+            try {
+                const response = await fetch(`${API_URL}/${id}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(cartItemData)
+                });
+                
+                const data = await response.json();
+                displayResponse(data);
+                
+                // Clear form fields
+                document.getElementById('updateId').value = '';
+                document.getElementById('updateSessionID').value = '';
+                document.getElementById('updateProductID').value = '';
+                document.getElementById('updateStyleNumber').value = '';
+                document.getElementById('updateColor').value = '';
+                document.getElementById('updateImprintType').value = '';
+                document.getElementById('updateCartStatus').value = '';
+                document.getElementById('updateOrderID').value = '';
+                
+                // Refresh cart items list
+                fetchCartItems();
+                
+            } catch (error) {
+                displayResponse(`Error: ${error.message}`);
+            }
+        }
+        
+        // Function to delete a cart item
+        async function deleteCartItem() {
+            const id = document.getElementById('deleteId').value;
+            
+            if (!id) {
+                displayResponse('Error: Please select a cart item to delete');
+                return;
+            }
+            
+            if (!confirm(`Are you sure you want to delete cart item with ID ${id}?`)) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${API_URL}/${id}`, {
+                    method: 'DELETE'
+                });
+                
+                const data = await response.json();
+                displayResponse(data);
+                
+                // Clear selection
+                document.getElementById('deleteId').value = '';
+                
+                // Refresh cart items list
+                fetchCartItems();
+                
+            } catch (error) {
+                displayResponse(`Error: ${error.message}`);
+            }
+        }
+        
+        // Add event listeners
+        document.getElementById('getCartItems').addEventListener('click', fetchCartItems);
+        document.getElementById('createCartItem').addEventListener('click', createCartItem);
+        document.getElementById('updateCartItem').addEventListener('click', updateCartItem);
+        document.getElementById('deleteCartItem').addEventListener('click', deleteCartItem);
+        
+        // Fetch cart items on page load
+        document.addEventListener('DOMContentLoaded', fetchCartItems);
+    </script>
+</body>
+</html>

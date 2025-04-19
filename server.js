@@ -34,7 +34,7 @@ app.use((req, res, next) => {
     // In production, this should be restricted to specific domains
     res.setHeader('Access-Control-Allow-Origin', '*');
     
-    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
     
     if (req.method === 'OPTIONS') {
@@ -2081,6 +2081,387 @@ app.get('/api/size-pricing', async (req, res) => {
     }
 });
 
+// --- NEW Endpoint: Customer Information CRUD Operations ---
+// GET: /api/customers - Get all customers or filter by query parameters
+// POST: /api/customers - Create a new customer
+// PUT: /api/customers/:id - Update a customer by ID
+// DELETE: /api/customers/:id - Delete a customer by ID
+app.get('/api/customers', async (req, res) => {
+    try {
+        console.log("Fetching customer information");
+        const resource = '/tables/Customer_Info/records';
+        
+        // Build query parameters based on request query
+        const params = {};
+        
+        // Add any filter parameters from the request
+        if (Object.keys(req.query).length > 0) {
+            const whereConditions = [];
+            
+            // Handle common filter fields
+            if (req.query.name) {
+                whereConditions.push(`Name LIKE '%${req.query.name}%'`);
+            }
+            if (req.query.email) {
+                whereConditions.push(`Email='${req.query.email}'`);
+            }
+            if (req.query.company) {
+                whereConditions.push(`Company LIKE '%${req.query.company}%'`);
+            }
+            if (req.query.customerID) {
+                whereConditions.push(`CustomerID=${req.query.customerID}`);
+            }
+            
+            // Add the WHERE clause if we have conditions
+            if (whereConditions.length > 0) {
+                params['q.where'] = whereConditions.join(' AND ');
+            }
+        }
+        
+        // Set ordering and limit
+        params['q.orderby'] = 'CustomerID ASC';
+        params['q.limit'] = 1000;
+        
+        // Use fetchAllCaspioPages to handle pagination
+        const result = await fetchAllCaspioPages(resource, params);
+        console.log(`Found ${result.length} customer records`);
+        
+        res.json(result);
+    } catch (error) {
+        console.error("Error fetching customer information:", error.message);
+        res.status(500).json({ error: 'Failed to fetch customer information.' });
+    }
+});
+
+// Create a new customer
+app.post('/api/customers', express.json(), async (req, res) => {
+    try {
+        // Validate required fields
+        const requiredFields = ['Name', 'Email'];
+        for (const field of requiredFields) {
+            if (!req.body[field]) {
+                return res.status(400).json({ error: `Missing required field: ${field}` });
+            }
+        }
+        
+        console.log(`Creating new customer: ${req.body.Name}`);
+        const resource = '/tables/Customer_Info/records';
+        
+        // Get token for the request
+        const token = await getCaspioAccessToken();
+        const url = `${caspioApiBaseUrl}${resource}`;
+        
+        // Prepare the request
+        const config = {
+            method: 'post',
+            url: url,
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            data: req.body,
+            timeout: 15000
+        };
+        
+        // Make the request directly using axios
+        const response = await axios(config);
+        
+        console.log(`Customer created successfully: ${response.status}`);
+        res.status(201).json({
+            message: 'Customer created successfully',
+            customer: response.data
+        });
+    } catch (error) {
+        console.error("Error creating customer:", error.response ? JSON.stringify(error.response.data) : error.message);
+        res.status(500).json({ error: 'Failed to create customer.' });
+    }
+});
+
+// Update a customer by ID
+app.put('/api/customers/:id', express.json(), async (req, res) => {
+    const { id } = req.params;
+    if (!id) {
+        return res.status(400).json({ error: 'Missing required parameter: id' });
+    }
+    
+    try {
+        console.log(`Updating customer with ID: ${id}`);
+        const resource = `/tables/Customer_Info/records?q.where=PK_ID=${id}`;
+        
+        // Get token for the request
+        const token = await getCaspioAccessToken();
+        const url = `${caspioApiBaseUrl}${resource}`;
+        
+        // Prepare the request
+        const config = {
+            method: 'put',
+            url: url,
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            data: req.body,
+            timeout: 15000
+        };
+        
+        // Make the request directly using axios
+        const response = await axios(config);
+        
+        console.log(`Customer updated successfully: ${response.status}`);
+        res.json({
+            message: 'Customer updated successfully',
+            customer: response.data
+        });
+    } catch (error) {
+        console.error("Error updating customer:", error.response ? JSON.stringify(error.response.data) : error.message);
+        res.status(500).json({ error: 'Failed to update customer.' });
+    }
+});
+
+// Delete a customer by ID
+app.delete('/api/customers/:id', async (req, res) => {
+    const { id } = req.params;
+    if (!id) {
+        return res.status(400).json({ error: 'Missing required parameter: id' });
+    }
+    
+    try {
+        console.log(`Deleting customer with ID: ${id}`);
+        const resource = `/tables/Customer_Info/records?q.where=PK_ID=${id}`;
+        
+        // Get token for the request
+        const token = await getCaspioAccessToken();
+        const url = `${caspioApiBaseUrl}${resource}`;
+        
+        // Prepare the request
+        const config = {
+            method: 'delete',
+            url: url,
+            headers: {
+                'Authorization': `Bearer ${token}`
+            },
+            timeout: 15000
+        };
+        
+        // Make the request directly using axios
+        const response = await axios(config);
+        
+        console.log(`Customer deleted successfully: ${response.status}`);
+        res.json({ message: 'Customer deleted successfully' });
+    } catch (error) {
+        console.error("Error deleting customer:", error.response ? JSON.stringify(error.response.data) : error.message);
+        res.status(500).json({ error: 'Failed to delete customer.' });
+    }
+});
+
+// --- NEW Endpoint: Cart Items CRUD Operations ---
+// GET: /api/cart-items - Get all cart items or filter by query parameters
+// POST: /api/cart-items - Create a new cart item
+// PUT: /api/cart-items/:id - Update a cart item by ID
+// DELETE: /api/cart-items/:id - Delete a cart item by ID
+app.get('/api/cart-items', async (req, res) => {
+    try {
+        console.log("Fetching cart items information");
+        const resource = '/tables/Cart_Items/records';
+        
+        // Build query parameters based on request query
+        const params = {};
+        
+        // Add any filter parameters from the request
+        if (Object.keys(req.query).length > 0) {
+            const whereConditions = [];
+            
+            // Handle common filter fields
+            if (req.query.sessionID) {
+                whereConditions.push(`SessionID='${req.query.sessionID}'`);
+            }
+            if (req.query.productID) {
+                whereConditions.push(`ProductID='${req.query.productID}'`);
+            }
+            if (req.query.styleNumber) {
+                whereConditions.push(`StyleNumber='${req.query.styleNumber}'`);
+            }
+            if (req.query.color) {
+                whereConditions.push(`Color='${req.query.color}'`);
+            }
+            if (req.query.cartStatus) {
+                whereConditions.push(`CartStatus='${req.query.cartStatus}'`);
+            }
+            if (req.query.orderID) {
+                whereConditions.push(`OrderID=${req.query.orderID}`);
+            }
+            
+            // Add the WHERE clause if we have conditions
+            if (whereConditions.length > 0) {
+                params['q.where'] = whereConditions.join(' AND ');
+            }
+        }
+        
+        // Set ordering and limit
+        params['q.orderby'] = 'CartItemID ASC';
+        params['q.limit'] = 1000;
+        
+        // Use fetchAllCaspioPages to handle pagination
+        const result = await fetchAllCaspioPages(resource, params);
+        console.log(`Found ${result.length} cart item records`);
+        
+        res.json(result);
+    } catch (error) {
+        console.error("Error fetching cart items information:", error.message);
+        res.status(500).json({ error: 'Failed to fetch cart items information.' });
+    }
+});
+
+// Create a new cart item
+app.post('/api/cart-items', express.json(), async (req, res) => {
+    try {
+        // Validate required fields
+        const requiredFields = ['SessionID', 'ProductID', 'StyleNumber', 'Color'];
+        for (const field of requiredFields) {
+            if (!req.body[field]) {
+                return res.status(400).json({ error: `Missing required field: ${field}` });
+            }
+        }
+        
+        // Create a new object with only the allowed fields
+        // Exclude auto-generated fields like CartItemID, PK_ID, and DateAdded
+        const cartItemData = {
+            SessionID: req.body.SessionID,
+            ProductID: req.body.ProductID,
+            StyleNumber: req.body.StyleNumber,
+            Color: req.body.Color,
+            ImprintType: req.body.ImprintType || null,
+            CartStatus: req.body.CartStatus || 'Active',
+            OrderID: req.body.OrderID || null
+            // DateAdded is excluded as it might be auto-generated by Caspio
+        };
+        
+        console.log(`Creating new cart item for product: ${cartItemData.ProductID}, style: ${cartItemData.StyleNumber}`);
+        const resource = '/tables/Cart_Items/records';
+        
+        // Get token for the request
+        const token = await getCaspioAccessToken();
+        const url = `${caspioApiBaseUrl}${resource}`;
+        
+        // Prepare the request
+        const config = {
+            method: 'post',
+            url: url,
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            data: cartItemData,
+            timeout: 15000
+        };
+        
+        // Make the request directly using axios
+        const response = await axios(config);
+        
+        console.log(`Cart item created successfully: ${response.status}`);
+        res.status(201).json({
+            message: 'Cart item created successfully',
+            cartItem: response.data
+        });
+    } catch (error) {
+        console.error("Error creating cart item:", error.response ? JSON.stringify(error.response.data) : error.message);
+        res.status(500).json({ error: 'Failed to create cart item.' });
+    }
+});
+
+// Update a cart item by ID
+app.put('/api/cart-items/:id', express.json(), async (req, res) => {
+    const { id } = req.params;
+    if (!id) {
+        return res.status(400).json({ error: 'Missing required parameter: id' });
+    }
+    
+    try {
+        console.log(`Updating cart item with ID: ${id}`);
+        const resource = `/tables/Cart_Items/records?q.where=PK_ID=${id}`;
+        
+        // Create a new object with only the allowed fields
+        // Exclude auto-generated fields like CartItemID and PK_ID
+        const cartItemData = {};
+        
+        // Only include fields that are provided in the request body
+        if (req.body.SessionID !== undefined) cartItemData.SessionID = req.body.SessionID;
+        if (req.body.ProductID !== undefined) cartItemData.ProductID = req.body.ProductID;
+        if (req.body.StyleNumber !== undefined) cartItemData.StyleNumber = req.body.StyleNumber;
+        if (req.body.Color !== undefined) cartItemData.Color = req.body.Color;
+        if (req.body.ImprintType !== undefined) cartItemData.ImprintType = req.body.ImprintType;
+        if (req.body.CartStatus !== undefined) cartItemData.CartStatus = req.body.CartStatus;
+        if (req.body.OrderID !== undefined) cartItemData.OrderID = req.body.OrderID;
+        // Don't update DateAdded as it should be set only when the item is created
+        
+        // Get token for the request
+        const token = await getCaspioAccessToken();
+        const url = `${caspioApiBaseUrl}${resource}`;
+        
+        // Prepare the request
+        const config = {
+            method: 'put',
+            url: url,
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            data: cartItemData,
+            timeout: 15000
+        };
+        
+        // Make the request directly using axios
+        const response = await axios(config);
+        
+        console.log(`Cart item updated successfully: ${response.status}`);
+        res.json({
+            message: 'Cart item updated successfully',
+            cartItem: response.data
+        });
+    } catch (error) {
+        console.error("Error updating cart item:", error.response ? JSON.stringify(error.response.data) : error.message);
+        res.status(500).json({ error: 'Failed to update cart item.' });
+    }
+});
+
+// Delete a cart item by ID
+app.delete('/api/cart-items/:id', async (req, res) => {
+    const { id } = req.params;
+    if (!id) {
+        return res.status(400).json({ error: 'Missing required parameter: id' });
+    }
+    
+    try {
+        console.log(`Deleting cart item with ID: ${id}`);
+        const resource = `/tables/Cart_Items/records?q.where=PK_ID=${id}`;
+        
+        // Get token for the request
+        const token = await getCaspioAccessToken();
+        const url = `${caspioApiBaseUrl}${resource}`;
+        
+        // Prepare the request
+        const config = {
+            method: 'delete',
+            url: url,
+            headers: {
+                'Authorization': `Bearer ${token}`
+            },
+            timeout: 15000
+        };
+        
+        // Make the request directly using axios
+        const response = await axios(config);
+        
+        console.log(`Cart item deleted successfully: ${response.status}`);
+        res.json({
+            message: 'Cart item deleted successfully',
+            recordsAffected: response.data.RecordsAffected
+        });
+    } catch (error) {
+        console.error("Error deleting cart item:", error.response ? JSON.stringify(error.response.data) : error.message);
+        res.status(500).json({ error: 'Failed to delete cart item.' });
+    }
+});
 
 // --- Start the Server ---
 app.listen(PORT, () => {
