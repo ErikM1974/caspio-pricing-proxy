@@ -2854,6 +2854,219 @@ app.delete('/api/cart-sessions/:id', async (req, res) => {
     }
 });
 
+// --- NEW Endpoint: Orders CRUD Operations ---
+// GET: /api/orders - Get all orders or filter by query parameters
+// POST: /api/orders - Create a new order
+// PUT: /api/orders/:id - Update an order by ID
+// DELETE: /api/orders/:id - Delete an order by ID
+app.get('/api/orders', async (req, res) => {
+    try {
+        console.log("Fetching orders information");
+        const resource = '/tables/Orders/records';
+        
+        // Build query parameters based on request query
+        const params = {};
+        
+        // Add any filter parameters from the request
+        if (Object.keys(req.query).length > 0) {
+            const whereConditions = [];
+            
+            // Handle common filter fields
+            if (req.query.orderID) {
+                whereConditions.push(`OrderID=${req.query.orderID}`);
+            }
+            if (req.query.customerID) {
+                whereConditions.push(`CustomerID=${req.query.customerID}`);
+            }
+            if (req.query.orderStatus) {
+                whereConditions.push(`OrderStatus='${req.query.orderStatus}'`);
+            }
+            if (req.query.paymentStatus) {
+                whereConditions.push(`PaymentStatus='${req.query.paymentStatus}'`);
+            }
+            if (req.query.imprintType) {
+                whereConditions.push(`ImprintType='${req.query.imprintType}'`);
+            }
+            
+            // Add the WHERE clause if we have conditions
+            if (whereConditions.length > 0) {
+                params['q.where'] = whereConditions.join(' AND ');
+            }
+        }
+        
+        // Set ordering and limit
+        params['q.orderby'] = 'OrderID DESC'; // Most recent orders first
+        params['q.limit'] = 1000;
+        
+        // Use fetchAllCaspioPages to handle pagination
+        const result = await fetchAllCaspioPages(resource, params);
+        console.log(`Found ${result.length} order records`);
+        
+        res.json(result);
+    } catch (error) {
+        console.error("Error fetching orders information:", error.message);
+        res.status(500).json({ error: 'Failed to fetch orders information.' });
+    }
+});
+
+// Create a new order
+app.post('/api/orders', express.json(), async (req, res) => {
+    try {
+        // Validate required fields
+        const requiredFields = ['CustomerID'];
+        for (const field of requiredFields) {
+            if (!req.body[field]) {
+                return res.status(400).json({ error: `Missing required field: ${field}` });
+            }
+        }
+        
+        // Log the request for debugging
+        console.log(`Creating new order with data:`, JSON.stringify(req.body));
+        
+        // Create a minimal object with ONLY CustomerID
+        // Based on our test script, this is the only field needed to create an order
+        // All other fields will be handled by Caspio's default values or can be updated later
+        const orderData = {
+            CustomerID: req.body.CustomerID
+        };
+        
+        // Log the data we're sending to Caspio
+        console.log(`Sending to Caspio:`, JSON.stringify(orderData));
+        
+        console.log(`Creating new order for customer: ${orderData.CustomerID}`);
+        const resource = '/tables/Orders/records';
+        
+        // Get token for the request
+        const token = await getCaspioAccessToken();
+        const url = `${caspioApiBaseUrl}${resource}`;
+        
+        // Prepare the request
+        const config = {
+            method: 'post',
+            url: url,
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            data: orderData,
+            timeout: 15000
+        };
+        
+        // Make the request directly using axios
+        const response = await axios(config);
+        
+        console.log(`Order created successfully: ${response.status}`);
+        res.status(201).json({
+            message: 'Order created successfully',
+            order: response.data
+        });
+    } catch (error) {
+        console.error("Error creating order:", error.response ? JSON.stringify(error.response.data) : error.message);
+        res.status(500).json({ error: 'Failed to create order.' });
+    }
+});
+
+// Update an order by ID
+app.put('/api/orders/:id', express.json(), async (req, res) => {
+    const { id } = req.params;
+    if (!id) {
+        return res.status(400).json({ error: 'Missing required parameter: id' });
+    }
+    
+    try {
+        console.log(`Updating order with ID: ${id}`);
+        const resource = `/tables/Orders/records?q.where=PK_ID=${id}`;
+        
+        // Log the request for debugging
+        console.log(`Updating order with data:`, JSON.stringify(req.body));
+        
+        // Create a minimal object with only writable fields
+        // Based on our testing, we need to limit the fields to avoid "AlterReadOnlyData" errors
+        const orderData = {};
+        
+        // Only include specific fields that are known to be writable
+        // Exclude fields that might be read-only in Caspio
+        if (req.body.OrderStatus !== undefined) orderData.OrderStatus = req.body.OrderStatus;
+        if (req.body.ImprintType !== undefined) orderData.ImprintType = req.body.ImprintType;
+        if (req.body.PaymentStatus !== undefined) orderData.PaymentStatus = req.body.PaymentStatus;
+        if (req.body.ShippingMethod !== undefined) orderData.ShippingMethod = req.body.ShippingMethod;
+        if (req.body.TrackingNumber !== undefined) orderData.TrackingNumber = req.body.TrackingNumber;
+        if (req.body.EstimatedDelivery !== undefined) orderData.EstimatedDelivery = req.body.EstimatedDelivery;
+        if (req.body.Notes !== undefined) orderData.Notes = req.body.Notes;
+        if (req.body.InternalNotes !== undefined) orderData.InternalNotes = req.body.InternalNotes;
+        
+        // Log the data we're sending to Caspio
+        console.log(`Sending to Caspio:`, JSON.stringify(orderData));
+        
+        // Get token for the request
+        const token = await getCaspioAccessToken();
+        const url = `${caspioApiBaseUrl}${resource}`;
+        
+        // Prepare the request
+        const config = {
+            method: 'put',
+            url: url,
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            data: orderData,
+            timeout: 15000
+        };
+        
+        // Make the request directly using axios
+        const response = await axios(config);
+        
+        console.log(`Order updated successfully: ${response.status}`);
+        res.json({
+            message: 'Order updated successfully',
+            order: response.data
+        });
+    } catch (error) {
+        console.error("Error updating order:", error.response ? JSON.stringify(error.response.data) : error.message);
+        res.status(500).json({ error: 'Failed to update order.' });
+    }
+});
+
+// Delete an order by ID
+app.delete('/api/orders/:id', async (req, res) => {
+    const { id } = req.params;
+    if (!id) {
+        return res.status(400).json({ error: 'Missing required parameter: id' });
+    }
+    
+    try {
+        console.log(`Deleting order with ID: ${id}`);
+        const resource = `/tables/Orders/records?q.where=PK_ID=${id}`;
+        
+        // Get token for the request
+        const token = await getCaspioAccessToken();
+        const url = `${caspioApiBaseUrl}${resource}`;
+        
+        // Prepare the request
+        const config = {
+            method: 'delete',
+            url: url,
+            headers: {
+                'Authorization': `Bearer ${token}`
+            },
+            timeout: 15000
+        };
+        
+        // Make the request directly using axios
+        const response = await axios(config);
+        
+        console.log(`Order deleted successfully: ${response.status}`);
+        res.json({
+            message: 'Order deleted successfully',
+            recordsAffected: response.data.RecordsAffected
+        });
+    } catch (error) {
+        console.error("Error deleting order:", error.response ? JSON.stringify(error.response.data) : error.message);
+        res.status(500).json({ error: 'Failed to delete order.' });
+    }
+});
+
 // --- Start the Server ---
 app.listen(PORT, () => {
     console.log(`Caspio Proxy Server listening on port ${PORT}`);
