@@ -3067,6 +3067,34 @@ app.delete('/api/orders/:id', async (req, res) => {
     }
 });
 
+// --- NEW Endpoint: Cart Integration JavaScript ---
+// Example: /api/cart-integration.js
+app.get('/api/cart-integration.js', (req, res) => {
+    console.log("Serving cart integration JavaScript");
+    
+    // Set the content type to JavaScript
+    res.setHeader('Content-Type', 'application/javascript');
+    
+    // Use fs to read the file
+    const fs = require('fs');
+    const path = require('path');
+    
+    const filePath = path.join(__dirname, 'cart-integration.js');
+    console.log(`Reading file from: ${filePath}`);
+    
+    try {
+        // Read the file synchronously for simplicity
+        const data = fs.readFileSync(filePath, 'utf8');
+        console.log(`Successfully read ${data.length} characters from cart-integration.js`);
+        
+        // Send the file content
+        res.send(data);
+    } catch (err) {
+        console.error(`Error reading cart-integration.js: ${err.message}`);
+        res.status(500).send('// Error loading cart integration script');
+    }
+});
+
 // --- Start the Server ---
 app.listen(PORT, () => {
     console.log(`Caspio Proxy Server listening on port ${PORT}`);
