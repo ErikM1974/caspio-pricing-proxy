@@ -3067,13 +3067,17 @@ app.delete('/api/orders/:id', async (req, res) => {
     }
 });
 
-// --- NEW Endpoint: Cart Integration JavaScript ---
+// --- ENHANCED Endpoint: Cart Integration JavaScript ---
 // Example: /api/cart-integration.js
 app.get('/api/cart-integration.js', (req, res) => {
     console.log("Serving cart integration JavaScript");
     
     // Set the content type to JavaScript
     res.setHeader('Content-Type', 'application/javascript');
+    // Add cache control headers to prevent caching issues
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
     
     // Use fs to read the file
     const fs = require('fs');
@@ -3087,12 +3091,54 @@ app.get('/api/cart-integration.js', (req, res) => {
         const data = fs.readFileSync(filePath, 'utf8');
         console.log(`Successfully read ${data.length} characters from cart-integration.js`);
         
-        // Send the file content
-        res.send(data);
+        // Filter out any non-JavaScript content at the beginning of the file
+        // Look for the first valid JavaScript line (comment or function declaration)
+        let cleanedData = data;
+        
+        // Check if the file contains explanatory text at the beginning
+        if (data.includes('The user is offering to manually create the file')) {
+            console.log('Detected explanatory text at the beginning of the file, cleaning it up...');
+            
+            // Find the start of the actual JavaScript code
+            // Look for common JavaScript patterns like comments or function declarations
+            const jsStartPatterns = [
+                '// Cart integration',
+                'function init',
+                '/*',
+                'const ',
+                'let ',
+                'var '
+            ];
+            
+            let startIndex = -1;
+            for (const pattern of jsStartPatterns) {
+                const index = data.indexOf(pattern);
+                if (index !== -1 && (startIndex === -1 || index < startIndex)) {
+                    startIndex = index;
+                }
+            }
+            
+            if (startIndex !== -1) {
+                cleanedData = data.substring(startIndex);
+                console.log(`Removed ${startIndex} characters of non-JavaScript content from the beginning of the file`);
+            } else {
+                console.warn('Could not find the start of JavaScript code, serving the file as-is');
+            }
+        }
+        
+        // Send the cleaned file content
+        res.send(cleanedData);
+        console.log("Successfully sent cart integration JavaScript");
     } catch (err) {
         console.error(`Error reading cart-integration.js: ${err.message}`);
         res.status(500).send('// Error loading cart integration script');
     }
+});
+
+// Also serve the cart integration script at the root path for easier access
+app.get('/cart-integration.js', (req, res) => {
+    console.log("Redirecting to /api/cart-integration.js");
+    res.redirect('/api/cart-integration.js');
 });
 
 // --- Start the Server ---
