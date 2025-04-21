@@ -7,7 +7,8 @@ const config = {
   apiBaseUrl: 'https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api',
   storageKeys: {
     sessionId: 'nwca_cart_session_id',
-    cartItems: 'nwca_cart_items'
+    cartItems: 'nwca_cart_items',
+    lastSync: 'nwca_cart_last_sync'
   },
   cartUpdateIntervalMs: 60000 // 60 seconds
 };
@@ -481,9 +482,33 @@ if (!window.DirectCartAPI) {
   // Create a new cart session - use a fixed session ID that we know exists
   async createSession() {
     try {
-      // Use a fixed session ID that we know exists
-      const sessionId = "9876";
+      // Generate a session ID in the same format as cart.js
+      const sessionId = 'sess_' + Math.random().toString(36).substring(2, 10);
       this.saveSessionId(sessionId);
+      
+      // Create session on the server
+      try {
+        const response = await fetch(`${this.baseUrl}/cart-sessions`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            SessionID: sessionId,
+            CreateDate: new Date().toISOString(),
+            LastActivity: new Date().toISOString(),
+            UserAgent: 'Cart Integration',
+            IPAddress: '',
+            IsActive: true
+          })
+        });
+        
+        if (!response.ok) {
+          console.warn(`Failed to create session on server: ${response.status}`);
+        }
+      } catch (apiError) {
+        console.warn('API error creating session:', apiError);
+      }
       
       // Store cart data in localStorage
       const cartData = {
@@ -493,7 +518,7 @@ if (!window.DirectCartAPI) {
       };
       localStorage.setItem(this.storageKeys.cartItems, JSON.stringify(cartData));
       
-      console.log("Using existing session ID:", sessionId);
+      console.log("Created new session ID:", sessionId);
       return sessionId;
     } catch (error) {
       console.error('Error creating cart session:', error);
@@ -865,9 +890,9 @@ async function handleAddToCart() {
     if (window.parent && window.parent.NWCACart && typeof window.parent.NWCACart.addToCart === 'function') {
       result = await window.parent.NWCACart.addToCart(productData);
     } else {
-      // Use direct API client as fallback
-      console.log("Parent NWCACart not available, using direct API client");
-      result = await DirectCartAPI.addToCart(productData);
+      // If NWCACart is not available, show an error
+      console.error("Parent NWCACart not available");
+      throw new Error('NWCACart is not available. Please ensure the cart is properly initialized.');
     }
     
     if (result.success) {
