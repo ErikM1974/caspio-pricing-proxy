@@ -1,3 +1,17 @@
+(function() {
+  "use strict";
+
+// --- Configuration (Added) ---
+const config = {
+  apiBaseUrl: 'https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api',
+  storageKeys: {
+    sessionId: 'nwca_cart_session_id',
+    cartItems: 'nwca_cart_items'
+  },
+  cartUpdateIntervalMs: 60000 // 60 seconds
+};
+// --- End Configuration ---
+
 // Cart integration for Caspio DataPages - Auto-detects embellishment type
 function initCartIntegration() {
   console.log("Cart integration initialization started");
@@ -437,14 +451,11 @@ function createEmbellishmentOptionsUI(embType) {
 if (!window.DirectCartAPI) {
   window.DirectCartAPI = {
   // API base URL - use the same server that hosts the cart-integration.js file
-  baseUrl: 'https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api',
-  
+  baseUrl: config.apiBaseUrl,
+
   // Storage keys
-  storageKeys: {
-    sessionId: 'nwca_cart_session_id',
-    cartItems: 'nwca_cart_items'
-  },
-  
+  storageKeys: config.storageKeys,
+
   // Get session ID from localStorage
   getSessionId: function() {
     return localStorage.getItem(this.storageKeys.sessionId);
@@ -455,10 +466,10 @@ if (!window.DirectCartAPI) {
     localStorage.setItem(this.storageKeys.sessionId, sessionId);
   },
   
-  // Create a new cart session
-  createSession: async function() {
+  // Create a new cart session - use a fixed session ID that we know exists
+  async createSession() {
     try {
-      // First try to use a fixed session ID that we know exists
+      // Use a fixed session ID that we know exists
       const sessionId = "9876";
       this.saveSessionId(sessionId);
       
@@ -470,42 +481,8 @@ if (!window.DirectCartAPI) {
       };
       localStorage.setItem(this.storageKeys.cartItems, JSON.stringify(cartData));
       
+      console.log("Using existing session ID:", sessionId);
       return sessionId;
-      
-      /*
-      // Uncomment this section if you want to create real sessions via API
-      // This is currently disabled because the API returns 400 Bad Request
-      
-      // Create a simple session object - minimal data needed
-      const sessionData = {
-        // The server will generate a SessionID
-        CreateDate: new Date().toISOString(),
-        UserAgent: navigator.userAgent,
-        IsActive: true
-      };
-      
-      console.log("Creating session with data:", sessionData);
-      
-      const response = await fetch(`${this.baseUrl}/cart-sessions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(sessionData)
-      });
-      
-      if (!response.ok) {
-        throw new Error(`Failed to create session: ${response.status}`);
-      }
-      
-      const result = await response.json();
-      console.log("Session created:", result);
-      
-      // Extract session ID from response
-      const newSessionId = result.cartSession || sessionId;
-      this.saveSessionId(newSessionId);
-      return newSessionId;
-      */
     } catch (error) {
       console.error('Error creating cart session:', error);
       throw error;
@@ -518,12 +495,13 @@ if (!window.DirectCartAPI) {
     
     if (existingSessionId) {
       try {
-        // Verify the session exists and is active
-        const response = await fetch(`${this.baseUrl}/cart-sessions/${existingSessionId}`);
+        // Verify the session exists and is active - use the correct query parameter format
+        const response = await fetch(`${this.baseUrl}/cart-sessions?sessionID=${existingSessionId}`);
         
         if (response.ok) {
-          const session = await response.json();
-          if (session.IsActive) {
+          const sessions = await response.json();
+          // Check if we got any sessions back and if the first one is active
+          if (sessions && sessions.length > 0 && sessions[0].IsActive) {
             return existingSessionId;
           }
         }
@@ -543,17 +521,27 @@ if (!window.DirectCartAPI) {
   // Add an item to the cart - store in localStorage only
   addToCart: async function(productData) {
     try {
+      console.log("Adding item to cart:", {
+        styleNumber: productData.styleNumber,
+        color: productData.color,
+        embellishmentType: productData.embellishmentType,
+        sizesCount: productData.sizes ? productData.sizes.length : 0
+      });
+      
       // Get or create a session ID
       const sessionId = await this.getOrCreateSessionId();
+      console.log("Using session ID:", sessionId);
       
       // Get existing cart data from localStorage
       let cartData;
       try {
         const storedData = localStorage.getItem(this.storageKeys.cartItems);
         cartData = storedData ? JSON.parse(storedData) : { sessionId, items: [] };
+        console.log("Retrieved existing cart with", cartData.items.length, "items");
       } catch (e) {
         console.error('Error parsing stored cart data:', e);
         cartData = { sessionId, items: [] };
+        console.log("Created new empty cart");
       }
       
       // Create a new cart item
@@ -572,13 +560,23 @@ if (!window.DirectCartAPI) {
         }))
       };
       
+      console.log("Created new cart item:", {
+        id: newItem.id,
+        styleNumber: newItem.styleNumber,
+        color: newItem.color,
+        embellishmentType: newItem.embellishmentType,
+        sizesCount: newItem.sizes.length
+      });
+      
       // Add to cart items
       cartData.items.push(newItem);
+      console.log("Cart now has", cartData.items.length, "items");
       
       // Save to localStorage
       localStorage.setItem(this.storageKeys.cartItems, JSON.stringify(cartData));
+      console.log("Cart saved to localStorage");
       
-      return { success: true };
+      return { success: true, itemId: newItem.id };
     } catch (error) {
       console.error('Error adding to cart:', error);
       return { success: false, error: error.message };
@@ -605,8 +603,8 @@ if (!window.DirectCartAPI) {
         console.error('Error parsing stored cart data:', e);
       }
       
-      // If no items in localStorage, try the API
-      const response = await fetch(`${this.baseUrl}/cart-items?SessionID=${sessionId}`);
+      // If no items in localStorage, try the API - use the correct query parameter format
+      const response = await fetch(`${this.baseUrl}/cart-items?sessionID=${sessionId}`);
       
       if (!response.ok) {
         throw new Error(`Failed to get cart items: ${response.status}`);
@@ -617,7 +615,7 @@ if (!window.DirectCartAPI) {
       // Get sizes for each item
       const itemsWithSizes = await Promise.all(items.map(async (item) => {
         try {
-          const sizesResponse = await fetch(`${this.baseUrl}/cart-item-sizes?CartItemID=${item.CartItemID}`);
+          const sizesResponse = await fetch(`${this.baseUrl}/cart-item-sizes?cartItemID=${item.CartItemID}`);
           
           if (sizesResponse.ok) {
             const sizes = await sizesResponse.json();
@@ -702,13 +700,21 @@ if (!window.DirectCartAPI) {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify(orderData)
+      }).catch(error => {
+        console.error('Error submitting order:', error);
+        throw error;
       });
-      
+
       if (!response.ok) {
-        throw new Error(`Failed to submit order: ${response.status}`);
+        // Try to get error details from response body
+        let errorBody = 'No details available';
+        try {
+          errorBody = await response.text(); // Read body as text for errors
+        } catch (e) { /* Ignore error reading body */ }
+        throw new Error(`HTTP error! status: ${response.status}, Body: ${errorBody}`);
       }
-      
-      const orderResult = await response.json();
+
+      const result = await response.json();
       
       // Clear cart in localStorage
       try {
@@ -722,10 +728,11 @@ if (!window.DirectCartAPI) {
         console.error('Error clearing stored cart data:', e);
       }
       
-      return { success: true, order: orderResult };
+      return { success: true, order: result };
     } catch (error) {
       console.error('Error submitting order:', error);
-      return { success: false, error: error.message };
+      // Make sure the error is thrown so the caller knows it failed.
+      throw error;
     }
   },
   
@@ -915,49 +922,104 @@ function showSuccessWithViewCartButton() {
 }
 
 function getProductData() {
-  const urlParams = new URLSearchParams(window.location.search);
-  const styleNumber = urlParams.get('StyleNumber');
-  const colorCode = urlParams.get('COLOR');
-  const colorName = document.getElementById('matrix-color-info')?.textContent.replace('Color:', '').trim() || colorCode;
-  
-  // Auto-detect embellishment type based on DataPage ID or title
-  const embellishmentType = detectEmbellishmentType();
-  
-  // Get embellishment options from UI inputs
-  const embOptions = getEmbellishmentOptionsFromUI(embellishmentType);
-  
-  // Try to extract product image URL
-  const productImage = extractProductImageUrl();
-  
-  // Get sizes and quantities
-  const sizes = [];
-  const inputs = document.querySelectorAll('.size-quantity-input');
-  
-  inputs.forEach(input => {
-    const size = input.dataset.size;
-    const quantity = parseInt(input.value) || 0;
+  try {
+    console.log("Getting product data from form");
     
-    if (quantity > 0) {
-      const price = getPrice(size, quantity);
-      
-      sizes.push({
-        size: size,
-        quantity: quantity,
-        unitPrice: price,
-        warehouseSource: 'API'
-      });
+    // Get URL parameters
+    const urlParams = new URLSearchParams(window.location.search);
+    const styleNumber = urlParams.get('StyleNumber');
+    const colorCode = urlParams.get('COLOR');
+    
+    // Validate required parameters
+    if (!styleNumber) {
+      console.error("Missing style number in URL parameters");
+      throw new Error('Missing style number. Please ensure you are on a valid product page.');
     }
-  });
-  
-  return {
-    styleNumber: styleNumber,
-    color: colorName,
-    colorCode: colorCode,
-    embellishmentType: embellishmentType,
-    embellishmentOptions: embOptions,
-    sizes: sizes,
-    imageUrl: productImage
-  };
+    
+    if (!colorCode) {
+      console.error("Missing color code in URL parameters");
+      throw new Error('Missing color information. Please ensure you are on a valid product page.');
+    }
+    
+    console.log(`Processing product: Style ${styleNumber}, Color ${colorCode}`);
+    
+    // Get color name from page or fallback to code
+    const colorInfoElement = document.getElementById('matrix-color-info');
+    let colorName = colorCode;
+    
+    if (colorInfoElement && colorInfoElement.textContent) {
+      colorName = colorInfoElement.textContent.replace('Color:', '').trim();
+      console.log(`Found color name: "${colorName}"`);
+    } else {
+      console.log("Color name element not found, using color code as name");
+    }
+    
+    // Auto-detect embellishment type based on DataPage ID or title
+    const embellishmentType = detectEmbellishmentType();
+    console.log(`Detected embellishment type: ${embellishmentType}`);
+    
+    // Get embellishment options from UI inputs
+    const embOptions = getEmbellishmentOptionsFromUI(embellishmentType);
+    console.log("Embellishment options:", embOptions);
+    
+    // Try to extract product image URL
+    const productImage = extractProductImageUrl();
+    console.log("Product image URL:", productImage || "Not found");
+    
+    // Get sizes and quantities
+    const sizes = [];
+    const inputs = document.querySelectorAll('.size-quantity-input');
+    
+    if (!inputs || inputs.length === 0) {
+      console.error("No size inputs found on page");
+      throw new Error('Size selection inputs not found. Please refresh the page and try again.');
+    }
+    
+    console.log(`Found ${inputs.length} size inputs`);
+    
+    inputs.forEach(input => {
+      const size = input.dataset.size;
+      const quantity = parseInt(input.value) || 0;
+      
+      if (quantity > 0) {
+        console.log(`Processing size ${size} with quantity ${quantity}`);
+        const price = getPrice(size, quantity);
+        console.log(`Calculated price for size ${size}: $${price}`);
+        
+        sizes.push({
+          size: size,
+          quantity: quantity,
+          unitPrice: price,
+          warehouseSource: 'API'
+        });
+      }
+    });
+    
+    if (sizes.length === 0) {
+      console.error("No sizes selected with quantity > 0");
+      throw new Error('Please select at least one size and quantity.');
+    }
+    
+    console.log(`Added ${sizes.length} sizes to cart`);
+    
+    // Construct and return the product data object
+    const productData = {
+      styleNumber: styleNumber,
+      color: colorName,
+      colorCode: colorCode,
+      embellishmentType: embellishmentType,
+      embellishmentOptions: embOptions,
+      sizes: sizes,
+      imageUrl: productImage
+    };
+    
+    console.log("Final product data:", productData);
+    return productData;
+    
+  } catch (error) {
+    console.error("Error in getProductData:", error);
+    throw error; // Re-throw to be handled by the caller
+  }
 }
 
 // Extract product image URL from the page
@@ -1044,7 +1106,11 @@ function getEmbellishmentOptionsFromUI(embType) {
 // Function to fetch inventory data and extract unique sizes
 async function fetchInventoryData(styleNumber, colorCode) {
   try {
-    const apiUrl = `https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/inventory?styleNumber=${encodeURIComponent(styleNumber)}&color=${encodeURIComponent(colorCode)}`;
+    console.log(`Fetching inventory data for style ${styleNumber}, color ${colorCode}`);
+    
+    // Use the config.apiBaseUrl instead of hardcoding the URL
+    const apiUrl = `${config.apiBaseUrl}/inventory?styleNumber=${encodeURIComponent(styleNumber)}&color=${encodeURIComponent(colorCode)}`;
+    console.log(`Inventory API URL: ${apiUrl}`);
     
     const response = await fetch(apiUrl);
     
@@ -1165,40 +1231,51 @@ function detectEmbellishmentType() {
 
 function getPrice(size, quantity) {
   try {
-    // Try to detect which pricing data variables are available
+    let embType = detectEmbellishmentType();
     let headers, prices, tiers;
-    
-    if (window.dp5GroupedHeaders && window.dp5GroupedPrices && window.dp5ApiTierData) {
-      headers = window.dp5GroupedHeaders;
-      prices = window.dp5GroupedPrices;
-      tiers = window.dp5ApiTierData;
-    } else if (window.dp6GroupedHeaders && window.dp6GroupedPrices && window.dp6ApiTierData) {
-      headers = window.dp6GroupedHeaders;
-      prices = window.dp6GroupedPrices;
-      tiers = window.dp6ApiTierData;
-    } else if (window.dp7GroupedHeaders && window.dp7GroupedPrices && window.dp7ApiTierData) {
-      headers = window.dp7GroupedHeaders;
-      prices = window.dp7GroupedPrices;
-      tiers = window.dp7ApiTierData;
-    } else if (window.dp8GroupedHeaders && window.dp8GroupedPrices && window.dp8ApiTierData) {
-      headers = window.dp8GroupedHeaders;
-      prices = window.dp8GroupedPrices;
-      tiers = window.dp8ApiTierData;
-    } else if (window.dtfGroupedHeaders && window.dtfGroupedPrices && window.dtfApiTierData) {
-      headers = window.dtfGroupedHeaders;
-      prices = window.dtfGroupedPrices;
-      tiers = window.dtfApiTierData;
+
+    console.log(`Getting price for Size: ${size}, Quantity: ${quantity}, Embellishment: ${embType}`);
+
+    // Attempt to get pricing data from global scope based on detected type
+    if (window[`${embType}GroupedHeaders`]) {
+      headers = window[`${embType}GroupedHeaders`];
+    } else if (window[`${embType}Headers`]) {
+      headers = window[`${embType}Headers`];
     } else {
-      // Generic fallback - look for any variables with these patterns
-      for (const key in window) {
-        if (key.endsWith('GroupedHeaders')) headers = window[key];
-        if (key.endsWith('GroupedPrices')) prices = window[key];
-        if (key.endsWith('ApiTierData')) tiers = window[key];
-      }
+      headers = null;
     }
-    
-    if (!headers || !prices || !tiers) return 0;
-    
+
+    if (window[`${embType}GroupedPrices`]) {
+      prices = window[`${embType}GroupedPrices`];
+    } else if (window[`${embType}Prices`]) {
+      prices = window[`${embType}Prices`];
+    } else {
+      prices = null;
+    }
+
+    if (window[`${embType}ApiTierData`]) {
+      tiers = window[`${embType}ApiTierData`];
+    } else if (window[`${embType}TierData`]) {
+      tiers = window[`${embType}TierData`];
+    } else {
+      tiers = null;
+    }
+
+    // --- Robustness Checks (Added) ---
+    if (!headers) {
+      console.error(`Pricing Error: Could not find GroupedHeaders variable for ${embType || 'detected type'}. Expected e.g., window.embroideryGroupedHeaders or window.dtfGroupedHeaders.`);
+      return 0;
+    }
+    if (!prices) {
+      console.error(`Pricing Error: Could not find GroupedPrices variable for ${embType || 'detected type'}. Expected e.g., window.embroideryGroupedPrices or window.dtfGroupedPrices.`);
+      return 0;
+    }
+    if (!tiers) {
+      console.error(`Pricing Error: Could not find ApiTierData variable for ${embType || 'detected type'}. Expected e.g., window.embroideryApiTierData or window.dtfApiTierData.`);
+      return 0;
+    }
+    // --- End Robustness Checks ---
+
     // Find size group
     let sizeGroup = null;
     for (const header of headers) {
@@ -1286,7 +1363,7 @@ function addViewCartLink() {
   }
   
   // Update cart count every 30 seconds
-  setInterval(updateCartCount, 30000);
+  setInterval(updateCartCount, config.cartUpdateIntervalMs);
   
   // Add click event
   link.addEventListener('click', function() {
@@ -1318,3 +1395,5 @@ if (document.readyState === 'complete' || document.readyState === 'interactive')
   console.log("Cart integration script loaded, DOM already ready");
   setTimeout(initCartIntegration, 500);
 }
+
+})(); // End of IIFE
