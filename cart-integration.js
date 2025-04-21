@@ -42,33 +42,83 @@ function addCartButton() {
   sizeInputs.style.gap = '10px';
   sizeInputs.style.marginBottom = '15px';
   
-  const headerRow = document.getElementById('matrix-size-header-row');
-  if (headerRow) {
-    for (let i = 1; i < headerRow.cells.length; i++) {
-      const size = headerRow.cells[i].textContent;
-      
-      const group = document.createElement('div');
-      group.style.display = 'flex';
-      group.style.flexDirection = 'column';
-      
-      const label = document.createElement('label');
-      label.textContent = size;
-      label.style.marginBottom = '5px';
-      label.style.fontWeight = 'bold';
-      
-      const input = document.createElement('input');
-      input.type = 'number';
-      input.min = '0';
-      input.value = '0';
-      input.className = 'size-quantity-input';
-      input.dataset.size = size;
-      input.style.width = '60px';
-      input.style.padding = '5px';
-      
-      group.appendChild(label);
-      group.appendChild(input);
-      sizeInputs.appendChild(group);
-    }
+  // Loading message while fetching sizes
+  const loadingMsg = document.createElement('div');
+  loadingMsg.textContent = 'Loading available sizes...';
+  loadingMsg.style.fontStyle = 'italic';
+  loadingMsg.style.color = '#666';
+  sizeInputs.appendChild(loadingMsg);
+  
+  // Get product info from URL
+  const urlParams = new URLSearchParams(window.location.search);
+  const styleNumber = urlParams.get('StyleNumber');
+  const colorCode = urlParams.get('COLOR');
+  
+  if (styleNumber && colorCode) {
+    // Fetch inventory data to get available sizes
+    fetchInventoryData(styleNumber, colorCode)
+      .then(sizes => {
+        // Remove loading message
+        sizeInputs.removeChild(loadingMsg);
+        
+        if (sizes && sizes.length > 0) {
+          // Create size inputs
+          sizes.forEach(size => {
+            const group = document.createElement('div');
+            group.style.display = 'flex';
+            group.style.flexDirection = 'column';
+            
+            const label = document.createElement('label');
+            label.textContent = size;
+            label.style.marginBottom = '5px';
+            label.style.fontWeight = 'bold';
+            
+            const input = document.createElement('input');
+            input.type = 'number';
+            input.min = '0';
+            input.value = '0';
+            input.className = 'size-quantity-input';
+            input.dataset.size = size;
+            input.style.width = '60px';
+            input.style.padding = '5px';
+            
+            group.appendChild(label);
+            group.appendChild(input);
+            sizeInputs.appendChild(group);
+          });
+        } else {
+          // Fallback if no sizes found
+          const noSizesMsg = document.createElement('div');
+          noSizesMsg.textContent = 'No size information available';
+          noSizesMsg.style.fontStyle = 'italic';
+          noSizesMsg.style.color = '#666';
+          sizeInputs.appendChild(noSizesMsg);
+        }
+      })
+      .catch(error => {
+        console.error('Error fetching inventory data:', error);
+        
+        // Remove loading message
+        sizeInputs.removeChild(loadingMsg);
+        
+        // Show error message
+        const errorMsg = document.createElement('div');
+        errorMsg.textContent = 'Error loading size information';
+        errorMsg.style.fontStyle = 'italic';
+        errorMsg.style.color = '#dc3545';
+        sizeInputs.appendChild(errorMsg);
+        
+        // Add fallback sizes
+        const fallbackSizes = ['S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL', '6XL'];
+        addSizeInputs(sizeInputs, fallbackSizes);
+      });
+  } else {
+    // No style/color info, use fallback
+    loadingMsg.textContent = 'No product information available';
+    
+    // Add fallback sizes
+    const fallbackSizes = ['S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL', '6XL'];
+    addSizeInputs(sizeInputs, fallbackSizes);
   }
   
   container.appendChild(sizeInputs);
@@ -638,6 +688,73 @@ function getEmbellishmentOptionsFromUI(embType) {
   return options;
 }
 
+// Function to fetch inventory data and extract unique sizes
+async function fetchInventoryData(styleNumber, colorCode) {
+  try {
+    const apiUrl = `https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/inventory?styleNumber=${encodeURIComponent(styleNumber)}&color=${encodeURIComponent(colorCode)}`;
+    
+    const response = await fetch(apiUrl);
+    
+    if (!response.ok) {
+      throw new Error(`Inventory API returned ${response.status}: ${response.statusText}`);
+    }
+    
+    const inventoryData = await response.json();
+    
+    if (!Array.isArray(inventoryData) || inventoryData.length === 0) {
+      console.warn('No inventory data returned');
+      return [];
+    }
+    
+    // Extract unique sizes and sort them
+    const sizeMap = new Map();
+    
+    inventoryData.forEach(item => {
+      if (item.size && !sizeMap.has(item.size)) {
+        sizeMap.set(item.size, item.SizeSortOrder || 0);
+      }
+    });
+    
+    // Convert to array and sort by SizeSortOrder
+    const sizes = Array.from(sizeMap.entries())
+      .sort((a, b) => a[1] - b[1])
+      .map(entry => entry[0]);
+    
+    console.log('Available sizes:', sizes);
+    return sizes;
+  } catch (error) {
+    console.error('Error fetching inventory data:', error);
+    throw error;
+  }
+}
+
+// Helper function to add size inputs
+function addSizeInputs(container, sizes) {
+  sizes.forEach(size => {
+    const group = document.createElement('div');
+    group.style.display = 'flex';
+    group.style.flexDirection = 'column';
+    
+    const label = document.createElement('label');
+    label.textContent = size;
+    label.style.marginBottom = '5px';
+    label.style.fontWeight = 'bold';
+    
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.min = '0';
+    input.value = '0';
+    input.className = 'size-quantity-input';
+    input.dataset.size = size;
+    input.style.width = '60px';
+    input.style.padding = '5px';
+    
+    group.appendChild(label);
+    group.appendChild(input);
+    container.appendChild(group);
+  });
+}
+
 function detectEmbellishmentType() {
   // Try to detect based on DataPage ID or wrapper ID
   if (document.getElementById('dp5-wrapper') || 
@@ -826,3 +943,8 @@ document.addEventListener('DOMContentLoaded', function() {
   initCartIntegration();
 });
 
+// Also try to initialize immediately in case DOMContentLoaded already fired
+if (document.readyState === 'complete' || document.readyState === 'interactive') {
+  console.log("Cart integration script loaded, DOM already ready");
+  setTimeout(initCartIntegration, 500);
+}

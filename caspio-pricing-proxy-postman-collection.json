@@ -1175,6 +1175,201 @@
 				"description": "Get size pricing with upcharges by style number"
 			},
 			"response": []
+		},
+		{
+			"name": "Orders - GET All",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/orders",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"orders"
+					]
+				},
+				"description": "Get all orders"
+			},
+			"response": []
+		},
+		{
+			"name": "Orders - GET by OrderID",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/orders?orderID=1",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"orders"
+					],
+					"query": [
+						{
+							"key": "orderID",
+							"value": "1",
+							"description": "Filter by order ID"
+						}
+					]
+				},
+				"description": "Get orders filtered by order ID"
+			},
+			"response": []
+		},
+		{
+			"name": "Orders - GET by CustomerID",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/orders?customerID=1",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"orders"
+					],
+					"query": [
+						{
+							"key": "customerID",
+							"value": "1",
+							"description": "Filter by customer ID"
+						}
+					]
+				},
+				"description": "Get orders filtered by customer ID"
+			},
+			"response": []
+		},
+		{
+			"name": "Orders - GET by Status",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/orders?orderStatus=New",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"orders"
+					],
+					"query": [
+						{
+							"key": "orderStatus",
+							"value": "New",
+							"description": "Filter by order status"
+						}
+					]
+				},
+				"description": "Get orders filtered by status"
+			},
+			"response": []
+		},
+		{
+			"name": "Orders - POST",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"CustomerID\": 1,\n    \"OrderDate\": \"2025-04-19T15:30:00.000Z\",\n    \"TotalAmount\": 499.99,\n    \"OrderStatus\": \"New\",\n    \"ImprintType\": \"DTG\",\n    \"PaymentStatus\": \"Pending\",\n    \"ShippingMethod\": \"Ground\",\n    \"TrackingNumber\": null,\n    \"EstimatedDelivery\": \"2025-04-26\",\n    \"Notes\": \"Customer requested rush delivery\",\n    \"InternalNotes\": \"Artwork needs approval\"\n}"
+				},
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/orders",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"orders"
+					]
+				},
+				"description": "Create a new order"
+			},
+			"response": []
+		},
+		{
+			"name": "Orders - PUT",
+			"request": {
+				"method": "PUT",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"OrderStatus\": \"Processing\",\n    \"PaymentStatus\": \"Paid\",\n    \"TrackingNumber\": \"1Z999AA10123456784\",\n    \"InternalNotes\": \"Artwork approved, ready for production\"\n}"
+				},
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/orders/1",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"orders",
+						"1"
+					]
+				},
+				"description": "Update an order by ID"
+			},
+			"response": []
+		},
+		{
+			"name": "Orders - DELETE",
+			"request": {
+				"method": "DELETE",
+				"header": [],
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/orders/1",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"orders",
+						"1"
+					]
+				},
+				"description": "Delete an order by ID"
+			},
+			"response": []
 		}
 	],
 	"event": [
