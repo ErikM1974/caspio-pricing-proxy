@@ -253,6 +253,124 @@ Failure to use `fetchAllCaspioPages` will result in incomplete data when the res
 - **Description**: Get inventory data in a tabular format with warehouses as rows and sizes as columns. Returns a structured response with style, color, sizes array, warehouses array (each with inventory quantities), size totals, and a grand total.
 - **Example**: `https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/sizes-by-style-color?styleNumber=PC61&color=Ash`
 
+### Cart Sessions
+
+- **URL**: `/api/cart-sessions`
+- **Method**: `GET`, `POST`, `PUT`, `DELETE`
+- **Description**: CRUD operations for cart sessions
+- **Example**: `https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/cart-sessions`
+
+### Cart Items
+
+- **URL**: `/api/cart-items`
+- **Method**: `GET`, `POST`, `PUT`, `DELETE`
+- **Description**: CRUD operations for cart items
+- **Example**: `https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/cart-items`
+
+### Cart Item Sizes
+
+- **URL**: `/api/cart-item-sizes`
+- **Method**: `GET`, `POST`, `PUT`, `DELETE`
+- **Description**: CRUD operations for cart item sizes
+- **Example**: `https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/cart-item-sizes`
+
+### Customers
+
+- **URL**: `/api/customers`
+- **Method**: `GET`, `POST`, `PUT`, `DELETE`
+- **Description**: CRUD operations for customers
+- **Notes**: When creating a customer, the `Name` field is required. If using separate FirstName and LastName fields, ensure you combine them into a single Name field.
+- **Example**: `https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/customers`
+
+### Orders
+
+- **URL**: `/api/orders`
+- **Method**: `GET`, `POST`, `PUT`, `DELETE`
+- **Description**: CRUD operations for orders
+- **Example**: `https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/orders`
+
+### Process Checkout (New)
+
+- **URL**: `/api/process-checkout`
+- **Method**: `POST`
+- **Body Parameters**:
+  - `sessionId` (required): The cart session ID
+  - `customerId` (required): The customer ID
+- **Description**: Process checkout using the client-side workaround. This endpoint gets all cart items for the session and creates an order without updating cart items with CartStatus='Ordered'. It avoids the 500 Internal Server Error that occurs when updating cart items.
+- **Example**:
+```json
+POST https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/process-checkout
+Content-Type: application/json
+
+{
+    "sessionId": "sess_abcdef123456",
+    "customerId": 1
+}
+```
+
+## Known Issues and Workarounds
+
+### Customer Creation API Issue
+
+When creating a customer, the API requires a `Name` field. If your application uses separate FirstName and LastName fields, you need to combine them into a single Name field before sending the request.
+
+Example:
+```javascript
+// If you have separate FirstName and LastName fields
+const customerData = {
+    FirstName: "John",
+    LastName: "Doe",
+    Email: "john.doe@example.com"
+};
+
+// Add the Name field by combining FirstName and LastName
+if (!customerData.Name && customerData.FirstName && customerData.LastName) {
+    customerData.Name = `${customerData.FirstName} ${customerData.LastName}`;
+}
+
+// Now send the request with the Name field included
+```
+
+### Cart Item Update API Issue
+
+When updating cart items with CartStatus="Ordered" and adding an OrderID, a 500 Internal Server Error occurs. To work around this issue, use the new `/api/process-checkout` endpoint, which creates an order without updating cart items.
+
+Alternatively, you can use the client-side workaround implemented in the cart-integration.js file:
+
+```javascript
+// Instead of updating cart items, create a separate order record
+async function createOrder(sessionId, items, customerId) {
+    // Generate a unique order ID
+    const orderId = 'ORD-' + Math.random().toString(36).substring(2, 10).toUpperCase();
+    
+    // Create order with minimal data
+    const orderData = {
+        CustomerID: customerId,
+        OrderID: orderId,
+        SessionID: sessionId
+    };
+    
+    try {
+        // Send to server
+        const response = await fetch('/api/orders', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(orderData)
+        });
+        
+        if (response.ok) {
+            return { success: true, orderId: orderId };
+        } else {
+            // Handle error with local fallback
+            return { success: false, fallback: true, orderId: orderId };
+        }
+    } catch (error) {
+        // Handle error with local fallback
+        return { success: false, fallback: true, orderId: orderId };
+    }
+}
+```
+
 ## Testing with Postman
 
 A Postman collection is available in the repository (`caspio-pricing-proxy-postman-collection.json`). Import this collection into Postman to test all the available endpoints.

@@ -1370,6 +1370,68 @@
 				"description": "Delete an order by ID"
 			},
 			"response": []
+		},
+		{
+			"name": "Create Order (Workaround)",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"CustomerID\": 1,\n    \"SessionID\": \"sess_abcdef123456\",\n    \"OrderID\": \"ORD-ABCDEF123\"\n}"
+				},
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/orders",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"orders"
+					]
+				},
+				"description": "Create a new order using the workaround method that avoids updating cart items. This endpoint only requires CustomerID, SessionID, and an optional OrderID. It creates an order record without modifying cart items, avoiding the 500 Internal Server Error."
+			},
+			"response": []
+		},
+		{
+			"name": "Process Checkout",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"sessionId\": \"sess_abcdef123456\",\n    \"customerId\": 1\n}"
+				},
+				"url": {
+					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/process-checkout",
+					"protocol": "https",
+					"host": [
+						"caspio-pricing-proxy-ab30a049961a",
+						"herokuapp",
+						"com"
+					],
+					"path": [
+						"api",
+						"process-checkout"
+					]
+				},
+				"description": "Process checkout using the client-side workaround. This endpoint gets all cart items for the session and creates an order without updating cart items with CartStatus='Ordered'. It avoids the 500 Internal Server Error that occurs when updating cart items."
+			},
+			"response": []
 		}
 	],
 	"event": [

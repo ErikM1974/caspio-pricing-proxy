@@ -3141,6 +3141,100 @@ app.get('/cart-integration.js', (req, res) => {
     res.redirect('/api/cart-integration.js');
 });
 
+// --- NEW Endpoint: Process Checkout ---
+// Example: POST /api/process-checkout
+app.post('/api/process-checkout', express.json(), async (req, res) => {
+    try {
+        const { sessionId, customerId } = req.body;
+        
+        // Validate required fields
+        if (!sessionId || !customerId) {
+            return res.status(400).json({
+                error: 'Missing required fields: sessionId and customerId are required'
+            });
+        }
+        
+        console.log(`Processing checkout for session: ${sessionId}, customer: ${customerId}`);
+        
+        // Get cart items for the session
+        const cartItemsResource = '/tables/Cart_Items/records';
+        const cartItemsParams = {
+            'q.where': `SessionID='${sessionId}'`,
+            'q.select': '*',
+            'q.limit': 1000
+        };
+        
+        const cartItems = await fetchAllCaspioPages(cartItemsResource, cartItemsParams);
+        
+        if (!cartItems || cartItems.length === 0) {
+            return res.status(400).json({ error: 'No items in cart' });
+        }
+        
+        console.log(`Found ${cartItems.length} items in cart for session: ${sessionId}`);
+        
+        // Generate a unique order ID
+        const orderId = 'ORD-' + Math.random().toString(36).substring(2, 10).toUpperCase();
+        
+        // Create an order record without updating cart items
+        // This avoids the 500 Internal Server Error when updating cart items
+        try {
+            // Create order with minimal data
+            const orderResource = '/tables/Orders/records';
+            const orderData = {
+                CustomerID: customerId,
+                OrderID: orderId,
+                SessionID: sessionId,
+                OrderStatus: 'New',
+                OrderDate: new Date().toISOString()
+            };
+            
+            console.log(`Creating order with ID: ${orderId}`);
+            
+            // Get token for the request
+            const token = await getCaspioAccessToken();
+            const url = `${caspioApiBaseUrl}${orderResource}`;
+            
+            // Prepare the request
+            const config = {
+                method: 'post',
+                url: url,
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                data: orderData,
+                timeout: 15000
+            };
+            
+            // Make the request directly using axios
+            const response = await axios(config);
+            
+            console.log(`Order created successfully: ${response.status}`);
+            
+            // Return success response with order ID
+            return res.status(201).json({
+                success: true,
+                message: 'Checkout processed successfully',
+                orderId: orderId,
+                orderData: response.data
+            });
+        } catch (error) {
+            console.error("Error creating order:", error.response ? JSON.stringify(error.response.data) : error.message);
+            
+            // Return error response with fallback
+            return res.status(500).json({
+                success: false,
+                error: 'Failed to create order',
+                fallback: true,
+                orderId: orderId
+            });
+        }
+    } catch (error) {
+        console.error("Error processing checkout:", error.message);
+        res.status(500).json({ error: 'Failed to process checkout.' });
+    }
+});
+
 // --- Start the Server ---
 app.listen(PORT, () => {
     console.log(`Caspio Proxy Server listening on port ${PORT}`);
