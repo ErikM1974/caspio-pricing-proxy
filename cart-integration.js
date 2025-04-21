@@ -549,6 +549,12 @@ if (!window.DirectCartAPI) {
       try {
         const storedData = localStorage.getItem(this.storageKeys.cartItems);
         cartData = storedData ? JSON.parse(storedData) : { sessionId, items: [] };
+        
+        // Ensure cartData.items is defined and is an array
+        if (!cartData.items || !Array.isArray(cartData.items)) {
+          cartData.items = [];
+        }
+        
         console.log("Retrieved existing cart with", cartData.items.length, "items");
       } catch (e) {
         console.error('Error parsing stored cart data:', e);
@@ -609,7 +615,15 @@ if (!window.DirectCartAPI) {
         const storedData = localStorage.getItem(this.storageKeys.cartItems);
         if (storedData) {
           const cartData = JSON.parse(storedData);
-          return { success: true, items: cartData.items || [] };
+          
+          // Ensure cartData.items is defined and is an array
+          if (!cartData.items || !Array.isArray(cartData.items)) {
+            cartData.items = [];
+            // Save the corrected data back to localStorage
+            localStorage.setItem(this.storageKeys.cartItems, JSON.stringify(cartData));
+          }
+          
+          return { success: true, items: cartData.items };
         }
       } catch (e) {
         console.error('Error parsing stored cart data:', e);
@@ -656,7 +670,14 @@ if (!window.DirectCartAPI) {
         const storedData = localStorage.getItem(this.storageKeys.cartItems);
         if (storedData) {
           const cartData = JSON.parse(storedData);
-          cartData.items = cartData.items.filter(item => item.id !== cartItemId);
+          
+          // Ensure cartData.items is defined and is an array
+          if (!cartData.items || !Array.isArray(cartData.items)) {
+            cartData.items = [];
+          } else {
+            cartData.items = cartData.items.filter(item => item && item.id !== cartItemId);
+          }
+          
           localStorage.setItem(this.storageKeys.cartItems, JSON.stringify(cartData));
           return { success: true };
         }
@@ -733,7 +754,14 @@ if (!window.DirectCartAPI) {
         const storedData = localStorage.getItem(this.storageKeys.cartItems);
         if (storedData) {
           const cartData = JSON.parse(storedData);
-          cartData.items = [];
+          
+          // Ensure cartData.items is defined
+          if (!cartData.items) {
+            cartData.items = [];
+          } else {
+            cartData.items = [];
+          }
+          
           localStorage.setItem(this.storageKeys.cartItems, JSON.stringify(cartData));
         }
       } catch (e) {
@@ -758,15 +786,21 @@ if (!window.DirectCartAPI) {
           const cartData = JSON.parse(storedData);
           let count = 0;
           
-          if (cartData.items && Array.isArray(cartData.items)) {
-            cartData.items.forEach(item => {
-              if (item.sizes && Array.isArray(item.sizes)) {
-                item.sizes.forEach(size => {
-                  count += size.quantity || 0;
-                });
-              }
-            });
+          // Ensure cartData.items is defined and is an array
+          if (!cartData.items || !Array.isArray(cartData.items)) {
+            cartData.items = [];
+            // Save the corrected data back to localStorage
+            localStorage.setItem(this.storageKeys.cartItems, JSON.stringify(cartData));
           }
+          
+          cartData.items.forEach(item => {
+            // Ensure item.sizes is defined and is an array
+            if (item && item.sizes && Array.isArray(item.sizes)) {
+              item.sizes.forEach(size => {
+                count += size.quantity || 0;
+              });
+            }
+          });
           
           return count;
         }
