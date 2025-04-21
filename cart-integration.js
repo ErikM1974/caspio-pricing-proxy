@@ -433,8 +433,9 @@ function createEmbellishmentOptionsUI(embType) {
   return container;
 }
 
-// Direct API client for cart operations
-const DirectCartAPI = {
+// Direct API client for cart operations - use window scope to prevent redeclaration
+if (!window.DirectCartAPI) {
+  window.DirectCartAPI = {
   // API base URL - use the same server that hosts the cart-integration.js file
   baseUrl: 'https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api',
   
@@ -457,12 +458,33 @@ const DirectCartAPI = {
   // Create a new cart session
   createSession: async function() {
     try {
+      // First try to use a fixed session ID that we know exists
+      const sessionId = "9876";
+      this.saveSessionId(sessionId);
+      
+      // Store cart data in localStorage
+      const cartData = {
+        sessionId: sessionId,
+        items: [],
+        created: new Date().toISOString()
+      };
+      localStorage.setItem(this.storageKeys.cartItems, JSON.stringify(cartData));
+      
+      return sessionId;
+      
+      /*
+      // Uncomment this section if you want to create real sessions via API
+      // This is currently disabled because the API returns 400 Bad Request
+      
+      // Create a simple session object - minimal data needed
       const sessionData = {
+        // The server will generate a SessionID
         CreateDate: new Date().toISOString(),
-        LastActivity: new Date().toISOString(),
         UserAgent: navigator.userAgent,
         IsActive: true
       };
+      
+      console.log("Creating session with data:", sessionData);
       
       const response = await fetch(`${this.baseUrl}/cart-sessions`, {
         method: 'POST',
@@ -476,9 +498,14 @@ const DirectCartAPI = {
         throw new Error(`Failed to create session: ${response.status}`);
       }
       
-      const newSession = await response.json();
-      this.saveSessionId(newSession.SessionID);
-      return newSession.SessionID;
+      const result = await response.json();
+      console.log("Session created:", result);
+      
+      // Extract session ID from response
+      const newSessionId = result.cartSession || sessionId;
+      this.saveSessionId(newSessionId);
+      return newSessionId;
+      */
     } catch (error) {
       console.error('Error creating cart session:', error);
       throw error;
@@ -513,70 +540,246 @@ const DirectCartAPI = {
     }
   },
   
-  // Add an item to the cart
+  // Add an item to the cart - store in localStorage only
   addToCart: async function(productData) {
     try {
       // Get or create a session ID
       const sessionId = await this.getOrCreateSessionId();
       
-      // Create cart item
-      const cartItemData = {
-        SessionID: sessionId,
-        ProductID: productData.productId || '',
-        StyleNumber: productData.styleNumber,
-        Color: productData.color,
-        ImprintType: productData.embellishmentType,
-        EmbellishmentOptions: JSON.stringify(productData.embellishmentOptions || {}),
-        DateAdded: new Date().toISOString(),
-        CartStatus: 'Active'
-      };
-      
-      const itemResponse = await fetch(`${this.baseUrl}/cart-items`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(cartItemData)
-      });
-      
-      if (!itemResponse.ok) {
-        throw new Error(`Failed to add item to cart: ${itemResponse.status}`);
+      // Get existing cart data from localStorage
+      let cartData;
+      try {
+        const storedData = localStorage.getItem(this.storageKeys.cartItems);
+        cartData = storedData ? JSON.parse(storedData) : { sessionId, items: [] };
+      } catch (e) {
+        console.error('Error parsing stored cart data:', e);
+        cartData = { sessionId, items: [] };
       }
       
-      const newCartItem = await itemResponse.json();
+      // Create a new cart item
+      const newItem = {
+        id: 'item_' + Date.now(),
+        styleNumber: productData.styleNumber,
+        color: productData.color,
+        embellishmentType: productData.embellishmentType,
+        embellishmentOptions: productData.embellishmentOptions || {},
+        dateAdded: new Date().toISOString(),
+        status: 'Active',
+        sizes: productData.sizes.map(size => ({
+          size: size.size,
+          quantity: size.quantity,
+          unitPrice: size.unitPrice
+        }))
+      };
       
-      // Add sizes
-      const sizePromises = productData.sizes.map(async (sizeData) => {
-        const sizeResponse = await fetch(`${this.baseUrl}/cart-item-sizes`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            CartItemID: newCartItem.CartItemID,
-            Size: sizeData.size,
-            Quantity: sizeData.quantity,
-            UnitPrice: sizeData.unitPrice,
-            WarehouseSource: sizeData.warehouseSource || ''
-          })
-        });
-        
-        if (!sizeResponse.ok) {
-          throw new Error(`Failed to add size ${sizeData.size}: ${sizeResponse.status}`);
-        }
-        
-        return await sizeResponse.json();
-      });
+      // Add to cart items
+      cartData.items.push(newItem);
       
-      await Promise.all(sizePromises);
+      // Save to localStorage
+      localStorage.setItem(this.storageKeys.cartItems, JSON.stringify(cartData));
       
       return { success: true };
     } catch (error) {
       console.error('Error adding to cart:', error);
       return { success: false, error: error.message };
     }
+  },
+  
+  // Get all cart items for a session
+  getCartItems: async function() {
+    try {
+      const sessionId = this.getSessionId();
+      
+      if (!sessionId) {
+        return { success: false, error: 'No active cart session' };
+      }
+      
+      // First try to get items from localStorage
+      try {
+        const storedData = localStorage.getItem(this.storageKeys.cartItems);
+        if (storedData) {
+          const cartData = JSON.parse(storedData);
+          return { success: true, items: cartData.items || [] };
+        }
+      } catch (e) {
+        console.error('Error parsing stored cart data:', e);
+      }
+      
+      // If no items in localStorage, try the API
+      const response = await fetch(`${this.baseUrl}/cart-items?SessionID=${sessionId}`);
+      
+      if (!response.ok) {
+        throw new Error(`Failed to get cart items: ${response.status}`);
+      }
+      
+      const items = await response.json();
+      
+      // Get sizes for each item
+      const itemsWithSizes = await Promise.all(items.map(async (item) => {
+        try {
+          const sizesResponse = await fetch(`${this.baseUrl}/cart-item-sizes?CartItemID=${item.CartItemID}`);
+          
+          if (sizesResponse.ok) {
+            const sizes = await sizesResponse.json();
+            return { ...item, sizes };
+          }
+          
+          return item;
+        } catch (error) {
+          console.error(`Error fetching sizes for item ${item.CartItemID}:`, error);
+          return item;
+        }
+      }));
+      
+      return { success: true, items: itemsWithSizes };
+    } catch (error) {
+      console.error('Error getting cart items:', error);
+      return { success: false, error: error.message };
+    }
+  },
+  
+  // Remove an item from the cart
+  removeCartItem: async function(cartItemId) {
+    try {
+      // First try to remove from localStorage
+      try {
+        const storedData = localStorage.getItem(this.storageKeys.cartItems);
+        if (storedData) {
+          const cartData = JSON.parse(storedData);
+          cartData.items = cartData.items.filter(item => item.id !== cartItemId);
+          localStorage.setItem(this.storageKeys.cartItems, JSON.stringify(cartData));
+          return { success: true };
+        }
+      } catch (e) {
+        console.error('Error updating stored cart data:', e);
+      }
+      
+      // If not in localStorage, try the API
+      const response = await fetch(`${this.baseUrl}/cart-items/${cartItemId}`, {
+        method: 'DELETE'
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to remove cart item: ${response.status}`);
+      }
+      
+      return { success: true };
+    } catch (error) {
+      console.error('Error removing cart item:', error);
+      return { success: false, error: error.message };
+    }
+  },
+  
+  // Submit cart as an order
+  submitOrder: async function(customerInfo) {
+    try {
+      const sessionId = this.getSessionId();
+      
+      if (!sessionId) {
+        return { success: false, error: 'No active cart session' };
+      }
+      
+      // Get cart items
+      const cartResult = await this.getCartItems();
+      
+      if (!cartResult.success || !cartResult.items || cartResult.items.length === 0) {
+        return { success: false, error: 'No items in cart' };
+      }
+      
+      // Create order data
+      const orderData = {
+        SessionID: sessionId,
+        CustomerInfo: customerInfo,
+        OrderDate: new Date().toISOString(),
+        OrderStatus: 'New',
+        Items: cartResult.items
+      };
+      
+      // Submit order to API
+      const response = await fetch(`${this.baseUrl}/orders`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(orderData)
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to submit order: ${response.status}`);
+      }
+      
+      const orderResult = await response.json();
+      
+      // Clear cart in localStorage
+      try {
+        const storedData = localStorage.getItem(this.storageKeys.cartItems);
+        if (storedData) {
+          const cartData = JSON.parse(storedData);
+          cartData.items = [];
+          localStorage.setItem(this.storageKeys.cartItems, JSON.stringify(cartData));
+        }
+      } catch (e) {
+        console.error('Error clearing stored cart data:', e);
+      }
+      
+      return { success: true, order: orderResult };
+    } catch (error) {
+      console.error('Error submitting order:', error);
+      return { success: false, error: error.message };
+    }
+  },
+  
+  // Get cart count (number of items)
+  getCartCount: async function() {
+    try {
+      // First try to get count from localStorage
+      try {
+        const storedData = localStorage.getItem(this.storageKeys.cartItems);
+        if (storedData) {
+          const cartData = JSON.parse(storedData);
+          let count = 0;
+          
+          if (cartData.items && Array.isArray(cartData.items)) {
+            cartData.items.forEach(item => {
+              if (item.sizes && Array.isArray(item.sizes)) {
+                item.sizes.forEach(size => {
+                  count += size.quantity || 0;
+                });
+              }
+            });
+          }
+          
+          return count;
+        }
+      } catch (e) {
+        console.error('Error parsing stored cart data for count:', e);
+      }
+      
+      // If not in localStorage, try the API
+      const cartResult = await this.getCartItems();
+      
+      if (!cartResult.success || !cartResult.items) {
+        return 0;
+      }
+      
+      let count = 0;
+      
+      cartResult.items.forEach(item => {
+        if (item.sizes && Array.isArray(item.sizes)) {
+          item.sizes.forEach(size => {
+            count += size.quantity || 0;
+          });
+        }
+      });
+      
+      return count;
+    } catch (error) {
+      console.error('Error getting cart count:', error);
+      return 0;
+    }
   }
-};
+  };
+}
 
 async function handleAddToCart() {
   const button = document.getElementById('add-to-cart-button');
@@ -1057,16 +1260,33 @@ function addViewCartLink() {
   link.style.fontWeight = 'bold';
   
   // Add cart count if available
-  if (window.parent && window.parent.NWCACart && typeof window.parent.NWCACart.getCartCount === 'function') {
+  updateCartCount();
+  
+  // Function to update cart count
+  async function updateCartCount() {
     try {
-      const count = window.parent.NWCACart.getCartCount();
+      let count = 0;
+      
+      // Try to use parent window's NWCACart if available
+      if (window.parent && window.parent.NWCACart && typeof window.parent.NWCACart.getCartCount === 'function') {
+        count = window.parent.NWCACart.getCartCount();
+      } else if (window.DirectCartAPI && typeof window.DirectCartAPI.getCartCount === 'function') {
+        // Use DirectCartAPI as fallback
+        count = await window.DirectCartAPI.getCartCount();
+      }
+      
       if (count > 0) {
         link.textContent = `View Cart (${count})`;
+      } else {
+        link.textContent = 'View Cart';
       }
     } catch (e) {
       console.error("Error getting cart count:", e);
     }
   }
+  
+  // Update cart count every 30 seconds
+  setInterval(updateCartCount, 30000);
   
   // Add click event
   link.addEventListener('click', function() {
