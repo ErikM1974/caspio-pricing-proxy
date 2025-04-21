@@ -1,10 +1,3 @@
-The user is offering to manually create the file by copying and pasting the code. This is a good approach since we're having issues with the write_to_file tool. I should provide the code for both the cart-integration.js file and the endpoint in server.js.
-
-Yes, that would be very helpful! Let me provide you with the code for both files:
-
-1. First, please create a file named `cart-integration.js` in the root directory and paste this code:
-
-```javascript
 // Cart integration for Caspio DataPages - Auto-detects embellishment type
 function initCartIntegration() {
   console.log("Cart integration initialization started");
@@ -828,3 +821,8 @@ function addViewCartLink() {
 }
 
 // Start the initialization
+document.addEventListener('DOMContentLoaded', function() {
+  console.log("Cart integration script loaded, waiting for DOM content loaded");
+  initCartIntegration();
+});
+
