@@ -828,7 +828,7 @@ if (!window.DirectCartAPI) {
   // Add an item to the cart - store in localStorage only
   addToCart: async function(productData) {
     try {
-      debugCart("CART-ADD", "Adding item to cart:", {
+      debugCart("CART-ADD-START", "Starting add to cart in DirectCartAPI", {
         styleNumber: productData.styleNumber,
         color: productData.color,
         embellishmentType: productData.embellishmentType,
@@ -837,7 +837,7 @@ if (!window.DirectCartAPI) {
       
       // Get or create a session ID
       const sessionId = await this.getOrCreateSessionId();
-      debugCart("CART-ADD", "Using session ID:", sessionId);
+      debugCart("CART-ADD-SESSION", "Using session ID:", sessionId);
       
       // Get existing cart data from localStorage
       let cartData;
@@ -888,6 +888,32 @@ if (!window.DirectCartAPI) {
       // Save to localStorage
       localStorage.setItem(this.storageKeys.cartItems, JSON.stringify(cartData));
       debugCart("CART-ADD", "Cart saved to localStorage");
+      
+      // Try to synchronize with NWCACart if available
+      try {
+        if (window.NWCACart && typeof window.NWCACart.syncWithServer === 'function') {
+          debugCart("CART-ADD-SYNC", "Attempting to sync with NWCACart");
+          const syncResult = await window.NWCACart.syncWithServer();
+          debugCart("CART-ADD-SYNC", "Sync result:", syncResult);
+        } else if (window.parent && window.parent.NWCACart && typeof window.parent.NWCACart.syncWithServer === 'function') {
+          debugCart("CART-ADD-SYNC", "Attempting to sync with parent window NWCACart");
+          const syncResult = await window.parent.NWCACart.syncWithServer();
+          debugCart("CART-ADD-SYNC", "Sync result:", syncResult);
+        } else {
+          debugCart("CART-ADD-SYNC", "NWCACart not available for sync");
+        }
+      } catch (syncError) {
+        debugCart("CART-ADD-SYNC-ERROR", "Error syncing with NWCACart:", syncError);
+      }
+      
+      // Try to synchronize cart systems
+      try {
+        debugCart("CART-ADD-SYNC", "Attempting to synchronize cart systems");
+        const syncResult = await synchronizeCartSystems();
+        debugCart("CART-ADD-SYNC", `Cart synchronization ${syncResult ? 'successful' : 'failed'}`);
+      } catch (syncError) {
+        debugCart("CART-ADD-SYNC-ERROR", "Error during cart synchronization:", syncError);
+      }
       
       return { success: true, itemId: newItem.id };
     } catch (error) {
