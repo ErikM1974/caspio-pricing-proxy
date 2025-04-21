@@ -13,10 +13,20 @@ const config = {
 };
 // --- End Configuration ---
 
+// Track initialization to prevent multiple instances
+window.cartIntegrationInitialized = window.cartIntegrationInitialized || false;
+
 // Expose the initialization function to the global scope
 // This is critical for the Caspio page to be able to call it
 window.initCartIntegration = function() {
+  // Prevent multiple initializations
+  if (window.cartIntegrationInitialized) {
+    console.log("Cart integration already initialized, skipping");
+    return;
+  }
+  
   console.log("Cart integration initialization started");
+  window.cartIntegrationInitialized = true;
   checkAndAddCartButton();
 };
 
@@ -1238,8 +1248,11 @@ function getPrice(size, quantity) {
 
     console.log(`Getting price for Size: ${size}, Quantity: ${quantity}, Embellishment: ${embType}`);
 
-    // Attempt to get pricing data from global scope based on detected type
-    if (window[`${embType}GroupedHeaders`]) {
+    // Try to get pricing data from dp5 variables first (Caspio DataPage format)
+    if (window.dp5GroupedHeaders) {
+      headers = window.dp5GroupedHeaders;
+      console.log("Using dp5GroupedHeaders for pricing");
+    } else if (window[`${embType}GroupedHeaders`]) {
       headers = window[`${embType}GroupedHeaders`];
     } else if (window[`${embType}Headers`]) {
       headers = window[`${embType}Headers`];
@@ -1247,7 +1260,10 @@ function getPrice(size, quantity) {
       headers = null;
     }
 
-    if (window[`${embType}GroupedPrices`]) {
+    if (window.dp5GroupedPrices) {
+      prices = window.dp5GroupedPrices;
+      console.log("Using dp5GroupedPrices for pricing");
+    } else if (window[`${embType}GroupedPrices`]) {
       prices = window[`${embType}GroupedPrices`];
     } else if (window[`${embType}Prices`]) {
       prices = window[`${embType}Prices`];
@@ -1255,7 +1271,10 @@ function getPrice(size, quantity) {
       prices = null;
     }
 
-    if (window[`${embType}ApiTierData`]) {
+    if (window.dp5ApiTierData) {
+      tiers = window.dp5ApiTierData;
+      console.log("Using dp5ApiTierData for pricing");
+    } else if (window[`${embType}ApiTierData`]) {
       tiers = window[`${embType}ApiTierData`];
     } else if (window[`${embType}TierData`]) {
       tiers = window[`${embType}TierData`];
@@ -1265,16 +1284,17 @@ function getPrice(size, quantity) {
 
     // --- Robustness Checks (Added) ---
     if (!headers) {
-      console.error(`Pricing Error: Could not find GroupedHeaders variable for ${embType || 'detected type'}. Expected e.g., window.embroideryGroupedHeaders or window.dtfGroupedHeaders.`);
-      return 0;
+      console.warn(`Pricing Warning: Could not find GroupedHeaders variable for ${embType || 'detected type'}. Using fallback pricing.`);
+      // Use fallback pricing based on quantity
+      return getFallbackPrice(size, quantity, embType);
     }
     if (!prices) {
-      console.error(`Pricing Error: Could not find GroupedPrices variable for ${embType || 'detected type'}. Expected e.g., window.embroideryGroupedPrices or window.dtfGroupedPrices.`);
-      return 0;
+      console.warn(`Pricing Warning: Could not find GroupedPrices variable for ${embType || 'detected type'}. Using fallback pricing.`);
+      return getFallbackPrice(size, quantity, embType);
     }
     if (!tiers) {
-      console.error(`Pricing Error: Could not find ApiTierData variable for ${embType || 'detected type'}. Expected e.g., window.embroideryApiTierData or window.dtfApiTierData.`);
-      return 0;
+      console.warn(`Pricing Warning: Could not find ApiTierData variable for ${embType || 'detected type'}. Using fallback pricing.`);
+      return getFallbackPrice(size, quantity, embType);
     }
     // --- End Robustness Checks ---
 
@@ -1314,8 +1334,50 @@ function getPrice(size, quantity) {
     return profile[tier] || 0;
   } catch (error) {
     console.error("Error finding price:", error);
-    return 0;
+    return getFallbackPrice(size, quantity, embType);
   }
+}
+
+// Fallback pricing function when pricing data is not available
+function getFallbackPrice(size, quantity, embType) {
+  console.log(`Using fallback pricing for ${size}, quantity ${quantity}, type ${embType}`);
+  
+  // Base price by size
+  let basePrice = 18.00; // Default for S-XL
+  
+  if (size === '2XL' || size === '2XL') {
+    basePrice = 22.00;
+  } else if (size === '3XL') {
+    basePrice = 23.00;
+  } else if (size === '4XL') {
+    basePrice = 25.00;
+  } else if (size === '5XL') {
+    basePrice = 27.00;
+  } else if (size === '6XL') {
+    basePrice = 28.00;
+  }
+  
+  // Apply quantity discount
+  if (quantity >= 72) {
+    basePrice -= 2.00;
+  } else if (quantity >= 48) {
+    basePrice -= 1.00;
+  }
+  
+  // Add embellishment cost
+  let embCost = 0;
+  if (embType === 'embroidery' || embType === 'cap-embroidery') {
+    embCost = 3.50;
+  } else if (embType === 'dtg' || embType === 'dtf') {
+    embCost = 4.00;
+  } else if (embType === 'screen-print') {
+    embCost = 2.50;
+  }
+  
+  const finalPrice = basePrice + embCost;
+  console.log(`Fallback price calculated: $${finalPrice.toFixed(2)}`);
+  
+  return finalPrice;
 }
 
 // Add a "View Cart" link to the top of the DataPage
