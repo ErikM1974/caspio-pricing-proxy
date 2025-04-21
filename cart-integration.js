@@ -1,3 +1,4 @@
+// Cart integration for Caspio DataPages - Auto-detects embellishment type
 (function() {
   "use strict";
 
@@ -12,11 +13,12 @@ const config = {
 };
 // --- End Configuration ---
 
-// Cart integration for Caspio DataPages - Auto-detects embellishment type
-function initCartIntegration() {
+// Expose the initialization function to the global scope
+// This is critical for the Caspio page to be able to call it
+window.initCartIntegration = function() {
   console.log("Cart integration initialization started");
   checkAndAddCartButton();
-}
+};
 
 function checkAndAddCartButton() {
   const noteDiv = document.getElementById('matrix-note');
@@ -1384,16 +1386,21 @@ function addViewCartLink() {
   }
 }
 
-// Start the initialization
+// Start the initialization - only if not loaded by Caspio
+// The Caspio page will call initCartIntegration directly
 document.addEventListener('DOMContentLoaded', function() {
   console.log("Cart integration script loaded, waiting for DOM content loaded");
-  initCartIntegration();
+  window.initCartIntegration();
 });
 
 // Also try to initialize immediately in case DOMContentLoaded already fired
 if (document.readyState === 'complete' || document.readyState === 'interactive') {
   console.log("Cart integration script loaded, DOM already ready");
-  setTimeout(initCartIntegration, 500);
+  setTimeout(window.initCartIntegration, 500);
 }
+
+// Signal that the cart integration is available
+window.nwcaCartIntegrationLoaded = true;
+console.log("Cart integration script fully loaded and ready");
 
 })(); // End of IIFE
