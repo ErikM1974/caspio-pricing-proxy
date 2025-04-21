@@ -433,6 +433,151 @@ function createEmbellishmentOptionsUI(embType) {
   return container;
 }
 
+// Direct API client for cart operations
+const DirectCartAPI = {
+  // API base URL - use the same server that hosts the cart-integration.js file
+  baseUrl: 'https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api',
+  
+  // Storage keys
+  storageKeys: {
+    sessionId: 'nwca_cart_session_id',
+    cartItems: 'nwca_cart_items'
+  },
+  
+  // Get session ID from localStorage
+  getSessionId: function() {
+    return localStorage.getItem(this.storageKeys.sessionId);
+  },
+  
+  // Save session ID to localStorage
+  saveSessionId: function(sessionId) {
+    localStorage.setItem(this.storageKeys.sessionId, sessionId);
+  },
+  
+  // Create a new cart session
+  createSession: async function() {
+    try {
+      const sessionData = {
+        CreateDate: new Date().toISOString(),
+        LastActivity: new Date().toISOString(),
+        UserAgent: navigator.userAgent,
+        IsActive: true
+      };
+      
+      const response = await fetch(`${this.baseUrl}/cart-sessions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(sessionData)
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to create session: ${response.status}`);
+      }
+      
+      const newSession = await response.json();
+      this.saveSessionId(newSession.SessionID);
+      return newSession.SessionID;
+    } catch (error) {
+      console.error('Error creating cart session:', error);
+      throw error;
+    }
+  },
+  
+  // Get or create a session ID
+  getOrCreateSessionId: async function() {
+    const existingSessionId = this.getSessionId();
+    
+    if (existingSessionId) {
+      try {
+        // Verify the session exists and is active
+        const response = await fetch(`${this.baseUrl}/cart-sessions/${existingSessionId}`);
+        
+        if (response.ok) {
+          const session = await response.json();
+          if (session.IsActive) {
+            return existingSessionId;
+          }
+        }
+        
+        // Session not found or not active, create a new one
+        return await this.createSession();
+      } catch (error) {
+        console.error('Error verifying session:', error);
+        return await this.createSession();
+      }
+    } else {
+      // No existing session, create a new one
+      return await this.createSession();
+    }
+  },
+  
+  // Add an item to the cart
+  addToCart: async function(productData) {
+    try {
+      // Get or create a session ID
+      const sessionId = await this.getOrCreateSessionId();
+      
+      // Create cart item
+      const cartItemData = {
+        SessionID: sessionId,
+        ProductID: productData.productId || '',
+        StyleNumber: productData.styleNumber,
+        Color: productData.color,
+        ImprintType: productData.embellishmentType,
+        EmbellishmentOptions: JSON.stringify(productData.embellishmentOptions || {}),
+        DateAdded: new Date().toISOString(),
+        CartStatus: 'Active'
+      };
+      
+      const itemResponse = await fetch(`${this.baseUrl}/cart-items`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(cartItemData)
+      });
+      
+      if (!itemResponse.ok) {
+        throw new Error(`Failed to add item to cart: ${itemResponse.status}`);
+      }
+      
+      const newCartItem = await itemResponse.json();
+      
+      // Add sizes
+      const sizePromises = productData.sizes.map(async (sizeData) => {
+        const sizeResponse = await fetch(`${this.baseUrl}/cart-item-sizes`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            CartItemID: newCartItem.CartItemID,
+            Size: sizeData.size,
+            Quantity: sizeData.quantity,
+            UnitPrice: sizeData.unitPrice,
+            WarehouseSource: sizeData.warehouseSource || ''
+          })
+        });
+        
+        if (!sizeResponse.ok) {
+          throw new Error(`Failed to add size ${sizeData.size}: ${sizeResponse.status}`);
+        }
+        
+        return await sizeResponse.json();
+      });
+      
+      await Promise.all(sizePromises);
+      
+      return { success: true };
+    } catch (error) {
+      console.error('Error adding to cart:', error);
+      return { success: false, error: error.message };
+    }
+  }
+};
+
 async function handleAddToCart() {
   const button = document.getElementById('add-to-cart-button');
   const errorDiv = document.getElementById('cart-error-container');
@@ -458,33 +603,38 @@ async function handleAddToCart() {
       throw new Error('Please select at least one size and quantity');
     }
     
+    let result;
+    
+    // Try to use parent window's NWCACart if available
     if (window.parent && window.parent.NWCACart && typeof window.parent.NWCACart.addToCart === 'function') {
-      const result = await window.parent.NWCACart.addToCart(productData);
+      result = await window.parent.NWCACart.addToCart(productData);
+    } else {
+      // Use direct API client as fallback
+      console.log("Parent NWCACart not available, using direct API client");
+      result = await DirectCartAPI.addToCart(productData);
+    }
+    
+    if (result.success) {
+      // Create success message with View Cart button
+      showSuccessWithViewCartButton();
       
-      if (result.success) {
-        // Create success message with View Cart button
-        showSuccessWithViewCartButton();
-        
-        if (button) {
-          button.textContent = 'Added to Cart ✓';
-          setTimeout(() => {
-            button.disabled = false;
-            button.textContent = 'Add to Cart';
-          }, 2000);
-        }
-      } else {
-        if (errorDiv) {
-          errorDiv.textContent = result.error || 'Failed to add to cart';
-          errorDiv.style.display = 'block';
-        }
-        
-        if (button) {
+      if (button) {
+        button.textContent = 'Added to Cart ✓';
+        setTimeout(() => {
           button.disabled = false;
           button.textContent = 'Add to Cart';
-        }
+        }, 2000);
       }
     } else {
-      throw new Error('Shopping cart not available');
+      if (errorDiv) {
+        errorDiv.textContent = result.error || 'Failed to add to cart';
+        errorDiv.style.display = 'block';
+      }
+      
+      if (button) {
+        button.disabled = false;
+        button.textContent = 'Add to Cart';
+      }
     }
   } catch (error) {
     if (errorDiv) {
