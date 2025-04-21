@@ -2137,15 +2137,24 @@ app.get('/api/customers', async (req, res) => {
 // Create a new customer
 app.post('/api/customers', express.json(), async (req, res) => {
     try {
+        // Create a copy of the request body to avoid modifying the original
+        const customerData = { ...req.body };
+        
+        // Check if Name is missing but FirstName and LastName are provided
+        if (!customerData.Name && customerData.FirstName && customerData.LastName) {
+            customerData.Name = `${customerData.FirstName} ${customerData.LastName}`;
+            console.log(`Added Name field from FirstName and LastName: ${customerData.Name}`);
+        }
+        
         // Validate required fields
         const requiredFields = ['Name', 'Email'];
         for (const field of requiredFields) {
-            if (!req.body[field]) {
+            if (!customerData[field]) {
                 return res.status(400).json({ error: `Missing required field: ${field}` });
             }
         }
         
-        console.log(`Creating new customer: ${req.body.Name}`);
+        console.log(`Creating new customer: ${customerData.Name}`);
         const resource = '/tables/Customer_Info/records';
         
         // Get token for the request
@@ -2160,7 +2169,7 @@ app.post('/api/customers', express.json(), async (req, res) => {
                 'Authorization': `Bearer ${token}`,
                 'Content-Type': 'application/json'
             },
-            data: req.body,
+            data: customerData,
             timeout: 15000
         };
         
@@ -3145,16 +3154,21 @@ app.get('/cart-integration.js', (req, res) => {
 // Example: POST /api/process-checkout
 app.post('/api/process-checkout', express.json(), async (req, res) => {
     try {
-        const { sessionId, customerId } = req.body;
+        // Extract sessionId and customerId from request body
+        // Also check for CustomerInfo object for backward compatibility
+        const { sessionId, customerId, CustomerInfo } = req.body;
+        
+        // Get the customer ID from either customerId or CustomerInfo.CustomerID
+        const effectiveCustomerId = customerId || (CustomerInfo && CustomerInfo.CustomerID);
         
         // Validate required fields
-        if (!sessionId || !customerId) {
+        if (!sessionId || !effectiveCustomerId) {
             return res.status(400).json({
-                error: 'Missing required fields: sessionId and customerId are required'
+                error: 'Missing required fields: sessionId and customerId (or CustomerInfo.CustomerID) are required'
             });
         }
         
-        console.log(`Processing checkout for session: ${sessionId}, customer: ${customerId}`);
+        console.log(`Processing checkout for session: ${sessionId}, customer: ${effectiveCustomerId}`);
         
         // Get cart items for the session
         const cartItemsResource = '/tables/Cart_Items/records';
@@ -3181,7 +3195,7 @@ app.post('/api/process-checkout', express.json(), async (req, res) => {
             // Create order with minimal data
             const orderResource = '/tables/Orders/records';
             const orderData = {
-                CustomerID: customerId,
+                CustomerID: effectiveCustomerId,
                 OrderID: orderId,
                 SessionID: sessionId,
                 OrderStatus: 'New',

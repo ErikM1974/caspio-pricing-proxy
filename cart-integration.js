@@ -1047,9 +1047,11 @@ if (!window.DirectCartAPI) {
       }
       
       // Create order data
+      // Extract CustomerID from CustomerInfo to fix the "Missing required field: CustomerID" error
       const orderData = {
         SessionID: sessionId,
-        CustomerInfo: enhancedCustomerInfo,
+        CustomerID: enhancedCustomerInfo.CustomerID, // Use CustomerID directly
+        CustomerInfo: enhancedCustomerInfo, // Keep CustomerInfo for backward compatibility
         OrderDate: new Date().toISOString(),
         OrderStatus: 'New',
         Items: cartResult.items
