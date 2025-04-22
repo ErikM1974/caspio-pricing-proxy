@@ -2804,7 +2804,7 @@ app.put('/api/cart-sessions/:id', express.json(), async (req, res) => {
     
     try {
         console.log(`Updating cart session with ID: ${id}`);
-        const resource = `/tables/Cart_Sessions/records?q.where=PK_ID=${id}`;
+        const resource = `/tables/Cart_Sessions/records?q.where=SessionID='${id}'`;
         
         // Create a new object with only the allowed fields
         // Exclude auto-generated fields like PK_ID
@@ -2858,7 +2858,7 @@ app.delete('/api/cart-sessions/:id', async (req, res) => {
     
     try {
         console.log(`Deleting cart session with ID: ${id}`);
-        const resource = `/tables/Cart_Sessions/records?q.where=PK_ID=${id}`;
+        const resource = `/tables/Cart_Sessions/records?q.where=SessionID='${id}'`;
         
         // Get token for the request
         const token = await getCaspioAccessToken();
