@@ -271,43 +271,35 @@ window.initCartIntegration = function() {
 function checkAndAddCartButton() {
   debugCart("UI", "Checking for DOM elements to add cart button");
   
-  // More robust DOM element checking
+  // Check for the essential elements: the price table and the note div
+  const priceTable = document.querySelector('table.matrix-price-table'); // Works for Caspio and Fallback
   const noteDiv = document.getElementById('matrix-note');
-  const tableBody = document.getElementById('matrix-price-body');
-  const priceTable = document.querySelector('table.matrix-price-table');
   
-  // Log what we found for debugging
   debugCart("UI", "DOM elements found:", {
     noteDiv: !!noteDiv,
-    tableBody: !!tableBody,
     priceTable: !!priceTable
+    // Removed tableBody check as it's not reliable for fallback table
   });
   
-  // Try multiple possible locations
-  if (noteDiv && tableBody && tableBody.children.length > 0) {
-    debugCart("UI", "Found primary DOM elements, adding cart button");
-    addCartButton();
-    addViewCartLink();
-  } else if (noteDiv && priceTable) {
-    debugCart("UI", "Found alternative DOM elements, adding cart button");
-    addCartButton();
-    addViewCartLink();
-  } else if (document.querySelector('.caspio-table') || document.querySelector('.cbResultSetTable')) {
-    // Try to find any Caspio table as a fallback
-    debugCart("UI", "Found Caspio table, adding cart button as fallback");
-    const caspio = document.querySelector('.caspio-table') || document.querySelector('.cbResultSetTable');
-    // Create a note div if it doesn't exist
-    if (!noteDiv) {
-      const newNoteDiv = document.createElement('div');
-      newNoteDiv.id = 'matrix-note';
-      caspio.parentNode.insertBefore(newNoteDiv, caspio.nextSibling);
-      debugCart("UI", "Created matrix-note div as it was missing");
+  // Proceed if both the price table (Caspio or fallback) and the note div are found
+  if (priceTable && noteDiv) {
+    debugCart("UI", "Found required DOM elements (priceTable and noteDiv), adding cart button");
+    addCartButton(); // Assumes addCartButton uses noteDiv or priceTable for placement
+    addViewCartLink(); // Add the view cart link as well
+  }
+  // Removed the Caspio-specific fallback logic that created matrix-note here.
+  // If matrix-note is sometimes missing even with Caspio tables, that might need separate handling.
+   else {
+    // Check if the pricing container indicates unavailability
+    const pricingContainer = document.getElementById('pricing-calculator'); // Assumed ID based on pricing-pages.js
+    if (pricingContainer && pricingContainer.classList.contains('pricing-unavailable')) {
+      debugCart("UI", "Pricing data is unavailable (detected .pricing-unavailable). Cart button will not be added.");
+      // Stop retrying if pricing is confirmed unavailable
+    } else {
+      // If elements are just missing (possibly due to timing), retry
+      debugCart("UI", "Required DOM elements (priceTable or noteDiv) not found yet, retrying in 500ms");
+      setTimeout(checkAndAddCartButton, 500); // Keep the retry mechanism
     }
-    addCartButton();
-    addViewCartLink();
-  } else {
-    debugCart("UI", "Required DOM elements not found, retrying in 500ms");
-    setTimeout(checkAndAddCartButton, 500);
   }
 }
 
@@ -1010,7 +1002,6 @@ if (!window.DirectCartAPI) {
           }
           
           localStorage.setItem(this.storageKeys.cartItems, JSON.stringify(cartData));
-          return { success: true };
         }
       } catch (e) {
         debugCart("CART-ERROR", "Error updating stored cart data:", e);
@@ -1955,7 +1946,7 @@ function ensurePricingDataExists(embType, forceInit = false) {
   
   // Define default pricing data based on embellishment type
   let headers, prices, tiers;
-  
+
   switch (embType) {
     case 'embroidery':
       headers = ['XS-S', 'M-L', 'XL-2XL', '3XL-4XL', '5XL-6XL'];
