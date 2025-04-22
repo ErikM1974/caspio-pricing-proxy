@@ -2957,19 +2957,20 @@ app.post('/api/orders', express.json(), async (req, res) => {
             }
         }
         
-        // Create a complete order object with all provided fields
+        // Create a complete order object with all provided fields based on database schema
         const orderData = {
             // Required fields
             CustomerID: req.body.CustomerID,
             
             // Optional fields with defaults
-            OrderDate: req.body.OrderDate || new Date().toISOString(),
-            OrderStatus: req.body.OrderStatus || 'New',
-            PaymentStatus: req.body.PaymentStatus || 'Pending',
-            
-            // Include any other fields provided in the request
+            OrderNumber: req.body.OrderNumber || `ORD-${Date.now()}`,
             SessionID: req.body.SessionID || null,
+            OrderDate: req.body.OrderDate || new Date().toISOString(),
+            TotalAmount: req.body.TotalAmount || null,
+            OrderStatus: req.body.OrderStatus || 'New',
             ImprintType: req.body.ImprintType || null,
+            PaymentMethod: req.body.PaymentMethod || null,
+            PaymentStatus: req.body.PaymentStatus || 'Pending',
             ShippingMethod: req.body.ShippingMethod || null,
             TrackingNumber: req.body.TrackingNumber || null,
             EstimatedDelivery: req.body.EstimatedDelivery || null,
@@ -2977,16 +2978,9 @@ app.post('/api/orders', express.json(), async (req, res) => {
             InternalNotes: req.body.InternalNotes || null
         };
         
-        // Generate a unique OrderID if not provided
-        if (!req.body.OrderID) {
-            orderData.OrderID = 'ORD-' + Math.random().toString(36).substring(2, 10).toUpperCase();
-        } else {
-            orderData.OrderID = req.body.OrderID;
-        }
-        
         // Special handling for "guest" CustomerID
-        if (orderData.CustomerID === 'guest') {
-            console.log('Using special handling for guest customer');
+        if (orderData.CustomerID === 'guest' || isNaN(parseInt(orderData.CustomerID, 10))) {
+            console.log('Using special handling for guest or non-numeric CustomerID');
             
             // Check if we need to create a guest customer first
             const guestCustomerData = {
@@ -3019,14 +3013,23 @@ app.post('/api/orders', express.json(), async (req, res) => {
                 
                 // Use the newly created customer ID
                 if (customerResponse.data && customerResponse.data.Result && customerResponse.data.Result.CustomerID) {
-                    orderData.CustomerID = customerResponse.data.Result.CustomerID;
+                    orderData.CustomerID = parseInt(customerResponse.data.Result.CustomerID, 10);
                     console.log(`Using new guest CustomerID: ${orderData.CustomerID}`);
+                } else {
+                    // Default to CustomerID 1 if we couldn't create a new customer
+                    orderData.CustomerID = 1;
+                    console.log(`Using default CustomerID: ${orderData.CustomerID}`);
                 }
             } catch (customerError) {
                 console.error("Error creating guest customer:", customerError.response ?
                     JSON.stringify(customerError.response.data) : customerError.message);
-                // Continue with the original guest CustomerID
+                // Default to CustomerID 1 if we couldn't create a new customer
+                orderData.CustomerID = 1;
+                console.log(`Using default CustomerID: ${orderData.CustomerID}`);
             }
+        } else {
+            // Ensure CustomerID is numeric
+            orderData.CustomerID = parseInt(orderData.CustomerID, 10);
         }
         
         // Log the data we're sending to Caspio
