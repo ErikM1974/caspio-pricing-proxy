@@ -1750,6 +1750,9 @@ function getPrice(size, quantity) {
 
     debugCart("PRICE", `Getting price for Size: ${size}, Quantity: ${quantity}, Embellishment: ${embType}`);
 
+    // Check if we need to initialize fallback pricing data
+    ensurePricingDataExists(embType);
+
     // Try to get pricing data from dp5 variables first (Caspio DataPage format)
     if (window.dp5GroupedHeaders) {
       headers = window.dp5GroupedHeaders;
@@ -1821,6 +1824,16 @@ function getPrice(size, quantity) {
         embTypeGroupedPrices: typeof window[`${embType}GroupedPrices`] !== 'undefined',
         embTypeApiTierData: typeof window[`${embType}ApiTierData`] !== 'undefined'
       });
+      
+      // Try to initialize pricing data again as a last resort
+      ensurePricingDataExists(embType, true);
+      
+      // Check if initialization worked
+      if (window.dp5GroupedHeaders && window.dp5GroupedPrices && window.dp5ApiTierData) {
+        debugCart("PRICE", "Successfully initialized pricing data as fallback");
+        // Retry with the newly initialized data
+        return getPrice(size, quantity);
+      }
       
       return getFallbackPrice(size, quantity, embType);
     }
@@ -1927,6 +1940,105 @@ function getFallbackPrice(size, quantity, embType) {
   showFallbackPricingWarning();
   
   return finalPrice;
+}
+
+// Function to ensure pricing data exists for a given embellishment type
+function ensurePricingDataExists(embType, forceInit = false) {
+  // Skip if already initialized and not forcing
+  if (!forceInit &&
+      ((window.dp5GroupedHeaders && window.dp5GroupedPrices && window.dp5ApiTierData) ||
+       (window[`${embType}GroupedHeaders`] && window[`${embType}GroupedPrices`] && window[`${embType}ApiTierData`]))) {
+    return;
+  }
+  
+  debugCart("PRICE-INIT", `Initializing pricing data for ${embType}`);
+  
+  // Define default pricing data based on embellishment type
+  let headers, prices, tiers;
+  
+  switch (embType) {
+    case 'embroidery':
+      headers = ['XS-S', 'M-L', 'XL-2XL', '3XL-4XL', '5XL-6XL'];
+      prices = {
+        'XS-S': { 'Tier1': 18.99, 'Tier2': 17.99, 'Tier3': 16.99, 'Tier4': 15.99 },
+        'M-L': { 'Tier1': 19.99, 'Tier2': 18.99, 'Tier3': 17.99, 'Tier4': 16.99 },
+        'XL-2XL': { 'Tier1': 21.99, 'Tier2': 20.99, 'Tier3': 19.99, 'Tier4': 18.99 },
+        '3XL-4XL': { 'Tier1': 23.99, 'Tier2': 22.99, 'Tier3': 21.99, 'Tier4': 20.99 },
+        '5XL-6XL': { 'Tier1': 25.99, 'Tier2': 24.99, 'Tier3': 23.99, 'Tier4': 22.99 }
+      };
+      break;
+      
+    case 'cap-embroidery':
+      headers = ['One Size'];
+      prices = {
+        'One Size': { 'Tier1': 22.99, 'Tier2': 21.99, 'Tier3': 20.99, 'Tier4': 19.99 }
+      };
+      break;
+      
+    case 'dtg':
+      headers = ['XS-S', 'M-L', 'XL-2XL', '3XL-4XL', '5XL-6XL'];
+      prices = {
+        'XS-S': { 'Tier1': 20.99, 'Tier2': 19.99, 'Tier3': 18.99, 'Tier4': 17.99 },
+        'M-L': { 'Tier1': 21.99, 'Tier2': 20.99, 'Tier3': 19.99, 'Tier4': 18.99 },
+        'XL-2XL': { 'Tier1': 23.99, 'Tier2': 22.99, 'Tier3': 21.99, 'Tier4': 20.99 },
+        '3XL-4XL': { 'Tier1': 25.99, 'Tier2': 24.99, 'Tier3': 23.99, 'Tier4': 22.99 },
+        '5XL-6XL': { 'Tier1': 27.99, 'Tier2': 26.99, 'Tier3': 25.99, 'Tier4': 24.99 }
+      };
+      break;
+      
+    case 'screen-print':
+      headers = ['XS-S', 'M-L', 'XL-2XL', '3XL-4XL', '5XL-6XL'];
+      prices = {
+        'XS-S': { 'Tier1': 16.99, 'Tier2': 15.99, 'Tier3': 14.99, 'Tier4': 13.99 },
+        'M-L': { 'Tier1': 17.99, 'Tier2': 16.99, 'Tier3': 15.99, 'Tier4': 14.99 },
+        'XL-2XL': { 'Tier1': 19.99, 'Tier2': 18.99, 'Tier3': 17.99, 'Tier4': 16.99 },
+        '3XL-4XL': { 'Tier1': 21.99, 'Tier2': 20.99, 'Tier3': 19.99, 'Tier4': 18.99 },
+        '5XL-6XL': { 'Tier1': 23.99, 'Tier2': 22.99, 'Tier3': 21.99, 'Tier4': 20.99 }
+      };
+      break;
+      
+    case 'dtf':
+      headers = ['XS-S', 'M-L', 'XL-2XL', '3XL-4XL', '5XL-6XL'];
+      prices = {
+        'XS-S': { 'Tier1': 21.99, 'Tier2': 20.99, 'Tier3': 19.99, 'Tier4': 18.99 },
+        'M-L': { 'Tier1': 22.99, 'Tier2': 21.99, 'Tier3': 20.99, 'Tier4': 19.99 },
+        'XL-2XL': { 'Tier1': 24.99, 'Tier2': 23.99, 'Tier3': 22.99, 'Tier4': 21.99 },
+        '3XL-4XL': { 'Tier1': 26.99, 'Tier2': 25.99, 'Tier3': 24.99, 'Tier4': 23.99 },
+        '5XL-6XL': { 'Tier1': 28.99, 'Tier2': 27.99, 'Tier3': 26.99, 'Tier4': 25.99 }
+      };
+      break;
+      
+    default:
+      // Default to embroidery pricing if type is unknown
+      headers = ['XS-S', 'M-L', 'XL-2XL', '3XL-4XL', '5XL-6XL'];
+      prices = {
+        'XS-S': { 'Tier1': 18.99, 'Tier2': 17.99, 'Tier3': 16.99, 'Tier4': 15.99 },
+        'M-L': { 'Tier1': 19.99, 'Tier2': 18.99, 'Tier3': 17.99, 'Tier4': 16.99 },
+        'XL-2XL': { 'Tier1': 21.99, 'Tier2': 20.99, 'Tier3': 19.99, 'Tier4': 18.99 },
+        '3XL-4XL': { 'Tier1': 23.99, 'Tier2': 22.99, 'Tier3': 21.99, 'Tier4': 20.99 },
+        '5XL-6XL': { 'Tier1': 25.99, 'Tier2': 24.99, 'Tier3': 23.99, 'Tier4': 22.99 }
+      };
+  }
+  
+  // Standard tier data for all embellishment types
+  tiers = {
+    'Tier1': { 'MinQuantity': 1, 'MaxQuantity': 11 },
+    'Tier2': { 'MinQuantity': 12, 'MaxQuantity': 23 },
+    'Tier3': { 'MinQuantity': 24, 'MaxQuantity': 47 },
+    'Tier4': { 'MinQuantity': 48, 'MaxQuantity': 10000 }
+  };
+  
+  // Set embellishment-specific variables
+  window[`${embType}GroupedHeaders`] = headers;
+  window[`${embType}GroupedPrices`] = prices;
+  window[`${embType}ApiTierData`] = tiers;
+  
+  // Also set dp5 variables for compatibility
+  window.dp5GroupedHeaders = headers;
+  window.dp5GroupedPrices = prices;
+  window.dp5ApiTierData = tiers;
+  
+  debugCart("PRICE-INIT", `Successfully initialized pricing data for ${embType}`);
 }
 
 // Function to show a warning message when fallback pricing is used
@@ -2135,6 +2247,17 @@ async function initializeCartSystems() {
 // Improved initialization - try to initialize in sequence with better error handling
 document.addEventListener('DOMContentLoaded', function() {
   debugCart("INIT", "DOM content loaded, initializing cart systems");
+  
+  // Initialize pricing data for the current embellishment type
+  try {
+    const embType = detectEmbellishmentType();
+    debugCart("INIT", `Detected embellishment type: ${embType}, initializing pricing data`);
+    ensurePricingDataExists(embType);
+  } catch (e) {
+    debugCart("INIT-ERROR", "Error initializing pricing data:", e);
+  }
+  
+  // Initialize cart systems
   initializeCartSystems().catch(e => {
     debugCart("INIT-ERROR", "Error during cart initialization:", e);
   });
@@ -2144,6 +2267,16 @@ document.addEventListener('DOMContentLoaded', function() {
 if (document.readyState === 'complete' || document.readyState === 'interactive') {
   debugCart("INIT", "Document already ready, initializing cart systems immediately");
   setTimeout(() => {
+    // Initialize pricing data for the current embellishment type
+    try {
+      const embType = detectEmbellishmentType();
+      debugCart("INIT", `Detected embellishment type: ${embType}, initializing pricing data immediately`);
+      ensurePricingDataExists(embType);
+    } catch (e) {
+      debugCart("INIT-ERROR", "Error initializing pricing data immediately:", e);
+    }
+    
+    // Initialize cart systems
     initializeCartSystems().catch(e => {
       debugCart("INIT-ERROR", "Error during immediate cart initialization:", e);
     });
