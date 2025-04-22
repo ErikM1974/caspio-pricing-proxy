@@ -1,4 +1,5 @@
 // Cart integration for Caspio DataPages - Auto-detects embellishment type
+// Updated to work with the latest API endpoints (April 2025)
 (function() {
   "use strict";
 
@@ -1038,24 +1039,20 @@ if (!window.DirectCartAPI) {
         return { success: false, error: 'No items in cart' };
       }
       
-      // FIX: Add Name field to customer info if it doesn't exist
-      // This addresses the "Missing required field: Name" error
-      const enhancedCustomerInfo = { ...customerInfo };
-      if (!enhancedCustomerInfo.Name && enhancedCustomerInfo.FirstName && enhancedCustomerInfo.LastName) {
-        enhancedCustomerInfo.Name = `${enhancedCustomerInfo.FirstName} ${enhancedCustomerInfo.LastName}`;
-        debugCart("ORDER", "Added Name field to customer info:", enhancedCustomerInfo.Name);
-      }
-      
-      // Create order data
-      // Extract CustomerID from CustomerInfo to fix the "Missing required field: CustomerID" error
+      // Create order data with correct field names based on API documentation
       const orderData = {
         SessionID: sessionId,
-        CustomerID: enhancedCustomerInfo.CustomerID, // Use CustomerID directly
-        CustomerInfo: enhancedCustomerInfo, // Keep CustomerInfo for backward compatibility
-        OrderDate: new Date().toISOString(),
+        CustomerID: customerInfo.CustomerID || customerInfo.Id || parseInt(customerInfo.Email.replace(/\D/g, '').substring(0, 8)), // Use numeric CustomerID
+        OrderNumber: 'ORD-' + Math.random().toString(36).substring(2, 10).toUpperCase(),
+        TotalAmount: this.calculateTotalAmount(cartResult.items),
         OrderStatus: 'New',
-        Items: cartResult.items
+        PaymentMethod: 'Credit Card', // Default payment method
+        PaymentStatus: 'Pending',
+        ShippingMethod: 'Standard',
+        Notes: `Order placed via cart integration on ${new Date().toLocaleString()}`
       };
+      
+      // Note: Do not include OrderDate in the request as it's automatically set by the server
       
       // Submit order to API
       const response = await fetch(`${this.baseUrl}/orders`, {
@@ -1074,8 +1071,16 @@ if (!window.DirectCartAPI) {
         let errorBody = 'No details available';
         try {
           errorBody = await response.text(); // Read body as text for errors
+          debugCart("ORDER-ERROR", `Error response body: ${errorBody}`);
         } catch (e) { /* Ignore error reading body */ }
-        throw new Error(`HTTP error! status: ${response.status}, Body: ${errorBody}`);
+        
+        // If it's a 404 error, it might be due to missing fields
+        if (response.status === 404) {
+          debugCart("ORDER-ERROR", "404 error - likely missing fields in the Orders table");
+          throw new Error(`Order creation failed: Missing fields in Orders table. Status: ${response.status}, Body: ${errorBody}`);
+        } else {
+          throw new Error(`HTTP error! status: ${response.status}, Body: ${errorBody}`);
+        }
       }
 
       const result = await response.json();
@@ -1103,69 +1108,6 @@ if (!window.DirectCartAPI) {
     } catch (error) {
       debugCart("ORDER-ERROR", "Error submitting order:", error);
       // Make sure the error is thrown so the caller knows it failed.
-      throw error;
-    }
-  },
-  
-  // FIX: New function to create an order without updating cart items
-  // This addresses the 500 Internal Server Error when updating cart items
-  createOrder: async function(sessionId, items, customerId) {
-    try {
-      // Generate a unique order ID
-      const orderId = 'ORD-' + Math.random().toString(36).substring(2, 10).toUpperCase();
-      
-      // Store order locally
-      const orderData = {
-        OrderID: orderId,
-        SessionID: sessionId,
-        CustomerID: customerId,
-        Items: items,
-        DateCreated: new Date().toISOString(),
-        Status: 'New'
-      };
-      
-      debugCart("ORDER", "Creating new order:", orderData);
-      
-      try {
-        // Attempt to send to server
-        const response = await fetch(`${this.baseUrl}/orders`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            CustomerID: customerId,
-            OrderID: orderId,
-            SessionID: sessionId
-          })
-        });
-        
-        if (response.ok) {
-          const result = await response.json();
-          debugCart("ORDER", "Order created successfully on server:", result);
-          return { success: true, orderId: orderId, serverResponse: result };
-        } else {
-          debugCart("ORDER-WARN", "Server returned error, using local fallback:", response.status);
-          // Store order in localStorage as fallback
-          const ordersKey = 'nwca_local_orders';
-          const storedOrders = localStorage.getItem(ordersKey) || '[]';
-          const orders = JSON.parse(storedOrders);
-          orders.push(orderData);
-          localStorage.setItem(ordersKey, JSON.stringify(orders));
-          
-          return { success: false, fallback: true, orderId: orderId };
-        }
-      } catch (error) {
-        debugCart("ORDER-ERROR", "Error creating order on server, using local fallback:", error);
-        // Store order in localStorage as fallback
-        const ordersKey = 'nwca_local_orders';
-        const storedOrders = localStorage.getItem(ordersKey) || '[]';
-        const orders = JSON.parse(storedOrders);
-        orders.push(orderData);
-        localStorage.setItem(ordersKey, JSON.stringify(orders));
-        
-        return { success: false, fallback: true, orderId: orderId };
-      }
-    } catch (error) {
-      debugCart("ORDER-ERROR", "Fatal error creating order:", error);
       throw error;
     }
   },
@@ -1222,6 +1164,37 @@ if (!window.DirectCartAPI) {
       return count;
     } catch (error) {
       debugCart("CART-ERROR", "Error getting cart count:", error);
+      return 0;
+    }
+  },
+  
+  // Calculate total amount from cart items
+  calculateTotalAmount: function(items) {
+    let total = 0;
+    
+    if (!items || !Array.isArray(items)) {
+      debugCart("TOTAL", "No valid items to calculate total");
+      return 0;
+    }
+    
+    try {
+      // Iterate through each cart item
+      items.forEach(item => {
+        // Check if the item has sizes
+        if (item.sizes && Array.isArray(item.sizes)) {
+          // Add up the price * quantity for each size
+          item.sizes.forEach(size => {
+            const quantity = size.quantity || 0;
+            const unitPrice = size.unitPrice || 0;
+            total += quantity * unitPrice;
+          });
+        }
+      });
+      
+      debugCart("TOTAL", `Calculated total amount: $${total.toFixed(2)}`);
+      return parseFloat(total.toFixed(2)); // Return with 2 decimal places
+    } catch (error) {
+      debugCart("TOTAL-ERROR", "Error calculating total amount:", error);
       return 0;
     }
   }
@@ -2146,44 +2119,5 @@ if (document.readyState === 'complete' || document.readyState === 'interactive')
 // Signal that the cart integration is available
 window.nwcaCartIntegrationLoaded = true;
 debugCart("LOAD", "Cart integration script fully loaded and ready");
-
-// --- Add Checkout Process Function ---
-// This function implements the client-side workaround for the cart item update issue
-async function processCheckout(sessionId, customerId) {
-  try {
-    debugCart("CHECKOUT", "Starting checkout process");
-    
-    // Get cart items
-    const cartResult = await window.DirectCartAPI.getCartItems();
-    
-    if (!cartResult.success || !cartResult.items || cartResult.items.length === 0) {
-      debugCart("CHECKOUT-ERROR", "No items in cart");
-      return { success: false, error: 'No items in cart' };
-    }
-    
-    debugCart("CHECKOUT", `Found ${cartResult.items.length} items in cart`);
-    
-    // Use the createOrder function instead of updating cart items
-    // This avoids the 500 Internal Server Error when updating cart items
-    const orderResult = await window.DirectCartAPI.createOrder(sessionId, cartResult.items, customerId);
-    
-    if (orderResult.success) {
-      debugCart("CHECKOUT", `Order created successfully with ID: ${orderResult.orderId}`);
-      return { success: true, orderId: orderResult.orderId };
-    } else if (orderResult.fallback) {
-      debugCart("CHECKOUT", `Order created locally with ID: ${orderResult.orderId} (server unavailable)`);
-      return { success: true, orderId: orderResult.orderId, fallback: true };
-    } else {
-      debugCart("CHECKOUT-ERROR", "Failed to create order");
-      return { success: false, error: 'Failed to create order' };
-    }
-  } catch (error) {
-    debugCart("CHECKOUT-ERROR", "Error during checkout process:", error);
-    return { success: false, error: error.message };
-  }
-}
-
-// Expose the checkout function to the global scope
-window.processCheckout = processCheckout;
 
 })(); // End of IIFE
