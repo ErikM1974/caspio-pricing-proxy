@@ -269,46 +269,58 @@ window.initCartIntegration = function() {
 };
 
 function checkAndAddCartButton() {
-  debugCart("UI", "Checking for DOM elements to add cart button");
-  
-  // Check for the essential elements: the price table and the note div
-  const priceTable = document.querySelector('table.matrix-price-table'); // Works for Caspio and Fallback
-  const noteDiv = document.getElementById('matrix-note');
-  
-  debugCart("UI", "DOM elements found:", {
-    noteDiv: !!noteDiv,
-    priceTable: !!priceTable
-    // Removed tableBody check as it's not reliable for fallback table
-  });
-  
-  // Proceed if both the price table (Caspio or fallback) and the note div are found
-  if (priceTable && noteDiv) {
-    debugCart("UI", "Found required DOM elements (priceTable and noteDiv), adding cart button");
-    addCartButton(); // Assumes addCartButton uses noteDiv or priceTable for placement
-    addViewCartLink(); // Add the view cart link as well
-  }
-  // Removed the Caspio-specific fallback logic that created matrix-note here.
-  // If matrix-note is sometimes missing even with Caspio tables, that might need separate handling.
-   else {
-    // Check if the pricing container indicates unavailability
-    const pricingContainer = document.getElementById('pricing-calculator'); // Assumed ID based on pricing-pages.js
-    if (pricingContainer && pricingContainer.classList.contains('pricing-unavailable')) {
-      debugCart("UI", "Pricing data is unavailable (detected .pricing-unavailable). Cart button will not be added.");
-      // Stop retrying if pricing is confirmed unavailable
+  debugCart("CHECK", "Running checkAndAddCartButton");
+  const priceTable = document.querySelector('table.matrix-price-table');
+  // Find the note div using any of the known IDs
+  const noteDiv = document.querySelector('#matrix-note, #cap-matrix-note, #dtg-matrix-note, #sp-matrix-note');
+  // Find the title element using any of the known IDs
+  const titleElement = document.querySelector('#matrix-title, #cap-matrix-title, #dtg-matrix-title, #sp-matrix-title');
+
+  debugCart("CHECK", "Price Table Found:", !!priceTable);
+  debugCart("CHECK", "Note Div Found:", !!noteDiv, noteDiv ? noteDiv.id : 'Not Found');
+  debugCart("CHECK", "Title Element Found:", !!titleElement, titleElement ? titleElement.id : 'Not Found');
+
+  if (priceTable && noteDiv && titleElement) {
+    debugCart("CHECK", "All elements found, proceeding to add button and link.");
+    // Prevent adding multiple times by checking if container exists
+    if (!document.getElementById('cart-button-container')) {
+        addCartButton(noteDiv);         // Pass the found noteDiv
     } else {
-      // If elements are just missing (possibly due to timing), retry
-      debugCart("UI", "Required DOM elements (priceTable or noteDiv) not found yet, retrying in 500ms");
-      setTimeout(checkAndAddCartButton, 500); // Keep the retry mechanism
+        debugCart("CHECK", "Cart button container already exists, skipping addCartButton call.");
     }
+    // Prevent adding multiple times by checking if link exists
+    if (!document.getElementById('view-cart-link')) {
+        addViewCartLink(titleElement);  // Pass the found titleElement
+    } else {
+        debugCart("CHECK", "View cart link already exists, skipping addViewCartLink call.");
+    }
+  } else {
+    debugCart("CHECK", "Required elements not found, attempting retry via init logic.");
+    // Optional: Add more specific logging about which element is missing
+    if (!priceTable) debugCart("CHECK", "Missing: table.matrix-price-table");
+    if (!noteDiv) debugCart("CHECK", "Missing: A note div (#matrix-note, #cap-matrix-note, etc.)");
+    if (!titleElement) debugCart("CHECK", "Missing: A title element (#matrix-title, #cap-matrix-title, etc.)");
+    // NOTE: Relying on the initialization retry in initCartIntegration, removed the direct retry here
   }
 }
 
-function addCartButton() {
-  const noteDiv = document.getElementById('matrix-note');
-  if (!noteDiv) return;
-  
-  if (document.getElementById('cart-button-container')) return;
-  
+/**
+ * Adds the main 'Add to Cart' button container, size inputs, and options.
+ * @param {HTMLElement} noteDiv - The specific note div element found by checkAndAddCartButton.
+ */
+function addCartButton(noteDiv) {
+  // const noteDiv = document.getElementById('matrix-note'); // Removed: noteDiv is now passed as an argument
+  if (!noteDiv) {
+    debugCart("UI-ERROR", "addCartButton called without a valid noteDiv element.");
+    return; // Exit if the noteDiv wasn't found/passed correctly
+  }
+
+  // Prevent adding multiple times (check might already be here)
+  if (document.getElementById('cart-button-container')) {
+     debugCart("UI", "Cart button container already exists, skipping add.");
+     return;
+  }
+
   const container = document.createElement('div');
   container.id = 'cart-button-container';
   container.style.marginTop = '20px';
@@ -436,6 +448,7 @@ function addCartButton() {
   button.addEventListener('click', handleAddToCart);
   container.appendChild(button);
   
+  // Use the passed noteDiv to insert the container
   noteDiv.parentNode.insertBefore(container, noteDiv.nextSibling);
   debugCart("UI", "Cart button added successfully");
 }
@@ -1741,9 +1754,6 @@ function getPrice(size, quantity) {
 
     debugCart("PRICE", `Getting price for Size: ${size}, Quantity: ${quantity}, Embellishment: ${embType}`);
 
-    // Check if we need to initialize fallback pricing data
-    ensurePricingDataExists(embType);
-
     // Try to get pricing data from dp5 variables first (Caspio DataPage format)
     if (window.dp5GroupedHeaders) {
       headers = window.dp5GroupedHeaders;
@@ -1815,16 +1825,6 @@ function getPrice(size, quantity) {
         embTypeGroupedPrices: typeof window[`${embType}GroupedPrices`] !== 'undefined',
         embTypeApiTierData: typeof window[`${embType}ApiTierData`] !== 'undefined'
       });
-      
-      // Try to initialize pricing data again as a last resort
-      ensurePricingDataExists(embType, true);
-      
-      // Check if initialization worked
-      if (window.dp5GroupedHeaders && window.dp5GroupedPrices && window.dp5ApiTierData) {
-        debugCart("PRICE", "Successfully initialized pricing data as fallback");
-        // Retry with the newly initialized data
-        return getPrice(size, quantity);
-      }
       
       return getFallbackPrice(size, quantity, embType);
     }
@@ -1933,105 +1933,6 @@ function getFallbackPrice(size, quantity, embType) {
   return finalPrice;
 }
 
-// Function to ensure pricing data exists for a given embellishment type
-function ensurePricingDataExists(embType, forceInit = false) {
-  // Skip if already initialized and not forcing
-  if (!forceInit &&
-      ((window.dp5GroupedHeaders && window.dp5GroupedPrices && window.dp5ApiTierData) ||
-       (window[`${embType}GroupedHeaders`] && window[`${embType}GroupedPrices`] && window[`${embType}ApiTierData`]))) {
-    return;
-  }
-  
-  debugCart("PRICE-INIT", `Initializing pricing data for ${embType}`);
-  
-  // Define default pricing data based on embellishment type
-  let headers, prices, tiers;
-
-  switch (embType) {
-    case 'embroidery':
-      headers = ['XS-S', 'M-L', 'XL-2XL', '3XL-4XL', '5XL-6XL'];
-      prices = {
-        'XS-S': { 'Tier1': 18.99, 'Tier2': 17.99, 'Tier3': 16.99, 'Tier4': 15.99 },
-        'M-L': { 'Tier1': 19.99, 'Tier2': 18.99, 'Tier3': 17.99, 'Tier4': 16.99 },
-        'XL-2XL': { 'Tier1': 21.99, 'Tier2': 20.99, 'Tier3': 19.99, 'Tier4': 18.99 },
-        '3XL-4XL': { 'Tier1': 23.99, 'Tier2': 22.99, 'Tier3': 21.99, 'Tier4': 20.99 },
-        '5XL-6XL': { 'Tier1': 25.99, 'Tier2': 24.99, 'Tier3': 23.99, 'Tier4': 22.99 }
-      };
-      break;
-      
-    case 'cap-embroidery':
-      headers = ['One Size'];
-      prices = {
-        'One Size': { 'Tier1': 22.99, 'Tier2': 21.99, 'Tier3': 20.99, 'Tier4': 19.99 }
-      };
-      break;
-      
-    case 'dtg':
-      headers = ['XS-S', 'M-L', 'XL-2XL', '3XL-4XL', '5XL-6XL'];
-      prices = {
-        'XS-S': { 'Tier1': 20.99, 'Tier2': 19.99, 'Tier3': 18.99, 'Tier4': 17.99 },
-        'M-L': { 'Tier1': 21.99, 'Tier2': 20.99, 'Tier3': 19.99, 'Tier4': 18.99 },
-        'XL-2XL': { 'Tier1': 23.99, 'Tier2': 22.99, 'Tier3': 21.99, 'Tier4': 20.99 },
-        '3XL-4XL': { 'Tier1': 25.99, 'Tier2': 24.99, 'Tier3': 23.99, 'Tier4': 22.99 },
-        '5XL-6XL': { 'Tier1': 27.99, 'Tier2': 26.99, 'Tier3': 25.99, 'Tier4': 24.99 }
-      };
-      break;
-      
-    case 'screen-print':
-      headers = ['XS-S', 'M-L', 'XL-2XL', '3XL-4XL', '5XL-6XL'];
-      prices = {
-        'XS-S': { 'Tier1': 16.99, 'Tier2': 15.99, 'Tier3': 14.99, 'Tier4': 13.99 },
-        'M-L': { 'Tier1': 17.99, 'Tier2': 16.99, 'Tier3': 15.99, 'Tier4': 14.99 },
-        'XL-2XL': { 'Tier1': 19.99, 'Tier2': 18.99, 'Tier3': 17.99, 'Tier4': 16.99 },
-        '3XL-4XL': { 'Tier1': 21.99, 'Tier2': 20.99, 'Tier3': 19.99, 'Tier4': 18.99 },
-        '5XL-6XL': { 'Tier1': 23.99, 'Tier2': 22.99, 'Tier3': 21.99, 'Tier4': 20.99 }
-      };
-      break;
-      
-    case 'dtf':
-      headers = ['XS-S', 'M-L', 'XL-2XL', '3XL-4XL', '5XL-6XL'];
-      prices = {
-        'XS-S': { 'Tier1': 21.99, 'Tier2': 20.99, 'Tier3': 19.99, 'Tier4': 18.99 },
-        'M-L': { 'Tier1': 22.99, 'Tier2': 21.99, 'Tier3': 20.99, 'Tier4': 19.99 },
-        'XL-2XL': { 'Tier1': 24.99, 'Tier2': 23.99, 'Tier3': 22.99, 'Tier4': 21.99 },
-        '3XL-4XL': { 'Tier1': 26.99, 'Tier2': 25.99, 'Tier3': 24.99, 'Tier4': 23.99 },
-        '5XL-6XL': { 'Tier1': 28.99, 'Tier2': 27.99, 'Tier3': 26.99, 'Tier4': 25.99 }
-      };
-      break;
-      
-    default:
-      // Default to embroidery pricing if type is unknown
-      headers = ['XS-S', 'M-L', 'XL-2XL', '3XL-4XL', '5XL-6XL'];
-      prices = {
-        'XS-S': { 'Tier1': 18.99, 'Tier2': 17.99, 'Tier3': 16.99, 'Tier4': 15.99 },
-        'M-L': { 'Tier1': 19.99, 'Tier2': 18.99, 'Tier3': 17.99, 'Tier4': 16.99 },
-        'XL-2XL': { 'Tier1': 21.99, 'Tier2': 20.99, 'Tier3': 19.99, 'Tier4': 18.99 },
-        '3XL-4XL': { 'Tier1': 23.99, 'Tier2': 22.99, 'Tier3': 21.99, 'Tier4': 20.99 },
-        '5XL-6XL': { 'Tier1': 25.99, 'Tier2': 24.99, 'Tier3': 23.99, 'Tier4': 22.99 }
-      };
-  }
-  
-  // Standard tier data for all embellishment types
-  tiers = {
-    'Tier1': { 'MinQuantity': 1, 'MaxQuantity': 11 },
-    'Tier2': { 'MinQuantity': 12, 'MaxQuantity': 23 },
-    'Tier3': { 'MinQuantity': 24, 'MaxQuantity': 47 },
-    'Tier4': { 'MinQuantity': 48, 'MaxQuantity': 10000 }
-  };
-  
-  // Set embellishment-specific variables
-  window[`${embType}GroupedHeaders`] = headers;
-  window[`${embType}GroupedPrices`] = prices;
-  window[`${embType}ApiTierData`] = tiers;
-  
-  // Also set dp5 variables for compatibility
-  window.dp5GroupedHeaders = headers;
-  window.dp5GroupedPrices = prices;
-  window.dp5ApiTierData = tiers;
-  
-  debugCart("PRICE-INIT", `Successfully initialized pricing data for ${embType}`);
-}
-
 // Function to show a warning message when fallback pricing is used
 function showFallbackPricingWarning() {
   // Check if warning already exists
@@ -2079,7 +1980,7 @@ function getFallbackSizes() {
 }
 
 // Add a "View Cart" link to the top of the DataPage
-function addViewCartLink() {
+function addViewCartLink(titleElement) { // <-- Add titleElement argument here
   // Check if it already exists
   if (document.getElementById('view-cart-link')) return;
   
@@ -2170,12 +2071,15 @@ function addViewCartLink() {
   
   linkContainer.appendChild(link);
   
-  // Add to page - find a good location
-  const titleElement = document.querySelector('h4[id="matrix-title"]');
-  if (titleElement) {
+  // Add to page - use the passed titleElement
+  // const titleElement = document.querySelector('h4[id="matrix-title"]'); // Removed: titleElement is now passed as an argument
+  if (titleElement) { // <-- Use the passed titleElement here
+    // Insert the link container *before* the found title element
     titleElement.parentNode.insertBefore(linkContainer, titleElement);
+    debugCart("VIEW-CART", "View Cart link added before title:", titleElement.id);
   } else {
-    // Fallback - add to top of body
+    // Fallback - add to top of body if title wasn't found (shouldn't happen if checkAndAddCartButton worked)
+    debugCart("VIEW-CART", "Title element not provided or found, adding View Cart link to body start.");
     document.body.insertBefore(linkContainer, document.body.firstChild);
   }
 }
@@ -2238,17 +2142,6 @@ async function initializeCartSystems() {
 // Improved initialization - try to initialize in sequence with better error handling
 document.addEventListener('DOMContentLoaded', function() {
   debugCart("INIT", "DOM content loaded, initializing cart systems");
-  
-  // Initialize pricing data for the current embellishment type
-  try {
-    const embType = detectEmbellishmentType();
-    debugCart("INIT", `Detected embellishment type: ${embType}, initializing pricing data`);
-    ensurePricingDataExists(embType);
-  } catch (e) {
-    debugCart("INIT-ERROR", "Error initializing pricing data:", e);
-  }
-  
-  // Initialize cart systems
   initializeCartSystems().catch(e => {
     debugCart("INIT-ERROR", "Error during cart initialization:", e);
   });
@@ -2258,16 +2151,6 @@ document.addEventListener('DOMContentLoaded', function() {
 if (document.readyState === 'complete' || document.readyState === 'interactive') {
   debugCart("INIT", "Document already ready, initializing cart systems immediately");
   setTimeout(() => {
-    // Initialize pricing data for the current embellishment type
-    try {
-      const embType = detectEmbellishmentType();
-      debugCart("INIT", `Detected embellishment type: ${embType}, initializing pricing data immediately`);
-      ensurePricingDataExists(embType);
-    } catch (e) {
-      debugCart("INIT-ERROR", "Error initializing pricing data immediately:", e);
-    }
-    
-    // Initialize cart systems
     initializeCartSystems().catch(e => {
       debugCart("INIT-ERROR", "Error during immediate cart initialization:", e);
     });
