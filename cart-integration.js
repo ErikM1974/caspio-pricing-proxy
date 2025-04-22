@@ -225,7 +225,16 @@ window.initCartIntegration = function() {
     if (!window.NWCACart && typeof window.loadCartScript === 'function') {
       debugCart("INIT", "NWCACart not available, attempting to load it");
       try {
-        window.loadCartScript();
+        // Check if cart.js is already loaded to prevent duplicate declarations
+        const cartScriptLoaded = Array.from(document.scripts).some(script =>
+          script.src && (script.src.includes('/cart.js') || script.src.endsWith('cart.js')));
+        
+        if (!cartScriptLoaded) {
+          debugCart("INIT", "Loading cart.js script");
+          window.loadCartScript();
+        } else {
+          debugCart("INIT", "cart.js already loaded, but NWCACart not available");
+        }
       } catch (e) {
         debugCart("INIT-ERROR", "Error loading cart script:", e);
       }
@@ -2077,9 +2086,34 @@ async function initializeCartSystems() {
     try {
       debugCart("INIT", "Initializing NWCACart in current window");
       await window.NWCACart.initializeCart();
+      debugCart("INIT", "NWCACart initialization complete");
     } catch (e) {
       debugCart("INIT", "Error initializing NWCACart:", e);
     }
+  } else {
+    debugCart("INIT", "NWCACart not available for initialization");
+    
+    // Try to find NWCACart in the global scope after a short delay
+    // This helps in cases where cart.js is loaded but NWCACart isn't immediately available
+    setTimeout(async () => {
+      if (window.NWCACart && typeof window.NWCACart.initializeCart === 'function') {
+        try {
+          debugCart("INIT", "Initializing NWCACart after delay");
+          await window.NWCACart.initializeCart();
+          debugCart("INIT", "Delayed NWCACart initialization complete");
+          
+          // Try to synchronize again after successful initialization
+          try {
+            const syncResult = await synchronizeCartSystems();
+            debugCart("INIT", `Delayed cart synchronization ${syncResult ? 'successful' : 'failed'}`);
+          } catch (syncError) {
+            debugCart("INIT-ERROR", "Error during delayed cart synchronization:", syncError);
+          }
+        } catch (e) {
+          debugCart("INIT", "Error in delayed NWCACart initialization:", e);
+        }
+      }
+    }, 1000);
   }
   
   // Then initialize our direct integration
