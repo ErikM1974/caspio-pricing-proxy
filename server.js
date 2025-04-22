@@ -2957,15 +2957,14 @@ app.post('/api/orders', express.json(), async (req, res) => {
             }
         }
         
-        // Create an order object with all fields from the schema except OrderID (Autonumber)
+        // Create an order object with all fields from the schema except OrderID (Autonumber) and OrderDate (Timestamp)
         const orderData = {
             // Required fields - CustomerID must be numeric
             CustomerID: parseInt(req.body.CustomerID, 10),
             
-            // Optional fields from the schema
+            // Optional fields from the schema (excluding OrderDate which is a timestamp)
             OrderNumber: req.body.OrderNumber || `ORD-${Date.now()}`,
             SessionID: req.body.SessionID || null,
-            OrderDate: req.body.OrderDate || new Date().toISOString(),
             TotalAmount: req.body.TotalAmount || null,
             OrderStatus: req.body.OrderStatus || 'New',
             ImprintType: req.body.ImprintType || null,
