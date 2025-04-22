@@ -2957,29 +2957,24 @@ app.post('/api/orders', express.json(), async (req, res) => {
             }
         }
         
-        // Create a complete order object with all provided fields based on database schema
+        // Create a minimal order object with only the essential fields
+        // Based on the error logs, we need to be careful about which fields we include
         const orderData = {
-            // Required fields
-            CustomerID: req.body.CustomerID,
+            // Required fields - CustomerID must be numeric
+            CustomerID: parseInt(req.body.CustomerID, 10),
             
-            // Optional fields with defaults
-            OrderNumber: req.body.OrderNumber || `ORD-${Date.now()}`,
-            SessionID: req.body.SessionID || null,
+            // Optional fields that are known to be writable
+            OrderStatus: req.body.OrderStatus || 'New',
             OrderDate: req.body.OrderDate || new Date().toISOString(),
             TotalAmount: req.body.TotalAmount || null,
-            OrderStatus: req.body.OrderStatus || 'New',
-            ImprintType: req.body.ImprintType || null,
-            PaymentMethod: req.body.PaymentMethod || null,
             PaymentStatus: req.body.PaymentStatus || 'Pending',
-            ShippingMethod: req.body.ShippingMethod || null,
-            TrackingNumber: req.body.TrackingNumber || null,
-            EstimatedDelivery: req.body.EstimatedDelivery || null,
+            ImprintType: req.body.ImprintType || null,
             Notes: req.body.Notes || null,
             InternalNotes: req.body.InternalNotes || null
         };
         
         // Special handling for "guest" CustomerID
-        if (orderData.CustomerID === 'guest' || isNaN(parseInt(orderData.CustomerID, 10))) {
+        if (req.body.CustomerID === 'guest' || isNaN(orderData.CustomerID)) {
             console.log('Using special handling for guest or non-numeric CustomerID');
             
             // Check if we need to create a guest customer first
@@ -3027,9 +3022,6 @@ app.post('/api/orders', express.json(), async (req, res) => {
                 orderData.CustomerID = 1;
                 console.log(`Using default CustomerID: ${orderData.CustomerID}`);
             }
-        } else {
-            // Ensure CustomerID is numeric
-            orderData.CustomerID = parseInt(orderData.CustomerID, 10);
         }
         
         // Log the data we're sending to Caspio
