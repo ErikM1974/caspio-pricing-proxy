@@ -2387,8 +2387,30 @@ app.put('/api/cart-items/:id', express.json(), async (req, res) => {
     }
     
     try {
-        console.log(`Updating cart item with ID: ${id}`);
-        const resource = `/tables/Cart_Items/records?q.where=PK_ID=${id}`;
+        console.log(`Updating cart item with ID: ${id}, data:`, JSON.stringify(req.body));
+        
+        // First, check if the cart item exists by CartItemID
+        const checkResource = '/tables/Cart_Items/records';
+        const checkParams = {
+            'q.where': `CartItemID=${id}`,
+            'q.select': 'PK_ID,CartItemID,SessionID,ProductID,StyleNumber,Color,CartStatus,OrderID',
+            'q.limit': 1
+        };
+        
+        // Get token for the request
+        const token = await getCaspioAccessToken();
+        
+        // Check if the cart item exists
+        const checkResult = await fetchAllCaspioPages(checkResource, checkParams);
+        
+        if (!checkResult || checkResult.length === 0) {
+            console.error(`Cart item with ID ${id} not found`);
+            return res.status(404).json({ error: `Cart item with ID ${id} not found` });
+        }
+        
+        // Get the PK_ID from the check result
+        const pkId = checkResult[0].PK_ID;
+        console.log(`Found cart item with PK_ID: ${pkId}`);
         
         // Create a new object with only the allowed fields
         // Exclude auto-generated fields like CartItemID and PK_ID
@@ -2404,8 +2426,11 @@ app.put('/api/cart-items/:id', express.json(), async (req, res) => {
         if (req.body.OrderID !== undefined) cartItemData.OrderID = req.body.OrderID;
         // Don't update DateAdded as it should be set only when the item is created
         
-        // Get token for the request
-        const token = await getCaspioAccessToken();
+        // Log the data we're sending to Caspio
+        console.log(`Sending to Caspio:`, JSON.stringify(cartItemData));
+        
+        // Use the PK_ID for the update
+        const resource = `/tables/Cart_Items/records?q.where=PK_ID=${pkId}`;
         const url = `${caspioApiBaseUrl}${resource}`;
         
         // Prepare the request
@@ -2921,6 +2946,9 @@ app.get('/api/orders', async (req, res) => {
 // Create a new order
 app.post('/api/orders', express.json(), async (req, res) => {
     try {
+        // Log the request for debugging
+        console.log(`Creating new order with data:`, JSON.stringify(req.body));
+        
         // Validate required fields
         const requiredFields = ['CustomerID'];
         for (const field of requiredFields) {
@@ -2929,15 +2957,77 @@ app.post('/api/orders', express.json(), async (req, res) => {
             }
         }
         
-        // Log the request for debugging
-        console.log(`Creating new order with data:`, JSON.stringify(req.body));
-        
-        // Create a minimal object with ONLY CustomerID
-        // Based on our test script, this is the only field needed to create an order
-        // All other fields will be handled by Caspio's default values or can be updated later
+        // Create a complete order object with all provided fields
         const orderData = {
-            CustomerID: req.body.CustomerID
+            // Required fields
+            CustomerID: req.body.CustomerID,
+            
+            // Optional fields with defaults
+            OrderDate: req.body.OrderDate || new Date().toISOString(),
+            OrderStatus: req.body.OrderStatus || 'New',
+            PaymentStatus: req.body.PaymentStatus || 'Pending',
+            
+            // Include any other fields provided in the request
+            SessionID: req.body.SessionID || null,
+            ImprintType: req.body.ImprintType || null,
+            ShippingMethod: req.body.ShippingMethod || null,
+            TrackingNumber: req.body.TrackingNumber || null,
+            EstimatedDelivery: req.body.EstimatedDelivery || null,
+            Notes: req.body.Notes || null,
+            InternalNotes: req.body.InternalNotes || null
         };
+        
+        // Generate a unique OrderID if not provided
+        if (!req.body.OrderID) {
+            orderData.OrderID = 'ORD-' + Math.random().toString(36).substring(2, 10).toUpperCase();
+        } else {
+            orderData.OrderID = req.body.OrderID;
+        }
+        
+        // Special handling for "guest" CustomerID
+        if (orderData.CustomerID === 'guest') {
+            console.log('Using special handling for guest customer');
+            
+            // Check if we need to create a guest customer first
+            const guestCustomerData = {
+                Name: 'Guest Customer',
+                Email: `guest-${Date.now()}@example.com`,
+                CustomerType: 'Guest'
+            };
+            
+            // Create a guest customer
+            const customerResource = '/tables/Customer_Info/records';
+            const customerToken = await getCaspioAccessToken();
+            const customerUrl = `${caspioApiBaseUrl}${customerResource}`;
+            
+            console.log(`Creating guest customer:`, JSON.stringify(guestCustomerData));
+            
+            const customerConfig = {
+                method: 'post',
+                url: customerUrl,
+                headers: {
+                    'Authorization': `Bearer ${customerToken}`,
+                    'Content-Type': 'application/json'
+                },
+                data: guestCustomerData,
+                timeout: 15000
+            };
+            
+            try {
+                const customerResponse = await axios(customerConfig);
+                console.log(`Guest customer created successfully:`, JSON.stringify(customerResponse.data));
+                
+                // Use the newly created customer ID
+                if (customerResponse.data && customerResponse.data.Result && customerResponse.data.Result.CustomerID) {
+                    orderData.CustomerID = customerResponse.data.Result.CustomerID;
+                    console.log(`Using new guest CustomerID: ${orderData.CustomerID}`);
+                }
+            } catch (customerError) {
+                console.error("Error creating guest customer:", customerError.response ?
+                    JSON.stringify(customerError.response.data) : customerError.message);
+                // Continue with the original guest CustomerID
+            }
+        }
         
         // Log the data we're sending to Caspio
         console.log(`Sending to Caspio:`, JSON.stringify(orderData));
