@@ -2957,18 +2957,23 @@ app.post('/api/orders', express.json(), async (req, res) => {
             }
         }
         
-        // Create a minimal order object with only the essential fields
-        // Based on the error logs, we need to be careful about which fields we include
+        // Create an order object with all fields from the schema except OrderID (Autonumber)
         const orderData = {
             // Required fields - CustomerID must be numeric
             CustomerID: parseInt(req.body.CustomerID, 10),
             
-            // Optional fields that are known to be writable
-            OrderStatus: req.body.OrderStatus || 'New',
+            // Optional fields from the schema
+            OrderNumber: req.body.OrderNumber || `ORD-${Date.now()}`,
+            SessionID: req.body.SessionID || null,
             OrderDate: req.body.OrderDate || new Date().toISOString(),
             TotalAmount: req.body.TotalAmount || null,
-            PaymentStatus: req.body.PaymentStatus || 'Pending',
+            OrderStatus: req.body.OrderStatus || 'New',
             ImprintType: req.body.ImprintType || null,
+            PaymentMethod: req.body.PaymentMethod || null,
+            PaymentStatus: req.body.PaymentStatus || 'Pending',
+            ShippingMethod: req.body.ShippingMethod || null,
+            TrackingNumber: req.body.TrackingNumber || null,
+            EstimatedDelivery: req.body.EstimatedDelivery || null,
             Notes: req.body.Notes || null,
             InternalNotes: req.body.InternalNotes || null
         };
