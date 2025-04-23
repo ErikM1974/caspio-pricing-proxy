@@ -2615,10 +2615,14 @@ app.get('/api/cart-item-sizes', async (req, res) => {
         if (Object.keys(req.query).length > 0) {
             const whereConditions = [];
             
-            // Handle common filter fields
-            if (req.query.cartItemID) {
-                whereConditions.push(`CartItemID=${req.query.cartItemID}`);
+            // Handle common filter fields - normalize parameter names to handle case sensitivity
+            // Check for cartItemID in various formats (cartItemID, CartItemID, cartitemid)
+            const cartItemID = req.query.cartItemID || req.query.CartItemID || req.query.cartitemid;
+            if (cartItemID) {
+                console.log(`Filtering cart item sizes by CartItemID=${cartItemID}`);
+                whereConditions.push(`CartItemID=${cartItemID}`);
             }
+            
             if (req.query.size) {
                 whereConditions.push(`Size='${req.query.size}'`);
             }
@@ -2633,9 +2637,20 @@ app.get('/api/cart-item-sizes', async (req, res) => {
         params['q.orderby'] = 'SizeItemID ASC';
         params['q.limit'] = 1000;
         
-        // Use fetchAllCaspioPages to handle pagination
-        const result = await fetchAllCaspioPages(resource, params);
+        // Log the full query for debugging
+        console.log(`Cart item sizes query: ${JSON.stringify(params)}`);
+        
+        // Use fetchAllCaspioPages to handle pagination with increased maxPages
+        const result = await fetchAllCaspioPages(resource, params, { maxPages: 10 });
         console.log(`Found ${result.length} cart item size records`);
+        
+        // Log the first few results for debugging
+        if (result.length > 0) {
+            console.log(`First result: ${JSON.stringify(result[0])}`);
+            if (result.length > 1) {
+                console.log(`Second result: ${JSON.stringify(result[1])}`);
+            }
+        }
         
         res.json(result);
     } catch (error) {
