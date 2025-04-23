@@ -161,7 +161,8 @@ async function fetchAllCaspioPages(resourcePath, initialParams = {}, options = {
     // Set default options
     const defaultOptions = {
         maxPages: 5, // Default max pages to fetch
-        earlyExitCondition: null // Optional function to check if we should stop fetching
+        earlyExitCondition: null, // Optional function to check if we should stop fetching
+        pageCallback: null // Optional function to process each page of results
     };
     
     const mergedOptions = { ...defaultOptions, ...options };
@@ -215,7 +216,12 @@ async function fetchAllCaspioPages(resourcePath, initialParams = {}, options = {
                     console.log(`WARNING: Page ${pageCount} has ${pageResults.length} records, which is at or near the maximum.`);
                 }
                 
-                allResults = allResults.concat(pageResults);
+                // Process the page results if a callback is provided
+                const processedResults = mergedOptions.pageCallback
+                    ? mergedOptions.pageCallback(pageCount, pageResults)
+                    : pageResults;
+                
+                allResults = allResults.concat(processedResults);
                 
                 // Check early exit condition if provided
                 if (mergedOptions.earlyExitCondition) {
@@ -2609,6 +2615,7 @@ app.delete('/api/cart-items/:id', async (req, res) => {
 app.get('/api/cart-item-sizes', async (req, res) => {
     try {
         console.log("Fetching cart item sizes information");
+        console.log(`Raw request query parameters: ${JSON.stringify(req.query)}`);
         const resource = '/tables/Cart_Item_Sizes/records';
         
         // Build query parameters based on request query
@@ -2643,9 +2650,21 @@ app.get('/api/cart-item-sizes', async (req, res) => {
         // Log the full query for debugging
         console.log(`Cart item sizes query: ${JSON.stringify(params)}`);
         
-        // Use fetchAllCaspioPages to handle pagination with increased maxPages
-        const result = await fetchAllCaspioPages(resource, params, { maxPages: 10 });
+        // Create a custom callback to log each page of results
+        const pageCallback = (pageNum, pageData) => {
+            console.log(`Page ${pageNum} contains ${pageData.length} records.`);
+            console.log(`Page ${pageNum} data sample: ${JSON.stringify(pageData.slice(0, 2))}`);
+            return pageData;
+        };
+        
+        // Use fetchAllCaspioPages to handle pagination with increased maxPages and page callback
+        const result = await fetchAllCaspioPages(resource, params, {
+            maxPages: 20,  // Increase max pages to ensure we get all records
+            pageCallback: pageCallback
+        });
+        
         console.log(`Found ${result.length} cart item size records`);
+        console.log(`All CartItemIDs in result: ${result.map(item => item.CartItemID).join(', ')}`);
         
         // Log the first few results for debugging
         if (result.length > 0) {
@@ -2653,6 +2672,14 @@ app.get('/api/cart-item-sizes', async (req, res) => {
             if (result.length > 1) {
                 console.log(`Second result: ${JSON.stringify(result[1])}`);
             }
+        }
+        
+        // Log all results for the specific CartItemID if filtering by CartItemID
+        const cartItemID = req.query.cartItemID || req.query.CartItemID || req.query.cartitemid;
+        if (cartItemID) {
+            const filteredResults = result.filter(item => item.CartItemID == cartItemID);
+            console.log(`Found ${filteredResults.length} records specifically for CartItemID=${cartItemID}`);
+            console.log(`All records for CartItemID=${cartItemID}: ${JSON.stringify(filteredResults)}`);
         }
         
         res.json(result);
