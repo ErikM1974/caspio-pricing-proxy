@@ -189,6 +189,11 @@
           if (storedData) {
             const cartData = JSON.parse(storedData);
 
+            // Ensure cartData.items is defined and is an array
+            if (!cartData.items || !Array.isArray(cartData.items)) {
+              cartData.items = [];
+            }
+
             // Filter out synced items
             if (cartData.items && Array.isArray(cartData.items)) {
               cartData.items = cartData.items.filter(item => !syncedItemIds.includes(item.id));
@@ -1107,6 +1112,17 @@ async function handleAddToCart() {
       embType: productData.embellishmentType
     });
 
+    // --- Added: Get the image URL ---
+    const productImageElement = document.getElementById('product-image');
+    if (productImageElement && productImageElement.src) {
+        productData.imageUrl = productImageElement.src;
+        console.log("[handleAddToCart] Found image URL:", productData.imageUrl);
+    } else {
+        console.warn("[handleAddToCart] Could not find product image element or its src attribute.");
+        productData.imageUrl = null; // Ensure it's explicitly set if not found
+    }
+    // --- End Added ---
+
     // Validate required product data
     if (!productData.styleNumber || !productData.color) {
       throw new Error('Missing product information (style or color)');
@@ -1130,6 +1146,8 @@ async function handleAddToCart() {
     }
     debugCart("ADD", `Using ${cartSystem.source} cart system for checks and adding.`);
 
+    // Log the detailed structure for debugging cart UI rendering
+    debugCart("ADD", "Detailed Structure:", JSON.stringify(productData, null, 2));
 
     // --- START: Embellishment Type Check ---
     debugCart("ADD", "Checking cart for existing embellishment type");
