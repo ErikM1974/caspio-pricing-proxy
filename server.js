@@ -2380,10 +2380,46 @@ app.post('/api/cart-items', express.json(), async (req, res) => {
             cartItem = response.data;
         }
         
+        // Log the raw response for debugging
+        console.log(`Raw Caspio response: ${JSON.stringify(response.data)}`);
+        
+        // If we have a PK_ID but no CartItemID, we need to make a follow-up request to get the full record
+        if ((cartItem.PK_ID || cartItem.pk_id) && !(cartItem.CartItemID || cartItem.cartitemid)) {
+            try {
+                // Use the PK_ID to fetch the complete record
+                const pkId = cartItem.PK_ID || cartItem.pk_id;
+                console.log(`Found PK_ID ${pkId} but no CartItemID, fetching complete record...`);
+                
+                const fetchResource = `/tables/Cart_Items/records?q.where=PK_ID=${pkId}`;
+                const fetchUrl = `${caspioApiBaseUrl}${fetchResource}`;
+                
+                const fetchConfig = {
+                    method: 'get',
+                    url: fetchUrl,
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    timeout: 15000
+                };
+                
+                const fetchResponse = await axios(fetchConfig);
+                
+                if (fetchResponse.data && fetchResponse.data.Result && fetchResponse.data.Result.length > 0) {
+                    // Use the fetched record which should have the CartItemID
+                    cartItem = fetchResponse.data.Result[0];
+                    console.log(`Successfully fetched complete record with CartItemID: ${cartItem.CartItemID}`);
+                }
+            } catch (fetchError) {
+                console.error("Error fetching complete cart item record:", fetchError.message);
+                // Continue with what we have even if the fetch fails
+            }
+        }
+        
         // Ensure we have a properly formatted response with all fields
         // This is critical for the frontend to work correctly
         const formattedCartItem = {
-            CartItemID: cartItem.CartItemID || cartItem.PK_ID || null,
+            CartItemID: cartItem.CartItemID || cartItem.cartitemid || cartItem.PK_ID || cartItem.pk_id || null,
             SessionID: req.body.SessionID,
             ProductID: req.body.ProductID,
             StyleNumber: req.body.StyleNumber,
@@ -2627,10 +2663,46 @@ app.post('/api/cart-item-sizes', express.json(), async (req, res) => {
             cartItemSize = response.data;
         }
         
+        // Log the raw response for debugging
+        console.log(`Raw Caspio response: ${JSON.stringify(response.data)}`);
+        
+        // If we have a PK_ID but no SizeItemID, we need to make a follow-up request to get the full record
+        if ((cartItemSize.PK_ID || cartItemSize.pk_id) && !(cartItemSize.SizeItemID || cartItemSize.sizeitemid)) {
+            try {
+                // Use the PK_ID to fetch the complete record
+                const pkId = cartItemSize.PK_ID || cartItemSize.pk_id;
+                console.log(`Found PK_ID ${pkId} but no SizeItemID, fetching complete record...`);
+                
+                const fetchResource = `/tables/Cart_Item_Sizes/records?q.where=PK_ID=${pkId}`;
+                const fetchUrl = `${caspioApiBaseUrl}${fetchResource}`;
+                
+                const fetchConfig = {
+                    method: 'get',
+                    url: fetchUrl,
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    timeout: 15000
+                };
+                
+                const fetchResponse = await axios(fetchConfig);
+                
+                if (fetchResponse.data && fetchResponse.data.Result && fetchResponse.data.Result.length > 0) {
+                    // Use the fetched record which should have the SizeItemID
+                    cartItemSize = fetchResponse.data.Result[0];
+                    console.log(`Successfully fetched complete record with SizeItemID: ${cartItemSize.SizeItemID}`);
+                }
+            } catch (fetchError) {
+                console.error("Error fetching complete cart item size record:", fetchError.message);
+                // Continue with what we have even if the fetch fails
+            }
+        }
+        
         // Ensure we have a properly formatted response with all fields
         // This is critical for the frontend to work correctly
         const formattedCartItemSize = {
-            SizeItemID: cartItemSize.SizeItemID || cartItemSize.PK_ID || null,
+            SizeItemID: cartItemSize.SizeItemID || cartItemSize.sizeitemid || cartItemSize.PK_ID || cartItemSize.pk_id || null,
             CartItemID: req.body.CartItemID,
             Size: req.body.Size,
             Quantity: req.body.Quantity,
