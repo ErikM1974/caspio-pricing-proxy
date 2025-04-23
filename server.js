@@ -2369,9 +2369,19 @@ app.post('/api/cart-items', express.json(), async (req, res) => {
         const response = await axios(config);
         
         console.log(`Cart item created successfully: ${response.status}`);
+        
+        // Extract the cart item data from the Caspio response
+        let responseData = {};
+        if (response.data && response.data.Result) {
+            responseData = response.data.Result;
+        } else if (response.data) {
+            responseData = response.data;
+        }
+        
+        // Ensure the CartItemID is included in the response
         res.status(201).json({
             message: 'Cart item created successfully',
-            cartItem: response.data
+            cartItem: responseData
         });
     } catch (error) {
         console.error("Error creating cart item:", error.response ? JSON.stringify(error.response.data) : error.message);
