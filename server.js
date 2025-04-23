@@ -2370,45 +2370,81 @@ app.post('/api/cart-items', express.json(), async (req, res) => {
         
         console.log(`Cart item created successfully: ${response.status}`);
         
-        // Extract the cart item data from the Caspio response
-        let cartItem = {};
-        
-        // Check different possible response structures from Caspio
-        if (response.data && response.data.Result) {
-            cartItem = response.data.Result;
-        } else if (response.data) {
-            cartItem = response.data;
-        }
-        
         // Log the raw response for debugging
         console.log(`Raw Caspio response: ${JSON.stringify(response.data)}`);
         
-        // If we have a PK_ID but no CartItemID, we need to make a follow-up request to get the full record
-        if ((cartItem.PK_ID || cartItem.pk_id) && !(cartItem.CartItemID || cartItem.cartitemid)) {
+        // Extract the cart item data from the Caspio response
+        let cartItem = {};
+        
+        // Based on the Swagger response, we know Caspio returns a Result array for GET requests
+        // For POST requests, it might return the created item directly or in a different format
+        if (response.data && response.data.Result && Array.isArray(response.data.Result) && response.data.Result.length > 0) {
+            // If Result is an array, take the first item
+            cartItem = response.data.Result[0];
+        } else if (response.data && response.data.Result) {
+            // If Result is an object, use it directly
+            cartItem = response.data.Result;
+        } else if (response.data) {
+            // Fallback to using the entire response data
+            cartItem = response.data;
+        }
+        
+        // If we don't have a CartItemID, we need to make a follow-up request to get the full record
+        // This is necessary because the POST response might not include all fields
+        if (!cartItem.CartItemID) {
             try {
-                // Use the PK_ID to fetch the complete record
+                // Use the PK_ID to fetch the complete record if available
                 const pkId = cartItem.PK_ID || cartItem.pk_id;
-                console.log(`Found PK_ID ${pkId} but no CartItemID, fetching complete record...`);
                 
-                const fetchResource = `/tables/Cart_Items/records?q.where=PK_ID=${pkId}`;
-                const fetchUrl = `${caspioApiBaseUrl}${fetchResource}`;
-                
-                const fetchConfig = {
-                    method: 'get',
-                    url: fetchUrl,
-                    headers: {
-                        'Authorization': `Bearer ${token}`,
-                        'Content-Type': 'application/json'
-                    },
-                    timeout: 15000
-                };
-                
-                const fetchResponse = await axios(fetchConfig);
-                
-                if (fetchResponse.data && fetchResponse.data.Result && fetchResponse.data.Result.length > 0) {
-                    // Use the fetched record which should have the CartItemID
-                    cartItem = fetchResponse.data.Result[0];
-                    console.log(`Successfully fetched complete record with CartItemID: ${cartItem.CartItemID}`);
+                if (pkId) {
+                    console.log(`No CartItemID found in response, fetching complete record using PK_ID: ${pkId}`);
+                    
+                    const fetchResource = `/tables/Cart_Items/records?q.where=PK_ID=${pkId}`;
+                    const fetchUrl = `${caspioApiBaseUrl}${fetchResource}`;
+                    
+                    const fetchConfig = {
+                        method: 'get',
+                        url: fetchUrl,
+                        headers: {
+                            'Authorization': `Bearer ${token}`,
+                            'Content-Type': 'application/json'
+                        },
+                        timeout: 15000
+                    };
+                    
+                    const fetchResponse = await axios(fetchConfig);
+                    
+                    if (fetchResponse.data && fetchResponse.data.Result && Array.isArray(fetchResponse.data.Result) && fetchResponse.data.Result.length > 0) {
+                        // Use the fetched record which should have the CartItemID
+                        cartItem = fetchResponse.data.Result[0];
+                        console.log(`Successfully fetched complete record with CartItemID: ${cartItem.CartItemID}`);
+                    }
+                } else {
+                    // If we don't have a PK_ID, try to fetch by the input parameters
+                    console.log(`No PK_ID found, trying to fetch by input parameters`);
+                    
+                    // Create a where clause based on the input parameters
+                    const whereClause = `SessionID='${req.body.SessionID}' AND ProductID='${req.body.ProductID}' AND StyleNumber='${req.body.StyleNumber}' AND Color='${req.body.Color}'`;
+                    const fetchResource = `/tables/Cart_Items/records?q.where=${encodeURIComponent(whereClause)}&q.orderby=DateAdded DESC`;
+                    const fetchUrl = `${caspioApiBaseUrl}${fetchResource}`;
+                    
+                    const fetchConfig = {
+                        method: 'get',
+                        url: fetchUrl,
+                        headers: {
+                            'Authorization': `Bearer ${token}`,
+                            'Content-Type': 'application/json'
+                        },
+                        timeout: 15000
+                    };
+                    
+                    const fetchResponse = await axios(fetchConfig);
+                    
+                    if (fetchResponse.data && fetchResponse.data.Result && Array.isArray(fetchResponse.data.Result) && fetchResponse.data.Result.length > 0) {
+                        // Use the most recent record (should be the one we just created)
+                        cartItem = fetchResponse.data.Result[0];
+                        console.log(`Successfully fetched most recent record with CartItemID: ${cartItem.CartItemID}`);
+                    }
                 }
             } catch (fetchError) {
                 console.error("Error fetching complete cart item record:", fetchError.message);
@@ -2419,16 +2455,15 @@ app.post('/api/cart-items', express.json(), async (req, res) => {
         // Ensure we have a properly formatted response with all fields
         // This is critical for the frontend to work correctly
         const formattedCartItem = {
-            CartItemID: cartItem.CartItemID || cartItem.cartitemid || cartItem.PK_ID || cartItem.pk_id || null,
-            SessionID: req.body.SessionID,
-            ProductID: req.body.ProductID,
-            StyleNumber: req.body.StyleNumber,
-            Color: req.body.Color,
-            ImprintType: req.body.ImprintType || null,
-            CartStatus: req.body.CartStatus || 'Active',
-            OrderID: req.body.OrderID || null,
-            // Include any other fields that might be in the response
-            ...cartItem
+            CartItemID: cartItem.CartItemID || cartItem.PK_ID || null,
+            SessionID: cartItem.SessionID || req.body.SessionID,
+            ProductID: cartItem.ProductID || req.body.ProductID,
+            StyleNumber: cartItem.StyleNumber || req.body.StyleNumber,
+            Color: cartItem.Color || req.body.Color,
+            ImprintType: cartItem.ImprintType || req.body.ImprintType || null,
+            CartStatus: cartItem.CartStatus || req.body.CartStatus || 'Active',
+            OrderID: cartItem.OrderID || req.body.OrderID || null,
+            DateAdded: cartItem.DateAdded || new Date().toISOString()
         };
         
         console.log(`Returning cart item with ID: ${formattedCartItem.CartItemID}`);
@@ -2656,42 +2691,77 @@ app.post('/api/cart-item-sizes', express.json(), async (req, res) => {
         // Extract the cart item size data from the Caspio response
         let cartItemSize = {};
         
-        // Check different possible response structures from Caspio
-        if (response.data && response.data.Result) {
-            cartItemSize = response.data.Result;
-        } else if (response.data) {
-            cartItemSize = response.data;
-        }
-        
         // Log the raw response for debugging
         console.log(`Raw Caspio response: ${JSON.stringify(response.data)}`);
         
-        // If we have a PK_ID but no SizeItemID, we need to make a follow-up request to get the full record
-        if ((cartItemSize.PK_ID || cartItemSize.pk_id) && !(cartItemSize.SizeItemID || cartItemSize.sizeitemid)) {
+        // Based on the Swagger response, we know Caspio returns a Result array for GET requests
+        // For POST requests, it might return the created item directly or in a different format
+        if (response.data && response.data.Result && Array.isArray(response.data.Result) && response.data.Result.length > 0) {
+            // If Result is an array, take the first item
+            cartItemSize = response.data.Result[0];
+        } else if (response.data && response.data.Result) {
+            // If Result is an object, use it directly
+            cartItemSize = response.data.Result;
+        } else if (response.data) {
+            // Fallback to using the entire response data
+            cartItemSize = response.data;
+        }
+        
+        // If we don't have a SizeItemID, we need to make a follow-up request to get the full record
+        if (!cartItemSize.SizeItemID) {
             try {
-                // Use the PK_ID to fetch the complete record
+                // Use the PK_ID to fetch the complete record if available
                 const pkId = cartItemSize.PK_ID || cartItemSize.pk_id;
-                console.log(`Found PK_ID ${pkId} but no SizeItemID, fetching complete record...`);
                 
-                const fetchResource = `/tables/Cart_Item_Sizes/records?q.where=PK_ID=${pkId}`;
-                const fetchUrl = `${caspioApiBaseUrl}${fetchResource}`;
-                
-                const fetchConfig = {
-                    method: 'get',
-                    url: fetchUrl,
-                    headers: {
-                        'Authorization': `Bearer ${token}`,
-                        'Content-Type': 'application/json'
-                    },
-                    timeout: 15000
-                };
-                
-                const fetchResponse = await axios(fetchConfig);
-                
-                if (fetchResponse.data && fetchResponse.data.Result && fetchResponse.data.Result.length > 0) {
-                    // Use the fetched record which should have the SizeItemID
-                    cartItemSize = fetchResponse.data.Result[0];
-                    console.log(`Successfully fetched complete record with SizeItemID: ${cartItemSize.SizeItemID}`);
+                if (pkId) {
+                    console.log(`No SizeItemID found in response, fetching complete record using PK_ID: ${pkId}`);
+                    
+                    const fetchResource = `/tables/Cart_Item_Sizes/records?q.where=PK_ID=${pkId}`;
+                    const fetchUrl = `${caspioApiBaseUrl}${fetchResource}`;
+                    
+                    const fetchConfig = {
+                        method: 'get',
+                        url: fetchUrl,
+                        headers: {
+                            'Authorization': `Bearer ${token}`,
+                            'Content-Type': 'application/json'
+                        },
+                        timeout: 15000
+                    };
+                    
+                    const fetchResponse = await axios(fetchConfig);
+                    
+                    if (fetchResponse.data && fetchResponse.data.Result && Array.isArray(fetchResponse.data.Result) && fetchResponse.data.Result.length > 0) {
+                        // Use the fetched record which should have the SizeItemID
+                        cartItemSize = fetchResponse.data.Result[0];
+                        console.log(`Successfully fetched complete record with SizeItemID: ${cartItemSize.SizeItemID}`);
+                    }
+                } else {
+                    // If we don't have a PK_ID, try to fetch by the input parameters
+                    console.log(`No PK_ID found, trying to fetch by input parameters`);
+                    
+                    // Create a where clause based on the input parameters
+                    const whereClause = `CartItemID=${req.body.CartItemID} AND Size='${req.body.Size}'`;
+                    const fetchResource = `/tables/Cart_Item_Sizes/records?q.where=${encodeURIComponent(whereClause)}&q.orderby=SizeItemID DESC`;
+                    const fetchUrl = `${caspioApiBaseUrl}${fetchResource}`;
+                    
+                    const fetchConfig = {
+                        method: 'get',
+                        url: fetchUrl,
+                        headers: {
+                            'Authorization': `Bearer ${token}`,
+                            'Content-Type': 'application/json'
+                        },
+                        timeout: 15000
+                    };
+                    
+                    const fetchResponse = await axios(fetchConfig);
+                    
+                    if (fetchResponse.data && fetchResponse.data.Result && Array.isArray(fetchResponse.data.Result) && fetchResponse.data.Result.length > 0) {
+                        // Use the most recent record (should be the one we just created)
+                        cartItemSize = fetchResponse.data.Result[0];
+                        console.log(`Successfully fetched record with SizeItemID: ${cartItemSize.SizeItemID}`);
+                    }
                 }
             } catch (fetchError) {
                 console.error("Error fetching complete cart item size record:", fetchError.message);
@@ -2701,14 +2771,13 @@ app.post('/api/cart-item-sizes', express.json(), async (req, res) => {
         
         // Ensure we have a properly formatted response with all fields
         // This is critical for the frontend to work correctly
+        // Based on the Swagger response, we know the exact field names and structure
         const formattedCartItemSize = {
-            SizeItemID: cartItemSize.SizeItemID || cartItemSize.sizeitemid || cartItemSize.PK_ID || cartItemSize.pk_id || null,
-            CartItemID: req.body.CartItemID,
-            Size: req.body.Size,
-            Quantity: req.body.Quantity,
-            UnitPrice: req.body.UnitPrice || null,
-            // Include any other fields that might be in the response
-            ...cartItemSize
+            SizeItemID: cartItemSize.SizeItemID || cartItemSize.PK_ID || null,
+            CartItemID: cartItemSize.CartItemID || req.body.CartItemID,
+            Size: cartItemSize.Size || req.body.Size,
+            Quantity: cartItemSize.Quantity || parseInt(req.body.Quantity, 10) || 0,
+            UnitPrice: cartItemSize.UnitPrice || req.body.UnitPrice || null
         };
         
         console.log(`Returning cart item size with ID: ${formattedCartItemSize.SizeItemID}`);
