@@ -2371,17 +2371,36 @@ app.post('/api/cart-items', express.json(), async (req, res) => {
         console.log(`Cart item created successfully: ${response.status}`);
         
         // Extract the cart item data from the Caspio response
-        let responseData = {};
+        let cartItem = {};
+        
+        // Check different possible response structures from Caspio
         if (response.data && response.data.Result) {
-            responseData = response.data.Result;
+            cartItem = response.data.Result;
         } else if (response.data) {
-            responseData = response.data;
+            cartItem = response.data;
         }
         
-        // Ensure the CartItemID is included in the response
+        // Ensure we have a properly formatted response with all fields
+        // This is critical for the frontend to work correctly
+        const formattedCartItem = {
+            CartItemID: cartItem.CartItemID || cartItem.PK_ID || null,
+            SessionID: req.body.SessionID,
+            ProductID: req.body.ProductID,
+            StyleNumber: req.body.StyleNumber,
+            Color: req.body.Color,
+            ImprintType: req.body.ImprintType || null,
+            CartStatus: req.body.CartStatus || 'Active',
+            OrderID: req.body.OrderID || null,
+            // Include any other fields that might be in the response
+            ...cartItem
+        };
+        
+        console.log(`Returning cart item with ID: ${formattedCartItem.CartItemID}`);
+        
+        // Return the formatted response
         res.status(201).json({
             message: 'Cart item created successfully',
-            cartItem: responseData
+            cartItem: formattedCartItem
         });
     } catch (error) {
         console.error("Error creating cart item:", error.response ? JSON.stringify(error.response.data) : error.message);
@@ -2597,9 +2616,35 @@ app.post('/api/cart-item-sizes', express.json(), async (req, res) => {
         const response = await axios(config);
         
         console.log(`Cart item size created successfully: ${response.status}`);
+        
+        // Extract the cart item size data from the Caspio response
+        let cartItemSize = {};
+        
+        // Check different possible response structures from Caspio
+        if (response.data && response.data.Result) {
+            cartItemSize = response.data.Result;
+        } else if (response.data) {
+            cartItemSize = response.data;
+        }
+        
+        // Ensure we have a properly formatted response with all fields
+        // This is critical for the frontend to work correctly
+        const formattedCartItemSize = {
+            SizeItemID: cartItemSize.SizeItemID || cartItemSize.PK_ID || null,
+            CartItemID: req.body.CartItemID,
+            Size: req.body.Size,
+            Quantity: req.body.Quantity,
+            UnitPrice: req.body.UnitPrice || null,
+            // Include any other fields that might be in the response
+            ...cartItemSize
+        };
+        
+        console.log(`Returning cart item size with ID: ${formattedCartItemSize.SizeItemID}`);
+        
+        // Return the formatted response
         res.status(201).json({
             message: 'Cart item size created successfully',
-            cartItemSize: response.data
+            cartItemSize: formattedCartItemSize
         });
     } catch (error) {
         console.error("Error creating cart item size:", error.response ? JSON.stringify(error.response.data) : error.message);
