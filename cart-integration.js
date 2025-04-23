@@ -33,7 +33,7 @@
       { name: "Cart Sessions", url: `${config.apiBaseUrl}/cart-sessions` },
       { name: "Cart Items", url: `${config.apiBaseUrl}/cart-items` },
       { name: "Cart Item Sizes", url: `${config.apiBaseUrl}/cart-item-sizes` },
-      { name: "Inventory", url: `${config.apiBaseUrl}/inventory?styleNumber=PC61&color=BLACK` }
+      { name: "Inventory", url: `${config.apiBaseUrl}/inventory?styleNumber=PC61&color=BLACK` } // Use a known valid style/color
     ];
 
     for (const endpoint of endpoints) {
@@ -44,9 +44,14 @@
         const endTime = Date.now();
 
         if (response.ok) {
-          const data = await response.json();
-          debugCart("API-TEST", `✅ ${endpoint.name}: Success (${endTime - startTime}ms)`,
-            Array.isArray(data) ? `Returned ${data.length} items` : 'Returned data');
+          // Try parsing JSON, but handle cases where it might not be JSON (like inventory)
+          try {
+             const data = await response.json();
+             debugCart("API-TEST", `✅ ${endpoint.name}: Success (${endTime - startTime}ms)`,
+               Array.isArray(data) ? `Returned ${data.length} items` : 'Returned data');
+          } catch (jsonError) {
+             debugCart("API-TEST", `✅ ${endpoint.name}: Success (${endTime - startTime}ms) - Response not JSON or empty.`);
+          }
         } else {
           debugCart("API-TEST", `❌ ${endpoint.name}: Failed with status ${response.status}`);
         }
@@ -352,72 +357,48 @@
     // Get product info from URL
     const urlParams = new URLSearchParams(window.location.search);
     const styleNumber = urlParams.get('StyleNumber');
-    const colorCode = urlParams.get('COLOR');
+    const colorCode = urlParams.get('COLOR'); // This is usually the Color Name
 
-    if (styleNumber && colorCode) {
+     // We need the Catalog Color Code for inventory lookup
+     // Assume product.html script stores it globally (needs confirmation)
+     // Fallback to using the color name from URL if global var isn't set
+     const catalogColorForInventory = window.selectedCatalogColor || colorCode;
+     debugCart("UI", `Using catalog color "${catalogColorForInventory}" for inventory check.`);
+
+    if (styleNumber && catalogColorForInventory) {
       // Fetch inventory data to get available sizes
-      fetchInventoryData(styleNumber, colorCode)
+      fetchInventoryData(styleNumber, catalogColorForInventory) // Use catalog color here
         .then(sizes => {
           // Remove loading message
-          sizeInputs.removeChild(loadingMsg);
+          if (loadingMsg.parentNode === sizeInputs) {
+               sizeInputs.removeChild(loadingMsg);
+          }
 
           if (sizes && sizes.length > 0) {
             // Create size inputs
-            sizes.forEach(size => {
-              const group = document.createElement('div');
-              group.style.display = 'flex';
-              group.style.flexDirection = 'column';
-
-              const label = document.createElement('label');
-              label.textContent = size;
-              label.style.marginBottom = '5px';
-              label.style.fontWeight = 'bold';
-
-              const input = document.createElement('input');
-              input.type = 'number';
-              input.min = '0';
-              input.value = '0';
-              input.className = 'size-quantity-input';
-              input.dataset.size = size;
-              input.style.width = '60px';
-              input.style.padding = '5px';
-
-              group.appendChild(label);
-              group.appendChild(input);
-              sizeInputs.appendChild(group);
-            });
+            addSizeInputs(sizeInputs, sizes); // Use helper function
           } else {
-            // Fallback if no sizes found
+            // Fallback if no sizes found or API failed
             const noSizesMsg = document.createElement('div');
-            noSizesMsg.textContent = 'No size information available';
+            noSizesMsg.textContent = 'No size information available. Using standard sizes.';
             noSizesMsg.style.fontStyle = 'italic';
             noSizesMsg.style.color = '#666';
+             noSizesMsg.style.width = '100%'; // Span full width
             sizeInputs.appendChild(noSizesMsg);
-             // Add fallback sizes if API fails or returns no sizes
+             // Add fallback sizes
             addSizeInputs(sizeInputs, getFallbackSizes());
           }
         })
-        .catch(error => {
-          debugCart("INVENTORY-ERROR", 'Error fetching inventory data:', error);
-
-          // Remove loading message
-          if (loadingMsg.parentNode === sizeInputs) {
-            sizeInputs.removeChild(loadingMsg);
-          }
-
-          // Show error message
-          const errorMsg = document.createElement('div');
-          errorMsg.textContent = 'Error loading size information';
-          errorMsg.style.fontStyle = 'italic';
-          errorMsg.style.color = '#dc3545';
-          sizeInputs.appendChild(errorMsg);
-
-          // Add fallback sizes
-          addSizeInputs(sizeInputs, getFallbackSizes());
-        });
+        // Catch is removed here - fetchInventoryData now returns [] on error/no data
+        // The '.then' block above handles the empty array case.
     } else {
       // No style/color info, use fallback
-      loadingMsg.textContent = 'No product information available';
+      if (loadingMsg.parentNode === sizeInputs) {
+            sizeInputs.removeChild(loadingMsg);
+      }
+      loadingMsg.textContent = 'No product information available for size lookup.';
+      sizeInputs.appendChild(loadingMsg);
+
 
       // Add fallback sizes
       addSizeInputs(sizeInputs, getFallbackSizes());
@@ -433,9 +414,9 @@
     // Error container
     const errorDiv = document.createElement('div');
     errorDiv.id = 'cart-error-container';
-    errorDiv.style.color = '#dc3545';
+    errorDiv.style.color = '#dc3545'; // Default error color
     errorDiv.style.marginBottom = '15px';
-    errorDiv.style.display = 'none';
+    errorDiv.style.display = 'none'; // Initially hidden
     container.appendChild(errorDiv);
 
     // Add to Cart button
@@ -879,17 +860,15 @@
 
           // Create a new cart item
           const newItem = {
-            id: 'item_' + Date.now(),
+            id: 'item_' + Date.now() + Math.random().toString(16).slice(2), // Added randomness to ID
             styleNumber: productData.styleNumber,
             color: productData.color,
-            // Include colorCode if available
-            colorCode: productData.colorCode || productData.color,
+            colorCode: productData.colorCode || productData.color, // Include colorCode
             embellishmentType: productData.embellishmentType,
             embellishmentOptions: productData.embellishmentOptions || {},
             dateAdded: new Date().toISOString(),
             status: 'Active',
-             // Include imageUrl if available
-            imageUrl: productData.imageUrl || null,
+            imageUrl: productData.imageUrl || null, // Include imageUrl
             sizes: productData.sizes.map(size => ({
               size: size.size,
               quantity: size.quantity,
@@ -914,29 +893,11 @@
           debugCart("CART-ADD", "Cart saved to localStorage");
 
           // Try to synchronize with NWCACart if available
+          // Note: Synchronization might happen later, this just attempts immediate sync
           try {
-            if (window.NWCACart && typeof window.NWCACart.syncWithServer === 'function') {
-              debugCart("CART-ADD-SYNC", "Attempting to sync with NWCACart");
-              const syncResult = await window.NWCACart.syncWithServer();
-              debugCart("CART-ADD-SYNC", "Sync result:", syncResult);
-            } else if (window.parent && window.parent.NWCACart && typeof window.parent.NWCACart.syncWithServer === 'function') {
-              debugCart("CART-ADD-SYNC", "Attempting to sync with parent window NWCACart");
-              const syncResult = await window.parent.NWCACart.syncWithServer();
-              debugCart("CART-ADD-SYNC", "Sync result:", syncResult);
-            } else {
-              debugCart("CART-ADD-SYNC", "NWCACart not available for sync");
-            }
+            await synchronizeCartSystems();
           } catch (syncError) {
-            debugCart("CART-ADD-SYNC-ERROR", "Error syncing with NWCACart:", syncError);
-          }
-
-          // Try to synchronize cart systems
-          try {
-            debugCart("CART-ADD-SYNC", "Attempting to synchronize cart systems");
-            const syncResult = await synchronizeCartSystems();
-            debugCart("CART-ADD-SYNC", `Cart synchronization ${syncResult ? 'successful' : 'failed'}`);
-          } catch (syncError) {
-            debugCart("CART-ADD-SYNC-ERROR", "Error during cart synchronization:", syncError);
+            debugCart("CART-ADD-SYNC-ERROR", "Error during post-add cart synchronization:", syncError);
           }
 
           return { success: true, itemId: newItem.id };
@@ -952,10 +913,11 @@
           const sessionId = this.getSessionId();
 
           if (!sessionId) {
-            return { success: false, error: 'No active cart session', items: [] }; // Return empty array on failure
+             // If no session, cart is effectively empty for DirectCartAPI
+            return { success: true, items: [] };
           }
 
-          // First try to get items from localStorage
+          // Get items from localStorage
           try {
             const storedData = localStorage.getItem(this.storageKeys.cartItems);
             if (storedData) {
@@ -967,19 +929,27 @@
                 // Save the corrected data back to localStorage
                 localStorage.setItem(this.storageKeys.cartItems, JSON.stringify(cartData));
               }
+              // Ensure session ID matches (basic check)
+              if (cartData.sessionId === sessionId) {
+                 return { success: true, items: cartData.items };
+              } else {
+                 debugCart("CART-GET", "Stored cart session ID mismatch, returning empty cart.");
+                 return { success: true, items: [] }; // Session mismatch, treat as empty
+              }
 
-              return { success: true, items: cartData.items };
             }
           } catch (e) {
             debugCart("CART-ERROR", "Error parsing stored cart data:", e);
+             // If parsing fails, treat cart as empty
+             return { success: true, items: [] };
           }
 
-          // If no items in localStorage, return empty (don't try API for DirectCartAPI)
+          // If no items in localStorage for this session, return empty
           return { success: true, items: [] };
 
         } catch (error) {
           debugCart("CART-ERROR", "Error getting cart items:", error);
-          return { success: false, error: error.message, items: [] }; // Return empty array on failure
+          return { success: false, error: error.message, items: [] }; // Return empty array on error
         }
       },
 
@@ -988,82 +958,72 @@
       removeCartItem: async function(cartItemId) {
         try {
           // Remove from localStorage
-          try {
-            const storedData = localStorage.getItem(this.storageKeys.cartItems);
-            if (storedData) {
-              const cartData = JSON.parse(storedData);
+          const storedData = localStorage.getItem(this.storageKeys.cartItems);
+          if (storedData) {
+             let cartData;
+             try {
+                 cartData = JSON.parse(storedData);
+             } catch (e) {
+                 debugCart("CART-ERROR", "Error parsing storage for removal", e);
+                 return { success: false, error: "Failed to parse cart storage." };
+             }
 
-              // Ensure cartData.items is defined and is an array
-              if (!cartData.items || !Array.isArray(cartData.items)) {
-                cartData.items = [];
+            // Ensure cartData.items is defined and is an array
+            if (!cartData.items || !Array.isArray(cartData.items)) {
+              cartData.items = [];
+            } else {
+              const initialLength = cartData.items.length;
+              cartData.items = cartData.items.filter(item => item && item.id !== cartItemId);
+              if (cartData.items.length < initialLength) {
+                   debugCart("CART-REMOVE", `Removed item ${cartItemId} from localStorage`);
               } else {
-                cartData.items = cartData.items.filter(item => item && item.id !== cartItemId);
+                   debugCart("CART-REMOVE-WARN", `Item ${cartItemId} not found in localStorage`);
+                   // Optionally return success:false if item not found is an error
               }
-
-              localStorage.setItem(this.storageKeys.cartItems, JSON.stringify(cartData));
-               debugCart("CART-REMOVE", `Removed item ${cartItemId} from localStorage`);
             }
-          } catch (e) {
-            debugCart("CART-ERROR", "Error updating stored cart data:", e);
-             throw new Error(`Failed to remove item from storage: ${e.message}`); // Re-throw to indicate failure
+            localStorage.setItem(this.storageKeys.cartItems, JSON.stringify(cartData));
+            return { success: true }; // Assume success even if item wasn't found locally
+          } else {
+               debugCart("CART-REMOVE-WARN", `Item ${cartItemId} not found - no cart data in storage.`);
+               return { success: true }; // Cart is empty, so item is effectively removed
           }
-
-          // No need to call API for DirectCartAPI removal
-          return { success: true };
         } catch (error) {
           debugCart("CART-ERROR", "Error removing cart item:", error);
           return { success: false, error: error.message };
         }
       },
 
-      // Submit cart as an order (placeholder - should likely trigger NWCACart submission)
+      // Submit cart as an order (placeholder)
       submitOrder: async function(customerInfo) {
           debugCart("ORDER-SUBMIT", "Submit order called in DirectCartAPI (placeholder)");
-          // In a real scenario, this might trigger synchronization or display a message
-          // to use the main cart page. For now, just return an error.
           return { success: false, error: 'Please use the main cart page to submit your order.' };
       },
 
-      // Get cart count (number of items)
+      // Get cart count (number of total quantity)
       getCartCount: async function() {
         try {
-          // Get count from localStorage
-          try {
-            const storedData = localStorage.getItem(this.storageKeys.cartItems);
-            if (storedData) {
-              const cartData = JSON.parse(storedData);
-              let count = 0;
-
-              // Ensure cartData.items is defined and is an array
-              if (!cartData.items || !Array.isArray(cartData.items)) {
-                cartData.items = [];
-                // Save the corrected data back to localStorage
-                localStorage.setItem(this.storageKeys.cartItems, JSON.stringify(cartData));
-              }
-
-              cartData.items.forEach(item => {
-                // Ensure item.sizes is defined and is an array
-                if (item && item.sizes && Array.isArray(item.sizes)) {
-                  item.sizes.forEach(size => {
-                    count += parseInt(size.quantity) || 0; // Ensure quantity is parsed as integer
-                  });
-                }
-              });
-
-              return count;
+            const cartResult = await this.getCartItems(); // Use the internal getCartItems
+            if (!cartResult.success || !cartResult.items) {
+                return 0;
             }
-          } catch (e) {
-            debugCart("CART-ERROR", "Error parsing stored cart data for count:", e);
-          }
 
-          return 0; // Return 0 if no data in localStorage
+            let count = 0;
+            cartResult.items.forEach(item => {
+                if (item && item.sizes && Array.isArray(item.sizes)) {
+                    item.sizes.forEach(size => {
+                        count += parseInt(size.quantity) || 0;
+                    });
+                }
+            });
+            return count;
         } catch (error) {
-          debugCart("CART-ERROR", "Error getting cart count:", error);
-          return 0;
+            debugCart("CART-ERROR", "Error getting cart count:", error);
+            return 0;
         }
       },
 
-      // Calculate total amount from cart items (Placeholder - Pricing should be handled by main cart)
+
+      // Calculate total amount from cart items (Placeholder)
       calculateTotalAmount: function(items) {
          debugCart("TOTAL", "Calculating total amount in DirectCartAPI (placeholder - uses unitPrice if available)");
          let total = 0;
@@ -1099,16 +1059,29 @@ async function handleAddToCart() {
   const button = document.getElementById('add-to-cart-button');
   const errorDiv = document.getElementById('cart-error-container');
 
+  // Disable button and clear previous messages
   if (button) {
     button.disabled = true;
     button.textContent = 'Adding...';
+    button.classList.remove('success'); // Ensure previous success state is cleared
     button.classList.add('adding');
   }
-
   if (errorDiv) {
     errorDiv.style.display = 'none';
     errorDiv.textContent = '';
+    // Reset error styles if they were changed by the type check
+    errorDiv.style.backgroundColor = '';
+    errorDiv.style.color = '#dc3545';
+    errorDiv.style.border = '';
+    errorDiv.style.padding = '';
+    errorDiv.style.borderRadius = '';
+    errorDiv.style.marginTop = '';
   }
+   const existingSuccessMessage = document.getElementById('cart-success-message');
+   if (existingSuccessMessage) {
+       existingSuccessMessage.remove();
+   }
+
 
   // Add loading indicator
   const loadingIndicator = document.createElement('div');
@@ -1134,21 +1107,25 @@ async function handleAddToCart() {
       embType: productData.embellishmentType
     });
 
-    // Validate product data
+    // Validate required product data
     if (!productData.styleNumber || !productData.color) {
       throw new Error('Missing product information (style or color)');
     }
-
+    // Validate sizes (moved up as per user request)
     if (!productData.sizes || productData.sizes.length === 0) {
       throw new Error('Please select at least one size and quantity');
     }
 
     // Update loading status
-    loadingIndicator.textContent = 'Detecting cart system...';
+    loadingIndicator.textContent = 'Checking cart contents...';
 
     // Find available cart system BEFORE the check
     const cartSystem = detectAvailableCartSystem();
     if (!cartSystem) {
+        // Remove loading indicator before throwing error
+        if (loadingIndicator && loadingIndicator.parentNode) {
+            loadingIndicator.parentNode.removeChild(loadingIndicator);
+        }
         throw new Error('Cart system not available. Please refresh the page and try again.');
     }
     debugCart("ADD", `Using ${cartSystem.source} cart system for checks and adding.`);
@@ -1157,13 +1134,19 @@ async function handleAddToCart() {
     // --- START: Embellishment Type Check ---
     debugCart("ADD", "Checking cart for existing embellishment type");
     let currentCartItems = [];
+    // NOTE: Using the cartSystem detected just before this block
     try {
         // Fetch items using the detected cart system's API
-        const cartResult = await cartSystem.api.getCartItems(); // Assuming getCartItems might be async
-        if (cartResult && cartResult.success && Array.isArray(cartResult.items)) {
-            currentCartItems = cartResult.items;
+        // Ensure getCartItems exists before calling
+        if (typeof cartSystem.api.getCartItems === 'function') {
+            const cartResult = await cartSystem.api.getCartItems(); // Assuming getCartItems might be async
+            if (cartResult && cartResult.success && Array.isArray(cartResult.items)) {
+                currentCartItems = cartResult.items;
+            } else {
+                 debugCart("ADD-WARN", "Could not retrieve items from cart system or cart is empty.");
+            }
         } else {
-             debugCart("ADD-WARN", "Could not retrieve items from cart system or cart is empty.");
+             debugCart("ADD-WARN", "getCartItems function not available on detected cart system API.");
         }
     } catch (cartError) {
         debugCart("ADD-ERROR", "Error fetching current cart items for type check:", cartError);
@@ -1178,13 +1161,15 @@ async function handleAddToCart() {
     if (currentCartItems.length > 0) {
       // Get the embellishment type from the first item in the cart
       // ** IMPORTANT: Verify 'embellishmentType' is the correct property name in your cart item data structure **
-      // It might be 'ImprintType', 'decorationType', etc. depending on how NWCACart stores it.
-      const existingEmbType = currentCartItems[0].embellishmentType; // <--- CHECK THIS PROPERTY NAME
+      // It might be 'ImprintType', 'decorationType', etc. depending on how NWCACart or DirectCartAPI stores it.
+      const firstItem = currentCartItems[0];
+      const existingEmbType = firstItem ? firstItem.embellishmentType : null; // <--- CHECK THIS PROPERTY NAME
       debugCart("ADD", "Existing cart type found:", existingEmbType);
 
+      // Only perform check if we could determine existing type
       if (existingEmbType && newEmbType !== existingEmbType) {
-          // Use the formatter from cart-ui.js if available, otherwise use a simple string
-          const formatEmbType = typeof formatEmbellishmentType === 'function' ? formatEmbellishmentType : type => type ? type.replace('-', ' ').replace(/\b\w/g, l => l.toUpperCase()) : 'Unknown';
+          // Use the formatter from cart-ui.js if available, otherwise use a simple string formatter
+          const formatEmbType = typeof formatEmbellishmentType === 'function' ? formatEmbellishmentType : type => type ? type.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) : 'Unknown';
           const errorMsg = `You can only add items with the same decoration type to the cart. Your cart currently contains '${formatEmbType(existingEmbType)}' items. Please empty the cart or start a new order to add '${formatEmbType(newEmbType)}' items.`;
           debugCart("ADD-ERROR", "Embellishment type mismatch", { new: newEmbType, existing: existingEmbType });
 
@@ -1213,7 +1198,8 @@ async function handleAddToCart() {
           }
 
           return; // Stop the add-to-cart process here
-      } else if (!existingEmbType) {
+      } else if (!existingEmbType && currentCartItems.length > 0) {
+           // If cart has items but we couldn't get type from first item, log a warning but proceed
            debugCart("ADD-WARN", "Could not determine embellishment type of existing cart item(s). Allowing add.");
       }
     } else {
@@ -1231,8 +1217,10 @@ async function handleAddToCart() {
       result = await cartSystem.api.addToCart(productData);
       debugCart("ADD", "API response", result);
     } catch (apiError) {
-      debugCart("ADD", "API error", apiError);
-      throw new Error(`Failed to add to cart: ${apiError.message}`);
+      debugCart("ADD-ERROR", "Error calling addToCart on cart system API", apiError);
+      // Try to format a more specific error if possible
+      const message = apiError.message || 'An unknown error occurred while contacting the cart API.';
+      throw new Error(`Failed to add to cart: ${message}`);
     }
 
     // Remove loading indicator
@@ -1240,7 +1228,7 @@ async function handleAddToCart() {
       loadingIndicator.parentNode.removeChild(loadingIndicator);
     }
 
-    if (result.success) {
+    if (result && result.success) {
       debugCart("ADD", "Item added successfully", result);
 
       // Create success message with View Cart button
@@ -1252,11 +1240,11 @@ async function handleAddToCart() {
         button.classList.add('success');
 
         setTimeout(() => {
-          if (button && !button.disabled) { // Check if button still exists and isn't disabled by another process
-             button.disabled = false;
-             button.textContent = 'Add to Cart';
-             button.classList.remove('success');
-          }
+           if (button && !button.disabled) { // Check if button still exists and isn't disabled by another process
+              button.disabled = false;
+              button.textContent = 'Add to Cart';
+              button.classList.remove('success');
+           }
         }, 3000); // Increased timeout slightly
       }
 
@@ -1284,12 +1272,22 @@ async function handleAddToCart() {
         debugCart("ADD-ERROR", "Error updating cart count", e);
       }
     } else {
-      debugCart("ADD", "Add to cart failed with result", result);
+      // Handle cases where addToCart succeeded technically but API reported failure
+      debugCart("ADD-FAIL", "Add to cart failed per API response", result);
+      let errorMessage = 'Failed to add to cart. Please try again.';
+      if (result && result.error) {
+           errorMessage = `Failed to add to cart: ${result.error}`;
+      } else if (!result) {
+           errorMessage = 'Failed to add to cart: No response from cart system.';
+      }
+
       if (errorDiv) {
-        errorDiv.textContent = (result && result.error) ?
-          `Failed to add to cart: ${result.error}` :
-          'Failed to add to cart. Please try again.';
+        errorDiv.textContent = errorMessage;
         errorDiv.style.display = 'block';
+        // Ensure standard error styling
+        errorDiv.style.backgroundColor = '';
+        errorDiv.style.color = '#dc3545';
+        errorDiv.style.border = '';
       }
 
       if (button) {
@@ -1298,17 +1296,21 @@ async function handleAddToCart() {
         button.classList.remove('adding');
       }
     }
-  } catch (error) {
+  } catch (error) { // Catches errors from getProductData, validation, detectCartSystem, or the API call itself
     // Remove loading indicator
     if (loadingIndicator && loadingIndicator.parentNode) {
       loadingIndicator.parentNode.removeChild(loadingIndicator);
     }
 
-    debugCart("ADD-ERROR", error);
+    debugCart("ADD-ERROR", "Overall error in handleAddToCart:", error);
 
     if (errorDiv) {
       errorDiv.textContent = error.message || 'Unknown error adding to cart';
       errorDiv.style.display = 'block';
+      // Ensure standard error styling
+       errorDiv.style.backgroundColor = '';
+       errorDiv.style.color = '#dc3545';
+       errorDiv.style.border = '';
     }
 
     if (button) {
@@ -1380,7 +1382,14 @@ async function handleAddToCart() {
     // Add success div to the page
     const container = document.getElementById('cart-button-container');
     if (container) {
-      container.appendChild(successDiv);
+      // Insert after the 'Add to Quote' heading if it exists
+      const heading = container.querySelector('h4');
+      if (heading && heading.nextSibling) {
+           container.insertBefore(successDiv, heading.nextSibling);
+      } else {
+           container.appendChild(successDiv); // Fallback append
+      }
+
     }
 
     // Auto-remove after 10 seconds
@@ -1459,7 +1468,7 @@ async function handleAddToCart() {
                 size: size,
                 quantity: quantity,
                 unitPrice: price,
-                warehouseSource: 'API' // Assuming price implies availability
+                warehouseSource: 'Pricing Matrix' // Indicate price came from matrix
                 });
             }
          });
@@ -1497,17 +1506,17 @@ async function handleAddToCart() {
   // Extract product image URL from the page
   function extractProductImageUrl() {
     // Try to find the main product image in current window (likely embedded in iframe)
-    const mainImage = document.getElementById('main-product-image-dp2');
-    if (mainImage && mainImage.src) {
-      return mainImage.src;
+    let imageElement = document.getElementById('main-product-image-dp2');
+    if (imageElement && imageElement.src) {
+      return imageElement.src;
     }
 
     // Try to find the main product image in parent window (if product.html hosts the iframe)
     try {
       if (window.parent && window.parent !== window) {
-        const parentMainImage = window.parent.document.getElementById('main-product-image-dp2');
-        if (parentMainImage && parentMainImage.src) {
-          return parentMainImage.src;
+        imageElement = window.parent.document.getElementById('main-product-image-dp2');
+        if (imageElement && imageElement.src) {
+          return imageElement.src;
         }
       }
     } catch (e) {
@@ -1516,9 +1525,9 @@ async function handleAddToCart() {
 
 
     // Fallback: Look for any image inside common Caspio containers (less reliable)
-    const caspioImage = document.querySelector('.cbResultSetData img, .cbFormElement img');
-     if (caspioImage && caspioImage.src) {
-         return caspioImage.src;
+    imageElement = document.querySelector('.cbResultSetData img, .cbFormElement img');
+     if (imageElement && imageElement.src) {
+         return imageElement.src;
      }
 
     debugCart("IMAGE-WARN", "Could not find product image via common selectors.");
@@ -1530,55 +1539,63 @@ async function handleAddToCart() {
   function getEmbellishmentOptionsFromUI(embType) {
     const options = {};
 
-    switch (embType) {
-      case 'embroidery':
-      case 'cap-embroidery':
-        const stitchCount = document.getElementById('stitch-count');
-        if (stitchCount) {
-          options.stitchCount = parseInt(stitchCount.value) || 8000;
-        }
+    try { // Wrap in try-catch in case elements don't exist
+        switch (embType) {
+        case 'embroidery':
+        case 'cap-embroidery':
+            const stitchCount = document.getElementById('stitch-count');
+            if (stitchCount) {
+            options.stitchCount = parseInt(stitchCount.value) || 8000;
+            } else { debugCart("OPTIONS-WARN", "Stitch count select not found"); }
 
-        const location = document.getElementById('location');
-        if (location) {
-          options.location = location.value || (embType === 'embroidery' ? 'left-chest' : 'front');
-        }
-        break;
+            const location = document.getElementById('location');
+            if (location) {
+            options.location = location.value || (embType === 'embroidery' ? 'left-chest' : 'front');
+            } else { debugCart("OPTIONS-WARN", "Embroidery location select not found"); }
+            break;
 
-      case 'dtg':
-      case 'dtf':
-        const dtgLocation = document.getElementById('location');
-        if (dtgLocation) {
-          options.location = dtgLocation.value || 'FF';
-        }
+        case 'dtg':
+        case 'dtf':
+            const dtgLocation = document.getElementById('location');
+            if (dtgLocation) {
+            options.location = dtgLocation.value || 'FF';
+            } else { debugCart("OPTIONS-WARN", "DTG/DTF location select not found"); }
 
-        const colorType = document.getElementById('color-type');
-        if (colorType) {
-          options.colorType = colorType.value || 'full-color';
-        }
-        break;
+            const colorType = document.getElementById('color-type');
+            if (colorType) {
+            options.colorType = colorType.value || 'full-color';
+            } else { debugCart("OPTIONS-WARN", "DTG/DTF color type select not found"); }
+            break;
 
-      case 'screen-print':
-        const colorCount = document.getElementById('color-count');
-        if (colorCount) {
-          options.colorCount = parseInt(colorCount.value) || 1;
-        }
+        case 'screen-print':
+            const colorCount = document.getElementById('color-count');
+            if (colorCount) {
+            options.colorCount = parseInt(colorCount.value) || 1;
+            } else { debugCart("OPTIONS-WARN", "Screen print color count select not found"); }
 
-        const spLocation = document.getElementById('location');
-        if (spLocation) {
-          options.location = spLocation.value || 'front';
-        }
+            const spLocation = document.getElementById('location');
+            if (spLocation) {
+            options.location = spLocation.value || 'front';
+            } else { debugCart("OPTIONS-WARN", "Screen print location select not found"); }
 
-        const whiteBase = document.getElementById('white-base');
-        if (whiteBase) {
-          options.requiresWhiteBase = whiteBase.checked;
-        }
+            const whiteBase = document.getElementById('white-base');
+            if (whiteBase) {
+            options.requiresWhiteBase = whiteBase.checked;
+            } else { debugCart("OPTIONS-WARN", "Screen print white base checkbox not found"); }
 
-        const specialInk = document.getElementById('special-ink');
-        if (specialInk) {
-          options.specialInk = specialInk.checked;
+            const specialInk = document.getElementById('special-ink');
+            if (specialInk) {
+            options.specialInk = specialInk.checked;
+            } else { debugCart("OPTIONS-WARN", "Screen print special ink checkbox not found"); }
+            break;
+         default:
+              debugCart("OPTIONS-INFO", `No specific UI options configured for type: ${embType}`);
+              break;
         }
-        break;
+    } catch (error) {
+         debugCart("OPTIONS-ERROR", "Error getting embellishment options from UI", error);
     }
+
 
     return options;
   }
@@ -1599,14 +1616,19 @@ async function handleAddToCart() {
           // Try to get error body for more details
           let errorBody = `Inventory API returned ${response.status}: ${response.statusText}`;
            try { errorBody = await response.text(); } catch(e){}
-          throw new Error(errorBody);
+           debugCart("INVENTORY-ERROR", `API Error: ${errorBody}`); // Log the error body
+          throw new Error(errorBody); // Throw the detailed error
         }
 
         const inventoryData = await response.json();
 
-        if (!Array.isArray(inventoryData) || inventoryData.length === 0) {
-          debugCart("INVENTORY-WARN", 'No inventory data returned from API');
-          return []; // Return empty array if no data
+        if (!Array.isArray(inventoryData)) { // Check if it's an array
+            debugCart("INVENTORY-WARN", 'Inventory data is not an array:', inventoryData);
+            return []; // Return empty if not an array
+        }
+        if (inventoryData.length === 0) {
+            debugCart("INVENTORY-WARN", 'No inventory data returned from API (empty array)');
+            return []; // Return empty array if no data
         }
 
         // Extract unique sizes and sort them (using SizeSortOrder if available)
@@ -1645,11 +1667,18 @@ async function handleAddToCart() {
     const existingInputs = container.querySelectorAll('.size-input-group');
     existingInputs.forEach(el => el.remove());
 
+     // Add fallback explanation if sizes array is the default fallback one
+     if (sizes.length > 0 && sizes[0] === 'S' && sizes.length === getFallbackSizes().length) {
+         debugCart("UI-WARN", "Using fallback sizes for inputs.");
+     }
+
     sizes.forEach(size => {
       const group = document.createElement('div');
       group.className = 'size-input-group'; // Add class for easier removal
       group.style.display = 'flex';
       group.style.flexDirection = 'column';
+      group.style.alignItems = 'center'; // Center label and input
+
 
       const label = document.createElement('label');
       label.textContent = size;
@@ -1664,6 +1693,7 @@ async function handleAddToCart() {
       input.dataset.size = size;
       input.style.width = '60px';
       input.style.padding = '5px';
+      input.style.textAlign = 'center'; // Center text in input
 
       group.appendChild(label);
       group.appendChild(input);
@@ -1694,27 +1724,27 @@ async function handleAddToCart() {
       return 'screen-print';
     }
 
-    if (document.getElementById('dtf-wrapper') ||
-        document.querySelector('[id*="dtf"]')) {
-      return 'dtf';
-    }
+     if (document.getElementById('dtf-wrapper') || // Added check for DTF wrapper
+         document.querySelector('[id*="dtf"]')) {
+       return 'dtf';
+     }
 
     // Try to detect from URL or page title
     const url = window.location.href.toLowerCase();
     const title = document.title.toLowerCase();
 
-    if (url.includes('embroidery') || title.includes('embroidery')) {
-      if (url.includes('cap') || title.includes('cap')) {
+    if (url.includes('cap-embroidery') || title.includes('cap embroidery')) {
         return 'cap-embroidery';
-      }
-      return 'embroidery';
     }
+     if (url.includes('embroidery') || title.includes('embroidery')) { // Check non-cap embroidery after cap
+       return 'embroidery';
+     }
 
     if (url.includes('dtg') || title.includes('dtg')) {
       return 'dtg';
     }
 
-    if (url.includes('screen') || title.includes('screen')) {
+    if (url.includes('screen-print') || url.includes('screenprint') || title.includes('screen print')) {
       return 'screen-print';
     }
 
@@ -1722,8 +1752,8 @@ async function handleAddToCart() {
       return 'dtf';
     }
 
-    // Default to embroidery if we can't detect
-    debugCart("EMB-WARN", "Could not detect embellishment type, defaulting to 'embroidery'");
+    // Default if we can't detect
+    debugCart("EMB-WARN", "Could not detect embellishment type from ID, URL, or Title. Defaulting to 'embroidery'");
     return 'embroidery';
   }
 
@@ -1732,55 +1762,70 @@ async function handleAddToCart() {
     try {
       let embType = detectEmbellishmentType();
       // Map detected type to the expected variable prefix (handle case variations)
-      let prefix = embType.toLowerCase().replace('-', ''); // e.g., 'embroidery', 'capembroidery', 'dtg', 'screenprint', 'dtf'
-        // Special case for dp5 (seems like a primary embroidery page)
-        if (document.getElementById('dp5-wrapper') && prefix !== 'embroidery') {
-             debugCart("PRICE-INFO", "Detected dp5-wrapper, forcing prefix to 'dp5'");
-             prefix = 'dp5';
-        } else if (prefix === 'embroidery' && document.getElementById('dp5-wrapper')) {
-             prefix = 'dp5'; // Prefer dp5 if it exists for embroidery
-        } else if (prefix === 'capembroidery') {
-            prefix = 'dp7'; // Assuming dp7 is cap embroidery
-        } else if (prefix === 'dtg') {
-             prefix = 'dp6'; // Assuming dp6 is dtg
-        } else if (prefix === 'screenprint') {
-            prefix = 'dp8'; // Assuming dp8 is screenprint
-        }
-         // Add mapping for dtf if needed, e.g., prefix = 'dpX';
+       let prefix = embType.toLowerCase().replace(/[^a-z0-9]/g, ''); // Sanitize prefix: lowercase, remove non-alphanumeric
+       debugCart("PRICE-DEBUG", `Raw detected type: ${embType}, Sanitized prefix: ${prefix}`);
+
+       // Explicit mapping based on known DataPage wrapper IDs if available
+       if (document.getElementById('dp5-wrapper')) { prefix = 'dp5'; }
+       else if (document.getElementById('dp7-wrapper')) { prefix = 'dp7'; } // cap-emb
+       else if (document.getElementById('dp6-wrapper')) { prefix = 'dp6'; } // dtg
+       else if (document.getElementById('dp8-wrapper')) { prefix = 'dp8'; } // screenprint
+       // Add mapping for dtf if needed: else if (document.getElementById('dtf-wrapper')) { prefix = 'dtX'; }
 
       let headers, prices, tiers;
 
       debugCart("PRICE", `Getting price for Size: ${size}, Quantity: ${quantity}, Embellishment: ${embType} (using prefix: ${prefix})`);
 
-      // Try specific prefixes first, then generic 'dp5' as fallback
-      const possiblePrefixes = [prefix, 'dp5'];
+      // Try specific prefix first, then generic 'dp5' only if prefix wasn't already 'dp5'
+      const possiblePrefixes = [prefix];
+      if (prefix !== 'dp5') {
+          possiblePrefixes.push('dp5'); // Add dp5 as a fallback if primary prefix fails
+      }
 
       for (const pfx of possiblePrefixes) {
+           debugCart("PRICE-DEBUG", `Trying prefix: ${pfx}`);
+           let foundHeaders = false, foundPrices = false, foundTiers = false;
+
            if (!headers && window[`${pfx}GroupedHeaders`]) {
                 headers = window[`${pfx}GroupedHeaders`];
+                foundHeaders = true;
                 debugCart("PRICE", `Found headers source: ${pfx}GroupedHeaders`);
            } else if (!headers && window[`${pfx}Headers`]) { // Fallback to non-grouped
                 headers = window[`${pfx}Headers`];
+                 foundHeaders = true;
                 debugCart("PRICE", `Found headers source: ${pfx}Headers`);
            }
 
            if (!prices && window[`${pfx}GroupedPrices`]) {
                 prices = window[`${pfx}GroupedPrices`];
+                 foundPrices = true;
                 debugCart("PRICE", `Found prices source: ${pfx}GroupedPrices`);
            } else if (!prices && window[`${pfx}Prices`]) { // Fallback to non-grouped
                 prices = window[`${pfx}Prices`];
+                 foundPrices = true;
                 debugCart("PRICE", `Found prices source: ${pfx}Prices`);
             }
 
             if (!tiers && window[`${pfx}ApiTierData`]) {
                  tiers = window[`${pfx}ApiTierData`];
+                  foundTiers = true;
                  debugCart("PRICE", `Found tiers source: ${pfx}ApiTierData`);
             } else if (!tiers && window[`${pfx}TierData`]) { // Fallback to non-Api
                  tiers = window[`${pfx}TierData`];
+                  foundTiers = true;
                  debugCart("PRICE", `Found tiers source: ${pfx}TierData`);
             }
             // If we found all components with this prefix, stop searching
-            if (headers && prices && tiers) break;
+            if (foundHeaders && foundPrices && foundTiers) {
+                 debugCart("PRICE-DEBUG", `Found all components with prefix: ${pfx}`);
+                 break;
+            } else {
+                 debugCart("PRICE-DEBUG", `Did not find all components with prefix: ${pfx} (H:${foundHeaders}, P:${foundPrices}, T:${foundTiers})`);
+                 // Reset components if we didn't find all three with this prefix, to try the next prefix cleanly
+                 if (!foundHeaders) headers = null;
+                 if (!foundPrices) prices = null;
+                 if (!foundTiers) tiers = null;
+            }
       }
 
 
@@ -1807,7 +1852,18 @@ async function handleAddToCart() {
         let sizeGroup = null;
         const upperSize = size.toUpperCase(); // Convert input size to uppercase once
 
+         // Ensure headers is an array
+         if (!Array.isArray(headers)) {
+             debugCart("PRICE-ERROR", "Headers data is not an array:", headers);
+             return getFallbackPrice(size, quantity, embType);
+         }
+
+
         for (const header of headers) {
+             if (typeof header !== 'string') {
+                  debugCart("PRICE-WARN", "Non-string header found, skipping:", header);
+                  continue; // Skip non-string headers
+             }
             const upperHeader = header.toUpperCase(); // Convert header to uppercase
 
             // Direct match (case-insensitive)
@@ -1820,27 +1876,34 @@ async function handleAddToCart() {
             // Range match (e.g., "S-XL")
             if (upperHeader.includes('-')) {
                 const parts = header.split('-'); // Use original case header for splitting
-                 const rangeStart = parts[0].trim().toUpperCase();
-                 const rangeEnd = parts[1].trim().toUpperCase();
-                // Simple alphabetical range check (may need SizeSortOrder for complex cases)
-                if (upperSize >= rangeStart && upperSize <= rangeEnd) {
-                     sizeGroup = header;
-                     debugCart("PRICE", `Found size range match for ${size}: ${sizeGroup}`);
-                     break;
+                if (parts.length === 2) { // Ensure it's a simple range like "S-XL"
+                    const rangeStart = parts[0].trim().toUpperCase();
+                    const rangeEnd = parts[1].trim().toUpperCase();
+                    // Basic alphabetical check - might need refinement for non-standard sizes
+                    if (upperSize >= rangeStart && upperSize <= rangeEnd) {
+                        sizeGroup = header;
+                        debugCart("PRICE", `Found size range match for ${size}: ${sizeGroup}`);
+                        break;
+                     }
                  }
             }
          }
 
 
       if (!sizeGroup) {
-        debugCart("PRICE-ERROR", `No size group found for size ${size} in headers:`, headers);
+        debugCart("PRICE-ERROR", `No size group found for size "${size}" in headers:`, headers);
         return getFallbackPrice(size, quantity, embType);
       }
 
       // Get price profile using the found sizeGroup key (case matters for object keys)
+      // Ensure prices is an object
+      if (typeof prices !== 'object' || prices === null) {
+            debugCart("PRICE-ERROR", "Prices data is not a valid object:", prices);
+            return getFallbackPrice(size, quantity, embType);
+      }
       const profile = prices[sizeGroup];
       if (!profile) {
-        debugCart("PRICE-ERROR", `No price profile found for size group ${sizeGroup}`);
+        debugCart("PRICE-ERROR", `No price profile found for size group "${sizeGroup}"`);
         return getFallbackPrice(size, quantity, embType);
       }
 
@@ -1853,12 +1916,17 @@ async function handleAddToCart() {
            debugCart("PRICE-ERROR", "Tiers data is not a valid object:", tiers);
            return getFallbackPrice(size, quantity, embType);
        }
+       // Ensure profile is an object before iterating tier labels
+        if (typeof profile !== 'object' || profile === null) {
+            debugCart("PRICE-ERROR", `Price profile for size group "${sizeGroup}" is not a valid object:`, profile);
+            return getFallbackPrice(size, quantity, embType);
+        }
 
       for (const tierLabel in tiers) {
-        // Check if tierLabel is a valid key in the profile object
+         // Check if the tier exists in the price profile for this sizeGroup
          if (!profile.hasOwnProperty(tierLabel)) {
-             debugCart("PRICE-WARN", `Tier label "${tierLabel}" not found in price profile for size group "${sizeGroup}". Skipping.`);
-             continue; // Skip this tier if it doesn't exist for this size group
+              debugCart("PRICE-WARN", `Tier label "${tierLabel}" not found in price profile for size group "${sizeGroup}". Skipping.`);
+              continue; // Skip if this tier doesn't apply to this size group
          }
 
         const tierInfo = tiers[tierLabel];
@@ -1885,9 +1953,8 @@ async function handleAddToCart() {
       // Get price
       const price = parseFloat(profile[tier]) || 0; // Ensure price is a number
       if (price <= 0) {
-        debugCart("PRICE-ERROR", `Invalid or zero price (${price}) found for size ${size}, tier ${tier}`);
-        // Optionally return fallback or throw error depending on desired behavior for zero price
-         return getFallbackPrice(size, quantity, embType);
+        debugCart("PRICE-WARN", `Invalid or zero price (${price}) found for size ${size}, tier ${tier}. Using fallback.`);
+         return getFallbackPrice(size, quantity, embType); // Use fallback for zero/invalid price
       }
 
       debugCart("PRICE", `Final price for ${size}, quantity ${quantity}: $${price}`);
@@ -1905,18 +1972,24 @@ async function handleAddToCart() {
 
     // Base price by size
     let basePrice = 18.00; // Default for S-XL
+    const upperSize = size ? size.toUpperCase() : 'UNKNOWN';
 
-    if (size === '2XL' || size === 'XXL') {
+    if (upperSize === '2XL' || upperSize === 'XXL') {
       basePrice = 22.00;
-    } else if (size === '3XL') {
+    } else if (upperSize === '3XL') {
       basePrice = 23.00;
-    } else if (size === '4XL') {
+    } else if (upperSize === '4XL') {
       basePrice = 25.00;
-    } else if (size === '5XL') {
+    } else if (upperSize === '5XL') {
       basePrice = 27.00;
-    } else if (size === '6XL') {
+    } else if (upperSize === '6XL') {
       basePrice = 28.00;
+    } else if (upperSize !== 'S' && upperSize !== 'M' && upperSize !== 'L' && upperSize !== 'XL' && upperSize !== 'UNKNOWN') {
+        // Apply a small upcharge for potentially unknown larger sizes if not explicitly listed
+         basePrice += 1.00; // Small arbitrary upcharge
+         debugCart("PRICE-FALLBACK", `Applying small upcharge for potentially non-standard size: ${size}`);
     }
+
 
     // Apply quantity discount
     if (quantity >= 72) {
@@ -1935,13 +2008,13 @@ async function handleAddToCart() {
       embCost = 2.50;
     }
 
-    const finalPrice = basePrice + embCost;
+    const finalPrice = Math.max(0.01, basePrice + embCost); // Ensure price is at least $0.01
     debugCart("PRICE-FALLBACK", `Fallback price calculated: $${finalPrice.toFixed(2)}`);
 
     // Show a warning message to the user that fallback pricing is being used
     showFallbackPricingWarning();
 
-    return finalPrice;
+    return parseFloat(finalPrice.toFixed(2)); // Return as number
   }
 
   // Function to show a warning message when fallback pricing is used
@@ -1974,8 +2047,14 @@ async function handleAddToCart() {
     // Add to page - find a good location
     const container = document.getElementById('cart-button-container');
     if (container) {
-      // Insert at the top of the container
-      container.insertBefore(warningDiv, container.firstChild);
+      // Insert at the top of the container, just after the H4 heading
+       const heading = container.querySelector('h4');
+       if (heading && heading.nextSibling) {
+           container.insertBefore(warningDiv, heading.nextSibling);
+       } else {
+           // Fallback if heading isn't found or has no sibling
+           container.insertBefore(warningDiv, container.firstChild);
+       }
     } else {
       // Fallback - add to error container if it exists
       const errorDiv = document.getElementById('cart-error-container');
@@ -1995,7 +2074,11 @@ async function handleAddToCart() {
   // Add a "View Cart" link to the top of the DataPage
   function addViewCartLink(titleElement) { // <-- Add titleElement argument here
     // Check if it already exists
-    if (document.getElementById('view-cart-link')) return;
+    if (document.getElementById('view-cart-link')) {
+         debugCart("VIEW-CART", "View Cart link already exists, skipping add.");
+         return;
+    }
+
 
     // Clear any existing interval
     if (window.cartUpdateInterval) {
@@ -2012,7 +2095,7 @@ async function handleAddToCart() {
 
     // Create link
     const link = document.createElement('a');
-    link.href = 'javascript:void(0)'; // Prevent navigation before count loads
+    link.href = config.urls.cart; // Set initial href
     link.textContent = 'View Cart';
     link.style.color = '#0056b3';
     link.style.textDecoration = 'none';
@@ -2045,13 +2128,11 @@ async function handleAddToCart() {
             } else {
                 link.textContent = 'View Cart';
             }
-            // Update href only after count is potentially loaded
-            link.href = config.urls.cart;
+            // Href is already set, no need to update here
 
         } catch (e) {
             debugCart("VIEW-CART-ERROR", "Error in updateCartCount logic:", e);
             link.textContent = 'View Cart'; // Default on error
-            link.href = config.urls.cart;
         }
     }
 
@@ -2069,7 +2150,12 @@ async function handleAddToCart() {
         if (window.parent && window.parent !== window) {
           // Try to access parent location safely
            try {
-               window.parent.location.href = config.urls.cart;
+               // Check if parent location is accessible before assigning
+               if (window.parent.location.href) {
+                    window.parent.location.href = config.urls.cart;
+               } else {
+                    throw new Error("Parent location not accessible");
+               }
            } catch(parentAccessError) {
                 debugCart("VIEW-CART-ERROR", "Could not access parent window location, navigating current window", parentAccessError);
                 window.location.href = config.urls.cart;
@@ -2088,13 +2174,12 @@ async function handleAddToCart() {
     linkContainer.appendChild(link);
 
     // Add to page - use the passed titleElement
-    // const titleElement = document.querySelector('h4[id="matrix-title"]'); // Removed: titleElement is now passed as an argument
     if (titleElement && titleElement.parentNode) { // <-- Use the passed titleElement here and check parentNode
       // Insert the link container *before* the found title element
       titleElement.parentNode.insertBefore(linkContainer, titleElement);
       debugCart("VIEW-CART", "View Cart link added before title:", titleElement.id);
     } else {
-      // Fallback - add to top of body if title wasn't found (shouldn't happen if checkAndAddCartButton worked)
+      // Fallback - add to top of body if title wasn't found
       debugCart("VIEW-CART-WARN", "Title element not provided or not found in DOM, adding View Cart link to body start.");
       document.body.insertBefore(linkContainer, document.body.firstChild);
     }
@@ -2112,13 +2197,12 @@ async function handleAddToCart() {
         await window.NWCACart.initializeCart();
         debugCart("INIT", "NWCACart initialization complete");
       } catch (e) {
-        debugCart("INIT", "Error initializing NWCACart:", e);
+        debugCart("INIT-ERROR", "Error initializing NWCACart:", e);
       }
     } else {
       debugCart("INIT", "NWCACart not available for initialization");
 
       // Try to find NWCACart in the global scope after a short delay
-      // This helps in cases where cart.js is loaded but NWCACart isn't immediately available
       setTimeout(async () => {
         if (window.NWCACart && typeof window.NWCACart.initializeCart === 'function') {
           try {
@@ -2134,8 +2218,10 @@ async function handleAddToCart() {
               debugCart("INIT-ERROR", "Error during delayed cart synchronization:", syncError);
             }
           } catch (e) {
-            debugCart("INIT", "Error in delayed NWCACart initialization:", e);
+            debugCart("INIT-ERROR", "Error in delayed NWCACart initialization:", e);
           }
+        } else {
+            debugCart("INIT", "NWCACart still not found after delay.");
         }
       }, 1000);
     }
@@ -2147,13 +2233,12 @@ async function handleAddToCart() {
     }
 
     // Try to synchronize carts regardless of NWCACart init status now
-    // (DirectCartAPI might have items even if NWCACart failed/was slow)
     try {
-      debugCart("INIT", "Attempting cart synchronization");
+      debugCart("INIT", "Attempting initial cart synchronization");
       const syncResult = await synchronizeCartSystems();
-      debugCart("INIT", `Cart synchronization ${syncResult ? 'successful' : 'failed'}`);
+      debugCart("INIT", `Initial Cart synchronization ${syncResult ? 'successful' : 'failed'}`);
     } catch (e) {
-      debugCart("INIT-ERROR", "Error during cart synchronization:", e);
+      debugCart("INIT-ERROR", "Error during initial cart synchronization:", e);
     }
   }
 
@@ -2169,11 +2254,12 @@ async function handleAddToCart() {
   // Also try to initialize immediately if DOMContentLoaded already fired
   if (document.readyState === 'complete' || document.readyState === 'interactive') {
     debugCart("INIT", "Document already ready, initializing cart systems immediately");
+    // Use setTimeout to ensure it runs after the current execution stack clears
     setTimeout(() => {
       initializeCartSystems().catch(e => {
         debugCart("INIT-ERROR", "Error during immediate cart initialization:", e);
       });
-    }, 500); // Short delay to ensure other scripts potentially run
+    }, 0); // 0ms delay effectively means "as soon as possible"
   }
 
 
