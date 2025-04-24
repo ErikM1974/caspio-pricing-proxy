@@ -3584,6 +3584,243 @@ app.post('/api/process-checkout', express.json(), async (req, res) => {
     }
 });
 
+// --- NEW Endpoint: PricingMatrix CRUD Operations ---
+// GET: /api/pricing-matrix - Get all pricing matrix records or filter by query parameters
+// GET: /api/pricing-matrix/:id - Get a specific pricing matrix record by ID
+// POST: /api/pricing-matrix - Create a new pricing matrix record
+// PUT: /api/pricing-matrix/:id - Update a pricing matrix record by ID
+// DELETE: /api/pricing-matrix/:id - Delete a pricing matrix record by ID
+
+app.get('/api/pricing-matrix', async (req, res) => {
+    try {
+        console.log("Fetching pricing matrix information");
+        const resource = '/tables/PricingMatrix/records';
+        
+        // Build query parameters based on request query
+        const params = {};
+        
+        // Add any filter parameters from the request
+        if (Object.keys(req.query).length > 0) {
+            const whereConditions = [];
+            
+            // Handle common filter fields
+            if (req.query.pricingMatrixID) {
+                whereConditions.push(`PricingMatrixID=${req.query.pricingMatrixID}`);
+            }
+            if (req.query.sessionID) {
+                whereConditions.push(`SessionID='${req.query.sessionID}'`);
+            }
+            if (req.query.styleNumber) {
+                whereConditions.push(`StyleNumber='${req.query.styleNumber}'`);
+            }
+            if (req.query.color) {
+                whereConditions.push(`Color='${req.query.color}'`);
+            }
+            if (req.query.embellishmentType) {
+                whereConditions.push(`EmbellishmentType='${req.query.embellishmentType}'`);
+            }
+            
+            // Add the WHERE clause if we have conditions
+            if (whereConditions.length > 0) {
+                params['q.where'] = whereConditions.join(' AND ');
+            }
+        }
+        
+        // Set ordering and limit
+        params['q.orderby'] = 'PricingMatrixID DESC'; // Most recent records first
+        params['q.limit'] = 1000;
+        
+        // Use fetchAllCaspioPages to handle pagination
+        const result = await fetchAllCaspioPages(resource, params);
+        console.log(`Found ${result.length} pricing matrix records`);
+        
+        res.json(result);
+    } catch (error) {
+        console.error("Error fetching pricing matrix information:", error.message);
+        res.status(500).json({ error: 'Failed to fetch pricing matrix information.' });
+    }
+});
+
+// Get a specific pricing matrix record by ID
+app.get('/api/pricing-matrix/:id', async (req, res) => {
+    const { id } = req.params;
+    if (!id) {
+        return res.status(400).json({ error: 'Missing required parameter: id' });
+    }
+    
+    try {
+        console.log(`Fetching pricing matrix with ID: ${id}`);
+        const resource = '/tables/PricingMatrix/records';
+        const params = {
+            'q.where': `PricingMatrixID=${id}`,
+            'q.limit': 1
+        };
+        
+        // Use fetchAllCaspioPages to handle pagination
+        const result = await fetchAllCaspioPages(resource, params);
+        
+        if (!result || result.length === 0) {
+            return res.status(404).json({ error: `Pricing matrix with ID ${id} not found` });
+        }
+        
+        res.json(result[0]);
+    } catch (error) {
+        console.error(`Error fetching pricing matrix with ID ${id}:`, error.message);
+        res.status(500).json({ error: 'Failed to fetch pricing matrix information.' });
+    }
+});
+
+// Create a new pricing matrix record
+app.post('/api/pricing-matrix', express.json(), async (req, res) => {
+    try {
+        // Validate required fields
+        const requiredFields = ['SessionID', 'StyleNumber', 'Color', 'EmbellishmentType'];
+        for (const field of requiredFields) {
+            if (!req.body[field]) {
+                return res.status(400).json({ error: `Missing required field: ${field}` });
+            }
+        }
+        
+        // Create a new object with only the allowed fields
+        // Exclude auto-generated fields like PK_ID and PricingMatrixID
+        const pricingMatrixData = {
+            SessionID: req.body.SessionID,
+            StyleNumber: req.body.StyleNumber,
+            Color: req.body.Color,
+            EmbellishmentType: req.body.EmbellishmentType,
+            CaptureDate: req.body.CaptureDate || new Date().toISOString(),
+            TierStructure: req.body.TierStructure || null,
+            SizeGroups: req.body.SizeGroups || null,
+            PriceMatrix: req.body.PriceMatrix || null
+        };
+        
+        console.log(`Creating new pricing matrix for style: ${pricingMatrixData.StyleNumber}, color: ${pricingMatrixData.Color}`);
+        const resource = '/tables/PricingMatrix/records';
+        
+        // Get token for the request
+        const token = await getCaspioAccessToken();
+        const url = `${caspioApiBaseUrl}${resource}`;
+        
+        // Prepare the request
+        const config = {
+            method: 'post',
+            url: url,
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            data: pricingMatrixData,
+            timeout: 15000
+        };
+        
+        // Make the request directly using axios
+        const response = await axios(config);
+        
+        console.log(`Pricing matrix created successfully: ${response.status}`);
+        res.status(201).json({
+            message: 'Pricing matrix created successfully',
+            pricingMatrix: response.data
+        });
+    } catch (error) {
+        console.error("Error creating pricing matrix:", error.response ? JSON.stringify(error.response.data) : error.message);
+        res.status(500).json({ error: 'Failed to create pricing matrix.' });
+    }
+});
+
+// Update a pricing matrix record by ID
+app.put('/api/pricing-matrix/:id', express.json(), async (req, res) => {
+    const { id } = req.params;
+    if (!id) {
+        return res.status(400).json({ error: 'Missing required parameter: id' });
+    }
+    
+    try {
+        console.log(`Updating pricing matrix with ID: ${id}`);
+        const resource = `/tables/PricingMatrix/records?q.where=PricingMatrixID=${id}`;
+        
+        // Create a new object with only the allowed fields
+        // Exclude auto-generated fields like PK_ID and PricingMatrixID
+        const pricingMatrixData = {};
+        
+        // Only include fields that are provided in the request body
+        if (req.body.SessionID !== undefined) pricingMatrixData.SessionID = req.body.SessionID;
+        if (req.body.StyleNumber !== undefined) pricingMatrixData.StyleNumber = req.body.StyleNumber;
+        if (req.body.Color !== undefined) pricingMatrixData.Color = req.body.Color;
+        if (req.body.EmbellishmentType !== undefined) pricingMatrixData.EmbellishmentType = req.body.EmbellishmentType;
+        if (req.body.CaptureDate !== undefined) pricingMatrixData.CaptureDate = req.body.CaptureDate;
+        if (req.body.TierStructure !== undefined) pricingMatrixData.TierStructure = req.body.TierStructure;
+        if (req.body.SizeGroups !== undefined) pricingMatrixData.SizeGroups = req.body.SizeGroups;
+        if (req.body.PriceMatrix !== undefined) pricingMatrixData.PriceMatrix = req.body.PriceMatrix;
+        
+        // Get token for the request
+        const token = await getCaspioAccessToken();
+        const url = `${caspioApiBaseUrl}${resource}`;
+        
+        // Prepare the request
+        const config = {
+            method: 'put',
+            url: url,
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            data: pricingMatrixData,
+            timeout: 15000
+        };
+        
+        // Make the request directly using axios
+        const response = await axios(config);
+        
+        console.log(`Pricing matrix updated successfully: ${response.status}`);
+        res.json({
+            message: 'Pricing matrix updated successfully',
+            pricingMatrix: response.data
+        });
+    } catch (error) {
+        console.error("Error updating pricing matrix:", error.response ? JSON.stringify(error.response.data) : error.message);
+        res.status(500).json({ error: 'Failed to update pricing matrix.' });
+    }
+});
+
+// Delete a pricing matrix record by ID
+app.delete('/api/pricing-matrix/:id', async (req, res) => {
+    const { id } = req.params;
+    if (!id) {
+        return res.status(400).json({ error: 'Missing required parameter: id' });
+    }
+    
+    try {
+        console.log(`Deleting pricing matrix with ID: ${id}`);
+        const resource = `/tables/PricingMatrix/records?q.where=PricingMatrixID=${id}`;
+        
+        // Get token for the request
+        const token = await getCaspioAccessToken();
+        const url = `${caspioApiBaseUrl}${resource}`;
+        
+        // Prepare the request
+        const config = {
+            method: 'delete',
+            url: url,
+            headers: {
+                'Authorization': `Bearer ${token}`
+            },
+            timeout: 15000
+        };
+        
+        // Make the request directly using axios
+        const response = await axios(config);
+        
+        console.log(`Pricing matrix deleted successfully: ${response.status}`);
+        res.json({
+            message: 'Pricing matrix deleted successfully',
+            recordsAffected: response.data.RecordsAffected
+        });
+    } catch (error) {
+        console.error("Error deleting pricing matrix:", error.response ? JSON.stringify(error.response.data) : error.message);
+        res.status(500).json({ error: 'Failed to delete pricing matrix.' });
+    }
+});
+
 // --- Start the Server ---
 app.listen(PORT, () => {
     console.log(`Caspio Proxy Server listening on port ${PORT}`);

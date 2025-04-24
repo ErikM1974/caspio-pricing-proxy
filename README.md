@@ -308,6 +308,35 @@ Content-Type: application/json
 }
 ```
 
+### Pricing Matrix (New)
+
+- **URL**: `/api/pricing-matrix`
+- **Method**: `GET`, `POST`, `PUT`, `DELETE`
+- **Description**: CRUD operations for pricing matrix records
+- **Query Parameters for GET**:
+  - `pricingMatrixID` (optional): Filter by pricing matrix ID
+  - `sessionID` (optional): Filter by session ID
+  - `styleNumber` (optional): Filter by style number
+  - `color` (optional): Filter by color
+  - `embellishmentType` (optional): Filter by embellishment type
+- **Example GET**: `https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/pricing-matrix`
+- **Example GET by ID**: `https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/pricing-matrix/1`
+- **Example POST**:
+```json
+POST https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/pricing-matrix
+Content-Type: application/json
+
+{
+    "SessionID": "12321",
+    "StyleNumber": "PC61",
+    "Color": "BLACK",
+    "EmbellishmentType": "EMBROIDERY",
+    "TierStructure": "TEST TIER STRUCTURE",
+    "SizeGroups": "TEST SIZE GROUPS",
+    "PriceMatrix": "TEST PRICE MATRIX"
+}
+```
+
 ## Known Issues and Workarounds
 
 ### Customer Creation API Issue
