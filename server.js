@@ -3670,6 +3670,61 @@ app.get('/api/pricing-matrix/:id', async (req, res) => {
     }
 });
 
+// --- NEW Endpoint: Lookup Pricing Matrix ID ---
+// Example: /api/pricing-matrix/lookup?styleNumber=PC61&color=RED&embellishmentType=DTG&sessionID=direct-test-1745497242701
+app.get('/api/pricing-matrix/lookup', async (req, res) => {
+    const { styleNumber, color, embellishmentType, sessionID } = req.query;
+
+    // Validate required parameters
+    if (!styleNumber || !color || !embellishmentType) {
+        return res.status(400).json({ error: 'Missing required query parameters (styleNumber, color, embellishmentType)' });
+    }
+
+    try {
+        console.log(`Looking up PricingMatrixID for Style: ${styleNumber}, Color: ${color}, Type: ${embellishmentType}, Session: ${sessionID || 'N/A'}`);
+        const resource = '/tables/PricingMatrix/records';
+
+        // Build the where clause
+        const whereConditions = [
+            `StyleNumber='${styleNumber}'`,
+            `Color='${color}'`,
+            `EmbellishmentType='${embellishmentType}'`
+        ];
+        if (sessionID) {
+            whereConditions.push(`SessionID='${sessionID}'`);
+        }
+
+        const params = {
+            'q.where': whereConditions.join(' AND '),
+            'q.select': 'PricingMatrixID', // Select only the ID field
+            'q.orderby': 'CaptureDate DESC', // Get the most recent one
+            'q.limit': 1 // We only need the first match
+        };
+
+        // Use fetchAllCaspioPages (even though limit is 1, it's the standard way)
+        const result = await fetchAllCaspioPages(resource, params);
+
+        if (!result || result.length === 0) {
+            console.log(`Pricing matrix not found for criteria: ${JSON.stringify(req.query)}`);
+            return res.status(404).json({ error: 'Pricing matrix not found for the given criteria' });
+        }
+
+        // Extract the ID from the first result
+        const pricingMatrixId = result[0].PricingMatrixID;
+        console.log(`Found PricingMatrixID: ${pricingMatrixId}`);
+
+        res.json({ pricingMatrixId: pricingMatrixId });
+
+    } catch (error) {
+        console.error("Error during pricing matrix lookup:", error.message);
+        // Check if it's a Caspio API error
+        if (error.message.includes('Caspio')) {
+             res.status(500).json({ error: `Caspio API error during lookup: ${error.message}` });
+        } else {
+             res.status(500).json({ error: 'Internal server error during lookup' });
+        }
+    }
+});
 // Create a new pricing matrix record
 app.post('/api/pricing-matrix', express.json(), async (req, res) => {
     try {
