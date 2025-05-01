@@ -3586,6 +3586,7 @@ app.post('/api/process-checkout', express.json(), async (req, res) => {
 
 // --- NEW Endpoint: PricingMatrix CRUD Operations ---
 // GET: /api/pricing-matrix - Get all pricing matrix records or filter by query parameters
+// GET: /api/pricing-matrix/lookup - Lookup a pricing matrix ID based on style, color, and embellishment type
 // GET: /api/pricing-matrix/:id - Get a specific pricing matrix record by ID
 // POST: /api/pricing-matrix - Create a new pricing matrix record
 // PUT: /api/pricing-matrix/:id - Update a pricing matrix record by ID
@@ -3637,35 +3638,6 @@ app.get('/api/pricing-matrix', async (req, res) => {
         res.json(result);
     } catch (error) {
         console.error("Error fetching pricing matrix information:", error.message);
-        res.status(500).json({ error: 'Failed to fetch pricing matrix information.' });
-    }
-});
-
-// Get a specific pricing matrix record by ID
-app.get('/api/pricing-matrix/:id', async (req, res) => {
-    const { id } = req.params;
-    if (!id) {
-        return res.status(400).json({ error: 'Missing required parameter: id' });
-    }
-    
-    try {
-        console.log(`Fetching pricing matrix with ID: ${id}`);
-        const resource = '/tables/PricingMatrix/records';
-        const params = {
-            'q.where': `PricingMatrixID=${id}`,
-            'q.limit': 1
-        };
-        
-        // Use fetchAllCaspioPages to handle pagination
-        const result = await fetchAllCaspioPages(resource, params);
-        
-        if (!result || result.length === 0) {
-            return res.status(404).json({ error: `Pricing matrix with ID ${id} not found` });
-        }
-        
-        res.json(result[0]);
-    } catch (error) {
-        console.error(`Error fetching pricing matrix with ID ${id}:`, error.message);
         res.status(500).json({ error: 'Failed to fetch pricing matrix information.' });
     }
 });
@@ -3723,6 +3695,35 @@ app.get('/api/pricing-matrix/lookup', async (req, res) => {
         } else {
              res.status(500).json({ error: 'Internal server error during lookup' });
         }
+    }
+});
+
+// Get a specific pricing matrix record by ID
+app.get('/api/pricing-matrix/:id', async (req, res) => {
+    const { id } = req.params;
+    if (!id) {
+        return res.status(400).json({ error: 'Missing required parameter: id' });
+    }
+    
+    try {
+        console.log(`Fetching pricing matrix with ID: ${id}`);
+        const resource = '/tables/PricingMatrix/records';
+        const params = {
+            'q.where': `PricingMatrixID=${id}`,
+            'q.limit': 1
+        };
+        
+        // Use fetchAllCaspioPages to handle pagination
+        const result = await fetchAllCaspioPages(resource, params);
+        
+        if (!result || result.length === 0) {
+            return res.status(404).json({ error: `Pricing matrix with ID ${id} not found` });
+        }
+        
+        res.json(result[0]);
+    } catch (error) {
+        console.error(`Error fetching pricing matrix with ID ${id}:`, error.message);
+        res.status(500).json({ error: 'Failed to fetch pricing matrix information.' });
     }
 });
 // Create a new pricing matrix record
