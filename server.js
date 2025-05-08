@@ -2346,6 +2346,7 @@ app.post('/api/cart-items', express.json(), async (req, res) => {
             ProductID: req.body.ProductID,
             StyleNumber: req.body.StyleNumber,
             Color: req.body.Color,
+            PRODUCT_TITLE: req.body.PRODUCT_TITLE || null,
             ImprintType: req.body.ImprintType || null,
             CartStatus: req.body.CartStatus || 'Active',
             OrderID: req.body.OrderID || null,
@@ -2472,6 +2473,7 @@ app.post('/api/cart-items', express.json(), async (req, res) => {
             ProductID: cartItem.ProductID || req.body.ProductID,
             StyleNumber: cartItem.StyleNumber || req.body.StyleNumber,
             Color: cartItem.Color || req.body.Color,
+            PRODUCT_TITLE: cartItem.PRODUCT_TITLE || req.body.PRODUCT_TITLE || null,
             ImprintType: cartItem.ImprintType || req.body.ImprintType || null,
             CartStatus: cartItem.CartStatus || req.body.CartStatus || 'Active',
             OrderID: cartItem.OrderID || req.body.OrderID || null,
@@ -2534,6 +2536,7 @@ app.put('/api/cart-items/:id', express.json(), async (req, res) => {
         if (req.body.ProductID !== undefined) cartItemData.ProductID = req.body.ProductID;
         if (req.body.StyleNumber !== undefined) cartItemData.StyleNumber = req.body.StyleNumber;
         if (req.body.Color !== undefined) cartItemData.Color = req.body.Color;
+        if (req.body.PRODUCT_TITLE !== undefined) cartItemData.PRODUCT_TITLE = req.body.PRODUCT_TITLE;
         if (req.body.ImprintType !== undefined) cartItemData.ImprintType = req.body.ImprintType;
         if (req.body.CartStatus !== undefined) cartItemData.CartStatus = req.body.CartStatus;
         if (req.body.OrderID !== undefined) cartItemData.OrderID = req.body.OrderID;
