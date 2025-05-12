@@ -3896,10 +3896,9 @@ app.get('/api/product-colors', async (req, res) => {
         // First, try to get product info from Sanmar_Bulk table
         const resourcePath = '/tables/Sanmar_Bulk_251816_Feb2024/records';
         
-        // Make the query more flexible by using LIKE instead of exact match
-        // This helps with potential case sensitivity or whitespace issues
+        // Use an EXACT match for the style number to avoid fetching related styles (e.g., LPC61 when PC61 is requested)
         const params = {
-            'q.where': `STYLE LIKE '%${styleNumber.trim()}%'`,
+            'q.where': `STYLE='${styleNumber.trim()}'`, // Use exact match
             'q.select': 'STYLE, PRODUCT_TITLE, PRODUCT_DESCRIPTION, COLOR_NAME, CATALOG_COLOR, COLOR_SQUARE_IMAGE, FRONT_MODEL, FRONT_FLAT',
             'q.limit': 1000 // fetchAllCaspioPages handles pagination, this is per-page limit
         };
@@ -3908,29 +3907,11 @@ app.get('/api/product-colors', async (req, res) => {
         console.log(`Fetching product colors for styleNumber: ${styleNumber} from Caspio.`);
         
         const records = await fetchAllCaspioPages(resourcePath, params);
-        console.log(`DEBUG: Received ${records ? records.length : 0} records from Caspio`);
+        console.log(`DEBUG: Received ${records ? records.length : 0} records from Caspio for exact style match.`);
         
-        // If no records found with LIKE, try exact match with STYLE_NUMBER field as fallback
+        // If no records found for the exact style, return empty result
         if (!records || records.length === 0) {
-            console.log(`DEBUG: No records found with STYLE LIKE '%${styleNumber}%', trying STYLE_NUMBER='${styleNumber}'`);
-            
-            const fallbackParams = {
-                'q.where': `STYLE_NUMBER='${styleNumber}'`,
-                'q.select': 'STYLE, PRODUCT_TITLE, PRODUCT_DESCRIPTION, COLOR_NAME, CATALOG_COLOR, COLOR_SQUARE_IMAGE, FRONT_MODEL, FRONT_FLAT',
-                'q.limit': 1000
-            };
-            
-            const fallbackRecords = await fetchAllCaspioPages(resourcePath, fallbackParams);
-            console.log(`DEBUG: Received ${fallbackRecords ? fallbackRecords.length : 0} records from fallback query`);
-            
-            if (fallbackRecords && fallbackRecords.length > 0) {
-                console.log(`DEBUG: Found records using STYLE_NUMBER field instead of STYLE`);
-                // Use the fallback records if found
-                return processProductColorRecords(fallbackRecords, styleNumber, res);
-            }
-            
-            // If still no records, return empty result
-            console.log(`No product color data found for styleNumber: ${styleNumber}`);
+            console.log(`No product color data found for exact styleNumber: ${styleNumber}`);
             return res.json({
                 productTitle: `Product ${styleNumber}`,
                 PRODUCT_DESCRIPTION: "Sample product description.",
@@ -3938,9 +3919,8 @@ app.get('/api/product-colors', async (req, res) => {
             });
         }
         
-        // Process the records and return the result
+        // Process the records (which are now guaranteed to be for the correct style)
         return processProductColorRecords(records, styleNumber, res);
-
     } catch (error) {
         console.error(`Error fetching product colors for styleNumber ${styleNumber}:`, error.response ? JSON.stringify(error.response.data) : error.message);
         res.status(500).json({ error: `Failed to fetch product colors. ${error.message}` });
