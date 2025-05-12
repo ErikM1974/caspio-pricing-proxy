@@ -3880,6 +3880,157 @@ app.delete('/api/pricing-matrix/:id', async (req, res) => {
     }
 });
 
+// --- UPDATED Endpoint: Product Colors (Refactored to use Live Caspio Data) ---
+// Example: /api/product-colors?styleNumber=PC61
+app.get('/api/product-colors', async (req, res) => {
+    const { styleNumber } = req.query;
+
+    if (!styleNumber) {
+        return res.status(400).json({ error: 'Missing required query parameter: styleNumber' });
+    }
+
+    try {
+        // Add debug logging
+        console.log(`DEBUG: Processing request for product colors with styleNumber: ${styleNumber}`);
+        
+        // First, try to get product info from Sanmar_Bulk table
+        const resourcePath = '/tables/Sanmar_Bulk_251816_Feb2024/records';
+        
+        // Make the query more flexible by using LIKE instead of exact match
+        // This helps with potential case sensitivity or whitespace issues
+        const params = {
+            'q.where': `STYLE LIKE '%${styleNumber.trim()}%'`,
+            'q.select': 'STYLE, PRODUCT_TITLE, COLOR_NAME, CATALOG_COLOR, COLOR_SQUARE_IMAGE, FRONT_MODEL, FRONT_FLAT',
+            'q.limit': 1000 // fetchAllCaspioPages handles pagination, this is per-page limit
+        };
+
+        console.log(`DEBUG: Query params for Caspio: ${JSON.stringify(params)}`);
+        console.log(`Fetching product colors for styleNumber: ${styleNumber} from Caspio.`);
+        
+        const records = await fetchAllCaspioPages(resourcePath, params);
+        console.log(`DEBUG: Received ${records ? records.length : 0} records from Caspio`);
+        
+        // If no records found with LIKE, try exact match with STYLE_NUMBER field as fallback
+        if (!records || records.length === 0) {
+            console.log(`DEBUG: No records found with STYLE LIKE '%${styleNumber}%', trying STYLE_NUMBER='${styleNumber}'`);
+            
+            const fallbackParams = {
+                'q.where': `STYLE_NUMBER='${styleNumber}'`,
+                'q.select': 'STYLE, PRODUCT_TITLE, COLOR_NAME, CATALOG_COLOR, COLOR_SQUARE_IMAGE, FRONT_MODEL, FRONT_FLAT',
+                'q.limit': 1000
+            };
+            
+            const fallbackRecords = await fetchAllCaspioPages(resourcePath, fallbackParams);
+            console.log(`DEBUG: Received ${fallbackRecords ? fallbackRecords.length : 0} records from fallback query`);
+            
+            if (fallbackRecords && fallbackRecords.length > 0) {
+                console.log(`DEBUG: Found records using STYLE_NUMBER field instead of STYLE`);
+                // Use the fallback records if found
+                return processProductColorRecords(fallbackRecords, styleNumber, res);
+            }
+            
+            // If still no records, return empty result
+            console.log(`No product color data found for styleNumber: ${styleNumber}`);
+            return res.json({
+                productTitle: `Product ${styleNumber}`,
+                colors: []
+            });
+        }
+        
+        // Process the records and return the result
+        return processProductColorRecords(records, styleNumber, res);
+
+    } catch (error) {
+        console.error(`Error fetching product colors for styleNumber ${styleNumber}:`, error.response ? JSON.stringify(error.response.data) : error.message);
+        res.status(500).json({ error: `Failed to fetch product colors. ${error.message}` });
+    }
+});
+
+// Helper function to process product color records
+function processProductColorRecords(records, styleNumber, res) {
+    if (!records || records.length === 0) {
+        console.log(`No product color data found for styleNumber: ${styleNumber}`);
+        return res.json({
+            productTitle: `Product ${styleNumber}`,
+            colors: []
+        });
+    }
+
+    // Debug: Log the first record to see its structure
+    console.log(`DEBUG: First record structure: ${JSON.stringify(records[0])}`);
+    
+    const productTitle = records[0]?.PRODUCT_TITLE || `Product ${styleNumber}`;
+    const colorsMap = new Map();
+
+    for (const record of records) {
+        // Skip records without color information
+        if (!record.COLOR_NAME && !record.CATALOG_COLOR) {
+            console.log(`DEBUG: Skipping record without color information: ${JSON.stringify(record)}`);
+            continue;
+        }
+        
+        const colorName = record.COLOR_NAME || record.CATALOG_COLOR || '';
+        
+        // Skip if we've already processed this color
+        if (colorName && !colorsMap.has(colorName)) {
+            // Get the color square image (required)
+            const colorSquareImage = record.COLOR_SQUARE_IMAGE || '';
+            
+            // Get the main image URL following the priority order:
+            // 1. MAIN_IMAGE_URL (preferred)
+            // 2. FRONT_MODEL (fallback)
+            // 3. FRONT_FLAT (fallback)
+            const mainImageUrl = record.MAIN_IMAGE_URL || record.FRONT_MODEL || record.FRONT_FLAT || '';
+            
+            // Create the color object with all required fields
+            const colorObject = {
+                COLOR_NAME: colorName,
+                CATALOG_COLOR: record.CATALOG_COLOR || colorName,
+                COLOR_SQUARE_IMAGE: colorSquareImage,
+                MAIN_IMAGE_URL: mainImageUrl
+            };
+            
+            // Add FRONT_MODEL and FRONT_FLAT fields if they exist
+            // This ensures backward compatibility with any frontend code
+            // that might be expecting these fields
+            if (record.FRONT_MODEL) {
+                colorObject.FRONT_MODEL = record.FRONT_MODEL;
+            }
+            
+            if (record.FRONT_FLAT) {
+                colorObject.FRONT_FLAT = record.FRONT_FLAT;
+            }
+            
+            colorsMap.set(colorName, colorObject);
+            
+            console.log(`DEBUG: Added color: ${colorName} with image: ${colorSquareImage.substring(0, 30)}...`);
+        }
+    }
+
+    const colorsArray = Array.from(colorsMap.values());
+    
+    // Sort colors alphabetically by COLOR_NAME for consistent output
+    colorsArray.sort((a, b) => {
+        if (a.COLOR_NAME && b.COLOR_NAME) {
+            return a.COLOR_NAME.localeCompare(b.COLOR_NAME);
+        }
+        return 0;
+    });
+
+    console.log(`Returning ${colorsArray.length} unique colors for styleNumber: ${styleNumber}`);
+    
+    return res.json({
+        productTitle: productTitle,
+        colors: colorsArray
+    });
+}
+
+// --- Error Handling Middleware (Basic) ---
+// Catches errors from endpoint handlers
+app.use((err, req, res, next) => {
+    console.error("Unhandled Error:", err.stack || err);
+    res.status(500).json({ error: 'An unexpected internal server error occurred.' });
+});
 // --- Start the Server ---
 app.listen(PORT, () => {
     console.log(`Caspio Proxy Server listening on port ${PORT}`);
