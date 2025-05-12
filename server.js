@@ -3900,7 +3900,7 @@ app.get('/api/product-colors', async (req, res) => {
         // This helps with potential case sensitivity or whitespace issues
         const params = {
             'q.where': `STYLE LIKE '%${styleNumber.trim()}%'`,
-            'q.select': 'STYLE, PRODUCT_TITLE, COLOR_NAME, CATALOG_COLOR, COLOR_SQUARE_IMAGE, FRONT_MODEL, FRONT_FLAT',
+            'q.select': 'STYLE, PRODUCT_TITLE, PRODUCT_DESCRIPTION, COLOR_NAME, CATALOG_COLOR, COLOR_SQUARE_IMAGE, FRONT_MODEL, FRONT_FLAT',
             'q.limit': 1000 // fetchAllCaspioPages handles pagination, this is per-page limit
         };
 
@@ -3916,7 +3916,7 @@ app.get('/api/product-colors', async (req, res) => {
             
             const fallbackParams = {
                 'q.where': `STYLE_NUMBER='${styleNumber}'`,
-                'q.select': 'STYLE, PRODUCT_TITLE, COLOR_NAME, CATALOG_COLOR, COLOR_SQUARE_IMAGE, FRONT_MODEL, FRONT_FLAT',
+                'q.select': 'STYLE, PRODUCT_TITLE, PRODUCT_DESCRIPTION, COLOR_NAME, CATALOG_COLOR, COLOR_SQUARE_IMAGE, FRONT_MODEL, FRONT_FLAT',
                 'q.limit': 1000
             };
             
@@ -3933,6 +3933,7 @@ app.get('/api/product-colors', async (req, res) => {
             console.log(`No product color data found for styleNumber: ${styleNumber}`);
             return res.json({
                 productTitle: `Product ${styleNumber}`,
+                PRODUCT_DESCRIPTION: "Sample product description.",
                 colors: []
             });
         }
@@ -3952,6 +3953,7 @@ function processProductColorRecords(records, styleNumber, res) {
         console.log(`No product color data found for styleNumber: ${styleNumber}`);
         return res.json({
             productTitle: `Product ${styleNumber}`,
+            PRODUCT_DESCRIPTION: "Sample product description.",
             colors: []
         });
     }
@@ -3960,6 +3962,7 @@ function processProductColorRecords(records, styleNumber, res) {
     console.log(`DEBUG: First record structure: ${JSON.stringify(records[0])}`);
     
     const productTitle = records[0]?.PRODUCT_TITLE || `Product ${styleNumber}`;
+    const productDescription = records[0]?.PRODUCT_DESCRIPTION || "Sample product description.";
     const colorsMap = new Map();
 
     for (const record of records) {
@@ -4021,6 +4024,7 @@ function processProductColorRecords(records, styleNumber, res) {
     
     return res.json({
         productTitle: productTitle,
+        PRODUCT_DESCRIPTION: productDescription,
         colors: colorsArray
     });
 }
