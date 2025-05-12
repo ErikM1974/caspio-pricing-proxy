@@ -2,591 +2,37 @@
 	"info": {
 		"_postman_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
 		"name": "Caspio Pricing Proxy API",
-		"description": "Collection of endpoints for the Caspio Pricing Proxy API deployed on Heroku",
+		"description": "Collection of endpoints for the Caspio Pricing Proxy API deployed on Heroku. Updated with 61 endpoints.",
 		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
 	},
 	"item": [
 		{
-			"name": "Status",
+			"name": "Get Status",
 			"request": {
 				"method": "GET",
 				"header": [],
 				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/status",
-					"protocol": "https",
+					"raw": "{{baseUrl}}/status",
 					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
+						"{{baseUrl}}"
 					],
 					"path": [
 						"status"
 					]
 				},
-				"description": "Simple status check to verify the API is running"
+				"description": "Returns the status of the proxy server and the configured Caspio domain."
 			},
 			"response": []
 		},
 		{
-			"name": "Cart Sessions - GET All",
+			"name": "Get Pricing Tiers",
 			"request": {
 				"method": "GET",
 				"header": [],
 				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/cart-sessions",
-					"protocol": "https",
+					"raw": "{{baseUrl}}/api/pricing-tiers?method=DTG",
 					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
-					],
-					"path": [
-						"api",
-						"cart-sessions"
-					]
-				},
-				"description": "Get all cart sessions"
-			},
-			"response": []
-		},
-		{
-			"name": "Cart Sessions - GET by SessionID",
-			"request": {
-				"method": "GET",
-				"header": [],
-				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/cart-sessions?sessionID=1234",
-					"protocol": "https",
-					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
-					],
-					"path": [
-						"api",
-						"cart-sessions"
-					],
-					"query": [
-						{
-							"key": "sessionID",
-							"value": "1234",
-							"description": "Filter by session ID"
-						}
-					]
-				},
-				"description": "Get cart sessions filtered by session ID"
-			},
-			"response": []
-		},
-		{
-			"name": "Cart Sessions - POST",
-			"request": {
-				"method": "POST",
-				"header": [
-					{
-						"key": "Content-Type",
-						"value": "application/json"
-					}
-				],
-				"body": {
-					"mode": "raw",
-					"raw": "{\n    \"SessionID\": \"9876\",\n    \"UserID\": 9876,\n    \"IPAddress\": \"10.0.0.1\",\n    \"UserAgent\": \"Mobile Browser\",\n    \"IsActive\": true\n}"
-				},
-				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/cart-sessions",
-					"protocol": "https",
-					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
-					],
-					"path": [
-						"api",
-						"cart-sessions"
-					]
-				},
-				"description": "Create a new cart session"
-			},
-			"response": []
-		},
-		{
-			"name": "Cart Sessions - PUT",
-			"request": {
-				"method": "PUT",
-				"header": [
-					{
-						"key": "Content-Type",
-						"value": "application/json"
-					}
-				],
-				"body": {
-					"mode": "raw",
-					"raw": "{\n    \"UserID\": 5678,\n    \"IPAddress\": \"192.168.1.1\",\n    \"UserAgent\": \"Test Browser\",\n    \"IsActive\": true\n}"
-				},
-				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/cart-sessions/2",
-					"protocol": "https",
-					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
-					],
-					"path": [
-						"api",
-						"cart-sessions",
-						"2"
-					]
-				},
-				"description": "Update a cart session by ID"
-			},
-			"response": []
-		},
-		{
-			"name": "Cart Sessions - DELETE",
-			"request": {
-				"method": "DELETE",
-				"header": [],
-				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/cart-sessions/2",
-					"protocol": "https",
-					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
-					],
-					"path": [
-						"api",
-						"cart-sessions",
-						"2"
-					]
-				},
-				"description": "Delete a cart session by ID"
-			},
-			"response": []
-		},
-		{
-			"name": "Cart Items - GET All",
-			"request": {
-				"method": "GET",
-				"header": [],
-				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/cart-items",
-					"protocol": "https",
-					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
-					],
-					"path": [
-						"api",
-						"cart-items"
-					]
-				},
-				"description": "Get all cart items"
-			},
-			"response": []
-		},
-		{
-			"name": "Cart Items - GET by SessionID",
-			"request": {
-				"method": "GET",
-				"header": [],
-				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/cart-items?sessionID=4323",
-					"protocol": "https",
-					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
-					],
-					"path": [
-						"api",
-						"cart-items"
-					],
-					"query": [
-						{
-							"key": "sessionID",
-							"value": "4323",
-							"description": "Filter by session ID"
-						}
-					]
-				},
-				"description": "Get cart items filtered by session ID"
-			},
-			"response": []
-		},
-		{
-			"name": "Cart Items - POST",
-			"request": {
-				"method": "POST",
-				"header": [
-					{
-						"key": "Content-Type",
-						"value": "application/json"
-					}
-				],
-				"body": {
-					"mode": "raw",
-					"raw": "{\n    \"SessionID\": \"9876\",\n    \"ProductID\": \"ABC123\",\n    \"StyleNumber\": \"PC61\",\n    \"Color\": \"Navy\",\n    \"ImprintType\": \"DTG\",\n    \"CartStatus\": \"Active\"\n}"
-				},
-				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/cart-items",
-					"protocol": "https",
-					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
-					],
-					"path": [
-						"api",
-						"cart-items"
-					]
-				},
-				"description": "Create a new cart item"
-			},
-			"response": []
-		},
-		{
-			"name": "Cart Items - PUT",
-			"request": {
-				"method": "PUT",
-				"header": [
-					{
-						"key": "Content-Type",
-						"value": "application/json"
-					}
-				],
-				"body": {
-					"mode": "raw",
-					"raw": "{\n    \"ImprintType\": \"Screenprint\",\n    \"CartStatus\": \"Inactive\",\n    \"OrderID\": 12345\n}"
-				},
-				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/cart-items/1",
-					"protocol": "https",
-					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
-					],
-					"path": [
-						"api",
-						"cart-items",
-						"1"
-					]
-				},
-				"description": "Update a cart item by ID"
-			},
-			"response": []
-		},
-		{
-			"name": "Cart Items - DELETE",
-			"request": {
-				"method": "DELETE",
-				"header": [],
-				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/cart-items/1",
-					"protocol": "https",
-					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
-					],
-					"path": [
-						"api",
-						"cart-items",
-						"1"
-					]
-				},
-				"description": "Delete a cart item by ID"
-			},
-			"response": []
-		},
-		{
-			"name": "Cart Item Sizes - GET All",
-			"request": {
-				"method": "GET",
-				"header": [],
-				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/cart-item-sizes",
-					"protocol": "https",
-					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
-					],
-					"path": [
-						"api",
-						"cart-item-sizes"
-					]
-				},
-				"description": "Get all cart item sizes"
-			},
-			"response": []
-		},
-		{
-			"name": "Cart Item Sizes - GET by CartItemID",
-			"request": {
-				"method": "GET",
-				"header": [],
-				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/cart-item-sizes?cartItemID=4444",
-					"protocol": "https",
-					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
-					],
-					"path": [
-						"api",
-						"cart-item-sizes"
-					],
-					"query": [
-						{
-							"key": "cartItemID",
-							"value": "4444",
-							"description": "Filter by cart item ID"
-						}
-					]
-				},
-				"description": "Get cart item sizes filtered by cart item ID"
-			},
-			"response": []
-		},
-		{
-			"name": "Cart Item Sizes - POST",
-			"request": {
-				"method": "POST",
-				"header": [
-					{
-						"key": "Content-Type",
-						"value": "application/json"
-					}
-				],
-				"body": {
-					"mode": "raw",
-					"raw": "{\n    \"CartItemID\": 5555,\n    \"Size\": \"XL\",\n    \"Quantity\": 10,\n    \"UnitPrice\": 25.99\n}"
-				},
-				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/cart-item-sizes",
-					"protocol": "https",
-					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
-					],
-					"path": [
-						"api",
-						"cart-item-sizes"
-					]
-				},
-				"description": "Create a new cart item size"
-			},
-			"response": []
-		},
-		{
-			"name": "Cart Item Sizes - PUT",
-			"request": {
-				"method": "PUT",
-				"header": [
-					{
-						"key": "Content-Type",
-						"value": "application/json"
-					}
-				],
-				"body": {
-					"mode": "raw",
-					"raw": "{\n    \"Quantity\": 20,\n    \"UnitPrice\": 24.99\n}"
-				},
-				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/cart-item-sizes/4",
-					"protocol": "https",
-					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
-					],
-					"path": [
-						"api",
-						"cart-item-sizes",
-						"4"
-					]
-				},
-				"description": "Update a cart item size by ID"
-			},
-			"response": []
-		},
-		{
-			"name": "Cart Item Sizes - DELETE",
-			"request": {
-				"method": "DELETE",
-				"header": [],
-				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/cart-item-sizes/4",
-					"protocol": "https",
-					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
-					],
-					"path": [
-						"api",
-						"cart-item-sizes",
-						"4"
-					]
-				},
-				"description": "Delete a cart item size by ID"
-			},
-			"response": []
-		},
-		{
-			"name": "Customers - GET All",
-			"request": {
-				"method": "GET",
-				"header": [],
-				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/customers",
-					"protocol": "https",
-					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
-					],
-					"path": [
-						"api",
-						"customers"
-					]
-				},
-				"description": "Get all customers"
-			},
-			"response": []
-		},
-		{
-			"name": "Customers - GET by Email",
-			"request": {
-				"method": "GET",
-				"header": [],
-				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/customers?email=erik@go2shirt.com",
-					"protocol": "https",
-					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
-					],
-					"path": [
-						"api",
-						"customers"
-					],
-					"query": [
-						{
-							"key": "email",
-							"value": "erik@go2shirt.com",
-							"description": "Filter by email"
-						}
-					]
-				},
-				"description": "Get customers filtered by email"
-			},
-			"response": []
-		},
-		{
-			"name": "Customers - POST",
-			"request": {
-				"method": "POST",
-				"header": [
-					{
-						"key": "Content-Type",
-						"value": "application/json"
-					}
-				],
-				"body": {
-					"mode": "raw",
-					"raw": "{\n    \"Name\": \"John Doe\",\n    \"Email\": \"john.doe@example.com\",\n    \"Phone\": \"555-123-4567\",\n    \"Company\": \"Example Corp\",\n    \"Address1\": \"123 Main St\",\n    \"City\": \"Seattle\",\n    \"State\": \"WA\",\n    \"ZipCode\": \"98101\",\n    \"Country\": \"USA\",\n    \"Notes\": \"Test customer\"\n}"
-				},
-				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/customers",
-					"protocol": "https",
-					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
-					],
-					"path": [
-						"api",
-						"customers"
-					]
-				},
-				"description": "Create a new customer"
-			},
-			"response": []
-		},
-		{
-			"name": "Customers - PUT",
-			"request": {
-				"method": "PUT",
-				"header": [
-					{
-						"key": "Content-Type",
-						"value": "application/json"
-					}
-				],
-				"body": {
-					"mode": "raw",
-					"raw": "{\n    \"Phone\": \"555-987-6543\",\n    \"Address1\": \"456 Oak St\",\n    \"City\": \"Bellevue\",\n    \"Notes\": \"Updated customer info\"\n}"
-				},
-				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/customers/1",
-					"protocol": "https",
-					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
-					],
-					"path": [
-						"api",
-						"customers",
-						"1"
-					]
-				},
-				"description": "Update a customer by ID"
-			},
-			"response": []
-		},
-		{
-			"name": "Customers - DELETE",
-			"request": {
-				"method": "DELETE",
-				"header": [],
-				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/customers/5",
-					"protocol": "https",
-					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
-					],
-					"path": [
-						"api",
-						"customers",
-						"5"
-					]
-				},
-				"description": "Delete a customer by ID"
-			},
-			"response": []
-		},
-		{
-			"name": "Pricing Tiers - DTG",
-			"request": {
-				"method": "GET",
-				"header": [],
-				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/pricing-tiers?method=DTG",
-					"protocol": "https",
-					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
+						"{{baseUrl}}"
 					],
 					"path": [
 						"api",
@@ -600,102 +46,38 @@
 						}
 					]
 				},
-				"description": "Get pricing tiers based on decoration method"
+				"description": "Fetches pricing tiers from the Pricing_Tiers Caspio table based on the decoration method (DTG, ScreenPrint, Embroidery). Requires 'method' query parameter."
 			},
 			"response": []
 		},
 		{
-			"name": "Pricing Tiers - ScreenPrint",
+			"name": "Get Pricing Tiers for Caps",
 			"request": {
 				"method": "GET",
 				"header": [],
 				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/pricing-tiers?method=ScreenPrint",
-					"protocol": "https",
+					"raw": "{{baseUrl}}/api/pricing-tiers-caps",
 					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
-					],
-					"path": [
-						"api",
-						"pricing-tiers"
-					],
-					"query": [
-						{
-							"key": "method",
-							"value": "ScreenPrint",
-							"description": "Decoration method (DTG, ScreenPrint, Embroidery)"
-						}
-					]
-				},
-				"description": "Get pricing tiers based on decoration method"
-			},
-			"response": []
-		},
-		{
-			"name": "Pricing Tiers - Embroidery",
-			"request": {
-				"method": "GET",
-				"header": [],
-				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/pricing-tiers?method=Embroidery",
-					"protocol": "https",
-					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
-					],
-					"path": [
-						"api",
-						"pricing-tiers"
-					],
-					"query": [
-						{
-							"key": "method",
-							"value": "Embroidery",
-							"description": "Decoration method (DTG, ScreenPrint, Embroidery)"
-						}
-					]
-				},
-				"description": "Get pricing tiers based on decoration method"
-			},
-			"response": []
-		},
-		{
-			"name": "Pricing Tiers - EmbroideryCaps",
-			"request": {
-				"method": "GET",
-				"header": [],
-				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/pricing-tiers-caps",
-					"protocol": "https",
-					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
+						"{{baseUrl}}"
 					],
 					"path": [
 						"api",
 						"pricing-tiers-caps"
 					]
 				},
-				"description": "Get pricing tiers for Embroidery Caps"
+				"description": "Fetches pricing tiers specifically for 'EmbroideryCaps' from the Pricing_Tiers Caspio table."
 			},
 			"response": []
 		},
 		{
-			"name": "Embroidery Costs - Cap 5000",
+			"name": "Get Embroidery Costs",
 			"request": {
 				"method": "GET",
 				"header": [],
 				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/embroidery-costs?itemType=Cap&stitchCount=5000",
-					"protocol": "https",
+					"raw": "{{baseUrl}}/api/embroidery-costs?itemType=Cap&stitchCount=5000",
 					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
+						"{{baseUrl}}"
 					],
 					"path": [
 						"api",
@@ -714,112 +96,38 @@
 						}
 					]
 				},
-				"description": "Get embroidery costs based on item type and stitch count"
+				"description": "Fetches embroidery costs from the Embroidery_Costs Caspio table based on item type and stitch count. Requires 'itemType' and 'stitchCount' query parameters."
 			},
 			"response": []
 		},
 		{
-			"name": "Embroidery Costs - Cap 8000",
+			"name": "Get DTG Costs",
 			"request": {
 				"method": "GET",
 				"header": [],
 				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/embroidery-costs?itemType=Cap&stitchCount=8000",
-					"protocol": "https",
+					"raw": "{{baseUrl}}/api/dtg-costs",
 					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
-					],
-					"path": [
-						"api",
-						"embroidery-costs"
-					],
-					"query": [
-						{
-							"key": "itemType",
-							"value": "Cap",
-							"description": "Type of item (Cap, Shirt, etc.)"
-						},
-						{
-							"key": "stitchCount",
-							"value": "8000",
-							"description": "Stitch count (5000, 8000, 10000)"
-						}
-					]
-				},
-				"description": "Get embroidery costs based on item type and stitch count"
-			},
-			"response": []
-		},
-		{
-			"name": "Embroidery Costs - Shirt 10000",
-			"request": {
-				"method": "GET",
-				"header": [],
-				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/embroidery-costs?itemType=Shirt&stitchCount=10000",
-					"protocol": "https",
-					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
-					],
-					"path": [
-						"api",
-						"embroidery-costs"
-					],
-					"query": [
-						{
-							"key": "itemType",
-							"value": "Shirt",
-							"description": "Type of item (Cap, Shirt, etc.)"
-						},
-						{
-							"key": "stitchCount",
-							"value": "10000",
-							"description": "Stitch count (5000, 8000, 10000)"
-						}
-					]
-				},
-				"description": "Get embroidery costs based on item type and stitch count"
-			},
-			"response": []
-		},
-		{
-			"name": "DTG Costs",
-			"request": {
-				"method": "GET",
-				"header": [],
-				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/dtg-costs",
-					"protocol": "https",
-					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
+						"{{baseUrl}}"
 					],
 					"path": [
 						"api",
 						"dtg-costs"
 					]
 				},
-				"description": "Get all DTG costs by print location and tier"
+				"description": "Fetches all DTG (Direct to Garment) costs from the DTG_Costs Caspio table, categorized by print location and tier."
 			},
 			"response": []
 		},
 		{
-			"name": "Screenprint Costs - Primary Location",
+			"name": "Get Screenprint Costs",
 			"request": {
 				"method": "GET",
 				"header": [],
 				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/screenprint-costs?costType=PrimaryLocation",
-					"protocol": "https",
+					"raw": "{{baseUrl}}/api/screenprint-costs?costType=PrimaryLocation",
 					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
+						"{{baseUrl}}"
 					],
 					"path": [
 						"api",
@@ -833,51 +141,38 @@
 						}
 					]
 				},
-				"description": "Get screenprint costs for primary location by tier and color count"
+				"description": "Fetches screenprint costs from the Screenprint_Costs Caspio table. Requires 'costType' query parameter (PrimaryLocation or AdditionalLocation)."
 			},
 			"response": []
 		},
 		{
-			"name": "Screenprint Costs - Additional Location",
+			"name": "Get Pricing Rules",
 			"request": {
 				"method": "GET",
 				"header": [],
 				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/screenprint-costs?costType=AdditionalLocation",
-					"protocol": "https",
+					"raw": "{{baseUrl}}/api/pricing-rules",
 					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
+						"{{baseUrl}}"
 					],
 					"path": [
 						"api",
-						"screenprint-costs"
-					],
-					"query": [
-						{
-							"key": "costType",
-							"value": "AdditionalLocation",
-							"description": "Cost type (PrimaryLocation or AdditionalLocation)"
-						}
+						"pricing-rules"
 					]
 				},
-				"description": "Get screenprint costs for additional location by tier and color count"
+				"description": "Fetches pricing rules from the Pricing_Rules Caspio table, typically filtered by decoration method."
 			},
 			"response": []
 		},
 		{
-			"name": "Base Item Costs",
+			"name": "Get Base Item Costs",
 			"request": {
 				"method": "GET",
 				"header": [],
 				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/base-item-costs?styleNumber=PC61",
-					"protocol": "https",
+					"raw": "{{baseUrl}}/api/base-item-costs?styleNumber=PC61",
 					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
+						"{{baseUrl}}"
 					],
 					"path": [
 						"api",
@@ -891,51 +186,64 @@
 						}
 					]
 				},
-				"description": "Get base item costs by style number"
+				"description": "Fetches base item costs (maximum case price per size) for a specific styleNumber from the Sanmar_Bulk_251816_Feb2024 table. Requires 'styleNumber' query parameter."
 			},
 			"response": []
 		},
 		{
-			"name": "Max Prices by Style",
+			"name": "Test SanMar Bulk Data Access",
 			"request": {
 				"method": "GET",
 				"header": [],
 				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/max-prices?styleNumber=PC61",
-					"protocol": "https",
+					"raw": "{{baseUrl}}/api/test-sanmar-bulk",
 					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
+						"{{baseUrl}}"
 					],
 					"path": [
 						"api",
-						"max-prices"
-					],
-					"query": [
-						{
-							"key": "styleNumber",
-							"value": "PC61",
-							"description": "Style number of the product"
-						}
+						"test-sanmar-bulk"
 					]
 				},
-				"description": "Get maximum prices by style number"
+				"description": "A test endpoint to fetch a limited number of records (10) from the Sanmar_Bulk_251816_Feb2024 Caspio table."
 			},
 			"response": []
 		},
 		{
-			"name": "Product Details",
+			"name": "Search Styles for Autocomplete",
 			"request": {
 				"method": "GET",
 				"header": [],
 				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/product-details?styleNumber=PC61",
-					"protocol": "https",
+					"raw": "{{baseUrl}}/api/stylesearch?query=PC",
 					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"stylesearch"
+					],
+					"query": [
+						{
+							"key": "query",
+							"value": "PC",
+							"description": "Search query for style number"
+						}
+					]
+				},
+				"description": "Performs a style search in the Sanmar_Bulk_251816_Feb2024 table for autocomplete functionality. Requires 'query' query parameter."
+			},
+			"response": []
+		},
+		{
+			"name": "Get Product Details",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/product-details?styleNumber=PC61",
+					"host": [
+						"{{baseUrl}}"
 					],
 					"path": [
 						"api",
@@ -949,22 +257,19 @@
 						}
 					]
 				},
-				"description": "Get detailed product information by style number"
+				"description": "Fetches product details (title, description, color-specific images, etc.) for a given styleNumber from Sanmar_Bulk_251816_Feb2024. Requires 'styleNumber' query parameter."
 			},
 			"response": []
 		},
 		{
-			"name": "Color Swatches",
+			"name": "Get Color Swatches for Style",
 			"request": {
 				"method": "GET",
 				"header": [],
 				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/color-swatches?styleNumber=PC61",
-					"protocol": "https",
+					"raw": "{{baseUrl}}/api/color-swatches?styleNumber=PC61",
 					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
+						"{{baseUrl}}"
 					],
 					"path": [
 						"api",
@@ -978,22 +283,19 @@
 						}
 					]
 				},
-				"description": "Get color swatches by style number"
+				"description": "Fetches unique color swatches (color name, catalog color, swatch image) for a specific styleNumber from Sanmar_Bulk_251816_Feb2024. Requires 'styleNumber' query parameter."
 			},
 			"response": []
 		},
 		{
-			"name": "Inventory Levels",
+			"name": "Get Inventory Levels for Style/Color",
 			"request": {
 				"method": "GET",
 				"header": [],
 				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/inventory?styleNumber=PC61&color=Navy",
-					"protocol": "https",
+					"raw": "{{baseUrl}}/api/inventory?styleNumber=PC61&color=Navy",
 					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
+						"{{baseUrl}}"
 					],
 					"path": [
 						"api",
@@ -1012,99 +314,49 @@
 						}
 					]
 				},
-				"description": "Get inventory levels by style number and color"
+				"description": "Fetches inventory data (warehouse name, size, quantity, sort orders) for a specific styleNumber and color from Sanmar_Bulk_251816_Feb2024. Requires 'styleNumber' and 'color' query parameters."
 			},
 			"response": []
 		},
 		{
-			"name": "All Brands",
+			"name": "Get Products by Brand",
 			"request": {
 				"method": "GET",
 				"header": [],
 				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/brands",
-					"protocol": "https",
+					"raw": "{{baseUrl}}/api/products-by-brand?brand=Port%20%26%20Company",
 					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
+						"{{baseUrl}}"
 					],
 					"path": [
 						"api",
-						"brands"
-					]
-				},
-				"description": "Get all available brands"
-			},
-			"response": []
-		},
-		{
-			"name": "Products by Brand",
-			"request": {
-				"method": "GET",
-				"header": [],
-				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/products?brand=Port%20%26%20Company",
-					"protocol": "https",
-					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
-					],
-					"path": [
-						"api",
-						"products"
+						"products-by-brand"
 					],
 					"query": [
 						{
 							"key": "brand",
-							"value": "Port%20%26%20Company",
+							"value": "Port & Company",
 							"description": "Brand name"
 						}
 					]
 				},
-				"description": "Get products filtered by brand"
+				"description": "Fetches unique products from the Sanmar_Bulk_251816_Feb2024 table that match a given brand name. Requires 'brand' query parameter."
 			},
 			"response": []
 		},
 		{
-			"name": "All Categories",
+			"name": "Get Products by Category",
 			"request": {
 				"method": "GET",
 				"header": [],
 				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/categories",
-					"protocol": "https",
+					"raw": "{{baseUrl}}/api/products-by-category?category=T-Shirts",
 					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
+						"{{baseUrl}}"
 					],
 					"path": [
 						"api",
-						"categories"
-					]
-				},
-				"description": "Get all product categories"
-			},
-			"response": []
-		},
-		{
-			"name": "Products by Category",
-			"request": {
-				"method": "GET",
-				"header": [],
-				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/products?category=T-Shirts",
-					"protocol": "https",
-					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
-					],
-					"path": [
-						"api",
-						"products"
+						"products-by-category"
 					],
 					"query": [
 						{
@@ -1114,51 +366,427 @@
 						}
 					]
 				},
-				"description": "Get products filtered by category"
+				"description": "Fetches unique products from the Sanmar_Bulk_251816_Feb2024 table that match an exact category name. Requires 'category' query parameter."
 			},
 			"response": []
 		},
 		{
-			"name": "Style Search Autocomplete",
+			"name": "Get Products by Subcategory",
 			"request": {
 				"method": "GET",
 				"header": [],
 				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/search-autocomplete?query=PC",
-					"protocol": "https",
+					"raw": "{{baseUrl}}/api/products-by-subcategory?subcategory=Basic%20Tees",
 					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
+						"{{baseUrl}}"
 					],
 					"path": [
 						"api",
-						"search-autocomplete"
+						"products-by-subcategory"
+					],
+					"query": [
+						{
+							"key": "subcategory",
+							"value": "Basic Tees",
+							"description": "Subcategory name"
+						}
+					]
+				},
+				"description": "Fetches unique products from the Sanmar_Bulk_251816_Feb2024 table where SUBCATEGORY_NAME or PRODUCT_TITLE contains the given subcategory. Requires 'subcategory' query parameter."
+			},
+			"response": []
+		},
+		{
+			"name": "Get All Brands",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/all-brands",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"all-brands"
+					]
+				},
+				"description": "Fetches all unique brand names from the Sanmar_Bulk_251816_Feb2024 table."
+			},
+			"response": []
+		},
+		{
+			"name": "Get All Subcategories",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/all-subcategories",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"all-subcategories"
+					]
+				},
+				"description": "Fetches all unique subcategory names from the Sanmar_Bulk_251816_Feb2024 table, sorted alphabetically."
+			},
+			"response": []
+		},
+		{
+			"name": "Get All Categories",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/all-categories",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"all-categories"
+					]
+				},
+				"description": "Fetches all unique category names from the Sanmar_Bulk_251816_Feb2024 table, sorted alphabetically."
+			},
+			"response": []
+		},
+		{
+			"name": "Get Subcategories for Category",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/subcategories-by-category?category=T-Shirts",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"subcategories-by-category"
+					],
+					"query": [
+						{
+							"key": "category",
+							"value": "T-Shirts",
+							"description": "Category name"
+						}
+					]
+				},
+				"description": "Fetches unique subcategory names from the Sanmar_Bulk_251816_Feb2024 table that belong to a given category. Requires 'category' query parameter."
+			},
+			"response": []
+		},
+		{
+			"name": "Get Products by Category and Subcategory",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/products-by-category-subcategory?category=T-Shirts&subcategory=Basic%20Tees",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"products-by-category-subcategory"
+					],
+					"query": [
+						{
+							"key": "category",
+							"value": "T-Shirts",
+							"description": "Category name"
+						},
+						{
+							"key": "subcategory",
+							"value": "Basic Tees",
+							"description": "Subcategory name"
+						}
+					]
+				},
+				"description": "Fetches unique products from Sanmar_Bulk_251816_Feb2024 matching both category and subcategory. Requires 'category' and 'subcategory' query parameters."
+			},
+			"response": []
+		},
+		{
+			"name": "Perform General Product Search",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/search?query=Blue%20Shirt",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"search"
 					],
 					"query": [
 						{
 							"key": "query",
-							"value": "PC",
-							"description": "Search query string"
+							"value": "Blue Shirt",
+							"description": "General search query"
 						}
 					]
 				},
-				"description": "Get style number autocomplete suggestions"
+				"description": "Performs a general search across multiple fields (PRODUCT_TITLE, STYLE_NUMBER, CATEGORY_NAME, SUBCATEGORY_NAME, BRAND_NAME) in Sanmar_Bulk_251816_Feb2024. Requires 'query' query parameter."
 			},
 			"response": []
 		},
 		{
-			"name": "Size Pricing with Upcharges",
+			"name": "Get Featured (New) Products",
 			"request": {
 				"method": "GET",
 				"header": [],
 				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/size-pricing?styleNumber=PC61",
-					"protocol": "https",
+					"raw": "{{baseUrl}}/api/featured-products",
 					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"featured-products"
+					]
+				},
+				"description": "Fetches unique products from Sanmar_Bulk_251816_Feb2024 that have a PRODUCT_STATUS of 'New'."
+			},
+			"response": []
+		},
+		{
+			"name": "Get Related Products for Style",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/related-products?styleNumber=PC61",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"related-products"
+					],
+					"query": [
+						{
+							"key": "styleNumber",
+							"value": "PC61",
+							"description": "Style number of the product"
+						}
+					]
+				},
+				"description": "Fetches unique products from Sanmar_Bulk_251816_Feb2024 that are related to a given styleNumber (e.g., same collection or companion styles). Requires 'styleNumber' query parameter."
+			},
+			"response": []
+		},
+		{
+			"name": "Filter Products",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/filter-products?brand=Nike&category=Polos",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"filter-products"
+					],
+					"query": [
+						{
+							"key": "brand",
+							"value": "Nike",
+							"description": "Brand name (optional)"
+						},
+						{
+							"key": "category",
+							"value": "Polos",
+							"description": "Category name (optional)"
+						}
+					]
+				},
+				"description": "Fetches unique products from Sanmar_Bulk_251816_Feb2024 based on a combination of filter parameters such as brand, category, subcategory, color, size, and price range. Requires relevant query parameters."
+			},
+			"response": []
+		},
+		{
+			"name": "Get Product Details for Quick View",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/quick-view?styleNumber=PC61",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"quick-view"
+					],
+					"query": [
+						{
+							"key": "styleNumber",
+							"value": "PC61",
+							"description": "Style number of the product"
+						}
+					]
+				},
+				"description": "Fetches essential product details for a quick view popup, for a given styleNumber. Requires 'styleNumber' query parameter."
+			},
+			"response": []
+		},
+		{
+			"name": "Get Products for Comparison",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/compare-products?styleNumbers=PC61,DT104",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"compare-products"
+					],
+					"query": [
+						{
+							"key": "styleNumbers",
+							"value": "PC61,DT104",
+							"description": "Comma-separated list of style numbers"
+						}
+					]
+				},
+				"description": "Fetches details for a list of product styles to allow comparison. Requires 'styleNumbers' query parameter (comma-separated list)."
+			},
+			"response": []
+		},
+		{
+			"name": "Get Product Recommendations",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/recommendations?styleNumber=PC61",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"recommendations"
+					],
+					"query": [
+						{
+							"key": "styleNumber",
+							"value": "PC61",
+							"description": "Style number (optional)"
+						}
+					]
+				},
+				"description": "Fetches product recommendations based on a styleNumber or user browsing history. Requires 'styleNumber' or 'userId' query parameter."
+			},
+			"response": []
+		},
+		{
+			"name": "Get Available Sizes for Style/Color",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/sizes-by-style-color?styleNumber=PC61&color=Navy",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"sizes-by-style-color"
+					],
+					"query": [
+						{
+							"key": "styleNumber",
+							"value": "PC61",
+							"description": "Style number of the product"
+						},
+						{
+							"key": "color",
+							"value": "Navy",
+							"description": "Color of the product"
+						}
+					]
+				},
+				"description": "Fetches inventory data (sizes, quantities per warehouse) for a specific styleNumber and color. Requires 'styleNumber' and 'color' query parameters."
+			},
+			"response": []
+		},
+		{
+			"name": "Get Prices for Sizes of Style/Color",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/prices-by-style-color?styleNumber=PC61&color=Navy",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"prices-by-style-color"
+					],
+					"query": [
+						{
+							"key": "styleNumber",
+							"value": "PC61",
+							"description": "Style number of the product"
+						},
+						{
+							"key": "color",
+							"value": "Navy",
+							"description": "Color of the product"
+						}
+					]
+				},
+				"description": "Fetches case prices for each size of a specific styleNumber and color from Sanmar_Bulk_251816_Feb2024. Requires 'styleNumber' and 'color' query parameters."
+			},
+			"response": []
+		},
+		{
+			"name": "Get Max Prices for Sizes of Style",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/max-prices-by-style?styleNumber=PC61",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"max-prices-by-style"
+					],
+					"query": [
+						{
+							"key": "styleNumber",
+							"value": "PC61",
+							"description": "Style number of the product"
+						}
+					]
+				},
+				"description": "Fetches the maximum case price for each size of a given styleNumber from Sanmar_Bulk_251816_Feb2024. Requires 'styleNumber' query parameter."
+			},
+			"response": []
+		},
+		{
+			"name": "Get Detailed Size Pricing for Style",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/size-pricing?styleNumber=PC61",
+					"host": [
+						"{{baseUrl}}"
 					],
 					"path": [
 						"api",
@@ -1172,73 +800,535 @@
 						}
 					]
 				},
-				"description": "Get size pricing with upcharges by style number"
+				"description": "Fetches detailed size pricing information, including upcharges, for a styleNumber from Sanmar_Bulk_251816_Feb2024. Requires 'styleNumber' query parameter."
 			},
 			"response": []
 		},
 		{
-			"name": "Orders - GET All",
+			"name": "Get Customers",
 			"request": {
 				"method": "GET",
 				"header": [],
 				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/orders",
-					"protocol": "https",
+					"raw": "{{baseUrl}}/api/customers?email=test%40example.com",
 					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
+						"{{baseUrl}}"
 					],
 					"path": [
 						"api",
-						"orders"
-					]
-				},
-				"description": "Get all orders"
-			},
-			"response": []
-		},
-		{
-			"name": "Orders - GET by OrderID",
-			"request": {
-				"method": "GET",
-				"header": [],
-				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/orders?orderID=1",
-					"protocol": "https",
-					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
-					],
-					"path": [
-						"api",
-						"orders"
+						"customers"
 					],
 					"query": [
 						{
-							"key": "orderID",
-							"value": "1",
-							"description": "Filter by order ID"
+							"key": "email",
+							"value": "test@example.com",
+							"description": "Customer email (optional filter)"
 						}
 					]
 				},
-				"description": "Get orders filtered by order ID"
+				"description": "Fetches customer records from the Customer_Info table. Can be filtered by 'email' query parameter."
 			},
 			"response": []
 		},
 		{
-			"name": "Orders - GET by CustomerID",
+			"name": "Create Customer",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"Name\": \"John Doe\",\n  \"Email\": \"john.doe@example.com\",\n  \"Phone\": \"123-456-7890\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{baseUrl}}/api/customers",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"customers"
+					]
+				},
+				"description": "Creates a new customer record in the Customer_Info table. Expects customer data in the request body."
+			},
+			"response": []
+		},
+		{
+			"name": "Update Customer by ID",
+			"request": {
+				"method": "PUT",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"Phone\": \"987-654-3210\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{baseUrl}}/api/customers/:id",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"customers",
+						":id"
+					],
+					"variable": [
+						{
+							"key": "id",
+							"value": "<customer_id>",
+							"description": "Customer ID"
+						}
+					]
+				},
+				"description": "Updates an existing customer record in the Customer_Info table, identified by 'id'. Expects updated customer data in the request body."
+			},
+			"response": []
+		},
+		{
+			"name": "Delete Customer by ID",
+			"request": {
+				"method": "DELETE",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/customers/:id",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"customers",
+						":id"
+					],
+					"variable": [
+						{
+							"key": "id",
+							"value": "<customer_id>",
+							"description": "Customer ID"
+						}
+					]
+				},
+				"description": "Deletes a customer record from the Customer_Info table, identified by 'id'."
+			},
+			"response": []
+		},
+		{
+			"name": "Get Cart Items",
 			"request": {
 				"method": "GET",
 				"header": [],
 				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/orders?customerID=1",
-					"protocol": "https",
+					"raw": "{{baseUrl}}/api/cart-items?sessionID=<session_id>",
 					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"cart-items"
+					],
+					"query": [
+						{
+							"key": "sessionID",
+							"value": "<session_id>",
+							"description": "Session ID (optional filter)"
+						}
+					]
+				},
+				"description": "Fetches cart item records from the Cart_Items table. Can be filtered by 'sessionID' query parameter."
+			},
+			"response": []
+		},
+		{
+			"name": "Add Item to Cart",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"SessionID\": \"<session_id>\",\n  \"ProductID\": \"STYLE123\",\n  \"Quantity\": 1\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{baseUrl}}/api/cart-items",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"cart-items"
+					]
+				},
+				"description": "Creates a new cart item in the Cart_Items table. Expects cart item data in the request body."
+			},
+			"response": []
+		},
+		{
+			"name": "Update Cart Item by ID",
+			"request": {
+				"method": "PUT",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"Quantity\": 2\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{baseUrl}}/api/cart-items/:id",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"cart-items",
+						":id"
+					],
+					"variable": [
+						{
+							"key": "id",
+							"value": "<cart_item_id>",
+							"description": "Cart Item ID"
+						}
+					]
+				},
+				"description": "Updates an existing cart item in the Cart_Items table, identified by 'id'. Expects updated cart item data in the request body."
+			},
+			"response": []
+		},
+		{
+			"name": "Delete Cart Item by ID",
+			"request": {
+				"method": "DELETE",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/cart-items/:id",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"cart-items",
+						":id"
+					],
+					"variable": [
+						{
+							"key": "id",
+							"value": "<cart_item_id>",
+							"description": "Cart Item ID"
+						}
+					]
+				},
+				"description": "Deletes a cart item from the Cart_Items table, identified by 'id'."
+			},
+			"response": []
+		},
+		{
+			"name": "Get Sizes for Cart Item",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/cart-item-sizes?cartItemID=<cart_item_id>",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"cart-item-sizes"
+					],
+					"query": [
+						{
+							"key": "cartItemID",
+							"value": "<cart_item_id>",
+							"description": "Cart Item ID (optional filter)"
+						}
+					]
+				},
+				"description": "Fetches cart item size records from the Cart_Item_Sizes table. Can be filtered by 'cartItemID' query parameter."
+			},
+			"response": []
+		},
+		{
+			"name": "Add Size Details to Cart Item",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"CartItemID\": \"<cart_item_id>\",\n  \"Size\": \"L\",\n  \"Quantity\": 1\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{baseUrl}}/api/cart-item-sizes",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"cart-item-sizes"
+					]
+				},
+				"description": "Creates a new cart item size record in the Cart_Item_Sizes table. Expects cart item size data in the request body."
+			},
+			"response": []
+		},
+		{
+			"name": "Update Size Details of Cart Item by ID",
+			"request": {
+				"method": "PUT",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"Quantity\": 2\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{baseUrl}}/api/cart-item-sizes/:id",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"cart-item-sizes",
+						":id"
+					],
+					"variable": [
+						{
+							"key": "id",
+							"value": "<cart_item_size_id>",
+							"description": "Cart Item Size ID"
+						}
+					]
+				},
+				"description": "Updates an existing cart item size record in the Cart_Item_Sizes table, identified by 'id'. Expects updated data in the request body."
+			},
+			"response": []
+		},
+		{
+			"name": "Delete Size Details of Cart Item by ID",
+			"request": {
+				"method": "DELETE",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/cart-item-sizes/:id",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"cart-item-sizes",
+						":id"
+					],
+					"variable": [
+						{
+							"key": "id",
+							"value": "<cart_item_size_id>",
+							"description": "Cart Item Size ID"
+						}
+					]
+				},
+				"description": "Deletes a cart item size record from the Cart_Item_Sizes table, identified by 'id'."
+			},
+			"response": []
+		},
+		{
+			"name": "Get Cart Sessions",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/cart-sessions?sessionID=<session_id>",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"cart-sessions"
+					],
+					"query": [
+						{
+							"key": "sessionID",
+							"value": "<session_id>",
+							"description": "Session ID (Caspio field, not PK) (optional filter)"
+						}
+					]
+				},
+				"description": "Fetches cart session records from the Cart_Sessions table. Can be filtered by 'sessionID' query parameter."
+			},
+			"response": []
+		},
+		{
+			"name": "Create Cart Session",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"SessionID\": \"unique_session_string\",\n  \"UserID\": 123\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{baseUrl}}/api/cart-sessions",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"cart-sessions"
+					]
+				},
+				"description": "Creates a new cart session in the Cart_Sessions table. Expects session data in the request body."
+			},
+			"response": []
+		},
+		{
+			"name": "Update Cart Session by ID",
+			"request": {
+				"method": "PUT",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"IsActive\": false\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{baseUrl}}/api/cart-sessions/:id",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"cart-sessions",
+						":id"
+					],
+					"variable": [
+						{
+							"key": "id",
+							"value": "<session_pk_id>",
+							"description": "Cart Session Primary Key ID"
+						}
+					]
+				},
+				"description": "Updates an existing cart session in the Cart_Sessions table, identified by 'id' (PK). Expects updated session data in the request body."
+			},
+			"response": []
+		},
+		{
+			"name": "Delete Cart Session by ID",
+			"request": {
+				"method": "DELETE",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/cart-sessions/:id",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"cart-sessions",
+						":id"
+					],
+					"variable": [
+						{
+							"key": "id",
+							"value": "<session_pk_id>",
+							"description": "Cart Session Primary Key ID"
+						}
+					]
+				},
+				"description": "Deletes a cart session from the Cart_Sessions table, identified by 'id' (PK)."
+			},
+			"response": []
+		},
+		{
+			"name": "Get Orders",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/orders?customerID=<customer_id>",
+					"host": [
+						"{{baseUrl}}"
 					],
 					"path": [
 						"api",
@@ -1247,158 +1337,152 @@
 					"query": [
 						{
 							"key": "customerID",
-							"value": "1",
-							"description": "Filter by customer ID"
+							"value": "<customer_id>",
+							"description": "Customer ID (optional filter)"
 						}
 					]
 				},
-				"description": "Get orders filtered by customer ID"
+				"description": "Fetches order records from the Orders table. Can be filtered by 'orderID', 'customerID', or 'orderStatus' query parameters."
 			},
 			"response": []
 		},
 		{
-			"name": "Orders - GET by Status",
-			"request": {
-				"method": "GET",
-				"header": [],
-				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/orders?orderStatus=New",
-					"protocol": "https",
-					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
-					],
-					"path": [
-						"api",
-						"orders"
-					],
-					"query": [
-						{
-							"key": "orderStatus",
-							"value": "New",
-							"description": "Filter by order status"
-						}
-					]
-				},
-				"description": "Get orders filtered by status"
-			},
-			"response": []
-		},
-		{
-			"name": "Orders - POST",
+			"name": "Create Order",
 			"request": {
 				"method": "POST",
 				"header": [
 					{
 						"key": "Content-Type",
-						"value": "application/json"
+						"value": "application/json",
+						"type": "text"
 					}
 				],
 				"body": {
 					"mode": "raw",
-					"raw": "{\n    \"CustomerID\": 1,\n    \"OrderDate\": \"2025-04-19T15:30:00.000Z\",\n    \"TotalAmount\": 499.99,\n    \"OrderStatus\": \"New\",\n    \"ImprintType\": \"DTG\",\n    \"PaymentStatus\": \"Pending\",\n    \"ShippingMethod\": \"Ground\",\n    \"TrackingNumber\": null,\n    \"EstimatedDelivery\": \"2025-04-26\",\n    \"Notes\": \"Customer requested rush delivery\",\n    \"InternalNotes\": \"Artwork needs approval\"\n}"
+					"raw": "{\n  \"CustomerID\": 1,\n  \"TotalAmount\": 99.99,\n  \"OrderStatus\": \"New\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
 				},
 				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/orders",
-					"protocol": "https",
+					"raw": "{{baseUrl}}/api/orders",
 					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
+						"{{baseUrl}}"
 					],
 					"path": [
 						"api",
 						"orders"
 					]
 				},
-				"description": "Create a new order"
+				"description": "Creates a new order in the Orders table. Expects order data in the request body."
 			},
 			"response": []
 		},
 		{
-			"name": "Orders - PUT",
+			"name": "Update Order by ID",
 			"request": {
 				"method": "PUT",
 				"header": [
 					{
 						"key": "Content-Type",
-						"value": "application/json"
+						"value": "application/json",
+						"type": "text"
 					}
 				],
 				"body": {
 					"mode": "raw",
-					"raw": "{\n    \"OrderStatus\": \"Processing\",\n    \"PaymentStatus\": \"Paid\",\n    \"TrackingNumber\": \"1Z999AA10123456784\",\n    \"InternalNotes\": \"Artwork approved, ready for production\"\n}"
+					"raw": "{\n  \"OrderStatus\": \"Shipped\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
 				},
 				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/orders/1",
-					"protocol": "https",
+					"raw": "{{baseUrl}}/api/orders/:id",
 					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
+						"{{baseUrl}}"
 					],
 					"path": [
 						"api",
 						"orders",
-						"1"
+						":id"
+					],
+					"variable": [
+						{
+							"key": "id",
+							"value": "<order_id>",
+							"description": "Order ID"
+						}
 					]
 				},
-				"description": "Update an order by ID"
+				"description": "Updates an existing order in the Orders table, identified by 'id'. Expects updated order data in the request body."
 			},
 			"response": []
 		},
 		{
-			"name": "Orders - DELETE",
+			"name": "Delete Order by ID",
 			"request": {
 				"method": "DELETE",
 				"header": [],
 				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/orders/1",
-					"protocol": "https",
+					"raw": "{{baseUrl}}/api/orders/:id",
 					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
+						"{{baseUrl}}"
 					],
 					"path": [
 						"api",
 						"orders",
-						"1"
+						":id"
+					],
+					"variable": [
+						{
+							"key": "id",
+							"value": "<order_id>",
+							"description": "Order ID"
+						}
 					]
 				},
-				"description": "Delete an order by ID"
+				"description": "Deletes an order from the Orders table, identified by 'id'."
 			},
 			"response": []
 		},
 		{
-			"name": "Create Order (Workaround)",
+			"name": "Serve Cart Integration Script",
 			"request": {
-				"method": "POST",
-				"header": [
-					{
-						"key": "Content-Type",
-						"value": "application/json"
-					}
-				],
-				"body": {
-					"mode": "raw",
-					"raw": "{\n    \"CustomerID\": 1,\n    \"SessionID\": \"sess_abcdef123456\",\n    \"OrderID\": \"ORD-ABCDEF123\"\n}"
-				},
+				"method": "GET",
+				"header": [],
 				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/orders",
-					"protocol": "https",
+					"raw": "{{baseUrl}}/api/cart-integration.js",
 					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
+						"{{baseUrl}}"
 					],
 					"path": [
 						"api",
-						"orders"
+						"cart-integration.js"
 					]
 				},
-				"description": "Create a new order using the workaround method that avoids updating cart items. This endpoint only requires CustomerID, SessionID, and an optional OrderID. It creates an order record without modifying cart items, avoiding the 500 Internal Server Error."
+				"description": "Serves the cart-integration.js file for client-side cart functionality."
+			},
+			"response": []
+		},
+		{
+			"name": "Redirect to Cart Integration Script",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/cart-integration.js",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"cart-integration.js"
+					]
+				},
+				"description": "Redirects to /api/cart-integration.js."
 			},
 			"response": []
 		},
@@ -1409,27 +1493,216 @@
 				"header": [
 					{
 						"key": "Content-Type",
-						"value": "application/json"
+						"value": "application/json",
+						"type": "text"
 					}
 				],
 				"body": {
 					"mode": "raw",
-					"raw": "{\n    \"sessionId\": \"sess_abcdef123456\",\n    \"customerId\": 1\n}"
+					"raw": "{\n  \"sessionId\": \"<session_id>\",\n  \"customerId\": 1\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
 				},
 				"url": {
-					"raw": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/process-checkout",
-					"protocol": "https",
+					"raw": "{{baseUrl}}/api/process-checkout",
 					"host": [
-						"caspio-pricing-proxy-ab30a049961a",
-						"herokuapp",
-						"com"
+						"{{baseUrl}}"
 					],
 					"path": [
 						"api",
 						"process-checkout"
 					]
 				},
-				"description": "Process checkout using the client-side workaround. This endpoint gets all cart items for the session and creates an order without updating cart items with CartStatus='Ordered'. It avoids the 500 Internal Server Error that occurs when updating cart items."
+				"description": "Processes a checkout by creating an order from cart items associated with a session. Expects 'sessionId' and 'customerId' in the request body."
+			},
+			"response": []
+		},
+		{
+			"name": "Get Pricing Matrices",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/pricing-matrix",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"pricing-matrix"
+					]
+				},
+				"description": "Fetches pricing matrix records from the Pricing_Matrix table."
+			},
+			"response": []
+		},
+		{
+			"name": "Lookup Pricing Matrix ID",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/pricing-matrix/lookup?CustomerID=1&StyleNumber=PC61&ImprintType=DTG",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"pricing-matrix",
+						"lookup"
+					],
+					"query": [
+						{
+							"key": "CustomerID",
+							"value": "1",
+							"description": "Customer ID"
+						},
+						{
+							"key": "StyleNumber",
+							"value": "PC61",
+							"description": "Style Number"
+						},
+						{
+							"key": "ImprintType",
+							"value": "DTG",
+							"description": "Imprint Type"
+						}
+					]
+				},
+				"description": "Looks up a PricingMatrixID from the Pricing_Matrix table based on CustomerID, StyleNumber, and ImprintType. Requires 'CustomerID', 'StyleNumber', and 'ImprintType' query parameters."
+			},
+			"response": []
+		},
+		{
+			"name": "Get Specific Pricing Matrix by ID",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/pricing-matrix/:id",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"pricing-matrix",
+						":id"
+					],
+					"variable": [
+						{
+							"key": "id",
+							"value": "<matrix_id>",
+							"description": "Pricing Matrix ID"
+						}
+					]
+				},
+				"description": "Fetches a specific pricing matrix record from the Pricing_Matrix table, identified by 'id'."
+			},
+			"response": []
+		},
+		{
+			"name": "Create Pricing Matrix",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"CustomerID\": 1,\n  \"StyleNumber\": \"PC61\",\n  \"ImprintType\": \"DTG\",\n  \"MatrixData\": {}\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{baseUrl}}/api/pricing-matrix",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"pricing-matrix"
+					]
+				},
+				"description": "Creates a new pricing matrix record in the Pricing_Matrix table. Expects pricing matrix data in the request body."
+			},
+			"response": []
+		},
+		{
+			"name": "Update Pricing Matrix by ID",
+			"request": {
+				"method": "PUT",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"MatrixData\": {\"updated_field\": \"new_value\"}\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{baseUrl}}/api/pricing-matrix/:id",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"pricing-matrix",
+						":id"
+					],
+					"variable": [
+						{
+							"key": "id",
+							"value": "<matrix_id>",
+							"description": "Pricing Matrix ID"
+						}
+					]
+				},
+				"description": "Updates an existing pricing matrix record in the Pricing_Matrix table, identified by 'id'. Expects updated data in the request body."
+			},
+			"response": []
+		},
+		{
+			"name": "Delete Pricing Matrix by ID",
+			"request": {
+				"method": "DELETE",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/pricing-matrix/:id",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"pricing-matrix",
+						":id"
+					],
+					"variable": [
+						{
+							"key": "id",
+							"value": "<matrix_id>",
+							"description": "Pricing Matrix ID"
+						}
+					]
+				},
+				"description": "Deletes a pricing matrix record from the Pricing_Matrix table, identified by 'id'."
 			},
 			"response": []
 		}

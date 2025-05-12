@@ -1,0 +1,144 @@
+{
+  "info": {
+    "name": "Pricing Matrix Lookup Endpoint",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Lookup Pricing Matrix ID",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/pricing-matrix/lookup?styleNumber=1467&color=BlueJean&embellishmentType=embroidery",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "pricing-matrix",
+            "lookup"
+          ],
+          "query": [
+            {
+              "key": "styleNumber",
+              "value": "1467",
+              "description": "Style number of the product (required)"
+            },
+            {
+              "key": "color",
+              "value": "BlueJean",
+              "description": "Color of the product (required)"
+            },
+            {
+              "key": "embellishmentType",
+              "value": "embroidery",
+              "description": "Type of embellishment (required)"
+            },
+            {
+              "key": "sessionID",
+              "value": "",
+              "description": "Session ID (optional)",
+              "disabled": true
+            }
+          ]
+        },
+        "description": "Lookup a pricing matrix ID based on style, color, and embellishment type. Returns the pricing matrix ID if found, or a 404 error if not found."
+      },
+      "response": [
+        {
+          "name": "Success Response",
+          "originalRequest": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/pricing-matrix/lookup?styleNumber=1467&color=BlueJean&embellishmentType=embroidery",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "pricing-matrix",
+                "lookup"
+              ],
+              "query": [
+                {
+                  "key": "styleNumber",
+                  "value": "1467"
+                },
+                {
+                  "key": "color",
+                  "value": "BlueJean"
+                },
+                {
+                  "key": "embellishmentType",
+                  "value": "embroidery"
+                }
+              ]
+            }
+          },
+          "status": "OK",
+          "code": 200,
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json; charset=utf-8"
+            }
+          ],
+          "body": "{\n    \"pricingMatrixId\": 373\n}",
+          "_postman_previewlanguage": "json"
+        },
+        {
+          "name": "Not Found Response",
+          "originalRequest": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/pricing-matrix/lookup?styleNumber=PC61&color=RED&embellishmentType=DTG",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "pricing-matrix",
+                "lookup"
+              ],
+              "query": [
+                {
+                  "key": "styleNumber",
+                  "value": "PC61"
+                },
+                {
+                  "key": "color",
+                  "value": "RED"
+                },
+                {
+                  "key": "embellishmentType",
+                  "value": "DTG"
+                }
+              ]
+            }
+          },
+          "status": "Not Found",
+          "code": 404,
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json; charset=utf-8"
+            }
+          ],
+          "body": "{\n    \"error\": \"Pricing matrix not found for the given criteria\"\n}",
+          "_postman_previewlanguage": "json"
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com",
+      "type": "string",
+      "description": "Base URL for the API"
+    }
+  ]
+}
