@@ -2,7 +2,7 @@
 	"info": {
 		"_postman_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
 		"name": "Caspio Pricing Proxy API",
-		"description": "Collection of endpoints for the Caspio Pricing Proxy API deployed on Heroku. Updated with 61 endpoints.",
+		"description": "Collection of endpoints for the Caspio Pricing Proxy API deployed on Heroku. Updated with 62 endpoints.",
 		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
 	},
 	"item": [
@@ -1703,6 +1703,32 @@
 					]
 				},
 				"description": "Deletes a pricing matrix record from the Pricing_Matrix table, identified by 'id'."
+			},
+			"response": []
+		},
+		{
+			"name": "Get Product Colors",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/product-colors?styleNumber=PC61",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"product-colors"
+					],
+					"query": [
+						{
+							"key": "styleNumber",
+							"value": "PC61",
+							"description": "Style number of the product"
+						}
+					]
+				},
+				"description": "Fetches product color information (color names, catalog colors, swatch images, and main product images) for a given styleNumber from the Sanmar_Bulk_251816_Feb2024 table. Requires 'styleNumber' query parameter."
 			},
 			"response": []
 		}
