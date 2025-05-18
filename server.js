@@ -1687,7 +1687,8 @@ app.get('/api/prices-by-style-color', async (req, res) => {
     }
 });
 
-// --- ENHANCED Endpoint: Get Maximum Prices Across All Colors for a Style with Size SurchargES ---
+// --- ENHANCED Endpoint: Get Maximum Prices Across All Colors for a Style ---
+// This version provides raw garment costs and separate selling price display add-ons.
 // Example: /api/max-prices-by-style?styleNumber=PC61
 app.get('/api/max-prices-by-style', async (req, res) => {
     const { styleNumber } = req.query;
@@ -1695,154 +1696,117 @@ app.get('/api/max-prices-by-style', async (req, res) => {
         return res.status(400).json({ error: 'Missing required query parameter: styleNumber' });
     }
     try {
-        console.log(`Fetching max prices for style: ${styleNumber} across all colors`);
+        console.log(`Fetching data for /api/max-prices-by-style for style: ${styleNumber}`);
 
-        // === Section to Fetch Dynamic Size Surcharges from Caspio ===
-        let dynamicSizeSurcharges = {}; // This will hold {'2XL': 2.00, 'XXL': 2.00, ...}
+        // 1. Fetch Selling Price Display Add-Ons from Caspio
+        let sellingPriceDisplayAddOns = {};
         try {
-            const upchargeResourcePath = '/tables/Standard_Size_Upcharges/records'; // Caspio table name
+            const upchargeResourcePath = '/tables/Standard_Size_Upcharges/records'; // Table storing selling price add-ons
             const upchargeParams = {
-                'q.select': 'SizeDesignation,StandardAddOnAmount', // Fields from Caspio table
+                'q.select': 'SizeDesignation,StandardAddOnAmount',
                 'q.orderby': 'SizeDesignation ASC',
-                'q.limit': 200 // Assuming not more than 200 upcharge rules
+                'q.limit': 200 // Max number of add-on rules
             };
-            console.log(`Fetching size surcharges from Caspio table: ${upchargeResourcePath}`);
+            console.log(`Fetching Selling Price Display Add-Ons from Caspio table: ${upchargeResourcePath}`);
             const upchargeResults = await fetchAllCaspioPages(upchargeResourcePath, upchargeParams);
 
             upchargeResults.forEach(rule => {
                 if (rule.SizeDesignation && rule.StandardAddOnAmount !== null && !isNaN(parseFloat(rule.StandardAddOnAmount))) {
-                    // Standardize the key for the lookup object
-                    dynamicSizeSurcharges[String(rule.SizeDesignation).trim().toUpperCase()] = parseFloat(rule.StandardAddOnAmount);
+                    sellingPriceDisplayAddOns[String(rule.SizeDesignation).trim().toUpperCase()] = parseFloat(rule.StandardAddOnAmount);
                 }
             });
-            console.log("Fetched dynamic size surcharges from Caspio:", dynamicSizeSurcharges);
-
-            if (Object.keys(dynamicSizeSurcharges).length === 0) {
-                console.warn(`No size surcharge rules found or loaded from Caspio table: ${upchargeResourcePath}. Standard add-on amounts might not be applied as expected. Ensure the table is populated and accessible.`);
+            console.log("Fetched Selling Price Display Add-Ons:", sellingPriceDisplayAddOns);
+            if (Object.keys(sellingPriceDisplayAddOns).length === 0) {
+                console.warn(`No Selling Price Display Add-On rules found from Caspio table: ${upchargeResourcePath}. Plus sizes will be priced based on S-XL without specific add-ons in the preview if this object is empty.`);
             }
-
         } catch (upchargeError) {
-            console.error("CRITICAL ERROR fetching size surcharges from Caspio table:", upchargeError.message, upchargeError.stack);
-            console.warn("Proceeding without dynamic size surcharges due to fetch error. Pricing will rely on actual garment costs only for upcharges.");
-            dynamicSizeSurcharges = {}; // Default to empty if fetch fails, so lookups won't cause further errors
-            // Consider business decision:
-            // return res.status(500).json({ error: 'Failed to load critical size upcharge configuration.' });
-            /*
-            // Last resort hardcoded fallback (should be avoided if possible)
-            console.warn("FALLING BACK TO HARDCODED SIZE SURCHARGES due to Caspio fetch error.");
-            dynamicSizeSurcharges = {
-                '2XL': 2.00, 'XXL': 2.00, '3XL': 3.00, 'XXXL': 3.00, '4XL': 4.00, 'XXXXL': 4.00,
-                '5XL': 6.00, '6XL': 7.00, 'LT': 4.00, 'XLT': 4.00, '2XLT': 5.00, '3XLT': 6.00, '4XLT': 7.00
-            };
-            */
+            console.error("CRITICAL ERROR fetching Selling Price Display Add-Ons:", upchargeError.message, upchargeError.stack);
+            console.warn("Proceeding without Selling Price Display Add-Ons due to fetch error.");
+            sellingPriceDisplayAddOns = {}; // Default to empty if fetch fails
+            // Consider if an error should be returned to the client:
+            // return res.status(500).json({ error: 'Failed to load critical Selling Price Add-On configuration.' });
         }
-        // === End of Fetch Dynamic Size Surcharges ===
 
-        const resource = '/tables/Inventory/records';
-        const whereClause = styleNumber === 'PC61' ? // Keep existing special logic if any
+        // 2. Fetch Inventory Data to get base garment costs (max case price per size/style)
+        const inventoryResource = '/tables/Inventory/records';
+        // Keep existing whereClause logic (e.g., PC61 'Ash' special case if still needed, otherwise simplify)
+        const inventoryWhereClause = styleNumber === 'PC61' && !req.query.color ? // Apply Ash only if no specific color is requested for PC61
             `catalog_no='${styleNumber}' AND catalog_color='Ash'` :
             `catalog_no='${styleNumber}'`;
 
-        const params = {
-            'q.where': whereClause,
-            'q.select': 'size,case_price,SizeSortOrder,catalog_color,catalog_no',
-            'q.limit': 1000
+        const inventoryParams = {
+            'q.where': inventoryWhereClause,
+            'q.select': 'size,case_price,SizeSortOrder', // Only fetch what's needed
+            'q.limit': 1000 // fetchAllCaspioPages handles pagination
         };
+        console.log(`Fetching inventory for style ${styleNumber} with params: ${JSON.stringify(inventoryParams)}`);
+        const inventoryResult = await fetchAllCaspioPages(inventoryResource, inventoryParams, { maxPages: 20 });
 
-        const result = await fetchAllCaspioPages(resource, params, { maxPages: 20 });
-
-        if (result.length === 0) {
-            console.warn(`No inventory found for style: ${styleNumber}`);
-            return res.status(404).json({ error: `No inventory found for style: ${styleNumber}` });
+        if (inventoryResult.length === 0) {
+            console.warn(`No inventory found for style: ${styleNumber} with specified criteria.`);
+            // Return an empty sizes array and the fetched add-ons, so client can decide how to handle
+            return res.json({
+                style: styleNumber,
+                sizes: [],
+                sellingPriceDisplayAddOns: sellingPriceDisplayAddOns,
+                message: `No inventory records found for style ${styleNumber} with where: ${inventoryWhereClause}`
+            });
         }
 
-        const prices = {};
+        const garmentCosts = {}; // This will hold the max_case_price for each size
         const sortOrders = {};
-        let basePrice = null;
 
-        result.forEach(item => {
+        inventoryResult.forEach(item => {
             if (item.size && item.case_price !== null && !isNaN(parseFloat(item.case_price))) {
-                const size = String(item.size).trim().toUpperCase(); // Standardize size
+                const size = String(item.size).trim().toUpperCase();
                 const price = parseFloat(item.case_price);
                 const sortOrder = parseInt(item.SizeSortOrder, 10) || 999;
 
-                if (!prices[size] || price > prices[size]) {
-                    prices[size] = price;
+                // Store the MAX case_price for this size (accounts for variations across colors if not filtered)
+                if (!garmentCosts[size] || price > garmentCosts[size]) {
+                    garmentCosts[size] = price;
                 }
                 if (!sortOrders[size] || sortOrder < sortOrders[size]) {
                     sortOrders[size] = sortOrder;
                 }
-                // Define base sizes (e.g., L or XL) to determine basePrice
-                if (size === 'L' || size === 'XL') { // Adjust if your base sizes are different
-                    if (basePrice === null || price > basePrice) { // Use the higher cost if L and XL differ
-                        basePrice = price;
-                    }
-                }
             }
         });
-
-        // Fallback logic for basePrice if L/XL not found or had no price
-        if (basePrice === null && Object.keys(prices).length > 0) {
-            const preferredBaseSizes = ['XL', 'L', 'M', 'S']; // Order of preference
-            for (const bSize of preferredBaseSizes) {
-                if (prices[bSize]) {
-                    basePrice = prices[bSize];
-                    console.log(`Using fallback base price $${basePrice.toFixed(2)} from size ${bSize} for style ${styleNumber}`);
-                    break;
-                }
-            }
-            if (basePrice === null) {
-                 const firstAvailableSize = Object.keys(prices).find(sz => prices[sz] !== null);
-                 if (firstAvailableSize) {
-                    basePrice = prices[firstAvailableSize];
-                    console.log(`Using fallback base price $${basePrice.toFixed(2)} from first available size ${firstAvailableSize} for style ${styleNumber}`);
-                 } else {
-                    console.warn(`CRITICAL: Could not determine any base price for style ${styleNumber}. Standard add-ons cannot be applied correctly.`);
-                    basePrice = 0; // Default to 0 or handle as an error.
-                 }
-            }
-        } else if (basePrice !== null) {
-             console.log(`Determined base price $${basePrice.toFixed(2)} for style ${styleNumber}`);
-        }
-
-        // Apply dynamic surcharges (fetched from Caspio table)
-        if (basePrice !== null && basePrice > 0) { // Ensure basePrice is valid
-            Object.keys(prices).forEach(currentInventorySize => { // e.g., "2XL", "XXL" from inventory
-                const currentActualCost = prices[currentInventorySize];
-                // Lookup using the standardized currentInventorySize in the fetched dynamicSizeSurcharges
-                const standardAddOnForRule = dynamicSizeSurcharges[currentInventorySize];
-
-                if (standardAddOnForRule !== undefined) { // A rule exists for this size
-                    const minExpectedCost = basePrice + standardAddOnForRule;
-                    prices[currentInventorySize] = Math.max(currentActualCost, minExpectedCost);
-
-                    if (prices[currentInventorySize] > currentActualCost) {
-                        console.log(`Adjusted cost for ${currentInventorySize} from $${currentActualCost.toFixed(2)} to $${prices[currentInventorySize].toFixed(2)} (base $${basePrice.toFixed(2)} + dynamic add-on $${standardAddOnForRule.toFixed(2)})`);
-                    }
-                }
-                // If no rule in dynamicSizeSurcharges for currentInventorySize, its cost remains its actual max case_price.
+        
+        if (Object.keys(garmentCosts).length === 0) {
+             console.warn(`No valid garment costs derived for style: ${styleNumber} from inventory query results.`);
+             return res.json({
+                style: styleNumber,
+                sizes: [],
+                sellingPriceDisplayAddOns: sellingPriceDisplayAddOns,
+                message: `No valid garment costs could be derived for style ${styleNumber}.`
             });
         }
 
-        const sortedSizes = Object.keys(prices).sort((a, b) => {
+        const sortedSizeKeys = Object.keys(garmentCosts).sort((a, b) => {
             return (sortOrders[a] || 999) - (sortOrders[b] || 999);
         });
 
-        const response = {
+        // 3. Construct and send the response
+        const responsePayload = {
             style: styleNumber,
-            sizes: sortedSizes.map(size => ({
+            // This 'sizes' array will become 'dp8State.sizeData' in the XML DataPage.
+            // Each 'price' here is the raw garment cost (bIC).
+            sizes: sortedSizeKeys.map(size => ({
                 size: size,
-                price: prices[size],
+                price: garmentCosts[size],
                 sortOrder: sortOrders[size]
-            }))
+            })),
+            // Pass the fetched selling price display add-ons to the client.
+            // This will become 'dp8State.sellingPriceDisplayAddOns'.
+            sellingPriceDisplayAddOns: sellingPriceDisplayAddOns
         };
 
-        console.log(`Returning MAX prices (garment costs) for ${sortedSizes.length} sizes for style: ${styleNumber} (using dynamic upcharges from Caspio)`);
-        res.json(response);
+        console.log(`Returning garment costs and selling price display add-ons for style: ${styleNumber}`);
+        res.json(responsePayload);
 
     } catch (error) {
         console.error(`Error in /api/max-prices-by-style for ${styleNumber}:`, error.message, error.stack);
-        res.status(500).json({ error: `Failed to fetch prices for the specified style. ${error.message}` });
+        res.status(500).json({ error: `Failed to fetch data for style ${styleNumber}. ${error.message}` });
     }
 });
 
@@ -1856,228 +1820,131 @@ app.use((err, req, res, next) => {
 // --- NEW Endpoint: Get Size Pricing with Upcharges for Datapage Integration ---
 // Example: /api/size-pricing?styleNumber=PC61&color=Ash
 app.get('/api/size-pricing', async (req, res) => {
-    const { styleNumber, color } = req.query;
+    const { styleNumber, color } = req.query; // color is optional for this endpoint
     if (!styleNumber) {
         return res.status(400).json({ error: 'Missing required query parameter: styleNumber' });
     }
     
     try {
-        console.log(`Fetching size pricing for style: ${styleNumber}, color: ${color || 'all colors'}`);
+        console.log(`Fetching size pricing for style: ${styleNumber}, specific color requested: ${color || 'No (will use max across all colors)'}`);
 
-        // === Section to Fetch Dynamic Size Surcharges from Caspio ===
-        let dynamicSizeSurcharges = {}; // This will hold {'2XL': 2.00, 'XXL': 2.00, ...}
+        // 1. Fetch Selling Price Display Add-Ons from Caspio
+        let sellingPriceDisplayAddOns = {};
         try {
-            const upchargeResourcePath = '/tables/Standard_Size_Upcharges/records'; // Caspio table name
+            const upchargeResourcePath = '/tables/Standard_Size_Upcharges/records';
             const upchargeParams = {
-                'q.select': 'SizeDesignation,StandardAddOnAmount', // Fields from Caspio table
+                'q.select': 'SizeDesignation,StandardAddOnAmount',
                 'q.orderby': 'SizeDesignation ASC',
-                'q.limit': 200 // Assuming not more than 200 upcharge rules
+                'q.limit': 200
             };
-            console.log(`Fetching size surcharges from Caspio table: ${upchargeResourcePath} for /api/size-pricing`);
+            console.log(`Fetching Selling Price Display Add-Ons from Caspio table: ${upchargeResourcePath} for /api/size-pricing`);
             const upchargeResults = await fetchAllCaspioPages(upchargeResourcePath, upchargeParams);
 
             upchargeResults.forEach(rule => {
                 if (rule.SizeDesignation && rule.StandardAddOnAmount !== null && !isNaN(parseFloat(rule.StandardAddOnAmount))) {
-                    // Standardize the key for the lookup object
-                    dynamicSizeSurcharges[String(rule.SizeDesignation).trim().toUpperCase()] = parseFloat(rule.StandardAddOnAmount);
+                    sellingPriceDisplayAddOns[String(rule.SizeDesignation).trim().toUpperCase()] = parseFloat(rule.StandardAddOnAmount);
                 }
             });
-            console.log("Fetched dynamic size surcharges from Caspio for /api/size-pricing:", dynamicSizeSurcharges);
-
-            if (Object.keys(dynamicSizeSurcharges).length === 0) {
-                console.warn(`No size surcharge rules found or loaded from Caspio table: ${upchargeResourcePath} for /api/size-pricing. Standard add-on amounts might not be applied as expected. Ensure the table is populated and accessible.`);
+            console.log("Fetched Selling Price Display Add-Ons for /api/size-pricing:", sellingPriceDisplayAddOns);
+            if (Object.keys(sellingPriceDisplayAddOns).length === 0) {
+                console.warn(`No Selling Price Display Add-On rules found from Caspio table: ${upchargeResourcePath} for /api/size-pricing.`);
             }
-
         } catch (upchargeError) {
-            console.error("CRITICAL ERROR fetching size surcharges from Caspio table for /api/size-pricing:", upchargeError.message, upchargeError.stack);
-            console.warn("Proceeding without dynamic size surcharges for /api/size-pricing due to fetch error. Pricing will rely on actual garment costs only for upcharges.");
-            dynamicSizeSurcharges = {}; // Default to empty if fetch fails
-            // Consider business decision:
-            // return res.status(500).json({ error: 'Failed to load critical size upcharge configuration for /api/size-pricing.' });
-            /*
-            // Last resort hardcoded fallback (should be avoided if possible)
-            console.warn("FALLING BACK TO HARDCODED SIZE SURCHARGES for /api/size-pricing due to Caspio fetch error.");
-            dynamicSizeSurcharges = {
-                '2XL': 2.00, 'XXL': 2.00, '3XL': 3.00, 'XXXL': 3.00, '4XL': 4.00, 'XXXXL': 4.00,
-                '5XL': 6.00, '6XL': 7.00, 'LT': 4.00, 'XLT': 4.00, '2XLT': 5.00, '3XLT': 6.00, '4XLT': 7.00
-            };
-            */
+            console.error("CRITICAL ERROR fetching Selling Price Display Add-Ons for /api/size-pricing:", upchargeError.message, upchargeError.stack);
+            console.warn("Proceeding without Selling Price Display Add-Ons for /api/size-pricing due to fetch error.");
+            sellingPriceDisplayAddOns = {};
         }
-        // === End of Fetch Dynamic Size Surcharges ===
+
+        // 2. Fetch Inventory Data to get garment costs
+        const inventoryResource = '/tables/Inventory/records';
+        let inventoryWhereClause = `catalog_no='${styleNumber}'`;
+        if (color) { // If a specific color is requested, filter by it
+            inventoryWhereClause += ` AND catalog_color='${color}'`;
+        }
         
-        // OPTIMIZATION: First check the Sanmar_Bulk table to get available sizes using SIZE field
-        console.log(`First checking Sanmar_Bulk table for available sizes for style: ${styleNumber}`);
-        const bulkResource = '/tables/Sanmar_Bulk_251816_Feb2024/records';
-        const bulkParams = {
-            'q.where': `STYLE='${styleNumber}'`,
-            'q.select': 'SIZE, SIZE_INDEX',
-            'q.distinct': true,
-            'q.orderby': 'SIZE_INDEX ASC',
-            'q.limit': 100 // Should be enough for all sizes
-        };
-        
-        // Get available sizes from the bulk table
-        const bulkResult = await fetchAllCaspioPages(bulkResource, bulkParams);
-        console.log(`Found ${bulkResult.length} sizes in Sanmar_Bulk table for style: ${styleNumber}`);
-        
-        // Extract unique sizes from the bulk table
-        const availableSizes = new Set();
-        bulkResult.forEach(item => {
-            if (item.SIZE) {
-                availableSizes.add(item.SIZE);
-            }
-        });
-        
-        console.log(`Available sizes from Sanmar_Bulk: ${[...availableSizes].join(', ')}`);
-        
-        // Now query the Inventory table for pricing information
-        // OPTIMIZATION: Only query by style number, not by color
-        // We'll filter by color later if needed
-        const resource = '/tables/Inventory/records';
         const inventoryParams = {
-            'q.where': `catalog_no='${styleNumber}'`,
-            'q.select': 'size, case_price, SizeSortOrder, catalog_color',
-            'q.limit': 1000
+            'q.where': inventoryWhereClause,
+            'q.select': 'size, case_price, SizeSortOrder, catalog_color', // Fetch catalog_color to confirm
+            'q.limit': 1000 // fetchAllCaspioPages handles pagination
         };
         
-        // Create an early exit condition function based on the sizes we found in the Sanmar_Bulk table
-        const foundSizes = new Set();
-        const earlyExitCondition = (results) => {
-            // Update the set of found sizes
-            results.forEach(item => {
-                if (item.size) {
-                    foundSizes.add(item.size);
-                }
-            });
-            
-            // Check if we've found all the sizes from the Sanmar_Bulk table
-            let foundAllSizes = true;
-            for (const size of availableSizes) {
-                if (!foundSizes.has(size)) {
-                    foundAllSizes = false;
-                    break;
-                }
-            }
-            
-            // Log what sizes we've found so far
-            console.log(`Sizes found so far: ${[...foundSizes].join(', ')}`);
-            
-            // Exit early if we've found all the sizes from Sanmar_Bulk
-            if (foundAllSizes) {
-                console.log(`Found all sizes from Sanmar_Bulk: ${[...foundSizes].join(', ')}`);
-                return true;
-            }
-            
-            return false;
-        };
-        
-        // Fetch data for all colors to get prices
-        console.log(`Fetching prices for style: ${styleNumber} across all colors`);
-        const inventoryResult = await fetchAllCaspioPages(resource, inventoryParams, {
-            maxPages: 10,  // Use 10 pages for better performance
-            earlyExitCondition: earlyExitCondition  // Add early exit condition based on Sanmar_Bulk sizes
-        });
-        
+        console.log(`Fetching inventory for style ${styleNumber} (color: ${color || 'any'}) with params: ${JSON.stringify(inventoryParams)}`);
+        const inventoryResult = await fetchAllCaspioPages(inventoryResource, inventoryParams, { maxPages: 20 });
+
         if (inventoryResult.length === 0) {
-            console.warn(`No inventory found for style: ${styleNumber}`);
-            return res.status(404).json({ error: `No inventory found for style: ${styleNumber}` });
+            console.warn(`No inventory found for style: ${styleNumber} with criteria: ${inventoryWhereClause}`);
+            return res.json({
+                style: styleNumber,
+                color: color || 'all colors',
+                sizes: [],
+                sellingPriceDisplayAddOns: sellingPriceDisplayAddOns,
+                message: `No inventory records found for style ${styleNumber} with where: ${inventoryWhereClause}`
+            });
         }
-        
-        // Process results to get max prices per size and sort orders
-        const maxPrices = {};
+
+        const garmentCosts = {}; // Will hold the cost for each size (max if no color, specific if color)
         const sortOrders = {};
-        const colorSpecificPrices = {};
-        
-        // First pass: collect max prices across ALL colors
+
         inventoryResult.forEach(item => {
-            if (item.size && item.case_price !== null && !isNaN(item.case_price)) {
-                const size = String(item.size).trim().toUpperCase(); // Standardize size
+            if (item.size && item.case_price !== null && !isNaN(parseFloat(item.case_price))) {
+                const size = String(item.size).trim().toUpperCase();
                 const price = parseFloat(item.case_price);
-                const sortOrder = item.SizeSortOrder || 999;
-                
-                // Store the max price for each size across ALL colors
-                if (!maxPrices[size] || price > maxPrices[size]) {
-                    maxPrices[size] = price;
-                    console.log(`Found new max price for size ${size}: $${price.toFixed(2)} (color: ${item.catalog_color || 'unknown'})`);
+                const sortOrder = parseInt(item.SizeSortOrder, 10) || 999;
+
+                // If a specific color was requested, we only care about prices for that color.
+                // If no color was requested, we take the MAX price for that size across all colors found.
+                if (color) { // Specific color was requested
+                    if (item.catalog_color === color) { // Ensure this item matches the requested color
+                         if (!garmentCosts[size] || price > garmentCosts[size]) { // Should ideally be only one price per size/color
+                            garmentCosts[size] = price;
+                        }
+                    }
+                } else { // No specific color requested, find MAX across all colors for this size
+                    if (!garmentCosts[size] || price > garmentCosts[size]) {
+                        garmentCosts[size] = price;
+                    }
                 }
                 
-                // Store the sort order for each size
+                // Store the sort order (use the lowest found for a size if multiple records exist)
                 if (!sortOrders[size] || sortOrder < sortOrders[size]) {
                     sortOrders[size] = sortOrder;
                 }
-                
-                // If a specific color is requested, collect prices for that color
-                if (color && item.catalog_color === color) {
-                    // Ensure colorSpecificPrices also uses standardized size keys if 'color' is provided
-                    colorSpecificPrices[size] = price;
-                }
             }
         });
         
-        // Determine the base price (typically M or L)
-        let basePrice = null;
-        if (maxPrices['M']) {
-            basePrice = maxPrices['M'];
-        } else if (maxPrices['L']) {
-            basePrice = maxPrices['L'];
-        } else if (Object.keys(maxPrices).length > 0) {
-            // Fallback to the first available price
-            basePrice = Object.values(maxPrices)[0];
+        if (Object.keys(garmentCosts).length === 0) {
+             console.warn(`No valid garment costs derived for style: ${styleNumber} (color: ${color || 'any'}) from inventory query results.`);
+             return res.json({
+                style: styleNumber,
+                color: color || 'all colors',
+                sizes: [],
+                sellingPriceDisplayAddOns: sellingPriceDisplayAddOns,
+                message: `No valid garment costs could be derived for style ${styleNumber} (color: ${color || 'any'}).`
+            });
         }
-        
-        // Create an array of sizes sorted by SizeSortOrder
-        const sortedSizes = Object.keys(maxPrices).sort((a, b) => {
+
+        const sortedSizeKeys = Object.keys(garmentCosts).sort((a, b) => {
             return (sortOrders[a] || 999) - (sortOrders[b] || 999);
         });
         
-        // Create the response with detailed pricing information for each size
-        const sizeDetails = sortedSizes.map(size => {
-            // Always use the max price across all colors for calculations
-            const maxPriceAcrossAllColors = maxPrices[size];
-            
-            // Get the color-specific price if available (for the requested color)
-            const requestedColorPrice = colorSpecificPrices[size] || maxPriceAcrossAllColors;
-            
-            const dynamicUpcharge = dynamicSizeSurcharges[size] || 0; // Use dynamic surcharges
-            const baseSizePlusUpcharge = basePrice + dynamicUpcharge;
-            
-            // Determine if the dynamic upcharge is enough (based on max price across all colors)
-            const isDynamicUpchargeEnough = maxPriceAcrossAllColors <= baseSizePlusUpcharge;
-            
-            // Calculate the actual upcharge needed (based on max price across all colors)
-            const actualUpchargeNeeded = isDynamicUpchargeEnough ? dynamicUpcharge : (maxPriceAcrossAllColors - basePrice);
-            
-            // Always use the higher of max price or base+upcharge for the recommended price
-            const recommendedPrice = Math.max(maxPriceAcrossAllColors, baseSizePlusUpcharge);
-            
-            return {
-                size: size,
-                maxPriceAcrossAllColors: maxPriceAcrossAllColors,  // Highest price for this size across all colors
-                requestedColorPrice: requestedColorPrice,          // Price for this size in the requested color
-                standardUpcharge: dynamicUpcharge,                 // Using dynamic upcharge, but keeping field name for compatibility if needed
-                baseSizePrice: basePrice,                          // Price of the base size (M or L)
-                baseSizePlusUpcharge: baseSizePlusUpcharge,        // Base size price + dynamic upcharge
-                isStandardUpchargeEnough: isDynamicUpchargeEnough, // Reflects dynamic upcharge logic
-                actualUpchargeNeeded: actualUpchargeNeeded,
-                recommendedPrice: recommendedPrice,                // Final recommended price
-                sortOrder: sortOrders[size]
-            };
-        });
-        
-        // Create the final response
-        const response = {
+        // 3. Construct and send the response
+        const responsePayload = {
             style: styleNumber,
-            color: color || 'all colors',
-            baseSizePrice: basePrice,  // Renamed to match the field in sizeDetails
-            sizes: sizeDetails
+            color: color || 'all colors', // Indicate if prices are for a specific color or max across all
+            sizes: sortedSizeKeys.map(size => ({
+                size: size,
+                price: garmentCosts[size], // This is the raw garment cost (bIC)
+                sortOrder: sortOrders[size]
+            })),
+            sellingPriceDisplayAddOns: sellingPriceDisplayAddOns
         };
         
-        console.log(`Returning size pricing for ${sortedSizes.length} sizes for style: ${styleNumber}${color ? `, color: ${color}` : ''}`);
-        res.json(response);
+        console.log(`Returning garment costs and selling price display add-ons for style: ${styleNumber}, color: ${color || 'all colors'}`);
+        res.json(responsePayload);
         
     } catch (error) {
-        console.error("Error fetching size pricing:", error.message);
-        res.status(500).json({ error: 'Failed to fetch size pricing for the specified style.' });
+        console.error(`Error in /api/size-pricing for ${styleNumber} (color: ${color || 'any'}):`, error.message, error.stack);
+        res.status(500).json({ error: `Failed to fetch size pricing for style ${styleNumber}. ${error.message}` });
     }
 });
 
