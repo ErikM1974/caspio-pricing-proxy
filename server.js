@@ -137,139 +137,90 @@ async function makeCaspioRequest(method, resourcePath, params = {}, data = null)
 }
 
 /**
- * IMPORTANT: Caspio API uses pagination, which means that results may be split across multiple pages.
- * When querying large datasets or when you're not sure about the size of the result set,
- * ALWAYS use this function instead of makeCaspioRequest to ensure you get ALL records.
- *
- * DEVELOPER NOTE: For ALL new endpoints, ALWAYS use this function instead of makeCaspioRequest.
- * Failure to do so will result in incomplete data when the result set spans multiple pages.
- * We've seen this issue with brands like "OGIO" which were on the second page and were not
- * being returned when using makeCaspioRequest.
- *
- * Fetches ALL records from a Caspio resource, handling pagination.
+ * IMPORTANT: Caspio API uses pagination. This function fetches ALL records
+ * from a Caspio resource, handling pagination.
  * @param {string} resourcePath - Path relative to base API URL (e.g., '/tables/YourTable/records')
- * @param {object} [initialParams={}] - Initial URL query parameters (e.g., { 'q.where': "Field='value'" })
+ * @param {object} [initialParams={}] - Initial URL query parameters
+ * @param {object} [options={}] - Options like maxPages, earlyExitCondition, pageCallback
  * @returns {Promise<object[]>} - The combined 'Result' array from all pages.
  */
 async function fetchAllCaspioPages(resourcePath, initialParams = {}, options = {}) {
     let allResults = [];
     let params = { ...initialParams };
-    // Ensure a reasonable limit is set, Caspio default is often 100, max might be 1000
     params['q.limit'] = params['q.limit'] || 1000;
-    let nextPageUrl = `${caspioApiBaseUrl}${resourcePath}`; // Start with base resource URL
+    let nextPageUrl = `${caspioApiBaseUrl}${resourcePath}`;
 
-    // Set default options
     const defaultOptions = {
-        maxPages: 5, // Default max pages to fetch
-        earlyExitCondition: null, // Optional function to check if we should stop fetching
-        pageCallback: null // Optional function to process each page of results
+        maxPages: 10, // Default max pages, can be overridden by options
+        earlyExitCondition: null,
+        pageCallback: null
     };
-    
     const mergedOptions = { ...defaultOptions, ...options };
     
-    console.log(`Fetching up to ${mergedOptions.maxPages} pages for: ${resourcePath} with initial params: ${JSON.stringify(initialParams)}`);
+    // console.log(`Fetching up to ${mergedOptions.maxPages} pages for: ${resourcePath} with initial params: ${JSON.stringify(params)}`); // Verbose
 
     try {
-        const token = await getCaspioAccessToken();
+        const token = await getCaspioAccessToken(); // Ensure getCaspioAccessToken is defined and working
         let pageCount = 0;
         let morePages = true;
-        let skipCount = 0;
+        let currentRequestParams = { ...params };
 
-        // Use a combination of @nextpage and manual pagination with q.skip
         while (morePages && pageCount < mergedOptions.maxPages) {
             pageCount++;
-            
-            // For the first page, use the initial URL and params
-            // For subsequent pages, either use the @nextpage URL or manually construct with q.skip
             let currentUrl = nextPageUrl;
-            let currentParams = undefined;
-            
-            if (pageCount === 1) {
-                // First page - use initial params
-                currentParams = params;
-            } else if (!nextPageUrl.includes('@nextpage')) {
-                // Manual pagination - add skip parameter
-                skipCount = (pageCount - 1) * 1000;
-                currentParams = { ...params, 'q.skip': skipCount };
-                currentUrl = `${caspioApiBaseUrl}${resourcePath}`;
-                console.log(`Using manual pagination with q.skip=${skipCount}`);
+
+            if (pageCount === 1 || !nextPageUrl || !nextPageUrl.includes('@nextpage')) {
+                 if (pageCount > 1) {
+                    currentRequestParams['q.skip'] = (pageCount - 1) * (params['q.limit']);
+                 }
+                 currentUrl = `${caspioApiBaseUrl}${resourcePath}`;
+            } else {
+                currentRequestParams = undefined;
             }
             
-            console.log(`Fetching page ${pageCount} from: ${currentUrl.replace(caspioApiBaseUrl, '')}`);
+            // console.log(`Fetching page ${pageCount} from: ${currentUrl.replace(caspioApiBaseUrl, '')} with params: ${JSON.stringify(currentRequestParams)}`); // Verbose
             const config = {
-                method: 'get',
-                url: currentUrl,
+                method: 'get', url: currentUrl,
                 headers: { 'Authorization': `Bearer ${token}` },
-                params: currentParams,
-                timeout: 30000 // Increase timeout for potentially longer multi-page fetches
+                params: currentRequestParams, timeout: 30000
             };
 
             const response = await axios(config);
 
             if (response.data && response.data.Result) {
                 const pageResults = response.data.Result;
-                // Log the number of records in this page
-                console.log(`Page ${pageCount} contains ${pageResults.length} records.`);
-                
-                // Check if we're hitting the page size limit
-                if (pageResults.length >= 1000) {
-                    console.log(`WARNING: Page ${pageCount} has ${pageResults.length} records, which is at or near the maximum.`);
-                }
-                
-                // Process the page results if a callback is provided
-                const processedResults = mergedOptions.pageCallback
-                    ? mergedOptions.pageCallback(pageCount, pageResults)
-                    : pageResults;
-                
+                // console.log(`Page ${pageCount} of ${resourcePath} contains ${pageResults.length} records.`); // Verbose
+
+                const processedResults = mergedOptions.pageCallback ? mergedOptions.pageCallback(pageCount, pageResults) : pageResults;
                 allResults = allResults.concat(processedResults);
-                
-                // Check early exit condition if provided
-                if (mergedOptions.earlyExitCondition) {
-                    const shouldExit = mergedOptions.earlyExitCondition(allResults);
-                    if (shouldExit) {
-                        console.log(`Early exit condition met after ${pageCount} pages. Stopping pagination.`);
-                        break;
-                    }
-                }
-                
-                // Check if we've reached the max pages
-                if (pageCount >= mergedOptions.maxPages) {
-                    console.log(`Reached maximum page limit (${mergedOptions.maxPages}). Stopping pagination.`);
-                    break;
-                }
-                
-                // Check for the @nextpage link in the response body
-                nextPageUrl = response.data['@nextpage'] ? response.data['@nextpage'] : null;
-                
-                if (nextPageUrl) {
-                    console.log(`Found next page link: ${nextPageUrl}`);
-                    // Ensure the next URL uses the correct base if it's relative (it shouldn't be with Caspio v2)
-                    if (!nextPageUrl.startsWith('http')) {
-                        console.warn("Received relative next page URL, prepending base. Check Caspio API version/response.");
-                        nextPageUrl = caspioApiBaseUrl + (nextPageUrl.startsWith('/') ? '' : '/') + nextPageUrl;
-                    }
-                    morePages = true;
-                } else if (pageResults.length >= 1000) {
-                    // If we got 1000 records but no @nextpage, try manual pagination
-                    console.log(`No @nextpage link found, but page is full. Trying manual pagination.`);
-                    morePages = true;
-                    nextPageUrl = "manual_pagination"; // Flag to use manual pagination
-                } else {
-                    console.log(`No more pages found (page has ${pageResults.length} records < 1000).`);
+
+                if (mergedOptions.earlyExitCondition && mergedOptions.earlyExitCondition(allResults)) {
+                    console.log(`Early exit condition met after ${pageCount} pages for ${resourcePath}.`);
                     morePages = false;
+                } else {
+                    nextPageUrl = response.data['@nextpage'] ? response.data['@nextpage'] : null;
+                    if (nextPageUrl) {
+                        if (!nextPageUrl.startsWith('http')) {
+                            nextPageUrl = caspioApiBaseUrl + (nextPageUrl.startsWith('/') ? '' : '/') + nextPageUrl;
+                        }
+                        morePages = true;
+                    } else if (pageResults.length >= (params['q.limit']) && pageCount < mergedOptions.maxPages) {
+                        console.log(`No @nextpage link for ${resourcePath} (page ${pageCount}), but page was full. Will attempt manual pagination if not at maxPages.`);
+                        morePages = true;
+                    } else {
+                        morePages = false;
+                    }
                 }
             } else {
-                console.warn("Caspio API response page did not contain 'Result':", response.data);
+                console.warn(`Caspio API response page for ${resourcePath} did not contain 'Result':`, response.data);
                 morePages = false;
             }
-        } // End while loop
-
+        }
         console.log(`Finished fetching ${pageCount} page(s), total ${allResults.length} records for ${resourcePath}.`);
         return allResults;
-
     } catch (error) {
-        console.error(`Error fetching all pages for ${resourcePath}:`, error.response ? JSON.stringify(error.response.data) : error.message);
-        throw new Error(`Failed to fetch all data from Caspio resource: ${resourcePath}. Status: ${error.response?.status}`);
+        console.error(`Error in fetchAllCaspioPages for ${resourcePath}:`, error.response ? JSON.stringify(error.response.data) : error.message, error.stack);
+        throw new Error(`Failed to fetch all data from Caspio resource: ${resourcePath}. Original error: ${error.message}`);
     }
 }
 
@@ -1687,9 +1638,9 @@ app.get('/api/prices-by-style-color', async (req, res) => {
     }
 });
 
-// --- ENHANCED Endpoint: Get Maximum Prices Across All Colors for a Style ---
-// This version provides raw garment costs and separate selling price display add-ons.
-// Example: /api/max-prices-by-style?styleNumber=PC61
+// --- MODIFIED Endpoint: /api/max-prices-by-style ---
+// Provides raw garment costs (max across colors for a style/size)
+// and separate sellingPriceDisplayAddOns from Standard_Size_Upcharges table.
 app.get('/api/max-prices-by-style', async (req, res) => {
     const { styleNumber } = req.query;
     if (!styleNumber) {
@@ -1701,107 +1652,77 @@ app.get('/api/max-prices-by-style', async (req, res) => {
         // 1. Fetch Selling Price Display Add-Ons from Caspio
         let sellingPriceDisplayAddOns = {};
         try {
-            const upchargeResourcePath = '/tables/Standard_Size_Upcharges/records'; // Table storing selling price add-ons
+            const upchargeResourcePath = '/tables/Standard_Size_Upcharges/records';
             const upchargeParams = {
                 'q.select': 'SizeDesignation,StandardAddOnAmount',
                 'q.orderby': 'SizeDesignation ASC',
-                'q.limit': 200 // Max number of add-on rules
+                'q.limit': 200
             };
-            console.log(`Fetching Selling Price Display Add-Ons from Caspio table: ${upchargeResourcePath}`);
             const upchargeResults = await fetchAllCaspioPages(upchargeResourcePath, upchargeParams);
-
             upchargeResults.forEach(rule => {
                 if (rule.SizeDesignation && rule.StandardAddOnAmount !== null && !isNaN(parseFloat(rule.StandardAddOnAmount))) {
                     sellingPriceDisplayAddOns[String(rule.SizeDesignation).trim().toUpperCase()] = parseFloat(rule.StandardAddOnAmount);
                 }
             });
-            console.log("Fetched Selling Price Display Add-Ons:", sellingPriceDisplayAddOns);
+            console.log("Fetched Selling Price Display Add-Ons for /max-prices-by-style:", sellingPriceDisplayAddOns);
             if (Object.keys(sellingPriceDisplayAddOns).length === 0) {
-                console.warn(`No Selling Price Display Add-On rules found from Caspio table: ${upchargeResourcePath}. Plus sizes will be priced based on S-XL without specific add-ons in the preview if this object is empty.`);
+                console.warn(`No Selling Price Display Add-On rules found from Caspio for /max-prices-by-style.`);
             }
         } catch (upchargeError) {
-            console.error("CRITICAL ERROR fetching Selling Price Display Add-Ons:", upchargeError.message, upchargeError.stack);
-            console.warn("Proceeding without Selling Price Display Add-Ons due to fetch error.");
-            sellingPriceDisplayAddOns = {}; // Default to empty if fetch fails
-            // Consider if an error should be returned to the client:
-            // return res.status(500).json({ error: 'Failed to load critical Selling Price Add-On configuration.' });
+            console.error("CRITICAL ERROR fetching Selling Price Display Add-Ons for /max-prices-by-style:", upchargeError.message);
+            sellingPriceDisplayAddOns = {};
         }
 
         // 2. Fetch Inventory Data to get base garment costs (max case price per size/style)
         const inventoryResource = '/tables/Inventory/records';
-        // Keep existing whereClause logic (e.g., PC61 'Ash' special case if still needed, otherwise simplify)
-        const inventoryWhereClause = styleNumber === 'PC61' && !req.query.color ? // Apply Ash only if no specific color is requested for PC61
-            `catalog_no='${styleNumber}' AND catalog_color='Ash'` :
-            `catalog_no='${styleNumber}'`;
-
+        // Fetches all colors for the style to determine max price per size.
+        // The PC61 'Ash' special case is removed here for simplicity, assuming this endpoint should always get max across all colors.
+        // If PC61 'Ash' logic is vital here, it can be added back to the whereClause.
+        const inventoryWhereClause = `catalog_no='${styleNumber}'`;
         const inventoryParams = {
             'q.where': inventoryWhereClause,
-            'q.select': 'size,case_price,SizeSortOrder', // Only fetch what's needed
-            'q.limit': 1000 // fetchAllCaspioPages handles pagination
+            'q.select': 'size,case_price,SizeSortOrder',
+            'q.limit': 1000
         };
-        console.log(`Fetching inventory for style ${styleNumber} with params: ${JSON.stringify(inventoryParams)}`);
-        const inventoryResult = await fetchAllCaspioPages(inventoryResource, inventoryParams, { maxPages: 20 });
+        const inventoryResult = await fetchAllCaspioPages(inventoryResource, inventoryParams, { maxPages: 20 }); // Ensure maxPages is sufficient
 
         if (inventoryResult.length === 0) {
-            console.warn(`No inventory found for style: ${styleNumber} with specified criteria.`);
-            // Return an empty sizes array and the fetched add-ons, so client can decide how to handle
+            console.warn(`No inventory found for style: ${styleNumber} in /max-prices-by-style with where: ${inventoryWhereClause}.`);
             return res.json({
-                style: styleNumber,
-                sizes: [],
-                sellingPriceDisplayAddOns: sellingPriceDisplayAddOns,
+                style: styleNumber, sizes: [], sellingPriceDisplayAddOns: sellingPriceDisplayAddOns,
                 message: `No inventory records found for style ${styleNumber} with where: ${inventoryWhereClause}`
             });
         }
 
-        const garmentCosts = {}; // This will hold the max_case_price for each size
-        const sortOrders = {};
-
+        const garmentCosts = {}; const sortOrders = {};
         inventoryResult.forEach(item => {
             if (item.size && item.case_price !== null && !isNaN(parseFloat(item.case_price))) {
                 const size = String(item.size).trim().toUpperCase();
                 const price = parseFloat(item.case_price);
                 const sortOrder = parseInt(item.SizeSortOrder, 10) || 999;
-
-                // Store the MAX case_price for this size (accounts for variations across colors if not filtered)
-                if (!garmentCosts[size] || price > garmentCosts[size]) {
-                    garmentCosts[size] = price;
-                }
-                if (!sortOrders[size] || sortOrder < sortOrders[size]) {
-                    sortOrders[size] = sortOrder;
-                }
+                if (!garmentCosts[size] || price > garmentCosts[size]) { garmentCosts[size] = price; }
+                if (!sortOrders[size] || sortOrder < sortOrders[size]) { sortOrders[size] = sortOrder; }
             }
         });
         
         if (Object.keys(garmentCosts).length === 0) {
-             console.warn(`No valid garment costs derived for style: ${styleNumber} from inventory query results.`);
-             return res.json({
-                style: styleNumber,
-                sizes: [],
-                sellingPriceDisplayAddOns: sellingPriceDisplayAddOns,
-                message: `No valid garment costs could be derived for style ${styleNumber}.`
-            });
+             console.warn(`No valid garment costs derived for style: ${styleNumber} from inventory for /max-prices-by-style.`);
+             return res.json({ style: styleNumber, sizes: [], sellingPriceDisplayAddOns: sellingPriceDisplayAddOns, message: `No valid garment costs for style ${styleNumber}.`});
         }
 
-        const sortedSizeKeys = Object.keys(garmentCosts).sort((a, b) => {
-            return (sortOrders[a] || 999) - (sortOrders[b] || 999);
-        });
+        const sortedSizeKeys = Object.keys(garmentCosts).sort((a, b) => (sortOrders[a] || 999) - (sortOrders[b] || 999));
 
-        // 3. Construct and send the response
+        // Construct the response
         const responsePayload = {
             style: styleNumber,
-            // This 'sizes' array will become 'dp8State.sizeData' in the XML DataPage.
-            // Each 'price' here is the raw garment cost (bIC).
             sizes: sortedSizeKeys.map(size => ({
                 size: size,
                 price: garmentCosts[size],
                 sortOrder: sortOrders[size]
             })),
-            // Pass the fetched selling price display add-ons to the client.
-            // This will become 'dp8State.sellingPriceDisplayAddOns'.
             sellingPriceDisplayAddOns: sellingPriceDisplayAddOns
         };
-
-        console.log(`Returning garment costs and selling price display add-ons for style: ${styleNumber}`);
+        console.log(`Returning data for /api/max-prices-by-style, style: ${styleNumber}, sizes found: ${sortedSizeKeys.length}`);
         res.json(responsePayload);
 
     } catch (error) {
@@ -1817,16 +1738,16 @@ app.use((err, req, res, next) => {
     res.status(500).json({ error: 'An unexpected internal server error occurred.' });
 });
 
-// --- NEW Endpoint: Get Size Pricing with Upcharges for Datapage Integration ---
-// Example: /api/size-pricing?styleNumber=PC61&color=Ash
+// --- MODIFIED Endpoint: /api/size-pricing ---
+// Fetches ALL sizes from Inventory and includes sellingPriceDisplayAddOns.
 app.get('/api/size-pricing', async (req, res) => {
-    const { styleNumber, color } = req.query; // color is optional for this endpoint
+    const { styleNumber, color } = req.query;
     if (!styleNumber) {
         return res.status(400).json({ error: 'Missing required query parameter: styleNumber' });
     }
     
     try {
-        console.log(`Fetching size pricing for style: ${styleNumber}, specific color requested: ${color || 'No (will use max across all colors)'}`);
+        console.log(`Fetching data for /api/size-pricing: Style=${styleNumber}, Color=${color || 'ALL (max price per size if no color specified)'}`);
 
         // 1. Fetch Selling Price Display Add-Ons from Caspio
         let sellingPriceDisplayAddOns = {};
@@ -1837,9 +1758,7 @@ app.get('/api/size-pricing', async (req, res) => {
                 'q.orderby': 'SizeDesignation ASC',
                 'q.limit': 200
             };
-            console.log(`Fetching Selling Price Display Add-Ons from Caspio table: ${upchargeResourcePath} for /api/size-pricing`);
             const upchargeResults = await fetchAllCaspioPages(upchargeResourcePath, upchargeParams);
-
             upchargeResults.forEach(rule => {
                 if (rule.SizeDesignation && rule.StandardAddOnAmount !== null && !isNaN(parseFloat(rule.StandardAddOnAmount))) {
                     sellingPriceDisplayAddOns[String(rule.SizeDesignation).trim().toUpperCase()] = parseFloat(rule.StandardAddOnAmount);
@@ -1847,99 +1766,111 @@ app.get('/api/size-pricing', async (req, res) => {
             });
             console.log("Fetched Selling Price Display Add-Ons for /api/size-pricing:", sellingPriceDisplayAddOns);
             if (Object.keys(sellingPriceDisplayAddOns).length === 0) {
-                console.warn(`No Selling Price Display Add-On rules found from Caspio table: ${upchargeResourcePath} for /api/size-pricing.`);
+                console.warn(`No Selling Price Display Add-On rules found for /api/size-pricing.`);
             }
         } catch (upchargeError) {
-            console.error("CRITICAL ERROR fetching Selling Price Display Add-Ons for /api/size-pricing:", upchargeError.message, upchargeError.stack);
-            console.warn("Proceeding without Selling Price Display Add-Ons for /api/size-pricing due to fetch error.");
+            console.error("CRITICAL ERROR fetching Selling Price Display Add-Ons for /api/size-pricing:", upchargeError.message);
             sellingPriceDisplayAddOns = {};
         }
 
-        // 2. Fetch Inventory Data to get garment costs
+        // 2. Fetch Inventory Data
         const inventoryResource = '/tables/Inventory/records';
         let inventoryWhereClause = `catalog_no='${styleNumber}'`;
-        if (color) { // If a specific color is requested, filter by it
-            inventoryWhereClause += ` AND catalog_color='${color}'`;
+        if (color) {
+            inventoryWhereClause += ` AND catalog_color='${String(color).trim()}'`;
         }
         
         const inventoryParams = {
             'q.where': inventoryWhereClause,
-            'q.select': 'size, case_price, SizeSortOrder, catalog_color', // Fetch catalog_color to confirm
-            'q.limit': 1000 // fetchAllCaspioPages handles pagination
+            'q.select': 'size, case_price, SizeSortOrder, catalog_color',
+            'q.limit': 1000
         };
         
-        console.log(`Fetching inventory for style ${styleNumber} (color: ${color || 'any'}) with params: ${JSON.stringify(inventoryParams)}`);
-        const inventoryResult = await fetchAllCaspioPages(inventoryResource, inventoryParams, { maxPages: 20 });
+        console.log(`Fetching ALL inventory pages for style ${styleNumber} (color filter: ${color || 'none'}) with params: ${JSON.stringify(inventoryParams)}`);
+        // Fetch ALL pages from Inventory up to maxPages, NO earlyExitCondition.
+        const inventoryResult = await fetchAllCaspioPages(inventoryResource, inventoryParams, { maxPages: 20 }); // Increased maxPages
 
         if (inventoryResult.length === 0) {
-            console.warn(`No inventory found for style: ${styleNumber} with criteria: ${inventoryWhereClause}`);
+            console.warn(`No inventory found for style: ${styleNumber} with criteria: ${inventoryWhereClause} in /api/size-pricing`);
             return res.json({
-                style: styleNumber,
-                color: color || 'all colors',
-                sizes: [],
-                sellingPriceDisplayAddOns: sellingPriceDisplayAddOns,
+                style: styleNumber, color: color || 'all (no inventory found)', baseSizePrice: null,
+                sizes: [], sellingPriceDisplayAddOns: sellingPriceDisplayAddOns,
                 message: `No inventory records found for style ${styleNumber} with where: ${inventoryWhereClause}`
             });
         }
 
-        const garmentCosts = {}; // Will hold the cost for each size (max if no color, specific if color)
+        const garmentCosts = {};
         const sortOrders = {};
+        let processedColor = color ? String(color).trim() : null;
 
         inventoryResult.forEach(item => {
             if (item.size && item.case_price !== null && !isNaN(parseFloat(item.case_price))) {
-                const size = String(item.size).trim().toUpperCase();
+                const sizeKey = String(item.size).trim().toUpperCase();
                 const price = parseFloat(item.case_price);
+                const itemColor = String(item.catalog_color || '').trim();
                 const sortOrder = parseInt(item.SizeSortOrder, 10) || 999;
 
-                // If a specific color was requested, we only care about prices for that color.
-                // If no color was requested, we take the MAX price for that size across all colors found.
-                if (color) { // Specific color was requested
-                    if (item.catalog_color === color) { // Ensure this item matches the requested color
-                         if (!garmentCosts[size] || price > garmentCosts[size]) { // Should ideally be only one price per size/color
-                            garmentCosts[size] = price;
-                        }
+                if (color) {
+                     if (itemColor.toUpperCase() === color.trim().toUpperCase()) {
+                         if (!garmentCosts[sizeKey] || price > garmentCosts[sizeKey]) {
+                             garmentCosts[sizeKey] = price;
+                         }
+                     }
+                } else {
+                    if (!garmentCosts[sizeKey] || price > garmentCosts[sizeKey]) {
+                        garmentCosts[sizeKey] = price;
                     }
-                } else { // No specific color requested, find MAX across all colors for this size
-                    if (!garmentCosts[size] || price > garmentCosts[size]) {
-                        garmentCosts[size] = price;
+                    if (!processedColor && inventoryResult.length > 0) {
+                        const firstColorInResults = inventoryResult[0]?.catalog_color;
+                        processedColor = firstColorInResults ? String(firstColorInResults).trim() : "all colors (aggregated)";
+                    } else if (!processedColor) {
+                        processedColor = "all colors (aggregated)";
                     }
                 }
                 
-                // Store the sort order (use the lowest found for a size if multiple records exist)
-                if (!sortOrders[size] || sortOrder < sortOrders[size]) {
-                    sortOrders[size] = sortOrder;
+                if (!sortOrders[sizeKey] || sortOrder < sortOrders[sizeKey]) {
+                    sortOrders[sizeKey] = sortOrder;
                 }
             }
         });
         
         if (Object.keys(garmentCosts).length === 0) {
-             console.warn(`No valid garment costs derived for style: ${styleNumber} (color: ${color || 'any'}) from inventory query results.`);
+             console.warn(`No valid garment costs derived for style: ${styleNumber} (color: ${color || 'any'}) from inventory for /api/size-pricing.`);
              return res.json({
-                style: styleNumber,
-                color: color || 'all colors',
-                sizes: [],
-                sellingPriceDisplayAddOns: sellingPriceDisplayAddOns,
+                style: styleNumber, color: color || 'all (no costs derived)', baseSizePrice: null,
+                sizes: [], sellingPriceDisplayAddOns: sellingPriceDisplayAddOns,
                 message: `No valid garment costs could be derived for style ${styleNumber} (color: ${color || 'any'}).`
             });
         }
-
-        const sortedSizeKeys = Object.keys(garmentCosts).sort((a, b) => {
-            return (sortOrders[a] || 999) - (sortOrders[b] || 999);
-        });
         
-        // 3. Construct and send the response
+        let baseSizePrice = null;
+        const preferredBaseSizes = ['XL', 'L', 'M', 'S'];
+        for (const bSize of preferredBaseSizes) {
+            if (garmentCosts[bSize] !== undefined) {
+                baseSizePrice = garmentCosts[bSize];
+                break;
+            }
+        }
+        if (baseSizePrice === null && Object.keys(garmentCosts).length > 0) {
+            const firstSortedSize = Object.keys(garmentCosts).sort((a,b) => (sortOrders[a]||999) - (sortOrders[b]||999))[0];
+            if(firstSortedSize) baseSizePrice = garmentCosts[firstSortedSize];
+        }
+        
+        const sortedSizeKeys = Object.keys(garmentCosts).sort((a, b) => (sortOrders[a] || 999) - (sortOrders[b] || 999));
+        
         const responsePayload = {
             style: styleNumber,
-            color: color || 'all colors', // Indicate if prices are for a specific color or max across all
-            sizes: sortedSizeKeys.map(size => ({
-                size: size,
-                price: garmentCosts[size], // This is the raw garment cost (bIC)
-                sortOrder: sortOrders[size]
+            color: processedColor || (color ? String(color).trim() : 'all colors (aggregated)'),
+            baseSizePrice: baseSizePrice,
+            sizes: sortedSizeKeys.map(sizeKey => ({
+                size: sizeKey,
+                price: garmentCosts[sizeKey],
+                sortOrder: sortOrders[sizeKey]
             })),
             sellingPriceDisplayAddOns: sellingPriceDisplayAddOns
         };
         
-        console.log(`Returning garment costs and selling price display add-ons for style: ${styleNumber}, color: ${color || 'all colors'}`);
+        console.log(`Returning data for /api/size-pricing, style: ${styleNumber}, sizes found: ${sortedSizeKeys.length}`);
         res.json(responsePayload);
         
     } catch (error) {
