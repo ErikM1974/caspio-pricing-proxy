@@ -3669,7 +3669,7 @@ app.get('/api/product-colors', async (req, res) => {
         // Use an EXACT match for the style number to avoid fetching related styles (e.g., LPC61 when PC61 is requested)
         const params = {
             'q.where': `STYLE='${styleNumber.trim()}'`, // Use exact match
-            'q.select': 'STYLE, PRODUCT_TITLE, PRODUCT_DESCRIPTION, COLOR_NAME, CATALOG_COLOR, COLOR_SQUARE_IMAGE, FRONT_MODEL, FRONT_FLAT',
+            'q.select': 'STYLE, PRODUCT_TITLE, PRODUCT_DESCRIPTION, COLOR_NAME, CATALOG_COLOR, COLOR_SQUARE_IMAGE, FRONT_MODEL, FRONT_FLAT_IMAGE, FRONT_MODEL_IMAGE_URL, BACK_MODEL_IMAGE, SIDE_MODEL, BACK_FLAT_IMAGE, THREE_Q_MODEL',
             'q.limit': 1000 // fetchAllCaspioPages handles pagination, this is per-page limit
         };
 
@@ -3730,29 +3730,25 @@ function processProductColorRecords(records, styleNumber, res) {
             const colorSquareImage = record.COLOR_SQUARE_IMAGE || '';
             
             // Get the main image URL following the priority order:
-            // 1. MAIN_IMAGE_URL (preferred)
-            // 2. FRONT_MODEL (fallback)
-            // 3. FRONT_FLAT (fallback)
-            const mainImageUrl = record.MAIN_IMAGE_URL || record.FRONT_MODEL || record.FRONT_FLAT || '';
+            // 1. FRONT_MODEL_IMAGE_URL (preferred)
+            // 2. MAIN_IMAGE_URL (fallback)
+            // 3. FRONT_MODEL (fallback)
+            // 4. FRONT_FLAT_IMAGE (fallback)
+            const mainImageUrl = record.FRONT_MODEL_IMAGE_URL || record.MAIN_IMAGE_URL || record.FRONT_MODEL || record.FRONT_FLAT_IMAGE || '';
             
             // Create the color object with all required fields
             const colorObject = {
                 COLOR_NAME: colorName,
                 CATALOG_COLOR: record.CATALOG_COLOR || colorName,
                 COLOR_SQUARE_IMAGE: colorSquareImage,
-                MAIN_IMAGE_URL: mainImageUrl
+                MAIN_IMAGE_URL: mainImageUrl,
+                FRONT_MODEL_IMAGE_URL: record.FRONT_MODEL_IMAGE_URL || '',
+                BACK_MODEL: record.BACK_MODEL_IMAGE || '',
+                SIDE_MODEL: record.SIDE_MODEL || '',
+                FRONT_FLAT: record.FRONT_FLAT_IMAGE || '',
+                BACK_FLAT: record.BACK_FLAT_IMAGE || '',
+                THREE_Q_MODEL: record.THREE_Q_MODEL || ''
             };
-            
-            // Add FRONT_MODEL and FRONT_FLAT fields if they exist
-            // This ensures backward compatibility with any frontend code
-            // that might be expecting these fields
-            if (record.FRONT_MODEL) {
-                colorObject.FRONT_MODEL = record.FRONT_MODEL;
-            }
-            
-            if (record.FRONT_FLAT) {
-                colorObject.FRONT_FLAT = record.FRONT_FLAT;
-            }
             
             colorsMap.set(colorName, colorObject);
             
