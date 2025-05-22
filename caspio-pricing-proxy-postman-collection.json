@@ -51,25 +51,6 @@
 			"response": []
 		},
 		{
-			"name": "Get Pricing Tiers for Caps",
-			"request": {
-				"method": "GET",
-				"header": [],
-				"url": {
-					"raw": "{{baseUrl}}/api/pricing-tiers-caps",
-					"host": [
-						"{{baseUrl}}"
-					],
-					"path": [
-						"api",
-						"pricing-tiers-caps"
-					]
-				},
-				"description": "Fetches pricing tiers specifically for 'EmbroideryCaps' from the Pricing_Tiers Caspio table."
-			},
-			"response": []
-		},
-		{
 			"name": "Get Embroidery Costs",
 			"request": {
 				"method": "GET",

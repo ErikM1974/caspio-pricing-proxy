@@ -265,27 +265,6 @@ app.get('/api/pricing-tiers', async (req, res) => {
     }
 });
 
-// Get Pricing Tiers for Embroidery Caps
-// Example: /api/pricing-tiers-caps
-app.get('/api/pricing-tiers-caps', async (req, res) => {
-    try {
-        console.log(`Fetching pricing tiers for EmbroideryCaps`);
-        
-        const resource = '/tables/Pricing_Tiers/records';
-        const params = {
-            'q.where': `DecorationMethod='EmbroideryCaps'`,
-            // Select all fields from the Pricing_Tiers table
-            'q.select': 'PK_ID,TierID,DecorationMethod,TierLabel,MinQuantity,MaxQuantity,MarginDenominator,TargetMargin,LTM_Fee',
-            'q.limit': 100 // Ensure all tiers are fetched
-        };
-        
-        // Use fetchAllCaspioPages to handle pagination
-        const result = await fetchAllCaspioPages(resource, params);
-        res.json(result);
-    } catch (error) {
-        res.status(500).json({ error: error.message || 'Failed to fetch pricing tiers for caps.' });
-    }
-});
 
 // Get Embroidery Costs
 // Example: /api/embroidery-costs?itemType=Cap&stitchCount=8000
