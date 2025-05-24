@@ -3669,7 +3669,7 @@ app.get('/api/product-colors', async (req, res) => {
         // Use an EXACT match for the style number to avoid fetching related styles (e.g., LPC61 when PC61 is requested)
         const params = {
             'q.where': `STYLE='${styleNumber.trim()}'`, // Use exact match
-            'q.select': 'STYLE, PRODUCT_TITLE, PRODUCT_DESCRIPTION, COLOR_NAME, CATALOG_COLOR, COLOR_SQUARE_IMAGE, FRONT_MODEL, FRONT_FLAT, BACK_MODEL, SIDE_MODEL, THREE_Q_MODEL, BACK_FLAT',
+            'q.select': 'STYLE, PRODUCT_TITLE, PRODUCT_DESCRIPTION, COLOR_NAME, CATALOG_COLOR, COLOR_SQUARE_IMAGE, FRONT_MODEL, FRONT_FLAT, BACK_MODEL, SIDE_MODEL, THREE_Q_MODEL, BACK_FLAT, DECORATION_SPEC_SHEET, BRAND_LOGO_IMAGE, SPEC_SHEET',
             'q.limit': 1000 // fetchAllCaspioPages handles pagination, this is per-page limit
         };
 
@@ -3767,7 +3767,11 @@ function processProductColorRecords(records, styleNumber, res) {
                 BACK_MODEL: ensureCompleteUrl(record.BACK_MODEL || ''),
                 SIDE_MODEL: ensureCompleteUrl(record.SIDE_MODEL || ''),
                 THREE_Q_MODEL: ensureCompleteUrl(record.THREE_Q_MODEL || ''),
-                BACK_FLAT: ensureCompleteUrl(record.BACK_FLAT || '')
+                BACK_FLAT: ensureCompleteUrl(record.BACK_FLAT || ''),
+                // Add the additional fields:
+                DECORATION_SPEC_SHEET: record.DECORATION_SPEC_SHEET || '',
+                BRAND_LOGO_IMAGE: record.BRAND_LOGO_IMAGE || '',
+                SPEC_SHEET: record.SPEC_SHEET || ''
             };
             
             colorsMap.set(colorName, colorObject);
