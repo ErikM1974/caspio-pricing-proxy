@@ -679,19 +679,12 @@ app.get('/api/color-swatches', async (req, res) => {
         console.log(`Fetching color swatches for style: ${styleNumber}`);
         const resource = '/tables/Sanmar_Bulk_251816_Feb2024/records';
         
-        // First, get a count of how many colors we expect
-        const countParams = {
-            'q.where': `STYLE='${styleNumber}' AND COLOR_NAME IS NOT NULL`,
-            'q.select': 'COLOR_NAME',
-            'q.limit': 1
-        };
-        
         // Optimize the query to only get necessary fields and valid colors
         const params = {
             'q.where': `STYLE='${styleNumber}' AND COLOR_NAME IS NOT NULL AND COLOR_SQUARE_IMAGE IS NOT NULL`,
             'q.select': 'COLOR_NAME, CATALOG_COLOR, COLOR_SQUARE_IMAGE',
             'q.orderby': 'COLOR_NAME ASC',
-            'q.limit': 50 // Smaller pages to avoid timeout
+            'q.limit': 100 // Increased page size for better efficiency
         };
         
         // Custom page callback to track progress
@@ -715,11 +708,8 @@ app.get('/api/color-swatches', async (req, res) => {
                 }
             });
             
-            // If we have enough colors, we can stop early
-            if (allColors.length >= 60) {
-                console.log(`Found ${allColors.length} colors, stopping pagination early`);
-                return []; // Return empty array to stop processing
-            }
+            // Don't stop early - we want ALL colors
+            console.log(`Collected ${allColors.length} unique colors so far...`);
             
             return pageData;
         };
@@ -727,8 +717,9 @@ app.get('/api/color-swatches', async (req, res) => {
         try {
             // Use fetchAllCaspioPages with optimized settings
             const result = await fetchAllCaspioPages(resource, params, {
-                maxPages: 20, // Allow more pages since we're using smaller page size
-                pageCallback: pageCallback
+                maxPages: 50, // Significantly increased to ensure we get all colors
+                pageCallback: pageCallback,
+                totalTimeout: 28000 // Increased timeout to 28 seconds (just under Heroku's 30s limit)
             });
             
             console.log(`Fetched ${result.length} total records for style ${styleNumber}`);
