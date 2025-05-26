@@ -676,47 +676,59 @@ app.get('/api/color-swatches', async (req, res) => {
         
         // Custom page callback to track progress
         let pageCount = 0;
+        const allColors = [];
+        const seenColors = new Set();
+        
         const pageCallback = (pageNum, pageData) => {
             pageCount++;
             console.log(`Color swatches - Page ${pageNum}: ${pageData.length} records`);
+            
+            // Process colors immediately as we get them
+            pageData.forEach(item => {
+                if (item.COLOR_NAME && item.CATALOG_COLOR && item.COLOR_SQUARE_IMAGE && !seenColors.has(item.COLOR_NAME)) {
+                    seenColors.add(item.COLOR_NAME);
+                    allColors.push({
+                        COLOR_NAME: item.COLOR_NAME,
+                        CATALOG_COLOR: item.CATALOG_COLOR,
+                        COLOR_SQUARE_IMAGE: item.COLOR_SQUARE_IMAGE
+                    });
+                }
+            });
+            
+            // If we have enough colors, we can stop early
+            if (allColors.length >= 60) {
+                console.log(`Found ${allColors.length} colors, stopping pagination early`);
+                return []; // Return empty array to stop processing
+            }
+            
             return pageData;
         };
         
-        // Use fetchAllCaspioPages with optimized settings
-        const result = await fetchAllCaspioPages(resource, params, {
-            maxPages: 20, // Allow more pages since we're using smaller page size
-            pageCallback: pageCallback
-        });
-        
-        console.log(`Fetched ${result.length} total records for style ${styleNumber}`);
-        
-        // Filter out results where essential swatch info might be missing
-        const validSwatches = result.filter(item =>
-            item.COLOR_NAME &&
-            item.CATALOG_COLOR &&
-            item.COLOR_SQUARE_IMAGE
-        );
-        
-        // Deduplicate swatches based on COLOR_NAME to ensure each color appears only once
-        const uniqueSwatches = [];
-        const seenColors = new Set();
-        
-        for (const swatch of validSwatches) {
-            if (!seenColors.has(swatch.COLOR_NAME)) {
-                seenColors.add(swatch.COLOR_NAME);
-                uniqueSwatches.push({
-                    COLOR_NAME: swatch.COLOR_NAME,
-                    CATALOG_COLOR: swatch.CATALOG_COLOR,
-                    COLOR_SQUARE_IMAGE: swatch.COLOR_SQUARE_IMAGE
-                });
+        try {
+            // Use fetchAllCaspioPages with optimized settings
+            const result = await fetchAllCaspioPages(resource, params, {
+                maxPages: 20, // Allow more pages since we're using smaller page size
+                pageCallback: pageCallback
+            });
+            
+            console.log(`Fetched ${result.length} total records for style ${styleNumber}`);
+        } catch (fetchError) {
+            // If we timeout but have some colors, return what we have
+            console.log(`Fetch error occurred, but returning ${allColors.length} colors collected so far`);
+            if (allColors.length > 0) {
+                // Sort and return partial results
+                allColors.sort((a, b) => a.COLOR_NAME.localeCompare(b.COLOR_NAME));
+                return res.json(allColors);
             }
+            throw fetchError; // Re-throw if we have no data
         }
         
+        // The colors have already been collected and deduplicated in allColors
         // Sort colors alphabetically for consistent output
-        uniqueSwatches.sort((a, b) => a.COLOR_NAME.localeCompare(b.COLOR_NAME));
+        allColors.sort((a, b) => a.COLOR_NAME.localeCompare(b.COLOR_NAME));
         
-        console.log(`Returning ${uniqueSwatches.length} unique colors for style ${styleNumber}`);
-        res.json(uniqueSwatches);
+        console.log(`Returning ${allColors.length} unique colors for style ${styleNumber}`);
+        res.json(allColors);
     } catch (error) {
         console.error(`Error in /api/color-swatches for style ${styleNumber}:`, error.message);
         // Return a more graceful error response
