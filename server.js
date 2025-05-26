@@ -679,12 +679,34 @@ app.get('/api/color-swatches', async (req, res) => {
         console.log(`Fetching color swatches for style: ${styleNumber}`);
         const resource = '/tables/Sanmar_Bulk_251816_Feb2024/records';
         
-        // Optimize the query to only get necessary fields and valid colors
+        // First, get a small sample to find the first available size
+        const sampleParams = {
+            'q.where': `STYLE='${styleNumber}'`,
+            'q.select': 'size',
+            'q.orderby': 'SizeSortOrder ASC, size ASC',
+            'q.limit': 1 // Just get the first record to find a size
+        };
+        
+        // Get the first available size
+        let firstSize = null;
+        try {
+            const sampleResult = await fetchAllCaspioPages(resource, sampleParams, { maxPages: 1 });
+            if (sampleResult && sampleResult.length > 0 && sampleResult[0].size) {
+                firstSize = sampleResult[0].size;
+                console.log(`Using first available size: ${firstSize} for style ${styleNumber}`);
+            }
+        } catch (sampleError) {
+            console.log(`Could not fetch sample size, proceeding without size filter`);
+        }
+        
+        // Now get colors, filtering by the first size if available
         const params = {
-            'q.where': `STYLE='${styleNumber}' AND COLOR_NAME IS NOT NULL AND COLOR_SQUARE_IMAGE IS NOT NULL`,
+            'q.where': firstSize ?
+                `STYLE='${styleNumber}' AND size='${firstSize}'` :
+                `STYLE='${styleNumber}'`, // Fallback to no size filter if needed
             'q.select': 'COLOR_NAME, CATALOG_COLOR, COLOR_SQUARE_IMAGE',
             'q.orderby': 'COLOR_NAME ASC',
-            'q.limit': 100 // Increased page size for better efficiency
+            'q.limit': 1000 // Increased page size to get more records per request
         };
         
         // Custom page callback to track progress
@@ -698,12 +720,14 @@ app.get('/api/color-swatches', async (req, res) => {
             
             // Process colors immediately as we get them
             pageData.forEach(item => {
-                if (item.COLOR_NAME && item.CATALOG_COLOR && item.COLOR_SQUARE_IMAGE && !seenColors.has(item.COLOR_NAME)) {
-                    seenColors.add(item.COLOR_NAME);
+                // Include colors even if they don't have images
+                const colorName = item.COLOR_NAME || item.CATALOG_COLOR;
+                if (colorName && !seenColors.has(colorName)) {
+                    seenColors.add(colorName);
                     allColors.push({
-                        COLOR_NAME: item.COLOR_NAME,
-                        CATALOG_COLOR: item.CATALOG_COLOR,
-                        COLOR_SQUARE_IMAGE: item.COLOR_SQUARE_IMAGE
+                        COLOR_NAME: item.COLOR_NAME || '',
+                        CATALOG_COLOR: item.CATALOG_COLOR || '',
+                        COLOR_SQUARE_IMAGE: item.COLOR_SQUARE_IMAGE || '' // Allow empty image URLs
                     });
                 }
             });
@@ -717,9 +741,9 @@ app.get('/api/color-swatches', async (req, res) => {
         try {
             // Use fetchAllCaspioPages with optimized settings
             const result = await fetchAllCaspioPages(resource, params, {
-                maxPages: 50, // Significantly increased to ensure we get all colors
+                maxPages: 100, // Further increased to ensure we get all colors
                 pageCallback: pageCallback,
-                totalTimeout: 28000 // Increased timeout to 28 seconds (just under Heroku's 30s limit)
+                totalTimeout: 29000 // Increased timeout to 29 seconds (just under Heroku's 30s limit)
             });
             
             console.log(`Fetched ${result.length} total records for style ${styleNumber}`);
