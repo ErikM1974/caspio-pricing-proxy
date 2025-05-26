@@ -153,11 +153,22 @@ async function fetchAllCaspioPages(resourcePath, initialParams = {}, options = {
     const defaultOptions = {
         maxPages: 10, // Default max pages, can be overridden by options
         earlyExitCondition: null,
-        pageCallback: null
+        pageCallback: null,
+        totalTimeout: 25000 // Total timeout for all pages combined (25 seconds)
     };
     const mergedOptions = { ...defaultOptions, ...options };
     
     // console.log(`Fetching up to ${mergedOptions.maxPages} pages for: ${resourcePath} with initial params: ${JSON.stringify(params)}`); // Verbose
+
+    // Set up a total timeout for the entire pagination process
+    const startTime = Date.now();
+    const checkTotalTimeout = () => {
+        if (Date.now() - startTime > mergedOptions.totalTimeout) {
+            console.log(`Total timeout reached for ${resourcePath} after ${Date.now() - startTime}ms`);
+            return true;
+        }
+        return false;
+    };
 
     try {
         const token = await getCaspioAccessToken(); // Ensure getCaspioAccessToken is defined and working
@@ -165,7 +176,7 @@ async function fetchAllCaspioPages(resourcePath, initialParams = {}, options = {
         let morePages = true;
         let currentRequestParams = { ...params };
 
-        while (morePages && pageCount < mergedOptions.maxPages) {
+        while (morePages && pageCount < mergedOptions.maxPages && !checkTotalTimeout()) {
             pageCount++;
             let currentUrl = nextPageUrl;
 
@@ -183,10 +194,11 @@ async function fetchAllCaspioPages(resourcePath, initialParams = {}, options = {
                 method: 'get', url: currentUrl,
                 headers: { 'Authorization': `Bearer ${token}` },
                 params: currentRequestParams,
-                timeout: 15000 // Reduced timeout to 15 seconds per request
+                timeout: 10000 // Further reduced timeout to 10 seconds per request
             };
 
-            const response = await axios(config);
+            try {
+                const response = await axios(config);
 
             if (response.data && response.data.Result) {
                 const pageResults = response.data.Result;
@@ -215,6 +227,14 @@ async function fetchAllCaspioPages(resourcePath, initialParams = {}, options = {
             } else {
                 console.warn(`Caspio API response page for ${resourcePath} did not contain 'Result':`, response.data);
                 morePages = false;
+            }
+            } catch (pageError) {
+                if (pageError.code === 'ECONNABORTED' || pageError.message.includes('timeout')) {
+                    console.log(`Timeout on page ${pageCount} for ${resourcePath}, continuing with collected data`);
+                    morePages = false; // Stop pagination on timeout
+                } else {
+                    throw pageError; // Re-throw non-timeout errors
+                }
             }
         }
         console.log(`Finished fetching ${pageCount} page(s), total ${allResults.length} records for ${resourcePath}.`);
