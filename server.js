@@ -182,7 +182,8 @@ async function fetchAllCaspioPages(resourcePath, initialParams = {}, options = {
             const config = {
                 method: 'get', url: currentUrl,
                 headers: { 'Authorization': `Bearer ${token}` },
-                params: currentRequestParams, timeout: 30000
+                params: currentRequestParams,
+                timeout: 15000 // Reduced timeout to 15 seconds per request
             };
 
             const response = await axios(config);
@@ -657,16 +658,34 @@ app.get('/api/color-swatches', async (req, res) => {
     try {
         console.log(`Fetching color swatches for style: ${styleNumber}`);
         const resource = '/tables/Sanmar_Bulk_251816_Feb2024/records';
-        const params = {
-            'q.where': `STYLE='${styleNumber}'`,
-            'q.select': 'COLOR_NAME, CATALOG_COLOR, COLOR_SQUARE_IMAGE',
-            'q.orderby': 'COLOR_NAME ASC',
-            'q.limit': 100 // Reduced limit to prevent memory issues
+        
+        // First, get a count of how many colors we expect
+        const countParams = {
+            'q.where': `STYLE='${styleNumber}' AND COLOR_NAME IS NOT NULL`,
+            'q.select': 'COLOR_NAME',
+            'q.limit': 1
         };
         
-        // Use fetchAllCaspioPages with increased page limit to get all colors
+        // Optimize the query to only get necessary fields and valid colors
+        const params = {
+            'q.where': `STYLE='${styleNumber}' AND COLOR_NAME IS NOT NULL AND COLOR_SQUARE_IMAGE IS NOT NULL`,
+            'q.select': 'COLOR_NAME, CATALOG_COLOR, COLOR_SQUARE_IMAGE',
+            'q.orderby': 'COLOR_NAME ASC',
+            'q.limit': 50 // Smaller pages to avoid timeout
+        };
+        
+        // Custom page callback to track progress
+        let pageCount = 0;
+        const pageCallback = (pageNum, pageData) => {
+            pageCount++;
+            console.log(`Color swatches - Page ${pageNum}: ${pageData.length} records`);
+            return pageData;
+        };
+        
+        // Use fetchAllCaspioPages with optimized settings
         const result = await fetchAllCaspioPages(resource, params, {
-            maxPages: 10 // Increased to ensure we get all colors
+            maxPages: 20, // Allow more pages since we're using smaller page size
+            pageCallback: pageCallback
         });
         
         console.log(`Fetched ${result.length} total records for style ${styleNumber}`);
