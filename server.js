@@ -655,18 +655,40 @@ app.get('/api/color-swatches', async (req, res) => {
         return res.status(400).json({ error: 'Missing required query parameter: styleNumber' });
     }
     try {
+        console.log(`Fetching color swatches for style: ${styleNumber}`);
         const resource = '/tables/Sanmar_Bulk_251816_Feb2024/records';
         const params = {
             'q.where': `STYLE='${styleNumber}'`,
             'q.select': 'COLOR_NAME, CATALOG_COLOR, COLOR_SQUARE_IMAGE',
-            // 'q.distinct': true, // Leave distinct OFF to get all variations
             'q.orderby': 'COLOR_NAME ASC',
-            'q.limit': 1000 // Ask for max per page
+            'q.limit': 100 // Reduced limit to prevent memory issues
         };
-        // Use the new function to fetch all pages
-        const result = await fetchAllCaspioPages(resource, params);
+        
+        // Create an early exit condition to stop when we have enough unique colors
+        const uniqueColors = new Set();
+        const earlyExitCondition = (allResults) => {
+            // Count unique colors so far
+            allResults.forEach(item => {
+                if (item.COLOR_NAME) uniqueColors.add(item.COLOR_NAME);
+            });
+            // Exit early if we have more than 50 unique colors (reasonable limit for a single style)
+            return uniqueColors.size > 50;
+        };
+        
+        // Use fetchAllCaspioPages with limited pages to prevent timeout
+        const result = await fetchAllCaspioPages(resource, params, {
+            maxPages: 5, // Limit to 5 pages max to prevent timeout
+            earlyExitCondition: earlyExitCondition
+        });
+        
+        console.log(`Fetched ${result.length} total records for style ${styleNumber}`);
+        
         // Filter out results where essential swatch info might be missing
-        const validSwatches = result.filter(item => item.COLOR_NAME && item.CATALOG_COLOR && item.COLOR_SQUARE_IMAGE);
+        const validSwatches = result.filter(item =>
+            item.COLOR_NAME &&
+            item.CATALOG_COLOR &&
+            item.COLOR_SQUARE_IMAGE
+        );
         
         // Deduplicate swatches based on COLOR_NAME to ensure each color appears only once
         const uniqueSwatches = [];
@@ -675,14 +697,27 @@ app.get('/api/color-swatches', async (req, res) => {
         for (const swatch of validSwatches) {
             if (!seenColors.has(swatch.COLOR_NAME)) {
                 seenColors.add(swatch.COLOR_NAME);
-                uniqueSwatches.push(swatch);
+                uniqueSwatches.push({
+                    COLOR_NAME: swatch.COLOR_NAME,
+                    CATALOG_COLOR: swatch.CATALOG_COLOR,
+                    COLOR_SQUARE_IMAGE: swatch.COLOR_SQUARE_IMAGE
+                });
             }
         }
         
-        console.log(`Returning ${uniqueSwatches.length} unique colors out of ${validSwatches.length} total swatches for style ${styleNumber}`);
+        // Sort colors alphabetically for consistent output
+        uniqueSwatches.sort((a, b) => a.COLOR_NAME.localeCompare(b.COLOR_NAME));
+        
+        console.log(`Returning ${uniqueSwatches.length} unique colors for style ${styleNumber}`);
         res.json(uniqueSwatches);
     } catch (error) {
-        res.status(500).json({ error: error.message || 'Failed to fetch color swatches.' });
+        console.error(`Error in /api/color-swatches for style ${styleNumber}:`, error.message);
+        // Return a more graceful error response
+        res.status(500).json({
+            error: 'Failed to fetch color swatches.',
+            message: error.message,
+            styleNumber: styleNumber
+        });
     }
 });
 // --- UPDATED Endpoint: Get Inventory Data (Handles Pagination) ---
