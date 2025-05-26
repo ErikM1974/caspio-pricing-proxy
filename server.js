@@ -664,21 +664,9 @@ app.get('/api/color-swatches', async (req, res) => {
             'q.limit': 100 // Reduced limit to prevent memory issues
         };
         
-        // Create an early exit condition to stop when we have enough unique colors
-        const uniqueColors = new Set();
-        const earlyExitCondition = (allResults) => {
-            // Count unique colors so far
-            allResults.forEach(item => {
-                if (item.COLOR_NAME) uniqueColors.add(item.COLOR_NAME);
-            });
-            // Exit early if we have more than 50 unique colors (reasonable limit for a single style)
-            return uniqueColors.size > 50;
-        };
-        
-        // Use fetchAllCaspioPages with limited pages to prevent timeout
+        // Use fetchAllCaspioPages with increased page limit to get all colors
         const result = await fetchAllCaspioPages(resource, params, {
-            maxPages: 5, // Limit to 5 pages max to prevent timeout
-            earlyExitCondition: earlyExitCondition
+            maxPages: 10 // Increased to ensure we get all colors
         });
         
         console.log(`Fetched ${result.length} total records for style ${styleNumber}`);
