@@ -1712,6 +1712,37 @@
 				"description": "Fetches product color information (color names, catalog colors, swatch images, and main product images) for a given styleNumber from the Sanmar_Bulk_251816_Feb2024 table. Requires 'styleNumber' query parameter."
 			},
 			"response": []
+		},
+		{
+			"name": "Get Product Variant Sizes",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/product-variant-sizes?styleNumber=PC61&color=Aquatic%20Blue",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"product-variant-sizes"
+					],
+					"query": [
+						{
+							"key": "styleNumber",
+							"value": "PC61",
+							"description": "Style number of the product"
+						},
+						{
+							"key": "color",
+							"value": "Aquatic Blue",
+							"description": "Color of the product (can also use colorName or catalogColor)"
+						}
+					]
+				},
+				"description": "Fetches unique sizes for a specific style and color combination. Gets STYLE, COLOR_NAME, and CATALOG_COLOR from Sanmar_Bulk_251816_Feb2024 table and sizes (with proper sorting) from the Inventory table. Requires 'styleNumber' and one of 'color', 'colorName', or 'catalogColor' query parameters."
+			},
+			"response": []
 		}
 	],
 	"event": [

@@ -1617,6 +1617,93 @@ app.get('/api/prices-by-style-color', async (req, res) => {
     }
 });
 
+// --- NEW Endpoint: Get Unique Sizes by Style and Color ---
+// Example: /api/product-variant-sizes?styleNumber=PC61&color=Aquatic%20Blue
+// Fetches STYLE, COLOR_NAME, CATALOG_COLOR from Sanmar_Bulk and SIZES (sorted) from Inventory.
+app.get('/api/product-variant-sizes', async (req, res) => {
+    const { styleNumber, color, colorName, catalogColor } = req.query;
+    const actualColorParam = color || colorName || catalogColor;
+
+    if (!styleNumber || !actualColorParam) {
+        return res.status(400).json({ error: 'Missing required query parameters: styleNumber and one of (color, colorName, catalogColor)' });
+    }
+
+    try {
+        console.log(`Fetching product variant info for style: ${styleNumber}, color: ${actualColorParam}`);
+
+        // 1. Fetch Style/Color display info from Sanmar_Bulk_251816_Feb2024
+        const sanmarBulkResource = '/tables/Sanmar_Bulk_251816_Feb2024/records';
+        const sanmarBulkParams = {
+            'q.where': `STYLE='${styleNumber}' AND (CATALOG_COLOR='${actualColorParam}' OR COLOR_NAME='${actualColorParam}')`,
+            'q.select': 'STYLE, COLOR_NAME, CATALOG_COLOR',
+            'q.limit': 1
+        };
+
+        const sanmarBulkResults = await fetchAllCaspioPages(sanmarBulkResource, sanmarBulkParams);
+
+        if (!sanmarBulkResults || sanmarBulkResults.length === 0) {
+            console.warn(`No product info found in Sanmar_Bulk for style: ${styleNumber}, color: ${actualColorParam}`);
+            return res.status(404).json({
+                error: `Product information not found for style: ${styleNumber} and color: ${actualColorParam} in Sanmar_Bulk table.`,
+                STYLE: styleNumber,
+                COLOR_NAME: actualColorParam, // Fallback to requested color
+                CATALOG_COLOR: actualColorParam, // Fallback to requested color
+                SIZES: []
+            });
+        }
+
+        const displayStyle = sanmarBulkResults[0].STYLE;
+        const displayColorName = sanmarBulkResults[0].COLOR_NAME;
+        const displayCatalogColor = sanmarBulkResults[0].CATALOG_COLOR;
+
+        // 2. Fetch Sizes and SizeSortOrder from Inventory
+        const inventoryResource = '/tables/Inventory/records';
+        const inventoryParams = {
+            'q.where': `catalog_no='${styleNumber}' AND catalog_color='${actualColorParam}'`, // Match Inventory table's color field
+            'q.select': 'size, SizeSortOrder',
+            'q.orderby': 'SizeSortOrder ASC', // Order by size sort order
+            'q.limit': 1000 // High limit to get all relevant records for the style/color
+        };
+
+        const inventoryResults = await fetchAllCaspioPages(inventoryResource, inventoryParams);
+
+        let sortedSizes = [];
+        if (inventoryResults.length > 0) {
+            const uniqueSizes = new Set();
+            const sizeSortOrders = {};
+
+            inventoryResults.forEach(item => {
+                if (item.size) {
+                    uniqueSizes.add(item.size);
+                    if (!sizeSortOrders[item.size] || item.SizeSortOrder < sizeSortOrders[item.size]) {
+                        sizeSortOrders[item.size] = item.SizeSortOrder || 999;
+                    }
+                }
+            });
+
+            sortedSizes = Array.from(uniqueSizes).sort((a, b) => {
+                return (sizeSortOrders[a] || 999) - (sizeSortOrders[b] || 999);
+            });
+        } else {
+            console.warn(`No sizes found in Inventory for style: ${styleNumber}, color: ${actualColorParam}`);
+        }
+        
+        const responsePayload = {
+            STYLE: displayStyle,
+            COLOR_NAME: displayColorName,
+            CATALOG_COLOR: displayCatalogColor,
+            SIZES: sortedSizes
+        };
+
+        console.log(`Returning ${sortedSizes.length} unique sizes for style: ${displayStyle}, color: ${displayColorName}`);
+        res.json(responsePayload);
+
+    } catch (error) {
+        console.error(`Error fetching product variant sizes for style ${styleNumber}, color ${actualColorParam}:`, error.message, error.stack);
+        res.status(500).json({ error: `Failed to fetch product variant sizes. ${error.message}` });
+    }
+});
+
 // --- MODIFIED Endpoint: /api/max-prices-by-style ---
 // Provides raw garment costs (max across colors for a style/size)
 // and separate sellingPriceDisplayAddOns from Standard_Size_Upcharges table.
