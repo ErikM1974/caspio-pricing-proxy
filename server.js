@@ -1853,8 +1853,45 @@ app.get('/api/size-pricing', async (req, res) => {
         };
         
         console.log(`Fetching ALL inventory pages for style ${styleNumber} (color filter: ${color || 'none'}) with params: ${JSON.stringify(inventoryParams)}`);
-        // Fetch ALL pages from Inventory up to maxPages, NO earlyExitCondition.
-        const inventoryResult = await fetchAllCaspioPages(inventoryResource, inventoryParams, { maxPages: 20 }); // Increased maxPages
+        
+        // Create a custom callback to track progress and detect when we have all sizes
+        const pageCallback = (pageNum, pageData) => {
+            console.log(`Inventory fetch - Page ${pageNum}: ${pageData.length} records`);
+            return pageData;
+        };
+        
+        // Create an early exit condition to stop when we've likely found all sizes for this style
+        const earlyExitCondition = (allResults) => {
+            // Extract unique sizes from current results
+            const uniqueSizes = new Set();
+            allResults.forEach(item => {
+                if (item.size) uniqueSizes.add(item.size.trim().toUpperCase());
+            });
+            
+            // Check if we have the expected large sizes (5XL, 6XL) - if so, we probably have everything
+            const hasLargeSizes = uniqueSizes.has('5XL') && uniqueSizes.has('6XL');
+            const sizeCount = uniqueSizes.size;
+            
+            // Log current progress
+            console.log(`Current unique sizes found: ${Array.from(uniqueSizes).sort()}`);
+            console.log(`Size count: ${sizeCount}, Has large sizes (5XL, 6XL): ${hasLargeSizes}`);
+            
+            // Exit early if we have a reasonable number of sizes AND the large sizes
+            // This prevents unnecessary API calls while ensuring completeness
+            if (sizeCount >= 7 && hasLargeSizes) {
+                console.log(`Early exit: Found ${sizeCount} sizes including large sizes (5XL, 6XL)`);
+                return true;
+            }
+            
+            return false;
+        };
+        
+        // Fetch ALL pages from Inventory with significantly increased maxPages and smart early exit
+        const inventoryResult = await fetchAllCaspioPages(inventoryResource, inventoryParams, {
+            maxPages: 100, // Dramatically increased from 20 to 100 to ensure we get all records
+            pageCallback: pageCallback,
+            earlyExitCondition: earlyExitCondition
+        });
 
         if (inventoryResult.length === 0) {
             console.warn(`No inventory found for style: ${styleNumber} with criteria: ${inventoryWhereClause} in /api/size-pricing`);
@@ -1864,6 +1901,15 @@ app.get('/api/size-pricing', async (req, res) => {
                 message: `No inventory records found for style ${styleNumber} with where: ${inventoryWhereClause}`
             });
         }
+
+        // Log detailed information about what we found
+        const uniqueSizesFound = new Set();
+        inventoryResult.forEach(item => {
+            if (item.size) uniqueSizesFound.add(item.size.trim().toUpperCase());
+        });
+        console.log(`Total inventory records fetched: ${inventoryResult.length}`);
+        console.log(`Unique sizes found: ${Array.from(uniqueSizesFound).sort()}`);
+        console.log(`Size count: ${uniqueSizesFound.size}`);
 
         const garmentCosts = {};
         const sortOrders = {};
@@ -1933,10 +1979,17 @@ app.get('/api/size-pricing', async (req, res) => {
                 price: garmentCosts[sizeKey],
                 sortOrder: sortOrders[sizeKey]
             })),
-            sellingPriceDisplayAddOns: sellingPriceDisplayAddOns
+            sellingPriceDisplayAddOns: sellingPriceDisplayAddOns,
+            // Add debugging information to help track pagination completeness
+            debug: {
+                totalInventoryRecords: inventoryResult.length,
+                uniqueSizesFound: uniqueSizesFound.size,
+                allSizesFound: Array.from(uniqueSizesFound).sort()
+            }
         };
         
         console.log(`Returning data for /api/size-pricing, style: ${styleNumber}, sizes found: ${sortedSizeKeys.length}`);
+        console.log(`Debug info - Total records: ${inventoryResult.length}, Unique sizes: ${uniqueSizesFound.size}`);
         res.json(responsePayload);
         
     } catch (error) {
