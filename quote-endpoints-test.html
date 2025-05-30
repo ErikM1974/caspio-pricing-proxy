@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quote Endpoints Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1, h2 {
+            color: #333;
+        }
+        .endpoint-section {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background-color: #f9f9f9;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input, textarea {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        textarea {
+            height: 100px;
+            font-family: monospace;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .response {
+            margin-top: 20px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background-color: #fff;
+            overflow-x: auto;
+        }
+        .response pre {
+            margin: 0;
+            white-space: pre-wrap;
+        }
+        .success {
+            color: #4CAF50;
+        }
+        .error {
+            color: #f44336;
+        }
+        .tabs {
+            display: flex;
+            margin-bottom: 20px;
+        }
+        .tab {
+            padding: 10px 20px;
+            cursor: pointer;
+            border: 1px solid #ddd;
+            background-color: #f1f1f1;
+            margin-right: 5px;
+            border-radius: 5px 5px 0 0;
+        }
+        .tab.active {
+            background-color: #4CAF50;
+            color: white;
+            border-color: #4CAF50;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <h1>Quote Endpoints Test</h1>
+    <p>Use this interface to test the Quote_Analytics, Quote_Items, and Quote_Sessions endpoints.</p>
+    
+    <div class="tabs">
+        <div class="tab active" onclick="openTab(event, 'analytics')">Quote Analytics</div>
+        <div class="tab" onclick="openTab(event, 'items')">Quote Items</div>
+        <div class="tab" onclick="openTab(event, 'sessions')">Quote Sessions</div>
+    </div>
+    
+    <!-- Quote Analytics Tab -->
+    <div id="analytics" class="tab-content active">
+        <div class="endpoint-section">
+            <h2>Create Quote Analytics</h2>
+            <form id="create-analytics-form">
+                <div class="form-group">
+                    <label for="analytics-session-id">Session ID:</label>
+                    <input type="text" id="analytics-session-id" value="test-session-123">
+                </div>
+                <div class="form-group">
+                    <label for="analytics-quote-id">Quote ID:</label>
+                    <input type="text" id="analytics-quote-id" value="test-quote-123">
+                </div>
+                <div class="form-group">
+                    <label for="analytics-event-type">Event Type:</label>
+                    <input type="text" id="analytics-event-type" value="page_view">
+                </div>
+                <div class="form-group">
+                    <label for="analytics-style-number">Style Number:</label>
+                    <input type="text" id="analytics-style-number" value="PC61">
+                </div>
+                <div class="form-group">
+                    <label for="analytics-color">Color:</label>
+                    <input type="text" id="analytics-color" value="Black">
+                </div>
+                <div class="form-group">
+                    <label for="analytics-print-location">Print Location:</label>
+                    <input type="text" id="analytics-print-location" value="FF">
+                </div>
+                <button type="button" onclick="createQuoteAnalytics()">Create Quote Analytics</button>
+            </form>
+            <div class="response" id="analytics-response">
+                <pre>Response will appear here...</pre>
+            </div>
+        </div>
+        
+        <div class="endpoint-section">
+            <h2>Get Quote Analytics</h2>
+            <form id="get-analytics-form">
+                <div class="form-group">
+                    <label for="analytics-id">Analytics ID (PK_ID):</label>
+                    <input type="text" id="analytics-id" placeholder="Enter PK_ID">
+                </div>
+                <button type="button" onclick="getQuoteAnalytics()">Get Quote Analytics</button>
+            </form>
+            <div class="response" id="get-analytics-response">
+                <pre>Response will appear here...</pre>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Quote Items Tab -->
+    <div id="items" class="tab-content">
+        <div class="endpoint-section">
+            <h2>Create Quote Item</h2>
+            <form id="create-item-form">
+                <div class="form-group">
+                    <label for="item-quote-id">Quote ID:</label>
+                    <input type="text" id="item-quote-id" value="test-quote-123">
+                </div>
+                <div class="form-group">
+                    <label for="item-line-number">Line Number:</label>
+                    <input type="number" id="item-line-number" value="1">
+                </div>
+                <div class="form-group">
+                    <label for="item-style-number">Style Number:</label>
+                    <input type="text" id="item-style-number" value="PC61">
+                </div>
+                <div class="form-group">
+                    <label for="item-product-name">Product Name:</label>
+                    <input type="text" id="item-product-name" value="Essential Tee">
+                </div>
+                <div class="form-group">
+                    <label for="item-color">Color:</label>
+                    <input type="text" id="item-color" value="Black">
+                </div>
+                <div class="form-group">
+                    <label for="item-embellishment-type">Embellishment Type:</label>
+                    <input type="text" id="item-embellishment-type" value="dtg">
+                </div>
+                <div class="form-group">
+                    <label for="item-quantity">Quantity:</label>
+                    <input type="number" id="item-quantity" value="48">
+                </div>
+                <div class="form-group">
+                    <label for="item-size-breakdown">Size Breakdown (JSON):</label>
+                    <textarea id="item-size-breakdown">{"S":12,"M":12,"L":12,"XL":12}</textarea>
+                </div>
+                <button type="button" onclick="createQuoteItem()">Create Quote Item</button>
+            </form>
+            <div class="response" id="item-response">
+                <pre>Response will appear here...</pre>
+            </div>
+        </div>
+        
+        <div class="endpoint-section">
+            <h2>Get Quote Item</h2>
+            <form id="get-item-form">
+                <div class="form-group">
+                    <label for="item-id">Item ID (PK_ID):</label>
+                    <input type="text" id="item-id" placeholder="Enter PK_ID">
+                </div>
+                <button type="button" onclick="getQuoteItem()">Get Quote Item</button>
+            </form>
+            <div class="response" id="get-item-response">
+                <pre>Response will appear here...</pre>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Quote Sessions Tab -->
+    <div id="sessions" class="tab-content">
+        <div class="endpoint-section">
+            <h2>Create Quote Session</h2>
+            <form id="create-session-form">
+                <div class="form-group">
+                    <label for="session-quote-id">Quote ID:</label>
+                    <input type="text" id="session-quote-id" value="test-quote-123">
+                </div>
+                <div class="form-group">
+                    <label for="session-id">Session ID:</label>
+                    <input type="text" id="session-id" value="test-session-123">
+                </div>
+                <div class="form-group">
+                    <label for="session-customer-email">Customer Email:</label>
+                    <input type="email" id="session-customer-email" value="test@example.com">
+                </div>
+                <div class="form-group">
+                    <label for="session-customer-name">Customer Name:</label>
+                    <input type="text" id="session-customer-name" value="Test User">
+                </div>
+                <div class="form-group">
+                    <label for="session-status">Status:</label>
+                    <input type="text" id="session-status" value="active">
+                </div>
+                <div class="form-group">
+                    <label for="session-total-quantity">Total Quantity:</label>
+                    <input type="number" id="session-total-quantity" value="48">
+                </div>
+                <div class="form-group">
+                    <label for="session-total-amount">Total Amount:</label>
+                    <input type="number" id="session-total-amount" value="767.52" step="0.01">
+                </div>
+                <button type="button" onclick="createQuoteSession()">Create Quote Session</button>
+            </form>
+            <div class="response" id="session-response">
+                <pre>Response will appear here...</pre>
+            </div>
+        </div>
+        
+        <div class="endpoint-section">
+            <h2>Get Quote Session</h2>
+            <form id="get-session-form">
+                <div class="form-group">
+                    <label for="session-pk-id">Session ID (PK_ID):</label>
+                    <input type="text" id="session-pk-id" placeholder="Enter PK_ID">
+                </div>
+                <button type="button" onclick="getQuoteSession()">Get Quote Session</button>
+            </form>
+            <div class="response" id="get-session-response">
+                <pre>Response will appear here...</pre>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Base URL for the API
+        const BASE_URL = 'http://localhost:3000'; // Change if your server runs on a different port
+        
+        // Function to open a tab
+        function openTab(evt, tabName) {
+            // Hide all tab content
+            const tabContents = document.getElementsByClassName("tab-content");
+            for (let i = 0; i < tabContents.length; i++) {
+                tabContents[i].classList.remove("active");
+            }
+            
+            // Remove active class from all tabs
+            const tabs = document.getElementsByClassName("tab");
+            for (let i = 0; i < tabs.length; i++) {
+                tabs[i].classList.remove("active");
+            }
+            
+            // Show the selected tab content and add active class to the button
+            document.getElementById(tabName).classList.add("active");
+            evt.currentTarget.classList.add("active");
+        }
+        
+        // Function to create a Quote Analytics record
+        async function createQuoteAnalytics() {
+            const responseElement = document.getElementById('analytics-response');
+            responseElement.innerHTML = '<pre>Sending request...</pre>';
+            
+            try {
+                const data = {
+                    SessionID: document.getElementById('analytics-session-id').value,
+                    QuoteID: document.getElementById('analytics-quote-id').value,
+                    EventType: document.getElementById('analytics-event-type').value,
+                    StyleNumber: document.getElementById('analytics-style-number').value,
+                    Color: document.getElementById('analytics-color').value,
+                    PrintLocation: document.getElementById('analytics-print-location').value,
+                    UserAgent: navigator.userAgent,
+                    IPAddress: '127.0.0.1'
+                };
+                
+                const response = await fetch(`${BASE_URL}/api/quote_analytics`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(data)
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    responseElement.innerHTML = `<pre class="success">Success! Status: ${response.status}\n\n${JSON.stringify(result, null, 2)}</pre>`;
+                    
+                    // If the response contains a PK_ID, populate the get form
+                    if (result.Result && result.Result.length > 0 && result.Result[0].PK_ID) {
+                        document.getElementById('analytics-id').value = result.Result[0].PK_ID;
+                    }
+                } else {
+                    responseElement.innerHTML = `<pre class="error">Error! Status: ${response.status}\n\n${JSON.stringify(result, null, 2)}</pre>`;
+                }
+            } catch (error) {
+                responseElement.innerHTML = `<pre class="error">Error: ${error.message}</pre>`;
+            }
+        }
+        
+        // Function to get a Quote Analytics record
+        async function getQuoteAnalytics() {
+            const id = document.getElementById('analytics-id').value;
+            const responseElement = document.getElementById('get-analytics-response');
+            
+            if (!id) {
+                responseElement.innerHTML = '<pre class="error">Please enter an Analytics ID (PK_ID)</pre>';
+                return;
+            }
+            
+            responseElement.innerHTML = '<pre>Sending request...</pre>';
+            
+            try {
+                const response = await fetch(`${BASE_URL}/api/quote_analytics/${id}`);
+                const result = await response.json();
+                
+                if (response.ok) {
+                    responseElement.innerHTML = `<pre class="success">Success! Status: ${response.status}\n\n${JSON.stringify(result, null, 2)}</pre>`;
+                } else {
+                    responseElement.innerHTML = `<pre class="error">Error! Status: ${response.status}\n\n${JSON.stringify(result, null, 2)}</pre>`;
+                }
+            } catch (error) {
+                responseElement.innerHTML = `<pre class="error">Error: ${error.message}</pre>`;
+            }
+        }
+        
+        // Function to create a Quote Item
+        async function createQuoteItem() {
+            const responseElement = document.getElementById('item-response');
+            responseElement.innerHTML = '<pre>Sending request...</pre>';
+            
+            try {
+                const data = {
+                    QuoteID: document.getElementById('item-quote-id').value,
+                    LineNumber: parseInt(document.getElementById('item-line-number').value),
+                    StyleNumber: document.getElementById('item-style-number').value,
+                    ProductName: document.getElementById('item-product-name').value,
+                    Color: document.getElementById('item-color').value,
+                    EmbellishmentType: document.getElementById('item-embellishment-type').value,
+                    Quantity: parseInt(document.getElementById('item-quantity').value),
+                    SizeBreakdown: document.getElementById('item-size-breakdown').value,
+                    BaseUnitPrice: 15.99,
+                    FinalUnitPrice: 15.99,
+                    LineTotal: 15.99 * parseInt(document.getElementById('item-quantity').value)
+                };
+                
+                const response = await fetch(`${BASE_URL}/api/quote_items`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(data)
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    responseElement.innerHTML = `<pre class="success">Success! Status: ${response.status}\n\n${JSON.stringify(result, null, 2)}</pre>`;
+                    
+                    // If the response contains a PK_ID, populate the get form
+                    if (result.Result && result.Result.length > 0 && result.Result[0].PK_ID) {
+                        document.getElementById('item-id').value = result.Result[0].PK_ID;
+                    }
+                } else {
+                    responseElement.innerHTML = `<pre class="error">Error! Status: ${response.status}\n\n${JSON.stringify(result, null, 2)}</pre>`;
+                }
+            } catch (error) {
+                responseElement.innerHTML = `<pre class="error">Error: ${error.message}</pre>`;
+            }
+        }
+        
+        // Function to get a Quote Item
+        async function getQuoteItem() {
+            const id = document.getElementById('item-id').value;
+            const responseElement = document.getElementById('get-item-response');
+            
+            if (!id) {
+                responseElement.innerHTML = '<pre class="error">Please enter an Item ID (PK_ID)</pre>';
+                return;
+            }
+            
+            responseElement.innerHTML = '<pre>Sending request...</pre>';
+            
+            try {
+                const response = await fetch(`${BASE_URL}/api/quote_items/${id}`);
+                const result = await response.json();
+                
+                if (response.ok) {
+                    responseElement.innerHTML = `<pre class="success">Success! Status: ${response.status}\n\n${JSON.stringify(result, null, 2)}</pre>`;
+                } else {
+                    responseElement.innerHTML = `<pre class="error">Error! Status: ${response.status}\n\n${JSON.stringify(result, null, 2)}</pre>`;
+                }
+            } catch (error) {
+                responseElement.innerHTML = `<pre class="error">Error: ${error.message}</pre>`;
+            }
+        }
+        
+        // Function to create a Quote Session
+        async function createQuoteSession() {
+            const responseElement = document.getElementById('session-response');
+            responseElement.innerHTML = '<pre>Sending request...</pre>';
+            
+            try {
+                const data = {
+                    QuoteID: document.getElementById('session-quote-id').value,
+                    SessionID: document.getElementById('session-id').value,
+                    CustomerEmail: document.getElementById('session-customer-email').value,
+                    CustomerName: document.getElementById('session-customer-name').value,
+                    Status: document.getElementById('session-status').value,
+                    TotalQuantity: parseInt(document.getElementById('session-total-quantity').value),
+                    TotalAmount: parseFloat(document.getElementById('session-total-amount').value)
+                };
+                
+                const response = await fetch(`${BASE_URL}/api/quote_sessions`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(data)
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    responseElement.innerHTML = `<pre class="success">Success! Status: ${response.status}\n\n${JSON.stringify(result, null, 2)}</pre>`;
+                    
+                    // If the response contains a PK_ID, populate the get form
+                    if (result.Result && result.Result.length > 0 && result.Result[0].PK_ID) {
+                        document.getElementById('session-pk-id').value = result.Result[0].PK_ID;
+                    }
+                } else {
+                    responseElement.innerHTML = `<pre class="error">Error! Status: ${response.status}\n\n${JSON.stringify(result, null, 2)}</pre>`;
+                }
+            } catch (error) {
+                responseElement.innerHTML = `<pre class="error">Error: ${error.message}</pre>`;
+            }
+        }
+        
+        // Function to get a Quote Session
+        async function getQuoteSession() {
+            const id = document.getElementById('session-pk-id').value;
+            const responseElement = document.getElementById('get-session-response');
+            
+            if (!id) {
+                responseElement.innerHTML = '<pre class="error">Please enter a Session ID (PK_ID)</pre>';
+                return;
+            }
+            
+            responseElement.innerHTML = '<pre>Sending request...</pre>';
+            
+            try {
+                const response = await fetch(`${BASE_URL}/api/quote_sessions/${id}`);
+                const result = await response.json();
+                
+                if (response.ok) {
+                    responseElement.innerHTML = `<pre class="success">Success! Status: ${response.status}\n\n${JSON.stringify(result, null, 2)}</pre>`;
+                } else {
+                    responseElement.innerHTML = `<pre class="error">Error! Status: ${response.status}\n\n${JSON.stringify(result, null, 2)}</pre>`;
+                }
+            } catch (error) {
+                responseElement.innerHTML = `<pre class="error">Error: ${error.message}</pre>`;
+            }
+        }
+    </script>
+</body>
+</html>

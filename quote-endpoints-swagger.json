@@ -1,0 +1,308 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Quote Endpoints API",
+    "description": "API documentation for Quote_Analytics, Quote_Items, and Quote_Sessions endpoints",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3000",
+      "description": "Local development server"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Quote Analytics",
+      "description": "Operations related to Quote Analytics"
+    },
+    {
+      "name": "Quote Items",
+      "description": "Operations related to Quote Items"
+    },
+    {
+      "name": "Quote Sessions",
+      "description": "Operations related to Quote Sessions"
+    }
+  ],
+  "paths": {
+    "/api/quote_analytics": {
+      "post": {
+        "tags": ["Quote Analytics"],
+        "summary": "Create a new quote analytics record",
+        "description": "Create a new quote analytics record with the provided data. AnalyticsID will be auto-generated if not provided.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "SessionID": {
+                    "type": "string",
+                    "description": "Session ID"
+                  },
+                  "QuoteID": {
+                    "type": "string",
+                    "description": "Quote ID"
+                  },
+                  "EventType": {
+                    "type": "string",
+                    "description": "Type of event (e.g., page_view, add_to_cart)"
+                  },
+                  "StyleNumber": {
+                    "type": "string",
+                    "description": "Style number of the product"
+                  },
+                  "Color": {
+                    "type": "string",
+                    "description": "Color of the product"
+                  },
+                  "PrintLocation": {
+                    "type": "string",
+                    "description": "Print location code"
+                  },
+                  "Quantity": {
+                    "type": "integer",
+                    "description": "Quantity of items"
+                  },
+                  "HasLTM": {
+                    "type": "string",
+                    "description": "Whether the item has LTM (Yes/No)"
+                  },
+                  "PriceShown": {
+                    "type": "number",
+                    "format": "float",
+                    "description": "Price shown to the user"
+                  },
+                  "UserAgent": {
+                    "type": "string",
+                    "description": "User agent of the browser"
+                  },
+                  "IPAddress": {
+                    "type": "string",
+                    "description": "IP address of the user"
+                  },
+                  "AnalyticsID": {
+                    "type": "integer",
+                    "description": "Analytics ID (optional, auto-generated if not provided)"
+                  }
+                },
+                "required": ["SessionID", "EventType"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Quote analytics record created successfully"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/quote_items": {
+      "post": {
+        "tags": ["Quote Items"],
+        "summary": "Create a new quote item",
+        "description": "Create a new quote item with the provided data. ItemID will be auto-generated if not provided.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "QuoteID": {
+                    "type": "string",
+                    "description": "Quote ID"
+                  },
+                  "LineNumber": {
+                    "type": "integer",
+                    "description": "Line number in the quote"
+                  },
+                  "StyleNumber": {
+                    "type": "string",
+                    "description": "Style number of the product"
+                  },
+                  "ProductName": {
+                    "type": "string",
+                    "description": "Name of the product"
+                  },
+                  "Color": {
+                    "type": "string",
+                    "description": "Color of the product"
+                  },
+                  "ColorCode": {
+                    "type": "string",
+                    "description": "Color code of the product"
+                  },
+                  "EmbellishmentType": {
+                    "type": "string",
+                    "description": "Type of embellishment (e.g., dtg, screenprint)"
+                  },
+                  "PrintLocation": {
+                    "type": "string",
+                    "description": "Print location code"
+                  },
+                  "PrintLocationName": {
+                    "type": "string",
+                    "description": "Name of the print location"
+                  },
+                  "Quantity": {
+                    "type": "integer",
+                    "description": "Quantity of items"
+                  },
+                  "HasLTM": {
+                    "type": "string",
+                    "description": "Whether the item has LTM (Yes/No)"
+                  },
+                  "BaseUnitPrice": {
+                    "type": "number",
+                    "format": "float",
+                    "description": "Base unit price"
+                  },
+                  "LTMPerUnit": {
+                    "type": "number",
+                    "format": "float",
+                    "description": "LTM fee per unit"
+                  },
+                  "FinalUnitPrice": {
+                    "type": "number",
+                    "format": "float",
+                    "description": "Final unit price"
+                  },
+                  "LineTotal": {
+                    "type": "number",
+                    "format": "float",
+                    "description": "Total price for the line"
+                  },
+                  "SizeBreakdown": {
+                    "type": "string",
+                    "description": "Size breakdown as a JSON string"
+                  },
+                  "PricingTier": {
+                    "type": "string",
+                    "description": "Pricing tier"
+                  },
+                  "ImageURL": {
+                    "type": "string",
+                    "description": "URL of the product image"
+                  },
+                  "ItemID": {
+                    "type": "integer",
+                    "description": "Item ID (optional, auto-generated if not provided)"
+                  }
+                },
+                "required": ["QuoteID", "StyleNumber", "Quantity"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Quote item created successfully"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/quote_sessions": {
+      "post": {
+        "tags": ["Quote Sessions"],
+        "summary": "Create a new quote session",
+        "description": "Create a new quote session with the provided data. CreatedAt and UpdatedAt timestamps will be set automatically.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "QuoteID": {
+                    "type": "string",
+                    "description": "Quote ID"
+                  },
+                  "SessionID": {
+                    "type": "string",
+                    "description": "Session ID"
+                  },
+                  "CustomerEmail": {
+                    "type": "string",
+                    "description": "Customer email address"
+                  },
+                  "CustomerName": {
+                    "type": "string",
+                    "description": "Customer name"
+                  },
+                  "CompanyName": {
+                    "type": "string",
+                    "description": "Company name"
+                  },
+                  "Phone": {
+                    "type": "string",
+                    "description": "Phone number"
+                  },
+                  "TotalQuantity": {
+                    "type": "integer",
+                    "description": "Total quantity of items"
+                  },
+                  "SubtotalAmount": {
+                    "type": "number",
+                    "format": "float",
+                    "description": "Subtotal amount"
+                  },
+                  "LTMFeeTotal": {
+                    "type": "number",
+                    "format": "float",
+                    "description": "Total LTM fees"
+                  },
+                  "TotalAmount": {
+                    "type": "number",
+                    "format": "float",
+                    "description": "Total amount"
+                  },
+                  "Status": {
+                    "type": "string",
+                    "description": "Status of the quote session"
+                  },
+                  "ExpiresAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "Timestamp when the session expires"
+                  },
+                  "Notes": {
+                    "type": "string",
+                    "description": "Additional notes"
+                  }
+                },
+                "required": ["QuoteID", "SessionID", "Status"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Quote session created successfully"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    }
+  }
+}
