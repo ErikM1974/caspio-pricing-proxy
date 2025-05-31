@@ -130,7 +130,7 @@ router.get('/base-item-costs', async (req, res) => {
     const whereClause = `STYLE='${styleNumber}'`;
     const records = await fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
       'q.where': whereClause,
-      'q.select': 'XS_CasePrice, S_CasePrice, M_CasePrice, L_CasePrice, XL_CasePrice, XXL_CasePrice, XXXL_CasePrice, XXXXL_CasePrice, XXXXXL_CasePrice, XXXXXXL_CasePrice'
+      'q.select': 'SIZE, CASE_PRICE'
     });
 
     if (records.length === 0) {
@@ -138,13 +138,10 @@ router.get('/base-item-costs', async (req, res) => {
     }
 
     const baseCosts = {};
-    const record = records[0];
-    const sizes = ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL', 'XXXXL', 'XXXXXL', 'XXXXXXL'];
     
-    sizes.forEach(size => {
-      const priceField = `${size}_CasePrice`;
-      if (record[priceField] !== null && record[priceField] !== undefined) {
-        baseCosts[size] = parseFloat(record[priceField]);
+    records.forEach(record => {
+      if (record.SIZE && record.CASE_PRICE !== null && record.CASE_PRICE !== undefined) {
+        baseCosts[record.SIZE] = parseFloat(record.CASE_PRICE);
       }
     });
 
@@ -174,35 +171,57 @@ router.get('/size-pricing', async (req, res) => {
       whereClause += ` AND COLOR_NAME='${color}'`;
     }
 
-    const records = await fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
-      'q.where': whereClause,
-      'q.select': 'STYLE, COLOR_NAME, XS_CasePrice, S_CasePrice, M_CasePrice, L_CasePrice, XL_CasePrice, XXL_CasePrice, XXXL_CasePrice, XXXXL_CasePrice, XXXXXL_CasePrice, XXXXXXL_CasePrice'
-    });
+    // Fetch pricing data and size upcharges in parallel
+    const [records, sizeUpcharges] = await Promise.all([
+      fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
+        'q.where': whereClause,
+        'q.select': 'STYLE, COLOR_NAME, SIZE, CASE_PRICE'
+      }),
+      fetchAllCaspioPages('/tables/Standard_Size_Upcharges/records', {
+        'q.select': 'SizeDesignation, StandardAddOnAmount'
+      })
+    ]);
 
     if (records.length === 0) {
       return res.status(404).json({ error: 'No inventory records found for the specified criteria' });
     }
 
-    const priceData = records.map(record => {
-      const prices = {};
-      const sizes = ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL', 'XXXXL', 'XXXXXL', 'XXXXXXL'];
-      
-      sizes.forEach(size => {
-        const priceField = `${size}_CasePrice`;
-        if (record[priceField] !== null && record[priceField] !== undefined && record[priceField] !== '') {
-          prices[size] = parseFloat(record[priceField]);
-        }
-      });
-
-      return {
-        styleNumber: record.STYLE,
-        color: record.COLOR_NAME,
-        prices: prices
-      };
+    // Create upcharge lookup map
+    const upchargeMap = {};
+    sizeUpcharges.forEach(upcharge => {
+      upchargeMap[upcharge.SizeDesignation] = parseFloat(upcharge.StandardAddOnAmount) || 0;
     });
 
-    console.log(`Size pricing for ${styleNumber}: ${priceData.length} record(s) found`);
-    res.json(priceData);
+    // Group records by color and organize sizes with their prices
+    const priceData = {};
+    
+    records.forEach(record => {
+      const colorKey = record.COLOR_NAME;
+      if (!priceData[colorKey]) {
+        priceData[colorKey] = {
+          styleNumber: record.STYLE,
+          color: record.COLOR_NAME,
+          basePrices: {},
+          sizeUpcharges: {}
+        };
+      }
+      
+      if (record.SIZE && record.CASE_PRICE !== null && record.CASE_PRICE !== undefined) {
+        const basePrice = parseFloat(record.CASE_PRICE) || 0;
+        const upcharge = upchargeMap[record.SIZE] || 0;
+        
+        priceData[colorKey].basePrices[record.SIZE] = basePrice;
+        if (upcharge > 0) {
+          priceData[colorKey].sizeUpcharges[record.SIZE] = upcharge;
+        }
+      }
+    });
+
+    // Convert to array format
+    const result = Object.values(priceData);
+
+    console.log(`Size pricing for ${styleNumber}: ${result.length} color(s) found`);
+    res.json(result);
   } catch (error) {
     console.error('Error fetching size pricing:', error.message);
     res.status(500).json({ error: 'Failed to fetch size pricing', details: error.message });
@@ -227,21 +246,17 @@ router.get('/max-prices-by-style', async (req, res) => {
       const whereClause = `STYLE='${style}'`;
       const records = await fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
         'q.where': whereClause,
-        'q.select': 'STYLE, XS_CasePrice, S_CasePrice, M_CasePrice, L_CasePrice, XL_CasePrice, XXL_CasePrice, XXXL_CasePrice, XXXXL_CasePrice, XXXXXL_CasePrice, XXXXXXL_CasePrice'
+        'q.select': 'STYLE, CASE_PRICE'
       });
 
       if (records.length > 0) {
         let maxPrice = 0;
-        const sizes = ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL', 'XXXXL', 'XXXXXL', 'XXXXXXL'];
         
         records.forEach(record => {
-          sizes.forEach(size => {
-            const priceField = `${size}_CasePrice`;
-            const price = parseFloat(record[priceField]) || 0;
-            if (price > maxPrice) {
-              maxPrice = price;
-            }
-          });
+          const price = parseFloat(record.CASE_PRICE) || 0;
+          if (price > maxPrice) {
+            maxPrice = price;
+          }
         });
 
         maxPrices[style] = maxPrice;
