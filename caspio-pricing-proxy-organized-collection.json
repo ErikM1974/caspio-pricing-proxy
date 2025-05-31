@@ -1770,6 +1770,193 @@
 			"description": "Dynamic pricing matrix management and lookup functionality"
 		},
 		{
+			"name": "🎨 Transfer Pricing",
+			"item": [
+				{
+					"name": "🎯 Core Pricing",
+					"item": [
+						{
+							"name": "Price Lookup",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/transfers/lookup?size=4\" x 4\" (Left Chest)&quantity=25&price_type=Standard",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "transfers", "lookup"],
+									"query": [
+										{
+											"key": "size",
+											"value": "4\" x 4\" (Left Chest)",
+											"description": "Transfer size (required)"
+										},
+										{
+											"key": "quantity",
+											"value": "25",
+											"description": "Quantity for pricing (required)"
+										},
+										{
+											"key": "price_type",
+											"value": "Standard",
+											"description": "Price type: Standard or Gang Sheet (required)"
+										}
+									]
+								},
+								"description": "Returns exact pricing for specific size, quantity, and price type. Core endpoint for pricing calculator."
+							}
+						},
+						{
+							"name": "Pricing Matrix by Size",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/transfers/matrix?size=11.7\" x 16.5\"&price_type=Standard",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "transfers", "matrix"],
+									"query": [
+										{
+											"key": "size",
+											"value": "11.7\" x 16.5\"",
+											"description": "Transfer size (required)"
+										},
+										{
+											"key": "price_type",
+											"value": "Standard",
+											"description": "Price type filter (optional)"
+										}
+									]
+								},
+								"description": "Returns all quantity tiers and pricing for a specific transfer size. Shows pricing breaks."
+							}
+						}
+					]
+				},
+				{
+					"name": "📋 Configuration Data",
+					"item": [
+						{
+							"name": "Get Available Sizes",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/transfers/sizes",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "transfers", "sizes"]
+								},
+								"description": "Returns all available transfer sizes for UI dropdowns."
+							}
+						},
+						{
+							"name": "Get Price Types",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/transfers/price-types",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "transfers", "price-types"]
+								},
+								"description": "Returns available price types (Standard, Gang Sheet)."
+							}
+						},
+						{
+							"name": "Get Quantity Ranges",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/transfers/quantity-ranges",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "transfers", "quantity-ranges"]
+								},
+								"description": "Returns all quantity ranges with min/max values for pricing tiers."
+							}
+						}
+					]
+				},
+				{
+					"name": "🔍 General Query",
+					"item": [
+						{
+							"name": "Filter Transfer Pricing",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/transfers?price_type=Gang Sheet&size=1.5\" x 1.5\"&active=TRUE",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "transfers"],
+									"query": [
+										{
+											"key": "id",
+											"value": "",
+											"description": "Record ID filter (optional)",
+											"disabled": true
+										},
+										{
+											"key": "product_type",
+											"value": "",
+											"description": "Product type filter (optional)",
+											"disabled": true
+										},
+										{
+											"key": "size",
+											"value": "1.5\" x 1.5\"",
+											"description": "Size filter (optional)"
+										},
+										{
+											"key": "price_type",
+											"value": "Gang Sheet",
+											"description": "Price type filter (optional)"
+										},
+										{
+											"key": "quantity_range",
+											"value": "",
+											"description": "Quantity range filter (optional)",
+											"disabled": true
+										},
+										{
+											"key": "min_quantity",
+											"value": "",
+											"description": "Minimum quantity filter (optional)",
+											"disabled": true
+										},
+										{
+											"key": "max_quantity",
+											"value": "",
+											"description": "Maximum quantity filter (optional)",
+											"disabled": true
+										},
+										{
+											"key": "active",
+											"value": "TRUE",
+											"description": "Active status filter (optional)"
+										},
+										{
+											"key": "currency",
+											"value": "",
+											"description": "Currency filter (optional)",
+											"disabled": true
+										},
+										{
+											"key": "orderby",
+											"value": "",
+											"description": "Order by field (optional)",
+											"disabled": true
+										}
+									]
+								},
+								"description": "Advanced filtering and search across all transfer pricing records."
+							}
+						}
+					]
+				}
+			],
+			"description": "Complete DTF transfer pricing system with lookup, matrix display, and configuration data"
+		},
+		{
 			"name": "📎 Utilities & Integration",
 			"item": [
 				{

@@ -11,7 +11,8 @@ const {
   inventoryRoutes,
   pricingMatrixRoutes,
   quotesRoutes,
-  miscRoutes
+  miscRoutes,
+  transfersRoutes
 } = require('./src/routes');
 
 const app = express();
@@ -28,6 +29,7 @@ app.use('/api', inventoryRoutes);
 app.use('/api', pricingMatrixRoutes);
 app.use('/api', quotesRoutes);
 app.use('/api', miscRoutes);
+app.use('/api', transfersRoutes);
 
 // Mount misc routes directly on root for status and test endpoints
 app.use('/', miscRoutes);
