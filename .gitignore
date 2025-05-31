@@ -39,3 +39,6 @@ coverage/
 
 # Temporary files
 CLEANUP-PLAN.md
+
+# Claude configuration
+.claude/
