@@ -1,0 +1,222 @@
+// Caspio API utilities
+
+const axios = require('axios');
+const config = require('../config');
+
+// Token cache
+let caspioAccessToken = null;
+let tokenExpiryTime = 0;
+
+/**
+ * Gets a valid Caspio Access Token, requesting a new one if needed.
+ * Uses simple in-memory cache.
+ */
+async function getCaspioAccessToken() {
+  const now = Math.floor(Date.now() / 1000); // Time in seconds
+  const bufferSeconds = 60; // Refresh token if it expires within 60 seconds
+
+  if (caspioAccessToken && now < (tokenExpiryTime - bufferSeconds)) {
+    return caspioAccessToken;
+  }
+
+  console.log("Requesting new Caspio access token...");
+  try {
+    const response = await axios.post(config.caspio.tokenUrl, new URLSearchParams({
+      'grant_type': 'client_credentials',
+      'client_id': config.caspio.clientId,
+      'client_secret': config.caspio.clientSecret
+    }), {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      timeout: config.timeouts.perRequest
+    });
+
+    if (response.data && response.data.access_token) {
+      caspioAccessToken = response.data.access_token;
+      tokenExpiryTime = now + response.data.expires_in;
+      console.log("New Caspio token obtained. Expires around:", new Date(tokenExpiryTime * 1000).toLocaleTimeString());
+      return caspioAccessToken;
+    } else {
+      throw new Error("Invalid response structure from token endpoint.");
+    }
+  } catch (error) {
+    console.error("Error getting Caspio access token:", error.response ? JSON.stringify(error.response.data) : error.message);
+    caspioAccessToken = null;
+    tokenExpiryTime = 0;
+    throw new Error("Could not obtain Caspio access token.");
+  }
+}
+
+/**
+ * Makes an authenticated request to the Caspio API.
+ * @deprecated Use fetchAllCaspioPages instead to handle Caspio pagination properly
+ */
+async function makeCaspioRequest(method, resourcePath, params = {}, data = null) {
+  try {
+    const token = await getCaspioAccessToken();
+    const url = `${config.caspio.apiBaseUrl}${resourcePath}`;
+    console.log(`Making Caspio Request: ${method.toUpperCase()} ${url} PARAMS: ${JSON.stringify(params)}`);
+
+    const requestConfig = {
+      method: method,
+      url: url,
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      params: params,
+      data: data,
+      timeout: config.timeouts.perRequest
+    };
+
+    console.log(`Request config: ${JSON.stringify(requestConfig, (key, value) =>
+      key === 'Authorization' ? '***REDACTED***' : value)}`);
+
+    const response = await axios(requestConfig);
+    console.log(`Response status: ${response.status}`);
+
+    if (response.data) {
+      // Caspio v3 returns records directly in response.data for GET requests
+      // But might have Result field for some endpoints
+      return response.data.Result || response.data;
+    } else {
+      console.warn("Caspio API response was empty");
+      return [];
+    }
+  } catch (error) {
+    console.error(`Error making Caspio request to ${resourcePath}:`, error.response ? JSON.stringify(error.response.data) : error.message);
+    throw new Error(`Failed to fetch data from Caspio resource: ${resourcePath}. Status: ${error.response?.status}`);
+  }
+}
+
+/**
+ * IMPORTANT: Caspio API uses pagination. This function fetches ALL records
+ * from a Caspio resource, handling pagination.
+ */
+async function fetchAllCaspioPages(resourcePath, initialParams = {}, options = {}) {
+  let allResults = [];
+  let params = { ...initialParams };
+  params['q.limit'] = params['q.limit'] || config.pagination.defaultLimit;
+  let nextPageUrl = `${config.caspio.apiBaseUrl}${resourcePath}`;
+
+  const defaultOptions = {
+    maxPages: config.pagination.maxPages,
+    earlyExitCondition: null,
+    pageCallback: null,
+    totalTimeout: config.timeouts.totalPagination
+  };
+  const mergedOptions = { ...defaultOptions, ...options };
+
+  const startTime = Date.now();
+  const checkTotalTimeout = () => {
+    if (Date.now() - startTime > mergedOptions.totalTimeout) {
+      console.log(`Total timeout reached for ${resourcePath} after ${Date.now() - startTime}ms`);
+      return true;
+    }
+    return false;
+  };
+
+  try {
+    const token = await getCaspioAccessToken();
+    let pageCount = 0;
+    let morePages = true;
+    let currentRequestParams = { ...params };
+
+    while (morePages && pageCount < mergedOptions.maxPages && !checkTotalTimeout()) {
+      pageCount++;
+      let currentUrl = nextPageUrl;
+
+      if (pageCount === 1 || !nextPageUrl || !nextPageUrl.includes('@nextpage')) {
+        if (pageCount > 1) {
+          currentRequestParams['q.skip'] = (pageCount - 1) * (params['q.limit']);
+        }
+        currentUrl = `${config.caspio.apiBaseUrl}${resourcePath}`;
+      } else {
+        currentRequestParams = undefined;
+      }
+
+      const requestConfig = {
+        method: 'get',
+        url: currentUrl,
+        headers: { 
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        params: currentRequestParams,
+        timeout: config.timeouts.perRequest
+      };
+
+      // Debug logging
+      console.log(`Caspio Request URL: ${currentUrl}`);
+      console.log(`Caspio Request Params:`, JSON.stringify(currentRequestParams));
+
+      try {
+        const response = await axios(requestConfig);
+        
+        if (response.data && response.data.Result) {
+          allResults = allResults.concat(response.data.Result);
+          
+          if (mergedOptions.pageCallback) {
+            mergedOptions.pageCallback(response.data.Result, pageCount);
+          }
+          
+          if (mergedOptions.earlyExitCondition && mergedOptions.earlyExitCondition(response.data.Result, allResults)) {
+            console.log(`Early exit condition met for ${resourcePath} at page ${pageCount}`);
+            morePages = false;
+            break;
+          }
+        }
+
+        if (response.data && response.data.TotalRecords !== undefined) {
+          const totalRecords = response.data.TotalRecords;
+          const fetchedSoFar = allResults.length;
+          console.log(`Page ${pageCount}: Fetched ${fetchedSoFar}/${totalRecords} records for ${resourcePath}`);
+          if (fetchedSoFar >= totalRecords) {
+            morePages = false;
+          }
+        }
+
+        if (response.data && response.data.NextPageUrl) {
+          nextPageUrl = response.data.NextPageUrl;
+        } else {
+          morePages = false;
+        }
+
+      } catch (pageError) {
+        console.error('Axios error details:', {
+          status: pageError.response?.status,
+          statusText: pageError.response?.statusText,
+          data: pageError.response?.data,
+          url: currentUrl,
+          params: currentRequestParams
+        });
+        if (pageError.code === 'ECONNABORTED' || pageError.message.includes('timeout')) {
+          console.log(`Timeout on page ${pageCount} for ${resourcePath}, continuing with collected data`);
+          morePages = false;
+        } else {
+          throw pageError;
+        }
+      }
+    }
+
+    if (checkTotalTimeout()) {
+      console.log(`Returning ${allResults.length} results collected before timeout for ${resourcePath}`);
+    }
+
+    console.log(`Total records fetched: ${allResults.length} from ${pageCount} page(s) for ${resourcePath}`);
+    return allResults;
+
+  } catch (error) {
+    console.error(`Error fetching all pages from ${resourcePath}:`, error.message);
+    if (allResults.length > 0) {
+      console.log(`Returning ${allResults.length} partial results collected before error`);
+      return allResults;
+    }
+    throw error;
+  }
+}
+
+module.exports = {
+  getCaspioAccessToken,
+  makeCaspioRequest,
+  fetchAllCaspioPages
+};
