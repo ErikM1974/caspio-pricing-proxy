@@ -1,0 +1,1867 @@
+{
+	"info": {
+		"_postman_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+		"name": "Caspio Pricing Proxy API - Complete & Organized",
+		"description": "Comprehensive, professionally organized collection of all 67 endpoints for the Caspio Pricing Proxy API. Updated after server refactoring with proper folder structure and all missing endpoints included.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "🏥 System & Health",
+			"item": [
+				{
+					"name": "Get API Status",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/status",
+							"host": ["{{baseUrl}}"],
+							"path": ["status"]
+						},
+						"description": "Returns the status of the proxy server and the configured Caspio domain."
+					}
+				},
+				{
+					"name": "Test Endpoint",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/test",
+							"host": ["{{baseUrl}}"],
+							"path": ["test"]
+						},
+						"description": "Basic test endpoint to verify server is responding."
+					}
+				},
+				{
+					"name": "Test SanMar Bulk Data Access",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/test-sanmar-bulk",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "test-sanmar-bulk"]
+						},
+						"description": "Test endpoint to fetch a limited number of records from the SanMar bulk data table."
+					}
+				}
+			],
+			"description": "System health checks and testing endpoints"
+		},
+		{
+			"name": "🛍️ Products & Catalog",
+			"item": [
+				{
+					"name": "🔍 Product Search & Details",
+					"item": [
+						{
+							"name": "Search Styles (Autocomplete)",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/stylesearch?term=PC",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "stylesearch"],
+									"query": [
+										{
+											"key": "term",
+											"value": "PC",
+											"description": "Search term for style number (minimum 2 characters)"
+										}
+									]
+								},
+								"description": "Performs style search for autocomplete functionality. Requires 'term' parameter with minimum 2 characters."
+							}
+						},
+						{
+							"name": "Get Product Details",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/product-details?styleNumber=PC61&color=Navy",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "product-details"],
+									"query": [
+										{
+											"key": "styleNumber",
+											"value": "PC61",
+											"description": "Style number of the product"
+										},
+										{
+											"key": "color",
+											"value": "Navy",
+											"description": "Color of the product (optional)"
+										}
+									]
+								},
+								"description": "Fetches comprehensive product details for a given style number."
+							}
+						},
+						{
+							"name": "Get Color Swatches for Style",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/color-swatches?styleNumber=PC61",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "color-swatches"],
+									"query": [
+										{
+											"key": "styleNumber",
+											"value": "PC61",
+											"description": "Style number of the product"
+										}
+									]
+								},
+								"description": "Fetches unique color swatches for a specific style number."
+							}
+						},
+						{
+							"name": "Get Product Colors",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/product-colors?styleNumber=PC61",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "product-colors"],
+									"query": [
+										{
+											"key": "styleNumber",
+											"value": "PC61",
+											"description": "Style number of the product"
+										}
+									]
+								},
+								"description": "Fetches detailed color information including images and descriptions."
+							}
+						},
+						{
+							"name": "General Product Search",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/search?q=blue shirt",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "search"],
+									"query": [
+										{
+											"key": "q",
+											"value": "blue shirt",
+											"description": "Search query (minimum 2 characters)"
+										}
+									]
+								},
+								"description": "Performs general search across multiple product fields."
+							}
+						},
+						{
+							"name": "Quick View Product",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/quick-view?styleNumber=PC61",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "quick-view"],
+									"query": [
+										{
+											"key": "styleNumber",
+											"value": "PC61",
+											"description": "Style number of the product"
+										}
+									]
+								},
+								"description": "Fetches essential product details for quick view popup."
+							}
+						}
+					]
+				},
+				{
+					"name": "📂 Categories & Organization",
+					"item": [
+						{
+							"name": "Get All Brands",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/all-brands",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "all-brands"]
+								},
+								"description": "Fetches all unique brand names with sample styles."
+							}
+						},
+						{
+							"name": "Get All Categories",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/all-categories",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "all-categories"]
+								},
+								"description": "Fetches all unique category names."
+							}
+						},
+						{
+							"name": "Get All Subcategories",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/all-subcategories",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "all-subcategories"]
+								},
+								"description": "Fetches all unique subcategory names."
+							}
+						},
+						{
+							"name": "Get Subcategories by Category",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/subcategories-by-category?category=T-Shirts",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "subcategories-by-category"],
+									"query": [
+										{
+											"key": "category",
+											"value": "T-Shirts",
+											"description": "Category name"
+										}
+									]
+								},
+								"description": "Fetches subcategories for a specific category."
+							}
+						}
+					]
+				},
+				{
+					"name": "🎯 Product Filtering & Discovery",
+					"item": [
+						{
+							"name": "Get Products by Brand",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/products-by-brand?brand=Port%20%26%20Company",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "products-by-brand"],
+									"query": [
+										{
+											"key": "brand",
+											"value": "Port & Company",
+											"description": "Brand name"
+										}
+									]
+								},
+								"description": "Fetches products from a specific brand."
+							}
+						},
+						{
+							"name": "Get Products by Category",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/products-by-category?category=T-Shirts",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "products-by-category"],
+									"query": [
+										{
+											"key": "category",
+											"value": "T-Shirts",
+											"description": "Category name"
+										}
+									]
+								},
+								"description": "Fetches products from a specific category."
+							}
+						},
+						{
+							"name": "Get Products by Subcategory",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/products-by-subcategory?subcategory=Basic%20Tees",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "products-by-subcategory"],
+									"query": [
+										{
+											"key": "subcategory",
+											"value": "Basic Tees",
+											"description": "Subcategory name"
+										}
+									]
+								},
+								"description": "Fetches products from a specific subcategory."
+							}
+						},
+						{
+							"name": "Get Products by Category & Subcategory",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/products-by-category-subcategory?category=T-Shirts&subcategory=Basic%20Tees",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "products-by-category-subcategory"],
+									"query": [
+										{
+											"key": "category",
+											"value": "T-Shirts",
+											"description": "Category name"
+										},
+										{
+											"key": "subcategory",
+											"value": "Basic Tees",
+											"description": "Subcategory name"
+										}
+									]
+								},
+								"description": "Fetches products matching both category and subcategory."
+							}
+						},
+						{
+							"name": "Filter Products (Advanced)",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/filter-products?brand=Nike&category=Polos&minPrice=10&maxPrice=50",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "filter-products"],
+									"query": [
+										{
+											"key": "brand",
+											"value": "Nike",
+											"description": "Brand name (optional)"
+										},
+										{
+											"key": "category",
+											"value": "Polos",
+											"description": "Category name (optional)"
+										},
+										{
+											"key": "subcategory",
+											"value": "",
+											"description": "Subcategory name (optional)",
+											"disabled": true
+										},
+										{
+											"key": "color",
+											"value": "",
+											"description": "Color name (optional)",
+											"disabled": true
+										},
+										{
+											"key": "minPrice",
+											"value": "10",
+											"description": "Minimum price (optional)"
+										},
+										{
+											"key": "maxPrice",
+											"value": "50",
+											"description": "Maximum price (optional)"
+										}
+									]
+								},
+								"description": "Advanced filtering with multiple criteria."
+							}
+						},
+						{
+							"name": "Get Featured Products",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/featured-products",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "featured-products"]
+								},
+								"description": "Fetches products marked as 'New' or featured."
+							}
+						}
+					]
+				},
+				{
+					"name": "🔗 Product Relationships",
+					"item": [
+						{
+							"name": "Get Related Products",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/related-products?styleNumber=PC61",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "related-products"],
+									"query": [
+										{
+											"key": "styleNumber",
+											"value": "PC61",
+											"description": "Style number of the reference product"
+										}
+									]
+								},
+								"description": "Fetches products related to a given style."
+							}
+						},
+						{
+							"name": "Compare Products",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/compare-products?styles=PC61,DT104,G185",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "compare-products"],
+									"query": [
+										{
+											"key": "styles",
+											"value": "PC61,DT104,G185",
+											"description": "Comma-separated list of style numbers (minimum 2)"
+										}
+									]
+								},
+								"description": "Fetches details for multiple products for comparison."
+							}
+						},
+						{
+							"name": "Get Product Recommendations",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/recommendations?styleNumber=PC61",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "recommendations"],
+									"query": [
+										{
+											"key": "styleNumber",
+											"value": "PC61",
+											"description": "Style number for recommendations"
+										}
+									]
+								},
+								"description": "Fetches personalized product recommendations."
+							}
+						}
+					]
+				}
+			],
+			"description": "Complete product catalog functionality including search, filtering, and discovery"
+		},
+		{
+			"name": "💰 Pricing & Costs",
+			"item": [
+				{
+					"name": "🏷️ Pricing Tiers & Rules",
+					"item": [
+						{
+							"name": "Get Pricing Tiers",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/pricing-tiers?method=DTG",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "pricing-tiers"],
+									"query": [
+										{
+											"key": "method",
+											"value": "DTG",
+											"description": "Decoration method (DTG, ScreenPrint, or Embroidery)"
+										}
+									]
+								},
+								"description": "Fetches pricing tiers for a specific decoration method."
+							}
+						},
+						{
+							"name": "Get Pricing Rules",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/pricing-rules?method=DTG",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "pricing-rules"],
+									"query": [
+										{
+											"key": "method",
+											"value": "DTG",
+											"description": "Decoration method"
+										}
+									]
+								},
+								"description": "Fetches pricing rules for a decoration method."
+							}
+						}
+					]
+				},
+				{
+					"name": "🎨 Decoration Costs",
+					"item": [
+						{
+							"name": "Get DTG Costs",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/dtg-costs",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "dtg-costs"]
+								},
+								"description": "Fetches all DTG (Direct to Garment) printing costs."
+							}
+						},
+						{
+							"name": "Get Embroidery Costs",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/embroidery-costs?itemType=Shirt&stitchCount=5000",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "embroidery-costs"],
+									"query": [
+										{
+											"key": "itemType",
+											"value": "Shirt",
+											"description": "Type of item (Shirt, Cap, etc.)"
+										},
+										{
+											"key": "stitchCount",
+											"value": "5000",
+											"description": "Stitch count range"
+										}
+									]
+								},
+								"description": "Fetches embroidery costs based on item type and stitch count."
+							}
+						},
+						{
+							"name": "Get Screenprint Costs",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/screenprint-costs?costType=PrimaryLocation",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "screenprint-costs"],
+									"query": [
+										{
+											"key": "costType",
+											"value": "PrimaryLocation",
+											"description": "Cost type (PrimaryLocation or AdditionalLocation)"
+										}
+									]
+								},
+								"description": "Fetches screenprint costs for primary or additional locations."
+							}
+						}
+					]
+				},
+				{
+					"name": "📊 Product Pricing",
+					"item": [
+						{
+							"name": "Get Base Item Costs",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/base-item-costs?styleNumber=PC61",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "base-item-costs"],
+									"query": [
+										{
+											"key": "styleNumber",
+											"value": "PC61",
+											"description": "Style number of the product"
+										}
+									]
+								},
+								"description": "Fetches base costs for all sizes of a product."
+							}
+						},
+						{
+							"name": "Get Size Pricing",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/size-pricing?styleNumber=PC61&color=Navy",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "size-pricing"],
+									"query": [
+										{
+											"key": "styleNumber",
+											"value": "PC61",
+											"description": "Style number of the product"
+										},
+										{
+											"key": "color",
+											"value": "Navy",
+											"description": "Color of the product (optional)"
+										}
+									]
+								},
+								"description": "Fetches detailed pricing by size for a product."
+							}
+						},
+						{
+							"name": "Get Max Prices by Style",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/max-prices-by-style?styles=PC61,DT104",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "max-prices-by-style"],
+									"query": [
+										{
+											"key": "styles",
+											"value": "PC61,DT104",
+											"description": "Comma-separated list of style numbers"
+										}
+									]
+								},
+								"description": "Fetches maximum prices for multiple styles."
+							}
+						}
+					]
+				}
+			],
+			"description": "Comprehensive pricing and cost calculation endpoints"
+		},
+		{
+			"name": "🛒 Cart & Sessions",
+			"item": [
+				{
+					"name": "👥 Cart Sessions",
+					"item": [
+						{
+							"name": "Get Cart Sessions",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/cart-sessions?sessionID=test_session_123",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "cart-sessions"],
+									"query": [
+										{
+											"key": "sessionID",
+											"value": "test_session_123",
+											"description": "Session ID to filter by (optional)"
+										},
+										{
+											"key": "userID",
+											"value": "",
+											"description": "User ID to filter by (optional)",
+											"disabled": true
+										},
+										{
+											"key": "isActive",
+											"value": "",
+											"description": "Active status filter (optional)",
+											"disabled": true
+										}
+									]
+								},
+								"description": "Fetches cart sessions with optional filtering."
+							}
+						},
+						{
+							"name": "Create Cart Session",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"SessionID\": \"unique_session_string\",\n  \"UserID\": 123,\n  \"IPAddress\": \"192.168.1.1\",\n  \"UserAgent\": \"Mozilla/5.0...\",\n  \"IsActive\": true\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/api/cart-sessions",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "cart-sessions"]
+								},
+								"description": "Creates a new cart session."
+							}
+						},
+						{
+							"name": "Update Cart Session",
+							"request": {
+								"method": "PUT",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"IsActive\": false\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/api/cart-sessions/test_session_123",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "cart-sessions", "test_session_123"]
+								},
+								"description": "Updates an existing cart session."
+							}
+						},
+						{
+							"name": "Delete Cart Session",
+							"request": {
+								"method": "DELETE",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/cart-sessions/test_session_123",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "cart-sessions", "test_session_123"]
+								},
+								"description": "Deletes a cart session."
+							}
+						}
+					]
+				},
+				{
+					"name": "🛍️ Cart Items",
+					"item": [
+						{
+							"name": "Get Cart Items",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/cart-items?sessionID=test_session_123",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "cart-items"],
+									"query": [
+										{
+											"key": "sessionID",
+											"value": "test_session_123",
+											"description": "Session ID to filter by (optional)"
+										},
+										{
+											"key": "productID",
+											"value": "",
+											"description": "Product ID to filter by (optional)",
+											"disabled": true
+										},
+										{
+											"key": "styleNumber",
+											"value": "",
+											"description": "Style number to filter by (optional)",
+											"disabled": true
+										}
+									]
+								},
+								"description": "Fetches cart items with optional filtering."
+							}
+						},
+						{
+							"name": "Add Item to Cart",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"SessionID\": \"test_session_123\",\n  \"ProductID\": \"PC61_Navy\",\n  \"StyleNumber\": \"PC61\",\n  \"Color\": \"Navy\",\n  \"ImprintType\": \"DTG\",\n  \"CartStatus\": \"Active\"\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/api/cart-items",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "cart-items"]
+								},
+								"description": "Adds a new item to the cart."
+							}
+						},
+						{
+							"name": "Update Cart Item",
+							"request": {
+								"method": "PUT",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"COLOR_NAME\": \"Black\",\n  \"ImprintType\": \"Embroidery\"\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/api/cart-items/{{cartItemId}}",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "cart-items", "{{cartItemId}}"]
+								},
+								"description": "Updates an existing cart item."
+							}
+						},
+						{
+							"name": "Delete Cart Item",
+							"request": {
+								"method": "DELETE",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/cart-items/{{cartItemId}}",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "cart-items", "{{cartItemId}}"]
+								},
+								"description": "Removes an item from the cart."
+							}
+						}
+					]
+				},
+				{
+					"name": "📏 Cart Item Sizes",
+					"item": [
+						{
+							"name": "Get Cart Item Sizes",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/cart-item-sizes?cartItemID={{cartItemId}}",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "cart-item-sizes"],
+									"query": [
+										{
+											"key": "cartItemID",
+											"value": "{{cartItemId}}",
+											"description": "Cart Item ID to filter by (optional)"
+										},
+										{
+											"key": "size",
+											"value": "",
+											"description": "Size to filter by (optional)",
+											"disabled": true
+										}
+									]
+								},
+								"description": "Fetches size details for cart items."
+							}
+						},
+						{
+							"name": "Add Size to Cart Item",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"CartItemID\": \"{{cartItemId}}\",\n  \"Size\": \"L\",\n  \"Quantity\": 2,\n  \"UnitPrice\": 15.99\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/api/cart-item-sizes",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "cart-item-sizes"]
+								},
+								"description": "Adds size and quantity details to a cart item."
+							}
+						},
+						{
+							"name": "Update Cart Item Size",
+							"request": {
+								"method": "PUT",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"Quantity\": 5,\n  \"UnitPrice\": 14.99\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/api/cart-item-sizes/{{sizeItemId}}",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "cart-item-sizes", "{{sizeItemId}}"]
+								},
+								"description": "Updates size details for a cart item."
+							}
+						},
+						{
+							"name": "Delete Cart Item Size",
+							"request": {
+								"method": "DELETE",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/cart-item-sizes/{{sizeItemId}}",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "cart-item-sizes", "{{sizeItemId}}"]
+								},
+								"description": "Removes a size entry from a cart item."
+							}
+						}
+					]
+				},
+				{
+					"name": "💳 Checkout",
+					"item": [
+						{
+							"name": "Process Checkout",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"sessionId\": \"test_session_123\",\n  \"customerId\": 1\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/api/process-checkout",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "process-checkout"]
+								},
+								"description": "Processes checkout by converting cart items to an order."
+							}
+						}
+					]
+				}
+			],
+			"description": "Complete shopping cart functionality with sessions, items, sizes, and checkout"
+		},
+		{
+			"name": "📦 Orders & Customers",
+			"item": [
+				{
+					"name": "📋 Orders",
+					"item": [
+						{
+							"name": "Get Orders",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/orders?customerID=1",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "orders"],
+									"query": [
+										{
+											"key": "customerID",
+											"value": "1",
+											"description": "Customer ID to filter by (optional)"
+										},
+										{
+											"key": "orderID",
+											"value": "",
+											"description": "Order ID to filter by (optional)",
+											"disabled": true
+										},
+										{
+											"key": "orderStatus",
+											"value": "",
+											"description": "Order status to filter by (optional)",
+											"disabled": true
+										}
+									]
+								},
+								"description": "Fetches orders with optional filtering."
+							}
+						},
+						{
+							"name": "Create Order",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"CustomerID\": 1,\n  \"OrderNumber\": \"ORD-2024-001\",\n  \"SessionID\": \"test_session_123\",\n  \"TotalAmount\": 99.99,\n  \"OrderStatus\": \"New\",\n  \"PaymentStatus\": \"Pending\"\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/api/orders",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "orders"]
+								},
+								"description": "Creates a new order."
+							}
+						},
+						{
+							"name": "Update Order",
+							"request": {
+								"method": "PUT",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"OrderStatus\": \"Shipped\",\n  \"TrackingNumber\": \"1Z999AA1234567890\"\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/api/orders/{{orderId}}",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "orders", "{{orderId}}"]
+								},
+								"description": "Updates an existing order."
+							}
+						},
+						{
+							"name": "Delete Order",
+							"request": {
+								"method": "DELETE",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/orders/{{orderId}}",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "orders", "{{orderId}}"]
+								},
+								"description": "Deletes an order."
+							}
+						}
+					]
+				},
+				{
+					"name": "👤 Customers",
+					"item": [
+						{
+							"name": "Get Customers",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/customers?email=test@example.com",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "customers"],
+									"query": [
+										{
+											"key": "email",
+											"value": "test@example.com",
+											"description": "Email to filter by (optional)"
+										},
+										{
+											"key": "name",
+											"value": "",
+											"description": "Name to search by (optional)",
+											"disabled": true
+										},
+										{
+											"key": "company",
+											"value": "",
+											"description": "Company to search by (optional)",
+											"disabled": true
+										}
+									]
+								},
+								"description": "Fetches customers with optional filtering."
+							}
+						},
+						{
+							"name": "Create Customer",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"Name\": \"John Doe\",\n  \"Email\": \"john.doe@example.com\",\n  \"Phone\": \"555-123-4567\",\n  \"Company\": \"Acme Corporation\",\n  \"Address1\": \"123 Main St\",\n  \"City\": \"Seattle\",\n  \"State\": \"WA\",\n  \"ZipCode\": \"98101\"\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/api/customers",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "customers"]
+								},
+								"description": "Creates a new customer."
+							}
+						},
+						{
+							"name": "Update Customer",
+							"request": {
+								"method": "PUT",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"Phone\": \"555-987-6543\",\n  \"Company\": \"New Company Name\"\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/api/customers/{{customerId}}",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "customers", "{{customerId}}"]
+								},
+								"description": "Updates an existing customer."
+							}
+						},
+						{
+							"name": "Delete Customer",
+							"request": {
+								"method": "DELETE",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/customers/{{customerId}}",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "customers", "{{customerId}}"]
+								},
+								"description": "Deletes a customer."
+							}
+						}
+					]
+				}
+			],
+			"description": "Order management and customer database operations"
+		},
+		{
+			"name": "💡 Quotes & Analytics",
+			"item": [
+				{
+					"name": "📊 Quote Analytics",
+					"item": [
+						{
+							"name": "Get Quote Analytics",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/quote_analytics?sessionID=test_session_123",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "quote_analytics"],
+									"query": [
+										{
+											"key": "sessionID",
+											"value": "test_session_123",
+											"description": "Session ID to filter by (optional)"
+										},
+										{
+											"key": "quoteID",
+											"value": "",
+											"description": "Quote ID to filter by (optional)",
+											"disabled": true
+										},
+										{
+											"key": "eventType",
+											"value": "",
+											"description": "Event type to filter by (optional)",
+											"disabled": true
+										}
+									]
+								},
+								"description": "Fetches quote analytics events."
+							}
+						},
+						{
+							"name": "Get Quote Analytics by ID",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/quote_analytics/{{analyticsId}}",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "quote_analytics", "{{analyticsId}}"]
+								},
+								"description": "Fetches a specific quote analytics record."
+							}
+						},
+						{
+							"name": "Create Quote Analytics",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"SessionID\": \"test_session_123\",\n  \"QuoteID\": \"Q_2024_001\",\n  \"EventType\": \"page_view\",\n  \"StyleNumber\": \"PC61\",\n  \"Color\": \"Navy\",\n  \"PrintLocation\": \"Front\",\n  \"Quantity\": 24\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/api/quote_analytics",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "quote_analytics"]
+								},
+								"description": "Creates a new quote analytics event."
+							}
+						},
+						{
+							"name": "Update Quote Analytics",
+							"request": {
+								"method": "PUT",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"EventType\": \"price_calculated\",\n  \"PriceShown\": 299.99\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/api/quote_analytics/{{analyticsId}}",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "quote_analytics", "{{analyticsId}}"]
+								},
+								"description": "Updates an existing quote analytics record."
+							}
+						},
+						{
+							"name": "Delete Quote Analytics",
+							"request": {
+								"method": "DELETE",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/quote_analytics/{{analyticsId}}",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "quote_analytics", "{{analyticsId}}"]
+								},
+								"description": "Deletes a quote analytics record."
+							}
+						}
+					]
+				},
+				{
+					"name": "🛍️ Quote Items",
+					"item": [
+						{
+							"name": "Get Quote Items",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/quote_items?quoteID=Q_2024_001",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "quote_items"],
+									"query": [
+										{
+											"key": "quoteID",
+											"value": "Q_2024_001",
+											"description": "Quote ID to filter by (optional)"
+										},
+										{
+											"key": "styleNumber",
+											"value": "",
+											"description": "Style number to filter by (optional)",
+											"disabled": true
+										}
+									]
+								},
+								"description": "Fetches quote items with optional filtering."
+							}
+						},
+						{
+							"name": "Get Quote Item by ID",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/quote_items/{{itemId}}",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "quote_items", "{{itemId}}"]
+								},
+								"description": "Fetches a specific quote item."
+							}
+						},
+						{
+							"name": "Create Quote Item",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"QuoteID\": \"Q_2024_001\",\n  \"StyleNumber\": \"PC61\",\n  \"ProductName\": \"Essential Tee\",\n  \"Color\": \"Navy\",\n  \"Quantity\": 24,\n  \"UnitPrice\": 12.99,\n  \"TotalPrice\": 311.76\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/api/quote_items",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "quote_items"]
+								},
+								"description": "Creates a new quote item."
+							}
+						},
+						{
+							"name": "Update Quote Item",
+							"request": {
+								"method": "PUT",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"Quantity\": 36,\n  \"UnitPrice\": 11.99,\n  \"TotalPrice\": 431.64\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/api/quote_items/{{itemId}}",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "quote_items", "{{itemId}}"]
+								},
+								"description": "Updates an existing quote item."
+							}
+						},
+						{
+							"name": "Delete Quote Item",
+							"request": {
+								"method": "DELETE",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/quote_items/{{itemId}}",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "quote_items", "{{itemId}}"]
+								},
+								"description": "Deletes a quote item."
+							}
+						}
+					]
+				},
+				{
+					"name": "💬 Quote Sessions",
+					"item": [
+						{
+							"name": "Get Quote Sessions",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/quote_sessions?quoteID=Q_2024_001",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "quote_sessions"],
+									"query": [
+										{
+											"key": "quoteID",
+											"value": "Q_2024_001",
+											"description": "Quote ID to filter by (optional)"
+										},
+										{
+											"key": "sessionID",
+											"value": "",
+											"description": "Session ID to filter by (optional)",
+											"disabled": true
+										},
+										{
+											"key": "customerEmail",
+											"value": "",
+											"description": "Customer email to filter by (optional)",
+											"disabled": true
+										}
+									]
+								},
+								"description": "Fetches quote sessions with optional filtering."
+							}
+						},
+						{
+							"name": "Get Quote Session by ID",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/quote_sessions/{{sessionId}}",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "quote_sessions", "{{sessionId}}"]
+								},
+								"description": "Fetches a specific quote session."
+							}
+						},
+						{
+							"name": "Create Quote Session",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"QuoteID\": \"Q_2024_001\",\n  \"SessionID\": \"test_session_123\",\n  \"CustomerEmail\": \"customer@example.com\",\n  \"CustomerName\": \"John Smith\",\n  \"CompanyName\": \"Smith Corp\",\n  \"Status\": \"Active\"\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/api/quote_sessions",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "quote_sessions"]
+								},
+								"description": "Creates a new quote session."
+							}
+						},
+						{
+							"name": "Update Quote Session",
+							"request": {
+								"method": "PUT",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"Status\": \"Completed\",\n  \"Notes\": \"Customer approved the quote\"\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/api/quote_sessions/{{sessionId}}",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "quote_sessions", "{{sessionId}}"]
+								},
+								"description": "Updates an existing quote session."
+							}
+						},
+						{
+							"name": "Delete Quote Session",
+							"request": {
+								"method": "DELETE",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/quote_sessions/{{sessionId}}",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "quote_sessions", "{{sessionId}}"]
+								},
+								"description": "Deletes a quote session."
+							}
+						}
+					]
+				}
+			],
+			"description": "Complete quote management system with analytics, items, and session tracking"
+		},
+		{
+			"name": "📦 Inventory & Stock",
+			"item": [
+				{
+					"name": "Get Inventory Levels",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/inventory?styleNumber=PC61&color=Navy",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "inventory"],
+							"query": [
+								{
+									"key": "styleNumber",
+									"value": "PC61",
+									"description": "Style number of the product (required)"
+								},
+								{
+									"key": "color",
+									"value": "Navy",
+									"description": "Color of the product (optional)"
+								}
+							]
+						},
+						"description": "Fetches inventory levels for a specific style and optional color."
+					}
+				},
+				{
+					"name": "Get Sizes by Style & Color",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/sizes-by-style-color?styleNumber=PC61&color=Navy",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "sizes-by-style-color"],
+							"query": [
+								{
+									"key": "styleNumber",
+									"value": "PC61",
+									"description": "Style number of the product (required)"
+								},
+								{
+									"key": "color",
+									"value": "Navy",
+									"description": "Color of the product (required)"
+								}
+							]
+						},
+						"description": "Fetches detailed size availability and inventory by warehouse."
+					}
+				}
+			],
+			"description": "Inventory management and stock level checking"
+		},
+		{
+			"name": "🔧 Pricing Matrix",
+			"item": [
+				{
+					"name": "Get Pricing Matrices",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/pricing-matrix?sessionID=test_session_123",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "pricing-matrix"],
+							"query": [
+								{
+									"key": "sessionID",
+									"value": "test_session_123",
+									"description": "Session ID to filter by (optional)"
+								},
+								{
+									"key": "styleNumber",
+									"value": "",
+									"description": "Style number to filter by (optional)",
+									"disabled": true
+								},
+								{
+									"key": "color",
+									"value": "",
+									"description": "Color to filter by (optional)",
+									"disabled": true
+								}
+							]
+						},
+						"description": "Fetches pricing matrix records with optional filtering."
+					}
+				},
+				{
+					"name": "Lookup Pricing Matrix ID",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/pricing-matrix/lookup?styleNumber=PC61&color=Navy&embellishmentType=dtg",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "pricing-matrix", "lookup"],
+							"query": [
+								{
+									"key": "styleNumber",
+									"value": "PC61",
+									"description": "Style number (required)"
+								},
+								{
+									"key": "color",
+									"value": "Navy",
+									"description": "Color (required)"
+								},
+								{
+									"key": "embellishmentType",
+									"value": "dtg",
+									"description": "Embellishment type (required)"
+								},
+								{
+									"key": "sessionID",
+									"value": "",
+									"description": "Session ID (optional)",
+									"disabled": true
+								}
+							]
+						},
+						"description": "Looks up a pricing matrix ID based on style, color, and embellishment type."
+					}
+				},
+				{
+					"name": "Get Pricing Matrix by ID",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/pricing-matrix/{{matrixId}}",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "pricing-matrix", "{{matrixId}}"]
+						},
+						"description": "Fetches a specific pricing matrix by ID."
+					}
+				},
+				{
+					"name": "Create Pricing Matrix",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"SessionID\": \"test_session_123\",\n  \"StyleNumber\": \"PC61\",\n  \"Color\": \"Navy\",\n  \"EmbellishmentType\": \"dtg\",\n  \"TierStructure\": \"1-23,24-47,48-71,72+\",\n  \"SizeGroups\": \"XS-XL,2XL+\",\n  \"PriceMatrix\": {\n    \"tiers\": [\n      {\"min\": 1, \"max\": 23, \"prices\": {\"XS-XL\": 12.99, \"2XL+\": 14.99}}\n    ]\n  }\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/pricing-matrix",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "pricing-matrix"]
+						},
+						"description": "Creates a new pricing matrix."
+					}
+				},
+				{
+					"name": "Update Pricing Matrix",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"TierStructure\": \"1-23,24-47,48-95,96+\",\n  \"PriceMatrix\": {\n    \"updated\": true,\n    \"version\": \"2.0\"\n  }\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/pricing-matrix/{{matrixId}}",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "pricing-matrix", "{{matrixId}}"]
+						},
+						"description": "Updates an existing pricing matrix."
+					}
+				},
+				{
+					"name": "Delete Pricing Matrix",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/pricing-matrix/{{matrixId}}",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "pricing-matrix", "{{matrixId}}"]
+						},
+						"description": "Deletes a pricing matrix."
+					}
+				}
+			],
+			"description": "Dynamic pricing matrix management and lookup functionality"
+		},
+		{
+			"name": "📎 Utilities & Integration",
+			"item": [
+				{
+					"name": "Get Cart Integration Script",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/cart-integration.js",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "cart-integration.js"]
+						},
+						"description": "Serves the JavaScript file for client-side cart integration."
+					}
+				}
+			],
+			"description": "Utility endpoints for integration and client-side functionality"
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com",
+			"type": "string"
+		},
+		{
+			"key": "cartItemId",
+			"value": "1",
+			"type": "string",
+			"description": "Sample cart item ID for testing"
+		},
+		{
+			"key": "sizeItemId",
+			"value": "1",
+			"type": "string",
+			"description": "Sample size item ID for testing"
+		},
+		{
+			"key": "customerId",
+			"value": "1",
+			"type": "string",
+			"description": "Sample customer ID for testing"
+		},
+		{
+			"key": "orderId",
+			"value": "1",
+			"type": "string",
+			"description": "Sample order ID for testing"
+		},
+		{
+			"key": "matrixId",
+			"value": "1",
+			"type": "string",
+			"description": "Sample pricing matrix ID for testing"
+		},
+		{
+			"key": "analyticsId",
+			"value": "1",
+			"type": "string",
+			"description": "Sample analytics ID for testing"
+		},
+		{
+			"key": "itemId",
+			"value": "1",
+			"type": "string",
+			"description": "Sample quote item ID for testing"
+		},
+		{
+			"key": "sessionId",
+			"value": "1",
+			"type": "string",
+			"description": "Sample quote session ID for testing"
+		}
+	]
+}
