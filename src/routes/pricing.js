@@ -13,13 +13,13 @@ router.get('/pricing-tiers', async (req, res) => {
     return res.status(400).json({ error: 'Decoration method is required' });
   }
 
-  if (!['DTG', 'ScreenPrint', 'Embroidery'].includes(method)) {
-    return res.status(400).json({ error: 'Invalid decoration method. Use DTG, ScreenPrint, or Embroidery' });
+  if (!['DTG', 'ScreenPrint', 'Embroidery', 'EmbroideryShirts'].includes(method)) {
+    return res.status(400).json({ error: 'Invalid decoration method. Use DTG, ScreenPrint, Embroidery, or EmbroideryShirts' });
   }
 
   try {
     let whereClause;
-    if (method === 'Embroidery') {
+    if (method === 'Embroidery' || method === 'EmbroideryShirts') {
       whereClause = `DecorationMethod='EmbroideryShirts'`;
     } else {
       whereClause = `DecorationMethod='${method}'`;
@@ -230,43 +230,83 @@ router.get('/size-pricing', async (req, res) => {
 
 // GET /api/max-prices-by-style
 router.get('/max-prices-by-style', async (req, res) => {
-  const { styles } = req.query;
-  console.log(`GET /api/max-prices-by-style requested with styles=${styles}`);
+  const { styleNumber } = req.query;
+  console.log(`GET /api/max-prices-by-style requested with styleNumber=${styleNumber}`);
 
-  if (!styles) {
-    return res.status(400).json({ error: 'styles parameter is required (comma-separated list)' });
+  if (!styleNumber) {
+    return res.status(400).json({ error: 'Missing required query parameter: styleNumber' });
   }
 
-  const styleArray = styles.split(',').map(s => s.trim());
-
   try {
-    const maxPrices = {};
-    
-    for (const style of styleArray) {
-      const whereClause = `STYLE='${style}'`;
-      const records = await fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
-        'q.where': whereClause,
-        'q.select': 'STYLE, CASE_PRICE'
+    console.log(`Fetching data for /api/max-prices-by-style for style: ${styleNumber}`);
+
+    // 1. Fetch Selling Price Display Add-Ons from Standard_Size_Upcharges
+    let sellingPriceDisplayAddOns = {};
+    try {
+      const upchargeResults = await fetchAllCaspioPages('/tables/Standard_Size_Upcharges/records', {
+        'q.select': 'SizeDesignation,StandardAddOnAmount',
+        'q.orderby': 'SizeDesignation ASC',
+        'q.limit': 200
       });
-
-      if (records.length > 0) {
-        let maxPrice = 0;
-        
-        records.forEach(record => {
-          const price = parseFloat(record.CASE_PRICE) || 0;
-          if (price > maxPrice) {
-            maxPrice = price;
-          }
-        });
-
-        maxPrices[style] = maxPrice;
-      } else {
-        maxPrices[style] = null;
-      }
+      
+      upchargeResults.forEach(rule => {
+        if (rule.SizeDesignation && rule.StandardAddOnAmount !== null && !isNaN(parseFloat(rule.StandardAddOnAmount))) {
+          sellingPriceDisplayAddOns[String(rule.SizeDesignation).trim().toUpperCase()] = parseFloat(rule.StandardAddOnAmount);
+        }
+      });
+      
+      console.log("Fetched Selling Price Display Add-Ons for /max-prices-by-style:", sellingPriceDisplayAddOns);
+    } catch (upchargeError) {
+      console.error("Error fetching Selling Price Display Add-Ons for /max-prices-by-style:", upchargeError.message);
+      sellingPriceDisplayAddOns = {};
     }
 
-    console.log(`Max prices found for ${Object.keys(maxPrices).length} styles`);
-    res.json(maxPrices);
+    // 2. Fetch Inventory Data from Sanmar table (using STYLE field to match catalog_no)
+    const inventoryWhereClause = `STYLE='${styleNumber}'`;
+    const inventoryParams = {
+      'q.where': inventoryWhereClause,
+      'q.select': 'SIZE,CASE_PRICE',
+      'q.limit': 1000
+    };
+    const inventoryResult = await fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', inventoryParams);
+
+    if (inventoryResult.length === 0) {
+      console.warn(`No inventory found for style: ${styleNumber}`);
+      return res.json({
+        style: styleNumber, 
+        sizes: [], 
+        sellingPriceDisplayAddOns: sellingPriceDisplayAddOns,
+        message: `No inventory records found for style ${styleNumber}`
+      });
+    }
+
+    // 3. Calculate max garment costs per size
+    const garmentCosts = {};
+    inventoryResult.forEach(item => {
+      if (item.SIZE && item.CASE_PRICE !== null && !isNaN(parseFloat(item.CASE_PRICE))) {
+        const size = String(item.SIZE).trim().toUpperCase();
+        const casePrice = parseFloat(item.CASE_PRICE);
+        
+        if (!garmentCosts[size] || casePrice > garmentCosts[size]) {
+          garmentCosts[size] = casePrice;
+        }
+      }
+    });
+
+    // 4. Format response with sizes array
+    const sizes = Object.keys(garmentCosts).map(size => ({
+      size: size,
+      maxCasePrice: garmentCosts[size]
+    }));
+
+    console.log(`Max prices found for ${styleNumber}: ${sizes.length} size(s)`);
+    
+    res.json({
+      style: styleNumber,
+      sizes: sizes,
+      sellingPriceDisplayAddOns: sellingPriceDisplayAddOns
+    });
+    
   } catch (error) {
     console.error('Error fetching max prices:', error.message);
     res.status(500).json({ error: 'Failed to fetch max prices', details: error.message });
