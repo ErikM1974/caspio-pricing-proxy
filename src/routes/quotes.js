@@ -179,28 +179,49 @@ router.get('/quote_items/:id', async (req, res) => {
   }
 });
 
-// POST /api/quote_items
+// POST /api/quote_items - ENHANCED WITH DEBUGGING
 router.post('/quote_items', express.json(), async (req, res) => {
-  console.log('POST /api/quote_items requested with body:', req.body);
+  console.log('POST /api/quote_items requested with body:', JSON.stringify(req.body, null, 2));
 
   try {
     const { QuoteID, StyleNumber, Quantity } = req.body;
 
     if (!QuoteID || !StyleNumber || !Quantity) {
-      return res.status(400).json({ 
-        error: 'QuoteID, StyleNumber, and Quantity are required' 
+      return res.status(400).json({
+        error: 'QuoteID, StyleNumber, and Quantity are required'
       });
     }
 
-    // Just pass the data directly - Caspio handles ItemID
+    // Log the exact data being sent to Caspio
     const itemData = { ...req.body };
+    console.log('Sending to Caspio:', JSON.stringify(itemData, null, 2));
 
     const result = await makeCaspioRequest('post', '/tables/Quote_Items/records', {}, itemData);
-    console.log('Quote item created successfully');
+    console.log('Quote item created successfully:', JSON.stringify(result, null, 2));
     res.status(201).json(result);
   } catch (error) {
-    console.error('Error creating quote item:', error.message);
-    res.status(500).json({ error: 'Failed to create quote item', details: error.message });
+    // Enhanced error logging
+    console.error('Error creating quote item - Full error object:', error);
+    console.error('Error message:', error.message);
+    console.error('Error stack:', error.stack);
+    
+    // Try to extract more details from the error
+    let errorDetails = error.message;
+    if (error.response) {
+      console.error('Error response status:', error.response.status);
+      console.error('Error response data:', JSON.stringify(error.response.data, null, 2));
+      errorDetails = error.response.data || error.message;
+    }
+    
+    res.status(500).json({
+      error: 'Failed to create quote item',
+      details: errorDetails,
+      debugInfo: {
+        message: error.message,
+        status: error.response?.status,
+        data: error.response?.data
+      }
+    });
   }
 });
 
