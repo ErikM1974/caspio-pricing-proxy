@@ -6,7 +6,7 @@
 - ✅ All Caspio tables confirmed working via direct testing
 - ✅ Quote Sessions: Full CRUD working on live server  
 - ✅ Quote Items: Full CRUD working on live server (POST endpoint fixed as of v110)
-- ✅ Analytics: GET operations working, POST operations proven viable
+- ✅ Quote Analytics: Full CRUD working on live server (POST endpoint fixed as of June 4, 2025)
 - ✅ All server code fixes deployed to production
 
 ## 🚀 **PRODUCTION SERVER DETAILS**
@@ -15,7 +15,7 @@
 **API Version**: v3
 **Authentication**: Handled by proxy (no auth headers needed)
 **Content-Type**: `application/json`
-**Latest Deployment**: v110 (December 4, 2024)
+**Latest Deployment**: v111 (June 4, 2025) - Quote Analytics POST enabled
 
 ## ✅ **CONFIRMED WORKING ENDPOINTS**
 
@@ -128,7 +128,7 @@ const deleteQuoteItem = async (pkId) => {
 };
 ```
 
-### Quote Analytics - **READ OPERATIONS READY** ⭐
+### Quote Analytics - **FULL CRUD READY** ⭐ (Fixed in v111)
 
 ```javascript
 // GET analytics - Working perfectly
@@ -137,14 +137,44 @@ const getAnalytics = async (sessionId) => {
   return response.json();
 };
 
-// POST analytics - Table ready, endpoint pending deployment
+// POST analytics - Working perfectly (Fixed June 4, 2025)
 const trackAnalytics = async (analyticsData) => {
-  // Currently store in session notes until endpoint deployed
-  // Direct POST will be available in next deployment
   const response = await fetch(`${API_BASE}/api/quote_analytics`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(analyticsData)
+    body: JSON.stringify({
+      SessionID: analyticsData.sessionId,        // Required
+      EventType: analyticsData.eventType,        // Required
+      QuoteID: analyticsData.quoteId,
+      StyleNumber: analyticsData.styleNumber,
+      Color: analyticsData.color,
+      PrintLocation: analyticsData.printLocation,
+      Quantity: analyticsData.quantity,
+      HasLTM: analyticsData.hasLTM,
+      PriceShown: analyticsData.priceShown,
+      UserAgent: analyticsData.userAgent,
+      IPAddress: analyticsData.ipAddress,
+      Timestamp: analyticsData.timestamp,
+      NoName: analyticsData.noName
+    })
+  });
+  return response.json();
+};
+
+// UPDATE analytics - Working perfectly
+const updateAnalytics = async (pkId, updates) => {
+  const response = await fetch(`${API_BASE}/api/quote_analytics/${pkId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(updates)
+  });
+  return response.json();
+};
+
+// DELETE analytics - Working perfectly
+const deleteAnalytics = async (pkId) => {
+  const response = await fetch(`${API_BASE}/api/quote_analytics/${pkId}`, {
+    method: 'DELETE'
   });
   return response.json();
 };
@@ -201,24 +231,34 @@ interface QuoteItem {
 }
 ```
 
-### Quote Analytics (Read-Only Currently)
+### Quote Analytics (Full CRUD Available)
 ```typescript
 interface QuoteAnalytics {
-  PK_ID: number;              // Primary key
-  SessionID: string;          // Session ID
+  PK_ID: number;              // Auto-generated primary key
+  SessionID: string;          // Session ID (required)
+  EventType: string;          // Event type (required)
   QuoteID?: string;           // Quote ID
-  EventType: string;          // Event type (page_view, item_added, etc.)
   StyleNumber?: string;       // Product style
   Color?: string;             // Product color
+  PrintLocation?: string;     // Print location code
   Quantity?: number;          // Quantity
+  HasLTM?: string;            // Less than minimum indicator
   PriceShown?: number;        // Price displayed
   UserAgent?: string;         // Browser info
   IPAddress?: string;         // User IP
-  Timestamp?: string;         // Event timestamp
+  Timestamp?: string;         // ISO 8601 timestamp
+  NoName?: string;            // Additional tracking field
+  AnalyticsID?: string;       // Business key (auto-generated)
 }
 ```
 
 ## 🔧 **RECENT FIXES & UPDATES**
+
+### Quote Analytics Routes Registration (v111 - June 4, 2025)
+- **Issue**: Quote routes weren't registered in server.js, causing 404 errors
+- **Root Cause**: Missing route registration for quotes module
+- **Solution**: Added quotes routes registration in server.js before error middleware
+- **Result**: All Quote endpoints (Analytics, Items, Sessions) now fully accessible
 
 ### Quote Items POST Fix (v110 - December 4, 2024)
 - **Issue**: POST endpoint was failing with "Invalid column name 'ItemID'" error
@@ -229,10 +269,10 @@ interface QuoteAnalytics {
 ## 🚀 **IMPLEMENTATION STRATEGY**
 
 ### Full Implementation Available Now
-1. **Quote Sessions** - Full CRUD operations
-2. **Quote Items** - Full CRUD operations (fixed in v110)
-3. **Quote Analytics** - GET operations (POST coming soon)
-4. **Customer Management** - Via session data
+1. **Quote Sessions** - Full CRUD operations ✅
+2. **Quote Items** - Full CRUD operations (fixed in v110) ✅
+3. **Quote Analytics** - Full CRUD operations (fixed in v111) ✅
+4. **Customer Management** - Via session data ✅
 
 ### Example: Complete Quote Flow
 ```javascript
@@ -264,7 +304,17 @@ await updateQuote(session.PK_ID, {
   TotalAmount: 383.76
 });
 
-// 4. Retrieve complete quote
+// 4. Track analytics event
+await trackAnalytics({
+  sessionId: session.SessionID,
+  eventType: 'quote_created',
+  quoteId: session.QuoteID,
+  styleNumber: 'PC61',
+  quantity: 24,
+  priceShown: 15.99
+});
+
+// 5. Retrieve complete quote
 const items = await getQuoteItems(session.QuoteID);
 const analytics = await getAnalytics(session.SessionID);
 ```
@@ -298,28 +348,30 @@ const testQuoteItemsPost = async () => {
 
 - **Quote Sessions CRUD**: 100% confident ✅
 - **Quote Items CRUD**: 100% confident ✅ (fixed in v110)
-- **Analytics GET**: 100% confident ✅
-- **Analytics POST**: 90% confident (endpoint pending) 🔄
+- **Quote Analytics CRUD**: 100% confident ✅ (fixed in v111)
 
 ## 🎯 **NEXT STEPS**
 
 1. **Start full integration immediately** - All core functionality available
-2. **Implement complete quote management** - Sessions and Items fully functional
-3. **Build analytics tracking** - Use GET operations, POST coming soon
-4. **No workarounds needed** - Direct API calls work for all critical operations
+2. **Implement complete quote management** - Sessions, Items, and Analytics fully functional
+3. **Build comprehensive analytics tracking** - Full CRUD operations available
+4. **No workarounds needed** - Direct API calls work for all operations
 
 ## 📝 **IMPORTANT NOTES**
 
 1. **ItemID Field Removed**: The ItemID field no longer exists in the Quote_Items table. Use PK_ID as the primary identifier.
-2. **Deployment Version**: Ensure you're using v110 or later for full Quote Items functionality.
-3. **Error Handling**: Always implement proper error handling for API calls.
-4. **Rate Limiting**: Be mindful of API rate limits when making multiple requests.
+2. **Deployment Version**: Ensure you're using v111 or later for full Quote API functionality including Analytics.
+3. **Routes Registration**: Quote routes are registered in server.js at `/api` prefix (e.g., `/api/quote_analytics`).
+4. **Error Handling**: Always implement proper error handling for API calls.
+5. **Rate Limiting**: Be mindful of API rate limits when making multiple requests.
 
 ## 🔗 **Additional Resources**
 
 - `FIX_SUMMARY_QUOTE_ITEMS_POST.md` - Details of the ItemID fix
+- `QUOTE_API_INTEGRATION_SUMMARY.md` - Updated integration summary with Analytics examples
 - `QUOTES_API_DOCUMENTATION_UPDATED.md` - Complete API reference
 - `test-quote-items-fixed.js` - Working test script for validation
+- `server.js` (lines 1894-1896) - Quote routes registration
 - Working test scripts in project for ongoing validation
 
 **100% Ready for production integration!** 🚀
