@@ -1891,6 +1891,10 @@ app.get('/api/max-prices-by-style', async (req, res) => {
     }
 });
 
+// --- Quote Routes ---
+const quotesRoutes = require('./src/routes/quotes');
+app.use('/api', quotesRoutes);
+
 // --- Error Handling Middleware (Basic) ---
 // Catches errors from endpoint handlers
 app.use((err, req, res, next) => {
