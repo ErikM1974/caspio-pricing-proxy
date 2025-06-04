@@ -73,18 +73,31 @@ async function makeCaspioRequest(method, resourcePath, params = {}, data = null)
 
     const response = await axios(requestConfig);
     console.log(`Response status: ${response.status}`);
+    console.log(`Response data: ${JSON.stringify(response.data)}`);
 
-    if (response.data) {
-      // Caspio v3 returns records directly in response.data for GET requests
-      // But might have Result field for some endpoints
+    // Handle different response types based on HTTP method and status
+    if (method.toLowerCase() === 'post' && response.status === 201) {
+      // POST operations return 201 with empty body or location header
+      return { 
+        success: true, 
+        status: response.status,
+        location: response.headers.location,
+        PK_ID: response.headers.location ? response.headers.location.split('/').pop() : null
+      };
+    } else if (method.toLowerCase() === 'delete' && (response.status === 200 || response.status === 204)) {
+      // DELETE operations 
+      return { success: true, status: response.status };
+    } else if (response.data) {
+      // GET and PUT operations with data
       return response.data.Result || response.data;
     } else {
-      console.warn("Caspio API response was empty");
-      return [];
+      // Empty response but successful status
+      console.log("Caspio API response was empty but successful");
+      return { success: true, status: response.status };
     }
   } catch (error) {
     console.error(`Error making Caspio request to ${resourcePath}:`, error.response ? JSON.stringify(error.response.data) : error.message);
-    throw new Error(`Failed to fetch data from Caspio resource: ${resourcePath}. Status: ${error.response?.status}`);
+    throw new Error(`Failed to make request to Caspio resource: ${resourcePath}. Status: ${error.response?.status}. Details: ${error.response?.data ? JSON.stringify(error.response.data) : error.message}`);
   }
 }
 

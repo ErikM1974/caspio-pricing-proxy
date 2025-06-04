@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quote API Integration Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        .section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px; }
+        button { padding: 10px 15px; margin: 5px; background: #007bff; color: white; border: none; border-radius: 3px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        .output { background: #f8f9fa; padding: 10px; border-radius: 3px; margin-top: 10px; white-space: pre-wrap; font-family: monospace; }
+        .error { background: #f8d7da; color: #721c24; }
+        .success { background: #d4edda; color: #155724; }
+        input, select { margin: 5px; padding: 8px; width: 200px; }
+        .form-group { margin: 10px 0; }
+        label { display: inline-block; width: 120px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Quote API Integration Test</h1>
+        <p>This page demonstrates how to use the Quote API endpoints for your pricing application.</p>
+
+        <!-- Quote Analytics Section -->
+        <div class="section">
+            <h2>Quote Analytics</h2>
+            <p>Track user interactions and quote analytics</p>
+            
+            <div class="form-group">
+                <label>Session ID:</label>
+                <input type="text" id="analyticsSessionId" value="test-session-123" />
+            </div>
+            <div class="form-group">
+                <label>Event Type:</label>
+                <select id="analyticsEventType">
+                    <option value="page_view">Page View</option>
+                    <option value="add_to_cart">Add to Cart</option>
+                    <option value="price_check">Price Check</option>
+                    <option value="quote_started">Quote Started</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Style Number:</label>
+                <input type="text" id="analyticsStyleNumber" value="PC61" />
+            </div>
+            <div class="form-group">
+                <label>Color:</label>
+                <input type="text" id="analyticsColor" value="Red" />
+            </div>
+            <div class="form-group">
+                <label>Quantity:</label>
+                <input type="number" id="analyticsQuantity" value="50" />
+            </div>
+            
+            <button onclick="createAnalytics()">Create Analytics Record</button>
+            <button onclick="getAnalytics()">Get Analytics</button>
+            
+            <div id="analyticsOutput" class="output"></div>
+        </div>
+
+        <!-- Quote Items Section -->
+        <div class="section">
+            <h2>Quote Items</h2>
+            <p>Manage items in quotes</p>
+            
+            <div class="form-group">
+                <label>Quote ID:</label>
+                <input type="text" id="itemsQuoteId" value="quote-456" />
+            </div>
+            <div class="form-group">
+                <label>Style Number:</label>
+                <input type="text" id="itemsStyleNumber" value="PC61" />
+            </div>
+            <div class="form-group">
+                <label>Product Name:</label>
+                <input type="text" id="itemsProductName" value="Port & Company Essential T-Shirt" />
+            </div>
+            <div class="form-group">
+                <label>Color:</label>
+                <input type="text" id="itemsColor" value="Red" />
+            </div>
+            <div class="form-group">
+                <label>Quantity:</label>
+                <input type="number" id="itemsQuantity" value="50" />
+            </div>
+            <div class="form-group">
+                <label>Unit Price:</label>
+                <input type="number" id="itemsUnitPrice" value="12.50" step="0.01" />
+            </div>
+            
+            <button onclick="createQuoteItem()">Create Quote Item</button>
+            <button onclick="getQuoteItems()">Get Quote Items</button>
+            
+            <div id="itemsOutput" class="output"></div>
+        </div>
+
+        <!-- Quote Sessions Section -->
+        <div class="section">
+            <h2>Quote Sessions</h2>
+            <p>Handle quote session management</p>
+            
+            <div class="form-group">
+                <label>Quote ID:</label>
+                <input type="text" id="sessionQuoteId" value="quote-456" />
+            </div>
+            <div class="form-group">
+                <label>Session ID:</label>
+                <input type="text" id="sessionSessionId" value="test-session-123" />
+            </div>
+            <div class="form-group">
+                <label>Customer Email:</label>
+                <input type="email" id="sessionCustomerEmail" value="customer@example.com" />
+            </div>
+            <div class="form-group">
+                <label>Customer Name:</label>
+                <input type="text" id="sessionCustomerName" value="John Doe" />
+            </div>
+            <div class="form-group">
+                <label>Status:</label>
+                <select id="sessionStatus">
+                    <option value="Active">Active</option>
+                    <option value="Completed">Completed</option>
+                    <option value="Expired">Expired</option>
+                </select>
+            </div>
+            
+            <button onclick="createQuoteSession()">Create Quote Session</button>
+            <button onclick="getQuoteSessions()">Get Quote Sessions</button>
+            
+            <div id="sessionOutput" class="output"></div>
+        </div>
+
+        <!-- Full Quote Workflow -->
+        <div class="section">
+            <h2>Complete Quote Workflow</h2>
+            <p>Demonstrate a complete quote creation workflow</p>
+            
+            <button onclick="runCompleteWorkflow()">Run Complete Workflow</button>
+            
+            <div id="workflowOutput" class="output"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE_URL = 'https://caspio-pricing-proxy-ab30a049961a.herokuapp.com';
+
+        // Utility function to make API requests
+        async function apiRequest(endpoint, method = 'GET', data = null) {
+            const config = {
+                method: method,
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            };
+
+            if (data) {
+                config.body = JSON.stringify(data);
+            }
+
+            try {
+                const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
+                const result = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(result.error || `HTTP ${response.status}`);
+                }
+                
+                return result;
+            } catch (error) {
+                throw new Error(`API Error: ${error.message}`);
+            }
+        }
+
+        // Display output in the specified element
+        function displayOutput(elementId, data, isError = false) {
+            const element = document.getElementById(elementId);
+            element.className = isError ? 'output error' : 'output success';
+            element.textContent = JSON.stringify(data, null, 2);
+        }
+
+        // Quote Analytics Functions
+        async function createAnalytics() {
+            try {
+                const data = {
+                    SessionID: document.getElementById('analyticsSessionId').value,
+                    EventType: document.getElementById('analyticsEventType').value,
+                    StyleNumber: document.getElementById('analyticsStyleNumber').value,
+                    Color: document.getElementById('analyticsColor').value,
+                    Quantity: parseInt(document.getElementById('analyticsQuantity').value),
+                    PriceShown: 12.50,
+                    UserAgent: navigator.userAgent,
+                    IPAddress: '127.0.0.1'
+                };
+
+                const result = await apiRequest('/api/quote_analytics', 'POST', data);
+                displayOutput('analyticsOutput', result);
+            } catch (error) {
+                displayOutput('analyticsOutput', { error: error.message }, true);
+            }
+        }
+
+        async function getAnalytics() {
+            try {
+                const sessionId = document.getElementById('analyticsSessionId').value;
+                const result = await apiRequest(`/api/quote_analytics?sessionID=${sessionId}`);
+                displayOutput('analyticsOutput', result);
+            } catch (error) {
+                displayOutput('analyticsOutput', { error: error.message }, true);
+            }
+        }
+
+        // Quote Items Functions
+        async function createQuoteItem() {
+            try {
+                const quantity = parseInt(document.getElementById('itemsQuantity').value);
+                const unitPrice = parseFloat(document.getElementById('itemsUnitPrice').value);
+                
+                const data = {
+                    QuoteID: document.getElementById('itemsQuoteId').value,
+                    StyleNumber: document.getElementById('itemsStyleNumber').value,
+                    ProductName: document.getElementById('itemsProductName').value,
+                    Color: document.getElementById('itemsColor').value,
+                    Quantity: quantity,
+                    EmbellishmentType: 'DTG',
+                    FinalUnitPrice: unitPrice,
+                    LineTotal: quantity * unitPrice,
+                    SizeBreakdown: JSON.stringify({"S": 10, "M": 20, "L": 15, "XL": 5})
+                };
+
+                const result = await apiRequest('/api/quote_items', 'POST', data);
+                displayOutput('itemsOutput', result);
+            } catch (error) {
+                displayOutput('itemsOutput', { error: error.message }, true);
+            }
+        }
+
+        async function getQuoteItems() {
+            try {
+                const quoteId = document.getElementById('itemsQuoteId').value;
+                const result = await apiRequest(`/api/quote_items?quoteID=${quoteId}`);
+                displayOutput('itemsOutput', result);
+            } catch (error) {
+                displayOutput('itemsOutput', { error: error.message }, true);
+            }
+        }
+
+        // Quote Sessions Functions
+        async function createQuoteSession() {
+            try {
+                const data = {
+                    QuoteID: document.getElementById('sessionQuoteId').value,
+                    SessionID: document.getElementById('sessionSessionId').value,
+                    CustomerEmail: document.getElementById('sessionCustomerEmail').value,
+                    CustomerName: document.getElementById('sessionCustomerName').value,
+                    Status: document.getElementById('sessionStatus').value,
+                    TotalQuantity: 50,
+                    TotalAmount: 625.00
+                };
+
+                const result = await apiRequest('/api/quote_sessions', 'POST', data);
+                displayOutput('sessionOutput', result);
+            } catch (error) {
+                displayOutput('sessionOutput', { error: error.message }, true);
+            }
+        }
+
+        async function getQuoteSessions() {
+            try {
+                const sessionId = document.getElementById('sessionSessionId').value;
+                const result = await apiRequest(`/api/quote_sessions?sessionID=${sessionId}`);
+                displayOutput('sessionOutput', result);
+            } catch (error) {
+                displayOutput('sessionOutput', { error: error.message }, true);
+            }
+        }
+
+        // Complete Workflow
+        async function runCompleteWorkflow() {
+            const workflowOutput = document.getElementById('workflowOutput');
+            workflowOutput.className = 'output';
+            workflowOutput.textContent = 'Running complete quote workflow...\n\n';
+
+            const sessionId = `session-${Date.now()}`;
+            const quoteId = `quote-${Date.now()}`;
+
+            try {
+                // Step 1: Create Quote Session
+                workflowOutput.textContent += 'Step 1: Creating quote session...\n';
+                const sessionData = {
+                    QuoteID: quoteId,
+                    SessionID: sessionId,
+                    CustomerEmail: 'workflow@example.com',
+                    CustomerName: 'Workflow Test User',
+                    Status: 'Active'
+                };
+                const sessionResult = await apiRequest('/api/quote_sessions', 'POST', sessionData);
+                workflowOutput.textContent += `✓ Session created: ${JSON.stringify(sessionResult, null, 2)}\n\n`;
+
+                // Step 2: Track Analytics - Quote Started
+                workflowOutput.textContent += 'Step 2: Tracking quote started event...\n';
+                const analyticsData = {
+                    SessionID: sessionId,
+                    QuoteID: quoteId,
+                    EventType: 'quote_started',
+                    UserAgent: navigator.userAgent
+                };
+                const analyticsResult = await apiRequest('/api/quote_analytics', 'POST', analyticsData);
+                workflowOutput.textContent += `✓ Analytics tracked: ${JSON.stringify(analyticsResult, null, 2)}\n\n`;
+
+                // Step 3: Add Quote Item
+                workflowOutput.textContent += 'Step 3: Adding quote item...\n';
+                const itemData = {
+                    QuoteID: quoteId,
+                    StyleNumber: 'PC61',
+                    ProductName: 'Port & Company Essential T-Shirt',
+                    Color: 'Red',
+                    Quantity: 50,
+                    EmbellishmentType: 'DTG',
+                    FinalUnitPrice: 12.50,
+                    LineTotal: 625.00,
+                    SizeBreakdown: JSON.stringify({"S": 10, "M": 20, "L": 15, "XL": 5})
+                };
+                const itemResult = await apiRequest('/api/quote_items', 'POST', itemData);
+                workflowOutput.textContent += `✓ Item added: ${JSON.stringify(itemResult, null, 2)}\n\n`;
+
+                // Step 4: Track Analytics - Item Added
+                workflowOutput.textContent += 'Step 4: Tracking item added event...\n';
+                const itemAnalyticsData = {
+                    SessionID: sessionId,
+                    QuoteID: quoteId,
+                    EventType: 'add_to_cart',
+                    StyleNumber: 'PC61',
+                    Color: 'Red',
+                    Quantity: 50,
+                    PriceShown: 12.50
+                };
+                const itemAnalyticsResult = await apiRequest('/api/quote_analytics', 'POST', itemAnalyticsData);
+                workflowOutput.textContent += `✓ Item analytics tracked: ${JSON.stringify(itemAnalyticsResult, null, 2)}\n\n`;
+
+                // Step 5: Update Session with Totals
+                workflowOutput.textContent += 'Step 5: Updating session with totals...\n';
+                const sessionPkId = sessionResult.Result ? sessionResult.Result.PK_ID : sessionResult.PK_ID;
+                if (sessionPkId) {
+                    const sessionUpdateData = {
+                        TotalQuantity: 50,
+                        SubtotalAmount: 625.00,
+                        TotalAmount: 625.00,
+                        Status: 'Completed'
+                    };
+                    const sessionUpdateResult = await apiRequest(`/api/quote_sessions/${sessionPkId}`, 'PUT', sessionUpdateData);
+                    workflowOutput.textContent += `✓ Session updated: ${JSON.stringify(sessionUpdateResult, null, 2)}\n\n`;
+                }
+
+                workflowOutput.textContent += '🎉 Complete workflow finished successfully!\n';
+                workflowOutput.className = 'output success';
+
+            } catch (error) {
+                workflowOutput.textContent += `❌ Error: ${error.message}\n`;
+                workflowOutput.className = 'output error';
+            }
+        }
+
+        // Initialize with current timestamp for unique IDs
+        window.onload = function() {
+            const timestamp = Date.now();
+            document.getElementById('analyticsSessionId').value = `session-${timestamp}`;
+            document.getElementById('sessionSessionId').value = `session-${timestamp}`;
+            document.getElementById('itemsQuoteId').value = `quote-${timestamp}`;
+            document.getElementById('sessionQuoteId').value = `quote-${timestamp}`;
+        };
+    </script>
+</body>
+</html>
