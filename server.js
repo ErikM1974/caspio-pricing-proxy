@@ -410,6 +410,66 @@ app.get('/api/pricing-rules', async (req, res) => {
     }
 });
 
+// Get Pricing Bundle - Consolidates tiers, rules, and costs for DTG
+// Example: /api/pricing-bundle?method=DTG
+app.get('/api/pricing-bundle', async (req, res) => {
+    const { method } = req.query;
+    console.log(`GET /api/pricing-bundle requested with method=${method}`);
+
+    if (!method) {
+        return res.status(400).json({ error: 'Decoration method is required' });
+    }
+
+    if (method !== 'DTG') {
+        return res.status(400).json({ error: 'Currently only DTG method is supported for pricing bundle' });
+    }
+
+    try {
+        // Execute all three queries in parallel for better performance
+        const [tiersResult, rulesResult, dtgCostsResult] = await Promise.all([
+            // Fetch pricing tiers
+            fetchAllCaspioPages('/tables/Pricing_Tiers/records', {
+                'q.where': `DecorationMethod='${method}'`,
+                'q.select': 'PK_ID,TierID,DecorationMethod,TierLabel,MinQuantity,MaxQuantity,MarginDenominator,TargetMargin,LTM_Fee',
+                'q.limit': 100
+            }),
+            
+            // Fetch pricing rules  
+            fetchAllCaspioPages('/tables/Pricing_Rules/records', {
+                'q.where': `DecorationMethod='${method}' OR DecorationMethod='All'`,
+                'q.select': 'RuleName,RuleValue',
+                'q.limit': 100
+            }),
+            
+            // Fetch DTG costs
+            fetchAllCaspioPages('/tables/DTG_Costs/records', {
+                'q.select': 'PrintLocationCode,TierLabel,PrintCost',
+                'q.limit': 500
+            })
+        ]);
+
+        // Format rules as object (like the original pricing-rules endpoint)
+        const rulesObject = {};
+        rulesResult.forEach(item => {
+            rulesObject[item.RuleName] = item.RuleValue;
+        });
+
+        console.log(`Pricing bundle for ${method}: ${tiersResult.length} tier(s), ${rulesResult.length} rule(s), ${dtgCostsResult.length} cost record(s)`);
+
+        // Prepare the response in the required format
+        const response = {
+            tiersR: tiersResult,
+            rulesR: rulesObject,  // Return as object, not array
+            allDtgCostsR: dtgCostsResult
+        };
+
+        res.json(response);
+    } catch (error) {
+        console.error('Error fetching pricing bundle:', error.message);
+        res.status(500).json({ error: 'Failed to fetch pricing bundle', details: error.message });
+    }
+});
+
 // Get Base Item Costs (Max Case Price per Size for a Style)
 // Example: /api/base-item-costs?styleNumber=XYZ123
 app.get('/api/base-item-costs', async (req, res) => {

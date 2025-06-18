@@ -313,4 +313,52 @@ router.get('/max-prices-by-style', async (req, res) => {
   }
 });
 
+// GET /api/pricing-bundle
+router.get('/pricing-bundle', async (req, res) => {
+  const { method } = req.query;
+  console.log(`GET /api/pricing-bundle requested with method=${method}`);
+
+  if (!method) {
+    return res.status(400).json({ error: 'Decoration method is required' });
+  }
+
+  if (method !== 'DTG') {
+    return res.status(400).json({ error: 'Currently only DTG method is supported for pricing bundle' });
+  }
+
+  try {
+    // Execute all three queries in parallel for better performance
+    const [tiers, rules, dtgCosts] = await Promise.all([
+      // Fetch pricing tiers
+      fetchAllCaspioPages('/tables/Pricing_Tiers/records', {
+        'q.where': `DecorationMethod='${method}'`,
+        'q.select': 'PK_ID,TierID,DecorationMethod,TierLabel,MinQuantity,MaxQuantity,MarginDenominator,TargetMargin,LTM_Fee',
+        'q.limit': 100
+      }),
+      
+      // Fetch pricing rules
+      fetchAllCaspioPages('/tables/Pricing_Rules/records', {
+        'q.where': `DecorationMethod='${method}'`
+      }),
+      
+      // Fetch DTG costs
+      fetchAllCaspioPages('/tables/DTG_Costs/records')
+    ]);
+
+    console.log(`Pricing bundle for ${method}: ${tiers.length} tier(s), ${rules.length} rule(s), ${dtgCosts.length} cost record(s)`);
+
+    // Prepare the response in the required format
+    const response = {
+      tiersR: tiers,
+      rulesR: rules.length > 0 ? rules[0] : {},  // Rules returns array but we need the first object
+      allDtgCostsR: dtgCosts
+    };
+
+    res.json(response);
+  } catch (error) {
+    console.error('Error fetching pricing bundle:', error.message);
+    res.status(500).json({ error: 'Failed to fetch pricing bundle', details: error.message });
+  }
+});
+
 module.exports = router;
