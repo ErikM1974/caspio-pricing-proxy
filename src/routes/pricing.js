@@ -315,8 +315,8 @@ router.get('/max-prices-by-style', async (req, res) => {
 
 // GET /api/pricing-bundle
 router.get('/pricing-bundle', async (req, res) => {
-  const { method } = req.query;
-  console.log(`GET /api/pricing-bundle requested with method=${method}`);
+  const { method, styleNumber } = req.query;
+  console.log(`GET /api/pricing-bundle requested with method=${method}, styleNumber=${styleNumber || 'none'}`);
 
   if (!method) {
     return res.status(400).json({ error: 'Decoration method is required' });
@@ -327,8 +327,8 @@ router.get('/pricing-bundle', async (req, res) => {
   }
 
   try {
-    // Execute all three queries in parallel for better performance
-    const [tiers, rules, dtgCosts] = await Promise.all([
+    // Base queries that always run
+    const baseQueries = [
       // Fetch pricing tiers
       fetchAllCaspioPages('/tables/Pricing_Tiers/records', {
         'q.where': `DecorationMethod='${method}'`,
@@ -343,16 +343,112 @@ router.get('/pricing-bundle', async (req, res) => {
       
       // Fetch DTG costs
       fetchAllCaspioPages('/tables/DTG_Costs/records')
-    ]);
+    ];
+
+    // If styleNumber is provided, also fetch size-specific data
+    if (styleNumber) {
+      // Add the size upcharges query
+      baseQueries.push(
+        fetchAllCaspioPages('/tables/Standard_Size_Upcharges/records', {
+          'q.select': 'SizeDesignation,StandardAddOnAmount',
+          'q.orderby': 'SizeDesignation ASC',
+          'q.limit': 200
+        })
+      );
+      
+      // Add the inventory query
+      baseQueries.push(
+        fetchAllCaspioPages('/tables/Inventory/records', {
+          'q.where': `catalog_no='${styleNumber}'`,
+          'q.select': 'size, case_price, SizeSortOrder, catalog_color',
+          'q.limit': 1000
+        }, {
+          maxPages: 100,
+          earlyExitCondition: (pageData, allResults) => {
+            // Extract unique sizes from current results
+            const uniqueSizes = new Set();
+            if (allResults && Array.isArray(allResults)) {
+              allResults.forEach(item => {
+                if (item.size) uniqueSizes.add(item.size.trim().toUpperCase());
+              });
+            }
+            
+            // Exit early if we have a reasonable number of sizes AND the large sizes
+            const hasLargeSizes = uniqueSizes.has('5XL') && uniqueSizes.has('6XL');
+            const sizeCount = uniqueSizes.size;
+            
+            if (sizeCount >= 7 && hasLargeSizes) {
+              console.log(`Early exit: Found ${sizeCount} sizes including large sizes (5XL, 6XL)`);
+              return true;
+            }
+            
+            return false;
+          }
+        })
+      );
+    }
+
+    // Execute all queries in parallel
+    const results = await Promise.all(baseQueries);
+    
+    // Destructure base results
+    const [tiers, rules, dtgCosts] = results;
 
     console.log(`Pricing bundle for ${method}: ${tiers.length} tier(s), ${rules.length} rule(s), ${dtgCosts.length} cost record(s)`);
 
-    // Prepare the response in the required format
+    // Prepare the base response
     const response = {
       tiersR: tiers,
       rulesR: rules.length > 0 ? rules[0] : {},  // Rules returns array but we need the first object
       allDtgCostsR: dtgCosts
     };
+
+    // If styleNumber was provided, process and add size-specific data
+    if (styleNumber && results.length >= 5) {
+      const [, , , upchargeResults, inventoryResult] = results;
+      
+      // Process selling price display add-ons
+      let sellingPriceDisplayAddOns = {};
+      upchargeResults.forEach(rule => {
+        if (rule.SizeDesignation && rule.StandardAddOnAmount !== null && !isNaN(parseFloat(rule.StandardAddOnAmount))) {
+          sellingPriceDisplayAddOns[String(rule.SizeDesignation).trim().toUpperCase()] = parseFloat(rule.StandardAddOnAmount);
+        }
+      });
+      
+      // Process inventory data to get sizes
+      const garmentCosts = {};
+      const sortOrders = {};
+      
+      inventoryResult.forEach(item => {
+        if (item.size && item.case_price !== null && !isNaN(parseFloat(item.case_price))) {
+          const sizeKey = String(item.size).trim().toUpperCase();
+          const price = parseFloat(item.case_price);
+          const sortOrder = parseInt(item.SizeSortOrder, 10) || 999;
+          
+          // Get max price per size (as done in size-pricing endpoint)
+          if (!garmentCosts[sizeKey] || price > garmentCosts[sizeKey]) {
+            garmentCosts[sizeKey] = price;
+          }
+          
+          if (!sortOrders[sizeKey] || sortOrder < sortOrders[sizeKey]) {
+            sortOrders[sizeKey] = sortOrder;
+          }
+        }
+      });
+      
+      // Sort sizes by sort order
+      const sortedSizeKeys = Object.keys(garmentCosts).sort((a, b) => (sortOrders[a] || 999) - (sortOrders[b] || 999));
+      
+      // Add size-specific data to response
+      response.sizes = sortedSizeKeys.map(sizeKey => ({
+        size: sizeKey,
+        price: garmentCosts[sizeKey],
+        sortOrder: sortOrders[sizeKey]
+      }));
+      response.sellingPriceDisplayAddOns = sellingPriceDisplayAddOns;
+      
+      console.log(`Added size data for ${styleNumber}: ${sortedSizeKeys.length} sizes found`);
+    }
 
     res.json(response);
   } catch (error) {
