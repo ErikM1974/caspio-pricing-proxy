@@ -356,34 +356,21 @@ router.get('/pricing-bundle', async (req, res) => {
         })
       );
       
-      // Add the inventory query
+      // Add the Sanmar query for sizes
       baseQueries.push(
-        fetchAllCaspioPages('/tables/Inventory/records', {
-          'q.where': `catalog_no='${styleNumber}'`,
-          'q.select': 'size, case_price, SizeSortOrder, catalog_color',
-          'q.limit': 1000
-        }, {
-          maxPages: 100,
-          earlyExitCondition: (pageData, allResults) => {
-            // Extract unique sizes from current results
-            const uniqueSizes = new Set();
-            if (allResults && Array.isArray(allResults)) {
-              allResults.forEach(item => {
-                if (item.size) uniqueSizes.add(item.size.trim().toUpperCase());
-              });
-            }
-            
-            // Exit early if we have a reasonable number of sizes AND the large sizes
-            const hasLargeSizes = uniqueSizes.has('5XL') && uniqueSizes.has('6XL');
-            const sizeCount = uniqueSizes.size;
-            
-            if (sizeCount >= 7 && hasLargeSizes) {
-              console.log(`Early exit: Found ${sizeCount} sizes including large sizes (5XL, 6XL)`);
-              return true;
-            }
-            
-            return false;
-          }
+        fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
+          'q.where': `STYLE='${styleNumber}'`,
+          'q.select': 'SIZE, MAX(CASE_PRICE) AS MAX_PRICE',
+          'q.groupBy': 'SIZE',
+          'q.limit': 100
+        })
+      );
+      
+      // Add the Size Display Order query
+      baseQueries.push(
+        fetchAllCaspioPages('/tables/Size_Display_Order/records', {
+          'q.select': 'size,sort_order',
+          'q.limit': 200
         })
       );
     }
@@ -404,8 +391,8 @@ router.get('/pricing-bundle', async (req, res) => {
     };
 
     // If styleNumber was provided, process and add size-specific data
-    if (styleNumber && results.length >= 5) {
-      const [, , , upchargeResults, inventoryResult] = results;
+    if (styleNumber && results.length >= 6) {
+      const [, , , upchargeResults, inventoryResult, sizeOrderResults] = results;
       
       // Process selling price display add-ons
       let sellingPriceDisplayAddOns = {};
@@ -415,35 +402,39 @@ router.get('/pricing-bundle', async (req, res) => {
         }
       });
       
-      // Process inventory data to get sizes
-      const garmentCosts = {};
-      const sortOrders = {};
-      
-      inventoryResult.forEach(item => {
-        if (item.size && item.case_price !== null && !isNaN(parseFloat(item.case_price))) {
-          const sizeKey = String(item.size).trim().toUpperCase();
-          const price = parseFloat(item.case_price);
-          const sortOrder = parseInt(item.SizeSortOrder, 10) || 999;
-          
-          // Get max price per size (as done in size-pricing endpoint)
-          if (!garmentCosts[sizeKey] || price > garmentCosts[sizeKey]) {
-            garmentCosts[sizeKey] = price;
-          }
-          
-          if (!sortOrders[sizeKey] || sortOrder < sortOrders[sizeKey]) {
-            sortOrders[sizeKey] = sortOrder;
-          }
+      // Create size order lookup map
+      const sizeOrderMap = {};
+      sizeOrderResults.forEach(item => {
+        if (item.size && item.sort_order !== null) {
+          sizeOrderMap[item.size.toUpperCase()] = item.sort_order;
         }
       });
       
-      // Sort sizes by sort order
-      const sortedSizeKeys = Object.keys(garmentCosts).sort((a, b) => (sortOrders[a] || 999) - (sortOrders[b] || 999));
+      // Process Sanmar data to get sizes
+      const garmentCosts = {};
+      
+      inventoryResult.forEach(item => {
+        if (item.SIZE && item.MAX_PRICE !== null && !isNaN(parseFloat(item.MAX_PRICE))) {
+          const sizeKey = String(item.SIZE).trim().toUpperCase();
+          const price = parseFloat(item.MAX_PRICE);
+          
+          // Data is already grouped by SIZE with MAX price
+          garmentCosts[sizeKey] = price;
+        }
+      });
+      
+      // Sort sizes by sort order from Size_Display_Order table
+      const sortedSizeKeys = Object.keys(garmentCosts).sort((a, b) => {
+        const orderA = sizeOrderMap[a] || 999;
+        const orderB = sizeOrderMap[b] || 999;
+        return orderA - orderB;
+      });
       
       // Add size-specific data to response
       response.sizes = sortedSizeKeys.map(sizeKey => ({
         size: sizeKey,
         price: garmentCosts[sizeKey],
-        sortOrder: sortOrders[sizeKey]
+        sortOrder: sizeOrderMap[sizeKey] || 999
       }));
       response.sellingPriceDisplayAddOns = sellingPriceDisplayAddOns;
       
