@@ -342,7 +342,15 @@ router.get('/pricing-bundle', async (req, res) => {
       }),
       
       // Fetch DTG costs
-      fetchAllCaspioPages('/tables/DTG_Costs/records')
+      fetchAllCaspioPages('/tables/DTG_Costs/records'),
+      
+      // Fetch locations
+      fetchAllCaspioPages('/tables/location/records', {
+        'q.where': `Type='${method}'`,
+        'q.select': 'location_code,location_name',
+        'q.orderBy': 'PK_ID ASC',
+        'q.limit': 100
+      })
     ];
 
     // If styleNumber is provided, also fetch size-specific data
@@ -379,20 +387,27 @@ router.get('/pricing-bundle', async (req, res) => {
     const results = await Promise.all(baseQueries);
     
     // Destructure base results
-    const [tiers, rules, dtgCosts] = results;
+    const [tiers, rules, dtgCosts, locationsResult] = results;
 
-    console.log(`Pricing bundle for ${method}: ${tiers.length} tier(s), ${rules.length} rule(s), ${dtgCosts.length} cost record(s)`);
+    console.log(`Pricing bundle for ${method}: ${tiers.length} tier(s), ${rules.length} rule(s), ${dtgCosts.length} cost record(s), ${locationsResult.length} location(s)`);
+
+    // Format locations for response
+    const locations = locationsResult.map(loc => ({
+      code: loc.location_code,
+      name: loc.location_name
+    }));
 
     // Prepare the base response
     const response = {
       tiersR: tiers,
       rulesR: rules.length > 0 ? rules[0] : {},  // Rules returns array but we need the first object
-      allDtgCostsR: dtgCosts
+      allDtgCostsR: dtgCosts,
+      locations: locations
     };
 
     // If styleNumber was provided, process and add size-specific data
-    if (styleNumber && results.length >= 6) {
-      const [, , , upchargeResults, inventoryResult, sizeOrderResults] = results;
+    if (styleNumber && results.length >= 7) {
+      const [, , , , upchargeResults, inventoryResult, sizeOrderResults] = results;
       
       // Process selling price display add-ons
       let sellingPriceDisplayAddOns = {};

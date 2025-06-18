@@ -445,6 +445,14 @@ app.get('/api/pricing-bundle', async (req, res) => {
             fetchAllCaspioPages('/tables/DTG_Costs/records', {
                 'q.select': 'PrintLocationCode,TierLabel,PrintCost',
                 'q.limit': 500
+            }),
+            
+            // Fetch locations
+            fetchAllCaspioPages('/tables/location/records', {
+                'q.where': `Type='${method}'`,
+                'q.select': 'location_code,location_name',
+                'q.orderBy': 'PK_ID ASC',
+                'q.limit': 100
             })
         ];
 
@@ -482,7 +490,7 @@ app.get('/api/pricing-bundle', async (req, res) => {
         const results = await Promise.all(baseQueries);
         
         // Destructure base results
-        const [tiersResult, rulesResult, dtgCostsResult] = results;
+        const [tiersResult, rulesResult, dtgCostsResult, locationsResult] = results;
 
         // Format rules as object (like the original pricing-rules endpoint)
         const rulesObject = {};
@@ -490,18 +498,25 @@ app.get('/api/pricing-bundle', async (req, res) => {
             rulesObject[item.RuleName] = item.RuleValue;
         });
 
-        console.log(`Pricing bundle for ${method}: ${tiersResult.length} tier(s), ${rulesResult.length} rule(s), ${dtgCostsResult.length} cost record(s)`);
+        console.log(`Pricing bundle for ${method}: ${tiersResult.length} tier(s), ${rulesResult.length} rule(s), ${dtgCostsResult.length} cost record(s), ${locationsResult.length} location(s)`);
+
+        // Format locations for response
+        const locations = locationsResult.map(loc => ({
+            code: loc.location_code,
+            name: loc.location_name
+        }));
 
         // Prepare the base response
         const response = {
             tiersR: tiersResult,
             rulesR: rulesObject,  // Return as object, not array
-            allDtgCostsR: dtgCostsResult
+            allDtgCostsR: dtgCostsResult,
+            locations: locations
         };
 
         // If styleNumber was provided, process and add size-specific data
-        if (styleNumber && results.length >= 6) {
-            const [, , , upchargeResults, inventoryResult, sizeOrderResults] = results;
+        if (styleNumber && results.length >= 7) {
+            const [, , , , upchargeResults, inventoryResult, sizeOrderResults] = results;
             
             // Process selling price display add-ons
             let sellingPriceDisplayAddOns = {};
@@ -628,6 +643,72 @@ app.get('/api/test-sanmar-bulk', async (req, res) => {
         res.json(result);
     } catch (error) {
         res.status(500).json({ error: error.message || 'Failed to fetch Sanmar bulk data.' });
+    }
+});
+
+// GET /api/locations - Get all print locations
+// Example: /api/locations or /api/locations?type=DTG
+app.get('/api/locations', async (req, res) => {
+    const { type } = req.query;
+    console.log(`GET /api/locations requested with type=${type || 'all'}`);
+
+    try {
+        const params = {
+            'q.select': 'location_code,location_name,Type',
+            'q.orderBy': 'PK_ID ASC',
+            'q.limit': 100
+        };
+        
+        if (type) {
+            params['q.where'] = `Type='${type}'`;
+        }
+        
+        const locations = await fetchAllCaspioPages('/tables/location/records', params);
+        console.log(`Locations: ${locations.length} record(s) found`);
+        res.json(locations);
+    } catch (error) {
+        console.error('Error fetching locations:', error.message);
+        res.status(500).json({ error: 'Failed to fetch locations', details: error.message });
+    }
+});
+
+// GET /api/size-upcharges - Get standard size upcharges
+// Example: /api/size-upcharges
+app.get('/api/size-upcharges', async (req, res) => {
+    console.log('GET /api/size-upcharges requested');
+
+    try {
+        const upcharges = await fetchAllCaspioPages('/tables/Standard_Size_Upcharges/records', {
+            'q.select': 'SizeDesignation,StandardAddOnAmount',
+            'q.orderBy': 'SizeDesignation ASC',
+            'q.limit': 200
+        });
+        
+        console.log(`Size upcharges: ${upcharges.length} record(s) found`);
+        res.json(upcharges);
+    } catch (error) {
+        console.error('Error fetching size upcharges:', error.message);
+        res.status(500).json({ error: 'Failed to fetch size upcharges', details: error.message });
+    }
+});
+
+// GET /api/size-sort-order - Get size display order
+// Example: /api/size-sort-order
+app.get('/api/size-sort-order', async (req, res) => {
+    console.log('GET /api/size-sort-order requested');
+
+    try {
+        const sortOrders = await fetchAllCaspioPages('/tables/Size_Display_Order/records', {
+            'q.select': 'size,sort_order',
+            'q.orderBy': 'sort_order ASC',
+            'q.limit': 200
+        });
+        
+        console.log(`Size sort orders: ${sortOrders.length} record(s) found`);
+        res.json(sortOrders);
+    } catch (error) {
+        console.error('Error fetching size sort orders:', error.message);
+        res.status(500).json({ error: 'Failed to fetch size sort orders', details: error.message });
     }
 });
 
