@@ -322,36 +322,80 @@ router.get('/pricing-bundle', async (req, res) => {
     return res.status(400).json({ error: 'Decoration method is required' });
   }
 
-  if (method !== 'DTG') {
-    return res.status(400).json({ error: 'Currently only DTG method is supported for pricing bundle' });
+  const validMethods = ['DTG', 'EMB', 'CAP', 'ScreenPrint', 'DTF'];
+  if (!validMethods.includes(method)) {
+    return res.status(400).json({ error: `Invalid decoration method. Use one of: ${validMethods.join(', ')}` });
   }
+
+  // Map user-friendly method names to database values
+  const methodMapping = {
+    'EMB': 'EmbroideryShirts',
+    'CAP': 'EmbroideryCaps',
+    'DTG': 'DTG',
+    'ScreenPrint': 'ScreenPrint',
+    'DTF': 'DTF'
+  };
+
+  // Map methods to location types
+  const locationTypeMapping = {
+    'DTG': 'DTG',
+    'EMB': 'EMB',
+    'CAP': 'CAP',
+    'ScreenPrint': 'Screen',
+    'DTF': 'DTF'
+  };
+
+  const dbMethod = methodMapping[method];
+  const locationType = locationTypeMapping[method];
 
   try {
     // Base queries that always run
     const baseQueries = [
       // Fetch pricing tiers
       fetchAllCaspioPages('/tables/Pricing_Tiers/records', {
-        'q.where': `DecorationMethod='${method}'`,
+        'q.where': `DecorationMethod='${dbMethod}'`,
         'q.select': 'PK_ID,TierID,DecorationMethod,TierLabel,MinQuantity,MaxQuantity,MarginDenominator,TargetMargin,LTM_Fee',
         'q.limit': 100
       }),
       
       // Fetch pricing rules
       fetchAllCaspioPages('/tables/Pricing_Rules/records', {
-        'q.where': `DecorationMethod='${method}'`
+        'q.where': `DecorationMethod='${dbMethod}'`
       }),
-      
-      // Fetch DTG costs
-      fetchAllCaspioPages('/tables/DTG_Costs/records'),
       
       // Fetch locations
       fetchAllCaspioPages('/tables/location/records', {
-        'q.where': `Type='${method}'`,
+        'q.where': `Type='${locationType}'`,
         'q.select': 'location_code,location_name',
         'q.orderBy': 'PK_ID ASC',
         'q.limit': 100
       })
     ];
+
+    // Add method-specific cost table query
+    let costTableQuery;
+    switch (method) {
+      case 'DTG':
+        costTableQuery = fetchAllCaspioPages('/tables/DTG_Costs/records');
+        break;
+      case 'EMB':
+        costTableQuery = fetchAllCaspioPages('/tables/Embroidery_Costs/records', {
+          'q.where': "ItemType='Shirt'"
+        });
+        break;
+      case 'CAP':
+        costTableQuery = fetchAllCaspioPages('/tables/Embroidery_Costs/records', {
+          'q.where': "ItemType='Cap'"
+        });
+        break;
+      case 'ScreenPrint':
+        costTableQuery = fetchAllCaspioPages('/tables/Screenprint_Costs/records');
+        break;
+      case 'DTF':
+        costTableQuery = fetchAllCaspioPages('/tables/transfer_pricing_2025/records');
+        break;
+    }
+    baseQueries.push(costTableQuery);
 
     // If styleNumber is provided, also fetch size-specific data
     if (styleNumber) {
@@ -387,9 +431,9 @@ router.get('/pricing-bundle', async (req, res) => {
     const results = await Promise.all(baseQueries);
     
     // Destructure base results
-    const [tiers, rules, dtgCosts, locationsResult] = results;
+    const [tiers, rules, locationsResult, costs] = results;
 
-    console.log(`Pricing bundle for ${method}: ${tiers.length} tier(s), ${rules.length} rule(s), ${dtgCosts.length} cost record(s), ${locationsResult.length} location(s)`);
+    console.log(`Pricing bundle for ${method}: ${tiers.length} tier(s), ${rules.length} rule(s), ${costs.length} cost record(s), ${locationsResult.length} location(s)`);
 
     // Format locations for response
     const locations = locationsResult.map(loc => ({
@@ -397,13 +441,37 @@ router.get('/pricing-bundle', async (req, res) => {
       name: loc.location_name
     }));
 
-    // Prepare the base response
+    // Process rules into an object
+    const rulesObject = {};
+    rules.forEach(rule => {
+      if (rule.RuleName && rule.RuleValue) {
+        rulesObject[rule.RuleName] = rule.RuleValue;
+      }
+    });
+
+    // Prepare the base response with method-specific cost field name
     const response = {
       tiersR: tiers,
-      rulesR: rules.length > 0 ? rules[0] : {},  // Rules returns array but we need the first object
-      allDtgCostsR: dtgCosts,
+      rulesR: rulesObject,
       locations: locations
     };
+
+    // Add costs with appropriate field name based on method
+    switch (method) {
+      case 'DTG':
+        response.allDtgCostsR = costs;
+        break;
+      case 'EMB':
+      case 'CAP':
+        response.allEmbroideryCostsR = costs;
+        break;
+      case 'ScreenPrint':
+        response.allScreenprintCostsR = costs;
+        break;
+      case 'DTF':
+        response.allDtfCostsR = costs;
+        break;
+    }
 
     // If styleNumber was provided, process and add size-specific data
     if (styleNumber && results.length >= 7) {

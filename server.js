@@ -412,6 +412,8 @@ app.get('/api/pricing-rules', async (req, res) => {
 
 // Get Pricing Bundle - Consolidates tiers, rules, and costs for DTG
 // Example: /api/pricing-bundle?method=DTG
+// COMMENTED OUT - Now handled by pricing routes module
+/*
 app.get('/api/pricing-bundle', async (req, res) => {
     const { method, styleNumber } = req.query;
     console.log(`GET /api/pricing-bundle requested with method=${method}, styleNumber=${styleNumber || 'none'}`);
@@ -571,6 +573,7 @@ app.get('/api/pricing-bundle', async (req, res) => {
         res.status(500).json({ error: 'Failed to fetch pricing bundle', details: error.message });
     }
 });
+*/
 
 // Get Base Item Costs (Max Case Price per Size for a Style)
 // Example: /api/base-item-costs?styleNumber=XYZ123
@@ -2122,6 +2125,10 @@ app.get('/api/max-prices-by-style', async (req, res) => {
 // --- Quote Routes ---
 const quotesRoutes = require('./src/routes/quotes');
 app.use('/api', quotesRoutes);
+
+// --- Pricing Routes ---
+const pricingRoutes = require('./src/routes/pricing');
+app.use('/api', pricingRoutes);
 
 // --- Error Handling Middleware (Basic) ---
 // Catches errors from endpoint handlers
