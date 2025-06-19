@@ -1,0 +1,1053 @@
+{
+  "info": {
+    "name": "NWCA Production API - Complete",
+    "description": "Full production API for TEAMNWCA website including product search, pricing, cart management, quotes, orders, and customer operations.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com",
+      "type": "string"
+    },
+    {
+      "key": "styleNumber",
+      "value": "PC54",
+      "type": "string"
+    },
+    {
+      "key": "color",
+      "value": "Red",
+      "type": "string"
+    },
+    {
+      "key": "method",
+      "value": "DTG",
+      "type": "string"
+    },
+    {
+      "key": "sessionId",
+      "value": "test-session-123",
+      "type": "string"
+    },
+    {
+      "key": "id",
+      "value": "1",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Product Search & Discovery",
+      "description": "Endpoints for searching products and getting product details",
+      "item": [
+        {
+          "name": "Style Search",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/stylesearch?term=PC54",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "stylesearch"],
+              "query": [
+                {
+                  "key": "term",
+                  "value": "PC54",
+                  "description": "Search term (style number or name)"
+                }
+              ]
+            },
+            "description": "Search for products by style number or name. Returns autocomplete suggestions as you type. Perfect for search boxes.\n\nExample: Search \"PC54\" returns all Port & Company styles starting with PC54\n\nUse Case: Product search autocomplete feature\n\nReturns: Array of matching products with style number, name, and basic info"
+          }
+        },
+        {
+          "name": "Product Colors",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/product-colors?styleNumber={{styleNumber}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "product-colors"],
+              "query": [
+                {
+                  "key": "styleNumber",
+                  "value": "{{styleNumber}}",
+                  "description": "The style number to get colors for (e.g., PC54)"
+                }
+              ]
+            },
+            "description": "Get all available colors for a specific style number. Returns color names and codes that can be used for inventory checks.\n\nExample: PC54 returns colors like \"Red\", \"Navy\", \"Black\", etc.\n\nUse Case: Color picker dropdown after style selection\n\nReturns: Array of color objects with name, code, and availability"
+          }
+        },
+        {
+          "name": "Sizes by Style & Color",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/sizes-by-style-color?styleNumber={{styleNumber}}&color={{color}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "sizes-by-style-color"],
+              "query": [
+                {
+                  "key": "styleNumber",
+                  "value": "{{styleNumber}}",
+                  "description": "Style number (e.g., PC54)"
+                },
+                {
+                  "key": "color",
+                  "value": "{{color}}",
+                  "description": "Color name (e.g., Red, Navy)"
+                }
+              ]
+            },
+            "description": "Get available sizes for a specific style and color combination. Shows which sizes are in stock for that exact variant.\n\nExample: PC54 in Red might return S, M, L, XL, 2XL\n\nUse Case: Size selector after color is chosen\n\nReturns: Array of available sizes with inventory status"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Pricing & Costs",
+      "description": "Get pricing information for products and decorations",
+      "item": [
+        {
+          "name": "Base Item Costs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/base-item-costs?styleNumber={{styleNumber}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "base-item-costs"],
+              "query": [
+                {
+                  "key": "styleNumber",
+                  "value": "{{styleNumber}}",
+                  "description": "Style number to get base costs for"
+                }
+              ]
+            },
+            "description": "Get the base garment cost for each size of a style. This is the blank shirt cost before any decoration.\n\nExample: PC54 returns {S: $2.85, M: $2.85, L: $2.85, XL: $2.85, 2XL: $4.25}\n\nUse Case: Calculate base cost for pricing\n\nReturns: Object with size as key and price as value"
+          }
+        },
+        {
+          "name": "Size Pricing",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/size-pricing?styleNumber={{styleNumber}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "size-pricing"],
+              "query": [
+                {
+                  "key": "styleNumber",
+                  "value": "{{styleNumber}}",
+                  "description": "Style number"
+                },
+                {
+                  "key": "color",
+                  "value": "",
+                  "description": "Optional: specific color (leave empty for all colors)",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Get comprehensive size pricing including base costs and upcharges for all sizes of a style. Includes special size surcharges.\n\nExample: Returns base prices + upcharges for extended sizes (2XL, 3XL, etc.)\n\nUse Case: Display size-specific pricing to customers\n\nReturns:\n- Base prices per size\n- Size upcharges (2XL +$2, 3XL +$3, etc.)\n- Grouped by color if multiple colors"
+          }
+        },
+        {
+          "name": "Max Prices by Style",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/max-prices-by-style?styleNumber={{styleNumber}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "max-prices-by-style"],
+              "query": [
+                {
+                  "key": "styleNumber",
+                  "value": "{{styleNumber}}",
+                  "description": "Style number"
+                }
+              ]
+            },
+            "description": "Get the maximum price for each size across all colors of a style. Useful for 'starting at' pricing.\n\nExample: Returns highest price per size across all color variants\n\nUse Case: Show price ranges on product listings (e.g., \"Starting at $2.85\")\n\nReturns: Max price per size and selling price display add-ons"
+          }
+        },
+        {
+          "name": "Pricing Bundle - DTG",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/pricing-bundle?method=DTG&styleNumber={{styleNumber}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "pricing-bundle"],
+              "query": [
+                {
+                  "key": "method",
+                  "value": "DTG",
+                  "description": "Options: DTG, EMB, CAP, ScreenPrint, DTF"
+                },
+                {
+                  "key": "styleNumber",
+                  "value": "{{styleNumber}}",
+                  "description": "Optional: include for size-specific pricing"
+                }
+              ]
+            },
+            "description": "Get complete DTG pricing bundle. See Pricing Bundles collection for all decoration methods."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Pricing Matrix",
+      "description": "Save and retrieve complete pricing configurations",
+      "item": [
+        {
+          "name": "Get All Pricing Matrices",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/pricing-matrix",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "pricing-matrix"],
+              "query": [
+                {
+                  "key": "sessionID",
+                  "value": "{{sessionId}}",
+                  "description": "Filter by session ID",
+                  "disabled": true
+                },
+                {
+                  "key": "styleNumber",
+                  "value": "{{styleNumber}}",
+                  "description": "Filter by style number",
+                  "disabled": true
+                },
+                {
+                  "key": "color",
+                  "value": "{{color}}",
+                  "description": "Filter by color",
+                  "disabled": true
+                },
+                {
+                  "key": "embellishmentType",
+                  "value": "DTG",
+                  "description": "Filter by decoration method",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Retrieve all saved pricing configurations. Each matrix contains complete pricing for a style/color/decoration combo.\n\nFilter Options: By session, style, color, or embellishment type\n\nUse Case: Load saved pricing configurations\n\nReturns: Array of pricing matrix objects with full pricing details"
+          }
+        },
+        {
+          "name": "Create Pricing Matrix",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"SessionID\": \"{{sessionId}}\",\n  \"StyleNumber\": \"PC54\",\n  \"Color\": \"Red\",\n  \"EmbellishmentType\": \"DTG\",\n  \"TierStructure\": {\n    \"tiers\": [\n      {\"min\": 24, \"max\": 47, \"label\": \"24-47\"},\n      {\"min\": 48, \"max\": 71, \"label\": \"48-71\"},\n      {\"min\": 72, \"max\": 999, \"label\": \"72+\"}\n    ]\n  },\n  \"SizeGroups\": {\n    \"standard\": [\"S\", \"M\", \"L\", \"XL\"],\n    \"extended\": [\"2XL\", \"3XL\", \"4XL\"]\n  },\n  \"PriceMatrix\": {\n    \"24-47\": {\n      \"S\": 15.99,\n      \"M\": 15.99,\n      \"L\": 15.99,\n      \"XL\": 15.99,\n      \"2XL\": 17.99\n    },\n    \"48-71\": {\n      \"S\": 14.99,\n      \"M\": 14.99,\n      \"L\": 14.99,\n      \"XL\": 14.99,\n      \"2XL\": 16.99\n    },\n    \"72+\": {\n      \"S\": 13.99,\n      \"M\": 13.99,\n      \"L\": 13.99,\n      \"XL\": 13.99,\n      \"2XL\": 15.99\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/pricing-matrix",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "pricing-matrix"]
+            },
+            "description": "Save a new pricing configuration with quantity tiers and prices. Stores the complete pricing structure for reuse.\n\nRequired Fields:\n- SessionID: Unique session identifier\n- StyleNumber: Product style\n- Color: Product color\n- EmbellishmentType: Decoration method (DTG, EMB, etc.)\n- TierStructure: Quantity break tiers\n- PriceMatrix: Prices per size per tier\n\nUse Case: Save custom pricing after calculation\n\nReturns: Created pricing matrix with ID"
+          }
+        },
+        {
+          "name": "Lookup Pricing Matrix",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/pricing-matrix/lookup?styleNumber={{styleNumber}}&color={{color}}&embellishmentType={{method}}&sessionID={{sessionId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "pricing-matrix", "lookup"],
+              "query": [
+                {
+                  "key": "styleNumber",
+                  "value": "{{styleNumber}}",
+                  "description": "Style number (required)"
+                },
+                {
+                  "key": "color",
+                  "value": "{{color}}",
+                  "description": "Color name (required)"
+                },
+                {
+                  "key": "embellishmentType",
+                  "value": "{{method}}",
+                  "description": "Decoration method (required)"
+                },
+                {
+                  "key": "sessionID",
+                  "value": "{{sessionId}}",
+                  "description": "Session ID (required)"
+                }
+              ]
+            },
+            "description": "Find existing pricing for a specific style, color, and decoration method. Returns the pricing matrix ID if found.\n\nExample: PC54 + Red + DTG returns the saved pricing configuration\n\nUse Case: Check if pricing already exists before calculating\n\nReturns: {pricingMatrixId: 123} or 404 if not found"
+          }
+        },
+        {
+          "name": "Get Specific Pricing Matrix",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/pricing-matrix/{{id}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "pricing-matrix", "{{id}}"]
+            },
+            "description": "Get a specific pricing matrix by ID.\n\nReturns: Complete pricing matrix object with all tier and price data"
+          }
+        },
+        {
+          "name": "Update Pricing Matrix",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"PriceMatrix\": {\n    \"24-47\": {\n      \"S\": 16.99,\n      \"M\": 16.99,\n      \"L\": 16.99,\n      \"XL\": 16.99,\n      \"2XL\": 18.99\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/pricing-matrix/{{id}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "pricing-matrix", "{{id}}"]
+            },
+            "description": "Update an existing pricing matrix. Send only the fields you want to update.\n\nUpdatable fields: SessionID, StyleNumber, Color, EmbellishmentType, TierStructure, SizeGroups, PriceMatrix"
+          }
+        },
+        {
+          "name": "Delete Pricing Matrix",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/pricing-matrix/{{id}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "pricing-matrix", "{{id}}"]
+            },
+            "description": "Delete a pricing matrix by ID.\n\nReturns: Success message"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Cart Management",
+      "description": "Shopping cart functionality",
+      "item": [
+        {
+          "name": "Cart Sessions",
+          "description": "Cart session management",
+          "item": [
+            {
+              "name": "Get All Cart Sessions",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/cart-sessions",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "cart-sessions"]
+                },
+                "description": "Get all cart sessions. Shopping cart sessions group items together. Each session represents one customer's cart with a unique ID.\n\nLifecycle: Create session → Add items → Calculate totals → Convert to order\n\nFields: SessionID, CreatedDate, Status, CustomerInfo"
+              }
+            },
+            {
+              "name": "Create Cart Session",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"SessionID\": \"{{sessionId}}\",\n  \"CustomerEmail\": \"customer@example.com\",\n  \"CustomerName\": \"John Doe\",\n  \"Status\": \"Active\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/cart-sessions",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "cart-sessions"]
+                },
+                "description": "Create a new cart session for a customer.\n\nRequired fields: SessionID\nOptional: CustomerEmail, CustomerName, Status"
+              }
+            },
+            {
+              "name": "Get Cart Session",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/cart-sessions/{{id}}",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "cart-sessions", "{{id}}"]
+                },
+                "description": "Get a specific cart session by ID"
+              }
+            },
+            {
+              "name": "Update Cart Session",
+              "request": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"Status\": \"Completed\",\n  \"TotalAmount\": 299.99\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/cart-sessions/{{id}}",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "cart-sessions", "{{id}}"]
+                },
+                "description": "Update cart session details"
+              }
+            },
+            {
+              "name": "Delete Cart Session",
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/cart-sessions/{{id}}",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "cart-sessions", "{{id}}"]
+                },
+                "description": "Delete a cart session and all associated items"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cart Items",
+          "description": "Items within cart sessions",
+          "item": [
+            {
+              "name": "Get All Cart Items",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/cart-items",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "cart-items"],
+                  "query": [
+                    {
+                      "key": "cartSessionId",
+                      "value": "{{sessionId}}",
+                      "description": "Filter by cart session",
+                      "disabled": true
+                    }
+                  ]
+                },
+                "description": "Get all cart items. Individual products in a cart. Each item represents one decorated product (style + color + decoration).\n\nLinks: Belongs to CartSession, has many CartItemSizes\n\nFields: StyleNumber, Color, Quantity, DecorationMethod, Locations"
+              }
+            },
+            {
+              "name": "Create Cart Item",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"CartSessionID\": \"{{sessionId}}\",\n  \"StyleNumber\": \"PC54\",\n  \"Color\": \"Red\",\n  \"DecorationMethod\": \"DTG\",\n  \"Quantity\": 50,\n  \"PrintLocations\": \"Front\",\n  \"UnitPrice\": 15.99\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/cart-items",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "cart-items"]
+                },
+                "description": "Add a new item to a cart.\n\nRequired: CartSessionID, StyleNumber, Color, Quantity\nOptional: DecorationMethod, PrintLocations, UnitPrice"
+              }
+            },
+            {
+              "name": "Get Cart Item",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/cart-items/{{id}}",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "cart-items", "{{id}}"]
+                },
+                "description": "Get specific cart item details"
+              }
+            },
+            {
+              "name": "Update Cart Item",
+              "request": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"Quantity\": 75,\n  \"UnitPrice\": 14.99\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/cart-items/{{id}}",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "cart-items", "{{id}}"]
+                },
+                "description": "Update cart item quantity or details"
+              }
+            },
+            {
+              "name": "Delete Cart Item",
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/cart-items/{{id}}",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "cart-items", "{{id}}"]
+                },
+                "description": "Remove item from cart"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cart Item Sizes",
+          "description": "Size breakdown for cart items",
+          "item": [
+            {
+              "name": "Get All Cart Item Sizes",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/cart-item-sizes",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "cart-item-sizes"],
+                  "query": [
+                    {
+                      "key": "cartItemId",
+                      "value": "1",
+                      "description": "Filter by cart item",
+                      "disabled": true
+                    }
+                  ]
+                },
+                "description": "Get all size breakdowns. Size breakdown for each cart item. Specifies how many of each size for the item (e.g., 10 Small, 15 Medium).\n\nExample: For 50 shirts: S(10), M(15), L(15), XL(10)\n\nFields: Size, Quantity, UnitPrice"
+              }
+            },
+            {
+              "name": "Create Cart Item Size",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"CartItemID\": 1,\n  \"Size\": \"M\",\n  \"Quantity\": 15,\n  \"UnitPrice\": 15.99\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/cart-item-sizes",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "cart-item-sizes"]
+                },
+                "description": "Add size breakdown to a cart item.\n\nRequired: CartItemID, Size, Quantity"
+              }
+            },
+            {
+              "name": "Update Cart Item Size",
+              "request": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"Quantity\": 20\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/cart-item-sizes/{{id}}",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "cart-item-sizes", "{{id}}"]
+                },
+                "description": "Update quantity for a specific size"
+              }
+            },
+            {
+              "name": "Delete Cart Item Size",
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/cart-item-sizes/{{id}}",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "cart-item-sizes", "{{id}}"]
+                },
+                "description": "Remove a size from the breakdown"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Quote Management",
+      "description": "Formal quotes for customers",
+      "item": [
+        {
+          "name": "Quote Sessions",
+          "description": "Quote session management",
+          "item": [
+            {
+              "name": "Get All Quote Sessions",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/quote_sessions",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "quote_sessions"]
+                },
+                "description": "Get all quote sessions. Formal quotes for customers. Similar to cart but with additional fields for expiration, terms, and approval status.\n\nLifecycle: Draft → Sent → Approved/Rejected → Converted to Order\n\nFields: QuoteNumber, ExpirationDate, Status, Terms"
+              }
+            },
+            {
+              "name": "Create Quote Session",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"QuoteNumber\": \"Q-2024-001\",\n  \"CustomerName\": \"ABC Company\",\n  \"CustomerEmail\": \"buyer@abccompany.com\",\n  \"ExpirationDate\": \"2024-12-31\",\n  \"Status\": \"Draft\",\n  \"Terms\": \"Net 30\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/quote_sessions",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "quote_sessions"]
+                },
+                "description": "Create a new quote session.\n\nRequired: QuoteNumber, CustomerName\nOptional: ExpirationDate, Terms, Status"
+              }
+            },
+            {
+              "name": "Get Quote Session",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/quote_sessions/{{id}}",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "quote_sessions", "{{id}}"]
+                },
+                "description": "Get specific quote details"
+              }
+            },
+            {
+              "name": "Update Quote Session",
+              "request": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"Status\": \"Sent\",\n  \"SentDate\": \"2024-01-15\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/quote_sessions/{{id}}",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "quote_sessions", "{{id}}"]
+                },
+                "description": "Update quote status or details"
+              }
+            },
+            {
+              "name": "Delete Quote Session",
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/quote_sessions/{{id}}",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "quote_sessions", "{{id}}"]
+                },
+                "description": "Delete a quote (only if in Draft status)"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Quote Items",
+          "description": "Line items in quotes",
+          "item": [
+            {
+              "name": "Get All Quote Items",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/quote_items",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "quote_items"],
+                  "query": [
+                    {
+                      "key": "quoteSessionId",
+                      "value": "1",
+                      "description": "Filter by quote session",
+                      "disabled": true
+                    }
+                  ]
+                },
+                "description": "Get all quote items. Line items in a quote. Each represents a decorated product with full pricing details and specifications.\n\nIncludes: Product details, decoration specs, quantity breaks, total pricing\n\nFields: Similar to cart items plus margin info"
+              }
+            },
+            {
+              "name": "Create Quote Item",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"QuoteSessionID\": 1,\n  \"StyleNumber\": \"PC54\",\n  \"Color\": \"Navy\",\n  \"DecorationMethod\": \"Embroidery\",\n  \"Quantity\": 100,\n  \"UnitPrice\": 18.99,\n  \"SetupFee\": 50,\n  \"Description\": \"Company logo on left chest\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/quote_items",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "quote_items"]
+                },
+                "description": "Add item to quote with full details"
+              }
+            },
+            {
+              "name": "Update Quote Item",
+              "request": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"Quantity\": 150,\n  \"UnitPrice\": 17.99\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/quote_items/{{id}}",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "quote_items", "{{id}}"]
+                },
+                "description": "Update quote item details"
+              }
+            },
+            {
+              "name": "Delete Quote Item",
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/quote_items/{{id}}",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "quote_items", "{{id}}"]
+                },
+                "description": "Remove item from quote"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Quote Analytics",
+          "description": "Quote tracking and analytics",
+          "item": [
+            {
+              "name": "Get All Quote Analytics",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/quote_analytics",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "quote_analytics"],
+                  "query": [
+                    {
+                      "key": "quoteSessionId",
+                      "value": "1",
+                      "description": "Filter by quote",
+                      "disabled": true
+                    }
+                  ]
+                },
+                "description": "Get all analytics records. Tracking and analytics for quotes. Records views, modifications, approval history, and conversion metrics.\n\nUse Case: Track quote performance, see what customers are viewing\n\nFields: ViewCount, LastViewed, ConversionStatus, Notes"
+              }
+            },
+            {
+              "name": "Create Analytics Entry",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"QuoteSessionID\": 1,\n  \"EventType\": \"Viewed\",\n  \"EventDate\": \"2024-01-15T10:30:00\",\n  \"UserIP\": \"192.168.1.1\",\n  \"Notes\": \"Customer viewed quote via email link\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/quote_analytics",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "quote_analytics"]
+                },
+                "description": "Track quote activity (views, downloads, etc.)"
+              }
+            },
+            {
+              "name": "Get Analytics Entry",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/quote_analytics/{{id}}",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "quote_analytics", "{{id}}"]
+                },
+                "description": "Get specific analytics record"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Business Operations",
+      "description": "Customer and order management",
+      "item": [
+        {
+          "name": "Get All Customers",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/customers",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "customers"]
+            },
+            "description": "Get all customer records. Customer records with contact info and order history. Links to all their carts, quotes, and orders.\n\nFields: Name, Email, Phone, Address, CustomerType, TaxExempt\n\nUse Case: Customer management and repeat orders"
+          }
+        },
+        {
+          "name": "Create Customer",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"CompanyName\": \"ABC Corporation\",\n  \"ContactName\": \"John Smith\",\n  \"Email\": \"john@abccorp.com\",\n  \"Phone\": \"555-1234\",\n  \"Address\": \"123 Main St\",\n  \"City\": \"Seattle\",\n  \"State\": \"WA\",\n  \"ZipCode\": \"98101\",\n  \"CustomerType\": \"Business\",\n  \"TaxExempt\": false\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/customers",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "customers"]
+            },
+            "description": "Create new customer record"
+          }
+        },
+        {
+          "name": "Get Customer",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/customers/{{id}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "customers", "{{id}}"]
+            },
+            "description": "Get specific customer details"
+          }
+        },
+        {
+          "name": "Update Customer",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Email\": \"newemail@abccorp.com\",\n  \"Phone\": \"555-5678\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/customers/{{id}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "customers", "{{id}}"]
+            },
+            "description": "Update customer information"
+          }
+        },
+        {
+          "name": "Get All Orders",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/orders",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "orders"],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "InProduction",
+                  "description": "Filter by status",
+                  "disabled": true
+                },
+                {
+                  "key": "customerId",
+                  "value": "1",
+                  "description": "Filter by customer",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Get all orders. Finalized orders ready for production. Created from approved quotes or completed carts.\n\nStatus Flow: Pending → In Production → Shipped → Delivered\n\nFields: OrderNumber, Status, ProductionNotes, TrackingInfo"
+          }
+        },
+        {
+          "name": "Create Order",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"OrderNumber\": \"ORD-2024-001\",\n  \"CustomerID\": 1,\n  \"QuoteSessionID\": 1,\n  \"Status\": \"Pending\",\n  \"OrderDate\": \"2024-01-15\",\n  \"RequiredDate\": \"2024-01-30\",\n  \"TotalAmount\": 1899.99,\n  \"ProductionNotes\": \"Rush order - prioritize\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/orders",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "orders"]
+            },
+            "description": "Create order from quote or cart"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Utilities",
+      "description": "Helper endpoints",
+      "item": [
+        {
+          "name": "Check Inventory",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/inventory?filter=available",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "inventory"],
+              "query": [
+                {
+                  "key": "filter",
+                  "value": "available",
+                  "description": "Filter options: all, available, low-stock"
+                },
+                {
+                  "key": "styleNumber",
+                  "value": "PC54",
+                  "description": "Filter by specific style",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Real-time inventory check for products. Returns stock levels and availability by size and color.\n\nFilters: By style, color, size, or availability status\n\nResponse: Stock counts, reorder status, ETAs for out-of-stock\n\nUse Case: Check availability before quoting"
+          }
+        },
+        {
+          "name": "Image Proxy",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/image-proxy?url=https://example.com/product-image.jpg",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "image-proxy"],
+              "query": [
+                {
+                  "key": "url",
+                  "value": "https://example.com/product-image.jpg",
+                  "description": "URL of the image to proxy"
+                }
+              ]
+            },
+            "description": "Securely proxy product images from external URLs. Prevents CORS issues and caches images for performance.\n\nExample: Proxy Sanmar or AlphaBroder product images\n\nUse Case: Display product images on your domain\n\nReturns: Proxied image with proper headers"
+          }
+        }
+      ]
+    }
+  ]
+}
