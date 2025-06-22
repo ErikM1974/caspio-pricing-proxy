@@ -223,3 +223,32 @@ npm update
    - Check GitHub security tab
    - Monitor Heroku metrics
    - Review logs regularly
+
+## Project-Specific Information
+
+### Repository Details
+- GitHub Repository: https://github.com/ErikM1974/caspio-pricing-proxy
+- Heroku App: https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/
+
+### Quick Deploy Commands
+```bash
+# Push to GitHub
+git add .
+git commit -m "your commit message"
+git push origin main
+
+# Deploy to Heroku
+git push heroku main
+```
+
+### Current Remote Configuration
+```bash
+# View configured remotes
+git remote -v
+
+# Expected output:
+heroku  https://git.heroku.com/caspio-pricing-proxy.git (fetch)
+heroku  https://git.heroku.com/caspio-pricing-proxy.git (push)
+origin  https://github.com/ErikM1974/caspio-pricing-proxy.git (fetch)
+origin  https://github.com/ErikM1974/caspio-pricing-proxy.git (push)
+```
