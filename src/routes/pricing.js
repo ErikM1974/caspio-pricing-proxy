@@ -595,10 +595,94 @@ router.get('/pricing-bundle', async (req, res) => {
         console.log(`Added size data for ${styleNumber}: ${sortedSizeKeys.length} sizes found`);
     }
 
-    res.json(response);
+    // Final validation to ensure response has ALL required fields
+    const validateAndFixResponse = (resp, hasStyleNumber) => {
+      const requiredStructure = {
+        tiersR: [],
+        rulesR: {},
+        locations: []
+      };
+      
+      // Add method-specific cost field
+      switch (method) {
+        case 'DTG':
+          requiredStructure.allDtgCostsR = [];
+          break;
+        case 'EMB':
+        case 'CAP':
+          requiredStructure.allEmbroideryCostsR = [];
+          break;
+        case 'ScreenPrint':
+          requiredStructure.allScreenprintCostsR = [];
+          break;
+        case 'DTF':
+          requiredStructure.allDtfCostsR = [];
+          break;
+      }
+      
+      // Add style-specific fields if styleNumber provided
+      if (hasStyleNumber) {
+        requiredStructure.sizes = [];
+        requiredStructure.sellingPriceDisplayAddOns = {};
+      }
+      
+      // Merge with defaults to guarantee all fields exist
+      const validatedResponse = { ...requiredStructure };
+      
+      // Copy over actual data, ensuring correct types
+      Object.keys(requiredStructure).forEach(key => {
+        if (resp[key] !== undefined && resp[key] !== null) {
+          // Ensure arrays are arrays and objects are objects
+          if (Array.isArray(requiredStructure[key])) {
+            validatedResponse[key] = Array.isArray(resp[key]) ? resp[key] : [];
+          } else if (typeof requiredStructure[key] === 'object') {
+            validatedResponse[key] = (typeof resp[key] === 'object' && !Array.isArray(resp[key])) ? resp[key] : {};
+          } else {
+            validatedResponse[key] = resp[key];
+          }
+        }
+      });
+      
+      return validatedResponse;
+    };
+    
+    // Validate and send response
+    const finalResponse = validateAndFixResponse(response, !!styleNumber);
+    console.log(`Sending response for ${method} with ${styleNumber ? `style ${styleNumber}` : 'no style'}: ${JSON.stringify(Object.keys(finalResponse))}`);
+    res.json(finalResponse);
   } catch (error) {
     console.error('Error fetching pricing bundle:', error.message);
-    res.status(500).json({ error: 'Failed to fetch pricing bundle', details: error.message });
+    
+    // Even on error, return the expected structure
+    const errorResponse = {
+      tiersR: [],
+      rulesR: {},
+      locations: []
+    };
+    
+    // Add method-specific cost field
+    switch (method) {
+      case 'DTG':
+        errorResponse.allDtgCostsR = [];
+        break;
+      case 'EMB':
+      case 'CAP':
+        errorResponse.allEmbroideryCostsR = [];
+        break;
+      case 'ScreenPrint':
+        errorResponse.allScreenprintCostsR = [];
+        break;
+      case 'DTF':
+        errorResponse.allDtfCostsR = [];
+        break;
+    }
+    
+    if (styleNumber) {
+      errorResponse.sizes = [];
+      errorResponse.sellingPriceDisplayAddOns = {};
+    }
+    
+    res.json(errorResponse);
   }
 });
 
