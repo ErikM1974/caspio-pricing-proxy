@@ -349,18 +349,24 @@ router.get('/pricing-bundle', async (req, res) => {
   const locationType = locationTypeMapping[method];
 
   try {
-    // Base queries that always run
+    // Base queries that always run - wrapped to handle failures gracefully
     const baseQueries = [
       // Fetch pricing tiers
       fetchAllCaspioPages('/tables/Pricing_Tiers/records', {
         'q.where': `DecorationMethod='${dbMethod}'`,
         'q.select': 'PK_ID,TierID,DecorationMethod,TierLabel,MinQuantity,MaxQuantity,MarginDenominator,TargetMargin,LTM_Fee',
         'q.limit': 100
+      }).catch(err => {
+        console.error('Failed to fetch pricing tiers:', err.message);
+        return [];
       }),
       
       // Fetch pricing rules
       fetchAllCaspioPages('/tables/Pricing_Rules/records', {
         'q.where': `DecorationMethod='${dbMethod}'`
+      }).catch(err => {
+        console.error('Failed to fetch pricing rules:', err.message);
+        return [];
       }),
       
       // Fetch locations
@@ -369,60 +375,90 @@ router.get('/pricing-bundle', async (req, res) => {
         'q.select': 'location_code,location_name',
         'q.orderBy': 'PK_ID ASC',
         'q.limit': 100
+      }).catch(err => {
+        console.error('Failed to fetch locations:', err.message);
+        return [];
       })
     ];
 
-    // Add method-specific cost table query
+    // Add method-specific cost table query with error handling
     let costTableQuery;
     switch (method) {
       case 'DTG':
-        costTableQuery = fetchAllCaspioPages('/tables/DTG_Costs/records');
+        costTableQuery = fetchAllCaspioPages('/tables/DTG_Costs/records')
+          .catch(err => {
+            console.error('Failed to fetch DTG costs:', err.message);
+            return [];
+          });
         break;
       case 'EMB':
         costTableQuery = fetchAllCaspioPages('/tables/Embroidery_Costs/records', {
           'q.where': "ItemType='Shirt'"
+        }).catch(err => {
+          console.error('Failed to fetch embroidery costs:', err.message);
+          return [];
         });
         break;
       case 'CAP':
         costTableQuery = fetchAllCaspioPages('/tables/Embroidery_Costs/records', {
           'q.where': "ItemType='Cap'"
+        }).catch(err => {
+          console.error('Failed to fetch cap embroidery costs:', err.message);
+          return [];
         });
         break;
       case 'ScreenPrint':
-        costTableQuery = fetchAllCaspioPages('/tables/Screenprint_Costs/records');
+        costTableQuery = fetchAllCaspioPages('/tables/Screenprint_Costs/records')
+          .catch(err => {
+            console.error('Failed to fetch screenprint costs:', err.message);
+            return [];
+          });
         break;
       case 'DTF':
-        costTableQuery = fetchAllCaspioPages('/tables/transfer_pricing_2025/records');
+        costTableQuery = fetchAllCaspioPages('/tables/transfer_pricing_2025/records')
+          .catch(err => {
+            console.error('Failed to fetch DTF costs:', err.message);
+            return [];
+          });
         break;
     }
     baseQueries.push(costTableQuery);
 
     // If styleNumber is provided, also fetch size-specific data
     if (styleNumber) {
-      // Add the size upcharges query
+      // Add the size upcharges query with error handling
       baseQueries.push(
         fetchAllCaspioPages('/tables/Standard_Size_Upcharges/records', {
           'q.select': 'SizeDesignation,StandardAddOnAmount',
           'q.orderby': 'SizeDesignation ASC',
           'q.limit': 200
+        }).catch(err => {
+          console.error('Failed to fetch size upcharges:', err.message);
+          return [];
         })
       );
       
-      // Add the Sanmar query for sizes
+      // Add the Sanmar query for sizes with error handling
       baseQueries.push(
         fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
           'q.where': `STYLE='${styleNumber}'`,
           'q.select': 'SIZE, MAX(CASE_PRICE) AS MAX_PRICE',
           'q.groupBy': 'SIZE',
           'q.limit': 100
+        }).catch(err => {
+          console.error(`Failed to fetch inventory for style ${styleNumber}:`, err.message);
+          return [];
         })
       );
       
-      // Add the Size Display Order query
+      // Add the Size Display Order query with error handling
       baseQueries.push(
         fetchAllCaspioPages('/tables/Size_Display_Order/records', {
           'q.select': 'size,sort_order',
           'q.limit': 200
+        }).catch(err => {
+          console.error('Failed to fetch size display order:', err.message);
+          return [];
         })
       );
     }
@@ -449,79 +485,114 @@ router.get('/pricing-bundle', async (req, res) => {
       }
     });
 
-    // Prepare the base response with method-specific cost field name
+    // Initialize response with ALL required fields to ensure complete structure
+    // This guarantees the response always has the expected shape
     const response = {
-      tiersR: tiers,
-      rulesR: rulesObject,
-      locations: locations
+      tiersR: [],
+      rulesR: {},
+      locations: []
     };
 
-    // Add costs with appropriate field name based on method
+    // Add method-specific cost field with empty default
     switch (method) {
       case 'DTG':
-        response.allDtgCostsR = costs;
+        response.allDtgCostsR = [];
         break;
       case 'EMB':
       case 'CAP':
-        response.allEmbroideryCostsR = costs;
+        response.allEmbroideryCostsR = [];
         break;
       case 'ScreenPrint':
-        response.allScreenprintCostsR = costs;
+        response.allScreenprintCostsR = [];
         break;
       case 'DTF':
-        response.allDtfCostsR = costs;
+        response.allDtfCostsR = [];
+        break;
+    }
+
+    // If styleNumber is provided, add the size-specific fields
+    if (styleNumber) {
+      response.sizes = [];
+      response.sellingPriceDisplayAddOns = {};
+    }
+
+    // Now populate with actual data if available
+    response.tiersR = tiers || [];
+    response.rulesR = rulesObject || {};
+    response.locations = locations || [];
+
+    // Update costs with actual data
+    switch (method) {
+      case 'DTG':
+        response.allDtgCostsR = costs || [];
+        break;
+      case 'EMB':
+      case 'CAP':
+        response.allEmbroideryCostsR = costs || [];
+        break;
+      case 'ScreenPrint':
+        response.allScreenprintCostsR = costs || [];
+        break;
+      case 'DTF':
+        response.allDtfCostsR = costs || [];
         break;
     }
 
     // If styleNumber was provided, process and add size-specific data
     if (styleNumber && results.length >= 7) {
-      const [, , , , upchargeResults, inventoryResult, sizeOrderResults] = results;
-      
-      // Process selling price display add-ons
-      let sellingPriceDisplayAddOns = {};
-      upchargeResults.forEach(rule => {
-        if (rule.SizeDesignation && rule.StandardAddOnAmount !== null && !isNaN(parseFloat(rule.StandardAddOnAmount))) {
-          sellingPriceDisplayAddOns[String(rule.SizeDesignation).trim().toUpperCase()] = parseFloat(rule.StandardAddOnAmount);
+        const [, , , , upchargeResults, inventoryResult, sizeOrderResults] = results;
+        
+        // Process selling price display add-ons
+        let sellingPriceDisplayAddOns = {};
+        if (upchargeResults && upchargeResults.length > 0) {
+          upchargeResults.forEach(rule => {
+            if (rule.SizeDesignation && rule.StandardAddOnAmount !== null && !isNaN(parseFloat(rule.StandardAddOnAmount))) {
+              sellingPriceDisplayAddOns[String(rule.SizeDesignation).trim().toUpperCase()] = parseFloat(rule.StandardAddOnAmount);
+            }
+          });
         }
-      });
-      
-      // Create size order lookup map
-      const sizeOrderMap = {};
-      sizeOrderResults.forEach(item => {
-        if (item.size && item.sort_order !== null) {
-          sizeOrderMap[item.size.toUpperCase()] = item.sort_order;
+        
+        // Create size order lookup map
+        const sizeOrderMap = {};
+        if (sizeOrderResults && sizeOrderResults.length > 0) {
+          sizeOrderResults.forEach(item => {
+            if (item.size && item.sort_order !== null) {
+              sizeOrderMap[item.size.toUpperCase()] = item.sort_order;
+            }
+          });
         }
-      });
-      
-      // Process Sanmar data to get sizes
-      const garmentCosts = {};
-      
-      inventoryResult.forEach(item => {
-        if (item.SIZE && item.MAX_PRICE !== null && !isNaN(parseFloat(item.MAX_PRICE))) {
-          const sizeKey = String(item.SIZE).trim().toUpperCase();
-          const price = parseFloat(item.MAX_PRICE);
-          
-          // Data is already grouped by SIZE with MAX price
-          garmentCosts[sizeKey] = price;
+        
+        // Process Sanmar data to get sizes
+        const garmentCosts = {};
+        
+        if (inventoryResult && inventoryResult.length > 0) {
+          inventoryResult.forEach(item => {
+            if (item.SIZE && item.MAX_PRICE !== null && !isNaN(parseFloat(item.MAX_PRICE))) {
+              const sizeKey = String(item.SIZE).trim().toUpperCase();
+              const price = parseFloat(item.MAX_PRICE);
+              
+              // Data is already grouped by SIZE with MAX price
+              garmentCosts[sizeKey] = price;
+            }
+          });
         }
-      });
-      
-      // Sort sizes by sort order from Size_Display_Order table
-      const sortedSizeKeys = Object.keys(garmentCosts).sort((a, b) => {
-        const orderA = sizeOrderMap[a] || 999;
-        const orderB = sizeOrderMap[b] || 999;
-        return orderA - orderB;
-      });
-      
-      // Add size-specific data to response
-      response.sizes = sortedSizeKeys.map(sizeKey => ({
-        size: sizeKey,
-        price: garmentCosts[sizeKey],
-        sortOrder: sizeOrderMap[sizeKey] || 999
-      }));
-      response.sellingPriceDisplayAddOns = sellingPriceDisplayAddOns;
-      
-      console.log(`Added size data for ${styleNumber}: ${sortedSizeKeys.length} sizes found`);
+        
+        // Sort sizes by sort order from Size_Display_Order table
+        const sortedSizeKeys = Object.keys(garmentCosts).sort((a, b) => {
+          const orderA = sizeOrderMap[a] || 999;
+          const orderB = sizeOrderMap[b] || 999;
+          return orderA - orderB;
+        });
+        
+        // Add size-specific data to response
+        response.sizes = sortedSizeKeys.map(sizeKey => ({
+          size: sizeKey,
+          price: garmentCosts[sizeKey],
+          sortOrder: sizeOrderMap[sizeKey] || 999
+        }));
+        response.sellingPriceDisplayAddOns = sellingPriceDisplayAddOns;
+        
+        console.log(`Added size data for ${styleNumber}: ${sortedSizeKeys.length} sizes found`);
     }
 
     res.json(response);
