@@ -1,172 +1,225 @@
-# Git and Heroku Deployment Guide
+# GitHub and Heroku Deployment Guide
 
-## Prerequisites
-- Git installed and configured
-- Heroku CLI installed and logged in
-- GitHub repository access
-- Heroku application created and configured
+## Initial Setup
 
-## Common Git Commands
+### GitHub Setup
+1. **Create GitHub Account**
+   - Go to https://github.com/signup
+   - Complete registration process
+   - Verify email address
 
-### Branch Management
+2. **Create Personal Access Token**
+   - Go to GitHub Settings > Developer Settings > Personal Access Tokens
+   - Click "Generate New Token" (classic)
+   - Select scopes:
+     - `repo` (all)
+     - `workflow`
+     - `admin:org`
+   - Copy and save the token securely
+
+3. **Configure Git Locally**
 ```bash
-# List all branches
-git branch
-
-# Show current branch
-git branch --show-current
-
-# Create new branch
-git checkout -b feature-branch
-
-# Switch to existing branch
-git checkout branch-name
+git config --global user.name "Your Name"
+git config --global user.email "your.github@email.com"
 ```
 
-### Pushing to GitHub
-
-1. Push current branch to GitHub:
+4. **Store GitHub Credentials**
 ```bash
-git push origin branch-name
+# Windows
+git config --global credential.helper wincred
+
+# Mac
+git config --global credential.helper osxkeychain
+
+# Linux
+git config --global credential.helper store
 ```
 
-2. Push all branches:
+### Heroku Setup
+1. **Create Heroku Account**
+   - Go to https://signup.heroku.com
+   - Complete registration
+   - Verify email address
+
+2. **Install Heroku CLI**
+   - Windows: Download installer from Heroku website
+   - Mac: `brew install heroku/brew/heroku`
+   - Linux: `sudo snap install heroku --classic`
+
+3. **Login to Heroku CLI**
 ```bash
-git push --all origin
+heroku login
 ```
 
-### Merging Branches
-
-1. Switch to target branch (e.g., main):
+4. **Create Heroku App**
 ```bash
-git checkout main
+heroku create your-app-name
+# or connect to existing app:
+heroku git:remote -a your-app-name
 ```
 
-2. Merge source branch:
+## Repository Setup
+
+### New Project
+1. **Initialize Git Repository**
 ```bash
-git merge source-branch
+git init
+git add .
+git commit -m "Initial commit"
+```
+
+2. **Connect to GitHub**
+```bash
+git remote add origin https://github.com/username/repository.git
+git push -u origin main
+```
+
+3. **Connect to Heroku**
+```bash
+heroku git:remote -a your-app-name
+```
+
+### Existing Project
+1. **Clone Repository**
+```bash
+git clone https://github.com/username/repository.git
+cd repository
+```
+
+2. **Add Heroku Remote**
+```bash
+heroku git:remote -a your-app-name
 ```
 
 ## Deployment Workflow
 
-### Standard Workflow
-1. Develop in feature branch
-2. Push feature branch to GitHub
-3. Merge into main branch
-4. Deploy main to Heroku
-
-### Step-by-Step Guide
-
-1. **Create and Work in Feature Branch**
+### GitHub Deployment
+1. **Create Feature Branch**
 ```bash
-# Create and switch to new branch
-git checkout -b feature-branch
-
-# Make changes and commit
-git add .
-git commit -m "Description of changes"
-
-# Push feature branch to GitHub
-git push origin feature-branch
+git checkout develop
+git checkout -b feature/new-feature
 ```
 
-2. **Merge to Main**
+2. **Make Changes and Commit**
 ```bash
-# Switch to main branch
+git add .
+git commit -m "feat: description of changes"
+```
+
+3. **Push to GitHub**
+```bash
+# First time pushing branch
+git push -u origin feature/new-feature
+
+# Subsequent pushes
+git push origin feature/new-feature
+```
+
+4. **Merge to Develop**
+```bash
+git checkout develop
+git merge feature/new-feature
+git push origin develop
+```
+
+### Heroku Deployment
+1. **Merge to Main**
+```bash
 git checkout main
-
-# Merge feature branch
-git merge feature-branch
-
-# Push main to GitHub
+git merge develop
 git push origin main
 ```
 
-3. **Deploy to Heroku**
+2. **Deploy to Heroku**
 ```bash
-# Deploy main branch to Heroku
 git push heroku main
 ```
 
-## Heroku-Specific Commands
-
-### Deployment
+3. **Check Deployment**
 ```bash
-# Deploy to Heroku
-git push heroku main
-
-# Force push (if needed)
-git push heroku main --force
-```
-
-### Application Management
-```bash
-# View Heroku logs
+# View logs
 heroku logs --tail
 
-# Restart application
-heroku restart
-
-# Open application
+# Open app
 heroku open
+```
+
+## Environment Variables
+
+### GitHub Secrets
+1. Go to repository Settings > Secrets
+2. Add necessary secrets for CI/CD
+
+### Heroku Config Vars
+1. **View Current Config**
+```bash
+heroku config
+```
+
+2. **Set Variables**
+```bash
+heroku config:set KEY=value
 ```
 
 ## Troubleshooting
 
-### Common Issues
+### GitHub Issues
+1. **Authentication Failed**
+   - Verify Personal Access Token
+   - Reset token if needed
+   - Check remote URL: `git remote -v`
 
-1. **Push Rejected**
-   - Ensure branches are up to date
+2. **Push Rejected**
    - Pull latest changes: `git pull origin branch-name`
-   - Force push if necessary (use with caution)
+   - Resolve conflicts if any
+   - Push again
 
-2. **Heroku Deploy Failed**
+### Heroku Issues
+1. **Deploy Failed**
    - Check logs: `heroku logs --tail`
-   - Verify Procfile configuration
-   - Check environment variables: `heroku config`
+   - Verify Procfile exists
+   - Check environment variables
+   - Ensure all dependencies are in package.json
 
-3. **Merge Conflicts**
-   - Resolve conflicts in affected files
-   - Stage resolved files: `git add .`
-   - Complete merge: `git commit`
+2. **Build Failed**
+   - Check build logs
+   - Verify Node.js version in package.json
+   - Check for missing dependencies
 
-## Best Practices
+## Security Best Practices
 
-1. **Branch Management**
-   - Use descriptive branch names
-   - Keep branches up to date with main
-   - Delete merged branches
+1. **Never commit sensitive data**
+   - Use .env files locally
+   - Use environment variables in Heroku
+   - Add sensitive files to .gitignore
 
-2. **Commits**
-   - Write clear commit messages
-   - Make atomic commits
-   - Reference issue numbers if applicable
+2. **Protect Branches**
+   - Enable branch protection rules
+   - Require pull request reviews
+   - Enable status checks
 
-3. **Deployment**
-   - Test locally before deploying
-   - Review changes before merging
-   - Monitor deployment logs
+3. **Regular Updates**
+   - Keep dependencies updated
+   - Monitor GitHub security alerts
+   - Update access tokens periodically
 
-## Environment Setup
+## Maintenance
 
-### Git Configuration
+1. **Clean Up Branches**
 ```bash
-git config --global user.name "Your Name"
-git config --global user.email "your.email@example.com"
+# Delete local branch
+git branch -d branch-name
+
+# Delete remote branch
+git push origin --delete branch-name
 ```
 
-### Heroku Setup
+2. **Update Dependencies**
 ```bash
-# Login to Heroku
-heroku login
-
-# Add Heroku remote
-heroku git:remote -a your-app-name
+npm update
 ```
 
-## Security Notes
-
-1. Never commit sensitive data (API keys, passwords)
-2. Use environment variables for configuration
-3. Review code before pushing to production
-4. Keep dependencies updated
+3. **Monitor Applications**
+   - Check GitHub security tab
+   - Monitor Heroku metrics
+   - Review logs regularly
