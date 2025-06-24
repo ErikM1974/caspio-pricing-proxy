@@ -4852,7 +4852,7 @@ app.get('/api/product-colors', async (req, res) => {
         // Use an EXACT match for the style number to avoid fetching related styles (e.g., LPC61 when PC61 is requested)
         const params = {
             'q.where': `STYLE='${styleNumber.trim()}'`, // Use exact match
-            'q.select': 'STYLE, PRODUCT_TITLE, PRODUCT_DESCRIPTION, COLOR_NAME, CATALOG_COLOR, COLOR_SQUARE_IMAGE, FRONT_MODEL, FRONT_FLAT, BACK_MODEL, SIDE_MODEL, THREE_Q_MODEL, BACK_FLAT, DECORATION_SPEC_SHEET, BRAND_LOGO_IMAGE, SPEC_SHEET',
+            'q.select': 'STYLE, PRODUCT_TITLE, PRODUCT_DESCRIPTION, COLOR_NAME, CATALOG_COLOR, COLOR_SQUARE_IMAGE, FRONT_MODEL, FRONT_FLAT, BACK_MODEL, SIDE_MODEL, THREE_Q_MODEL, BACK_FLAT, DECORATION_SPEC_SHEET, BRAND_LOGO_IMAGE, SPEC_SHEET, AVAILABLE_SIZES, BRAND_NAME, CATEGORY_NAME, SUBCATEGORY_NAME, MSRP, CASE_PRICE, PRODUCT_STATUS',
             'q.limit': 1000 // fetchAllCaspioPages handles pagination, this is per-page limit
         };
 
@@ -4868,6 +4868,14 @@ app.get('/api/product-colors', async (req, res) => {
             return res.json({
                 productTitle: `Product ${styleNumber}`,
                 PRODUCT_DESCRIPTION: "Sample product description.",
+                styleNumber: styleNumber,
+                AVAILABLE_SIZES: "",
+                BRAND_NAME: "",
+                CATEGORY_NAME: "",
+                SUBCATEGORY_NAME: "",
+                PRODUCT_STATUS: "",
+                basePriceRange: "",
+                MSRP: null,
                 colors: []
             });
         }
@@ -4887,6 +4895,14 @@ function processProductColorRecords(records, styleNumber, res) {
         return res.json({
             productTitle: `Product ${styleNumber}`,
             PRODUCT_DESCRIPTION: "Sample product description.",
+            styleNumber: styleNumber,
+            AVAILABLE_SIZES: "",
+            BRAND_NAME: "",
+            CATEGORY_NAME: "",
+            SUBCATEGORY_NAME: "",
+            PRODUCT_STATUS: "",
+            basePriceRange: "",
+            MSRP: null,
             colors: []
         });
     }
@@ -4896,6 +4912,36 @@ function processProductColorRecords(records, styleNumber, res) {
     
     const productTitle = records[0]?.PRODUCT_TITLE || `Product ${styleNumber}`;
     const productDescription = records[0]?.PRODUCT_DESCRIPTION || "Sample product description.";
+    
+    // Extract new fields from the first record
+    const availableSizes = records[0]?.AVAILABLE_SIZES || "";
+    const brandName = records[0]?.BRAND_NAME || "";
+    const categoryName = records[0]?.CATEGORY_NAME || "";
+    const subcategoryName = records[0]?.SUBCATEGORY_NAME || "";
+    const productStatus = records[0]?.PRODUCT_STATUS || "";
+    const msrp = records[0]?.MSRP || null;
+    
+    // Calculate price range from all CASE_PRICE values
+    let minPrice = Number.MAX_VALUE;
+    let maxPrice = 0;
+    
+    records.forEach(record => {
+        if (record.CASE_PRICE && !isNaN(parseFloat(record.CASE_PRICE))) {
+            const price = parseFloat(record.CASE_PRICE);
+            if (price < minPrice) minPrice = price;
+            if (price > maxPrice) maxPrice = price;
+        }
+    });
+    
+    let basePriceRange = "";
+    if (minPrice !== Number.MAX_VALUE && maxPrice > 0) {
+        if (minPrice === maxPrice) {
+            basePriceRange = `$${minPrice.toFixed(2)}`;
+        } else {
+            basePriceRange = `$${minPrice.toFixed(2)} - $${maxPrice.toFixed(2)}`;
+        }
+    }
+    
     const colorsMap = new Map();
 
     for (const record of records) {
@@ -4978,6 +5024,14 @@ function processProductColorRecords(records, styleNumber, res) {
     return res.json({
         productTitle: productTitle,
         PRODUCT_DESCRIPTION: productDescription,
+        styleNumber: styleNumber,
+        AVAILABLE_SIZES: availableSizes,
+        BRAND_NAME: brandName,
+        CATEGORY_NAME: categoryName,
+        SUBCATEGORY_NAME: subcategoryName,
+        PRODUCT_STATUS: productStatus,
+        basePriceRange: basePriceRange,
+        MSRP: msrp,
         colors: colorsArray
     });
 }
