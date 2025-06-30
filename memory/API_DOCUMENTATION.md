@@ -1091,6 +1091,15 @@ The Art Requests API provides comprehensive CRUD functionality for managing art 
 
 ### Art Requests
 
+**Important Note - Dynamic Field Handling**: This API is designed to automatically handle any fields present in the Caspio table. When new fields are added to the ArtRequests table in Caspio (such as Invoiced, Invoiced_Date, Invoice_Updated_Date), they are immediately available through the API without requiring any code changes.
+
+**Testing Results & Tips**:
+- ✅ All CRUD operations tested and verified working on Heroku (June 30, 2025)
+- ⚠️ **Special Character Handling**: Avoid using special Unicode characters (emojis, etc.) in field values as they may cause 500 errors during PUT operations
+- 💡 **Best Practice**: Use simple alphanumeric data for reliable updates
+- 🔍 **Field Discovery**: The GET endpoints will return ALL fields from your Caspio table, making it easy to discover new fields
+- 📝 **Flexible Schema**: The API accepts ANY fields in POST/PUT requests - if a field exists in Caspio, it will be processed
+
 #### GET /artrequests
 
 -   **Description**: Retrieves a list of art requests. Supports extensive filtering options, field selection, sorting, grouping, and pagination. The response automatically includes ALL fields present in the Caspio ArtRequests table.
@@ -1222,6 +1231,40 @@ The Art Requests API provides comprehensive CRUD functionality for managing art 
     ```
 -   **Response**: Returns a success message if the deletion was successful.
 
+### Testing Examples & Troubleshooting
+
+**Successful Test Sequence** (verified on Heroku):
+```bash
+# 1. List all art requests
+curl "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/artrequests"
+# Result: Returns array including new fields like Invoiced, Invoiced_Date
+
+# 2. Create a test art request
+curl -X POST -H "Content-Type: application/json" \
+  -d '{"CompanyName": "Test Company", "Status": "In Progress", "Invoiced": false}' \
+  "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/artrequests"
+# Result: 201 Created with new record ID (e.g., 2519)
+
+# 3. Get specific art request
+curl "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/artrequests/2519"
+# Result: Returns full record with all fields
+
+# 4. Update art request (simple data)
+curl -X PUT -H "Content-Type: application/json" \
+  -d '{"Status": "Completed", "Invoiced": true}' \
+  "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/artrequests/2519"
+# Result: Successfully updated
+
+# 5. Delete art request
+curl -X DELETE "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/artrequests/2519"
+# Result: Successfully deleted, subsequent GET returns 404
+```
+
+**Common Issues & Solutions**:
+- **500 Error on PUT**: Usually caused by special characters. Solution: Use simple text without emojis or complex Unicode
+- **404 Error**: Record doesn't exist. Verify the ID with a GET request first
+- **Missing Fields**: The API returns ALL fields from Caspio. If a field is missing, check your Caspio table configuration
+
 ### Art Request Schema
 
 The art request object includes fields from the Caspio ArtRequests table. Common fields include:
@@ -1239,15 +1282,14 @@ The art request object includes fields from the Caspio ArtRequests table. Common
 - `Mockup`: Boolean indicating if this is a mockup
 - `Art_Minutes`: Time spent on art
 - `Amount_Art_Billed`: Amount billed for art
+- `Invoiced`: Boolean indicating if invoiced (newly added field)
+- `Invoiced_Date`: Date when invoiced (newly added field)
+- `Invoice_Updated_Date`: Date when invoice was last updated (newly added field)
 - `GarmentColor`, `GarmentStyle`, `Garment_Placement`: Garment details
 - `File_Upload_One`, `File_Upload_Two`, `File_Upload_Three`, `File_Upload_Four`: File uploads
 - `Happy_Status`: Customer satisfaction status
-- `Invoiced`: Boolean indicating if invoiced
-- `Invoiced_Date`: Date when invoiced
-- `Invoice_Updated_Date`: Last invoice update date
-- Additional fields for contact info, order details, and more
 
-**Note**: This list shows commonly used fields. The actual schema may include additional custom fields that you've added to your Caspio table. All fields present in the Caspio table will be automatically handled by the API.
+**Note**: This list is not exhaustive. The API automatically handles ALL fields present in your Caspio ArtRequests table, including any custom fields you may have added. Additional fields include contact info, order details, and more.
 
 ---
 
