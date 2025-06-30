@@ -2627,6 +2627,147 @@ app.get('/api/artrequests', async (req, res) => {
     }
 });
 
+// Get a specific art request by ID
+app.get('/api/artrequests/:id', async (req, res) => {
+    const { id } = req.params;
+    if (!id) {
+        return res.status(400).json({ error: 'Missing required parameter: id' });
+    }
+    
+    try {
+        console.log(`Fetching art request with ID: ${id}`);
+        const resource = `/tables/ArtRequests/records?q.where=PK_ID=${id}`;
+        
+        const result = await makeCaspioRequest('get', resource);
+        
+        if (result && result.length > 0) {
+            res.json(result[0]);
+        } else {
+            res.status(404).json({ error: 'Art request not found.' });
+        }
+    } catch (error) {
+        console.error("Error fetching art request:", error.message);
+        res.status(500).json({ error: 'Failed to fetch art request.' });
+    }
+});
+
+// Create a new art request
+app.post('/api/artrequests', express.json(), async (req, res) => {
+    try {
+        const requestData = req.body;
+        
+        console.log(`Creating new art request`);
+        const resource = '/tables/ArtRequests/records';
+        
+        // Get token for the request
+        const token = await getCaspioAccessToken();
+        const url = `${caspioApiBaseUrl}${resource}`;
+        
+        // Prepare the request
+        const config = {
+            method: 'post',
+            url: url,
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            data: requestData,
+            timeout: 15000
+        };
+        
+        // Make the request directly using axios
+        const response = await axios(config);
+        
+        console.log(`Art request created successfully: ${response.status}`);
+        res.status(201).json({
+            message: 'Art request created successfully',
+            request: response.data
+        });
+    } catch (error) {
+        console.error("Error creating art request:", error.response ? JSON.stringify(error.response.data) : error.message);
+        res.status(500).json({ error: 'Failed to create art request.' });
+    }
+});
+
+// Update an art request by ID
+app.put('/api/artrequests/:id', express.json(), async (req, res) => {
+    const { id } = req.params;
+    if (!id) {
+        return res.status(400).json({ error: 'Missing required parameter: id' });
+    }
+    
+    try {
+        console.log(`Updating art request with ID: ${id}`);
+        const resource = `/tables/ArtRequests/records?q.where=PK_ID=${id}`;
+        
+        // Get token for the request
+        const token = await getCaspioAccessToken();
+        const url = `${caspioApiBaseUrl}${resource}`;
+        
+        // Prepare the request
+        const config = {
+            method: 'put',
+            url: url,
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            data: req.body,
+            timeout: 15000
+        };
+        
+        // Make the request directly using axios
+        const response = await axios(config);
+        
+        console.log(`Art request updated successfully: ${response.status}`);
+        res.json({
+            message: 'Art request updated successfully',
+            request: response.data
+        });
+    } catch (error) {
+        console.error("Error updating art request:", error.response ? JSON.stringify(error.response.data) : error.message);
+        res.status(500).json({ error: 'Failed to update art request.' });
+    }
+});
+
+// Delete an art request by ID
+app.delete('/api/artrequests/:id', async (req, res) => {
+    const { id } = req.params;
+    if (!id) {
+        return res.status(400).json({ error: 'Missing required parameter: id' });
+    }
+    
+    try {
+        console.log(`Deleting art request with ID: ${id}`);
+        const resource = `/tables/ArtRequests/records?q.where=PK_ID=${id}`;
+        
+        // Get token for the request
+        const token = await getCaspioAccessToken();
+        const url = `${caspioApiBaseUrl}${resource}`;
+        
+        // Prepare the request
+        const config = {
+            method: 'delete',
+            url: url,
+            headers: {
+                'Authorization': `Bearer ${token}`
+            },
+            timeout: 15000
+        };
+        
+        // Make the request directly using axios
+        const response = await axios(config);
+        
+        console.log(`Art request deleted successfully: ${response.status}`);
+        res.json({
+            message: 'Art request deleted successfully'
+        });
+    } catch (error) {
+        console.error("Error deleting art request:", error.response ? JSON.stringify(error.response.data) : error.message);
+        res.status(500).json({ error: 'Failed to delete art request.' });
+    }
+});
+
 // --- NEW Endpoint: Art Invoices CRUD Operations ---
 // GET: /api/art-invoices - Get all art invoices or filter by query parameters
 // GET: /api/art-invoices/:id - Get a specific art invoice by ID
