@@ -2513,6 +2513,223 @@ app.delete('/api/customers/:id', async (req, res) => {
     }
 });
 
+// --- NEW Endpoint: Art Invoices CRUD Operations ---
+// GET: /api/art-invoices - Get all art invoices or filter by query parameters
+// GET: /api/art-invoices/:id - Get a specific art invoice by ID
+// POST: /api/art-invoices - Create a new art invoice
+// PUT: /api/art-invoices/:id - Update an art invoice by ID
+// DELETE: /api/art-invoices/:id - Delete an art invoice by ID
+app.get('/api/art-invoices', async (req, res) => {
+    try {
+        console.log("Fetching art invoices information");
+        const resource = '/tables/Art_Invoices/records';
+        
+        // Build query parameters based on request query
+        const params = {};
+        
+        // Add any filter parameters from the request
+        if (Object.keys(req.query).length > 0) {
+            const whereConditions = [];
+            
+            // Handle common filter fields
+            if (req.query.invoiceID) {
+                whereConditions.push(`InvoiceID='${req.query.invoiceID}'`);
+            }
+            if (req.query.artRequestID) {
+                whereConditions.push(`ArtRequestID='${req.query.artRequestID}'`);
+            }
+            if (req.query.sessionID) {
+                whereConditions.push(`SessionID='${req.query.sessionID}'`);
+            }
+            if (req.query.status) {
+                whereConditions.push(`Status='${req.query.status}'`);
+            }
+            if (req.query.artistName) {
+                whereConditions.push(`ArtistName LIKE '%${req.query.artistName}%'`);
+            }
+            if (req.query.customerName) {
+                whereConditions.push(`CustomerName LIKE '%${req.query.customerName}%'`);
+            }
+            if (req.query.customerCompany) {
+                whereConditions.push(`CustomerCompany LIKE '%${req.query.customerCompany}%'`);
+            }
+            if (req.query.projectName) {
+                whereConditions.push(`ProjectName LIKE '%${req.query.projectName}%'`);
+            }
+            if (req.query.isDeleted) {
+                whereConditions.push(`IsDeleted=${req.query.isDeleted}`);
+            }
+            
+            // Add the WHERE clause if we have conditions
+            if (whereConditions.length > 0) {
+                params['q.where'] = whereConditions.join(' AND ');
+            }
+        }
+        
+        // Set ordering and limit
+        params['q.orderby'] = 'PK_ID DESC';
+        params['q.limit'] = 1000;
+        
+        // Use fetchAllCaspioPages to handle pagination
+        const result = await fetchAllCaspioPages(resource, params);
+        console.log(`Found ${result.length} art invoice records`);
+        
+        res.json(result);
+    } catch (error) {
+        console.error("Error fetching art invoices:", error.message);
+        res.status(500).json({ error: 'Failed to fetch art invoices.' });
+    }
+});
+
+// Get a specific art invoice by ID
+app.get('/api/art-invoices/:id', async (req, res) => {
+    const { id } = req.params;
+    if (!id) {
+        return res.status(400).json({ error: 'Missing required parameter: id' });
+    }
+    
+    try {
+        console.log(`Fetching art invoice with ID: ${id}`);
+        const resource = `/tables/Art_Invoices/records?q.where=PK_ID=${id}`;
+        
+        const result = await makeCaspioRequest('get', resource);
+        
+        if (result && result.length > 0) {
+            res.json(result[0]);
+        } else {
+            res.status(404).json({ error: 'Art invoice not found.' });
+        }
+    } catch (error) {
+        console.error("Error fetching art invoice:", error.message);
+        res.status(500).json({ error: 'Failed to fetch art invoice.' });
+    }
+});
+
+// Create a new art invoice
+app.post('/api/art-invoices', express.json(), async (req, res) => {
+    try {
+        const invoiceData = req.body;
+        
+        // Validate required fields
+        const requiredFields = ['InvoiceID', 'ArtRequestID'];
+        for (const field of requiredFields) {
+            if (!invoiceData[field]) {
+                return res.status(400).json({ error: `Missing required field: ${field}` });
+            }
+        }
+        
+        console.log(`Creating new art invoice: ${invoiceData.InvoiceID}`);
+        const resource = '/tables/Art_Invoices/records';
+        
+        // Get token for the request
+        const token = await getCaspioAccessToken();
+        const url = `${caspioApiBaseUrl}${resource}`;
+        
+        // Prepare the request
+        const config = {
+            method: 'post',
+            url: url,
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            data: invoiceData,
+            timeout: 15000
+        };
+        
+        // Make the request directly using axios
+        const response = await axios(config);
+        
+        console.log(`Art invoice created successfully: ${response.status}`);
+        res.status(201).json({
+            message: 'Art invoice created successfully',
+            invoice: response.data
+        });
+    } catch (error) {
+        console.error("Error creating art invoice:", error.response ? JSON.stringify(error.response.data) : error.message);
+        res.status(500).json({ error: 'Failed to create art invoice.' });
+    }
+});
+
+// Update an art invoice by ID
+app.put('/api/art-invoices/:id', express.json(), async (req, res) => {
+    const { id } = req.params;
+    if (!id) {
+        return res.status(400).json({ error: 'Missing required parameter: id' });
+    }
+    
+    try {
+        console.log(`Updating art invoice with ID: ${id}`);
+        const resource = `/tables/Art_Invoices/records?q.where=PK_ID=${id}`;
+        
+        // Get token for the request
+        const token = await getCaspioAccessToken();
+        const url = `${caspioApiBaseUrl}${resource}`;
+        
+        // Prepare the request
+        const config = {
+            method: 'put',
+            url: url,
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            data: req.body,
+            timeout: 15000
+        };
+        
+        // Make the request directly using axios
+        const response = await axios(config);
+        
+        console.log(`Art invoice updated successfully: ${response.status}`);
+        res.json({
+            message: 'Art invoice updated successfully',
+            invoice: response.data
+        });
+    } catch (error) {
+        console.error("Error updating art invoice:", error.response ? JSON.stringify(error.response.data) : error.message);
+        res.status(500).json({ error: 'Failed to update art invoice.' });
+    }
+});
+
+// Delete an art invoice by ID
+app.delete('/api/art-invoices/:id', async (req, res) => {
+    const { id } = req.params;
+    if (!id) {
+        return res.status(400).json({ error: 'Missing required parameter: id' });
+    }
+    
+    try {
+        console.log(`Deleting art invoice with ID: ${id}`);
+        const resource = `/tables/Art_Invoices/records?q.where=PK_ID=${id}`;
+        
+        // Get token for the request
+        const token = await getCaspioAccessToken();
+        const url = `${caspioApiBaseUrl}${resource}`;
+        
+        // Prepare the request
+        const config = {
+            method: 'delete',
+            url: url,
+            headers: {
+                'Authorization': `Bearer ${token}`
+            },
+            timeout: 15000
+        };
+        
+        // Make the request directly using axios
+        const response = await axios(config);
+        
+        console.log(`Art invoice deleted successfully: ${response.status}`);
+        res.json({
+            message: 'Art invoice deleted successfully'
+        });
+    } catch (error) {
+        console.error("Error deleting art invoice:", error.response ? JSON.stringify(error.response.data) : error.message);
+        res.status(500).json({ error: 'Failed to delete art invoice.' });
+    }
+});
+
 // --- NEW Endpoint: Cart Items CRUD Operations ---
 // GET: /api/cart-items - Get all cart items or filter by query parameters
 // POST: /api/cart-items - Create a new cart item

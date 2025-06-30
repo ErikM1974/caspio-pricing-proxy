@@ -47,6 +47,12 @@ const sampleData = {
     QuoteID: '1',
     SessionID: 'test-session-' + Date.now(),
     Status: 'Active'
+  },
+  artInvoice: {
+    InvoiceID: 'INV-TEST-' + Date.now(),
+    ArtRequestID: 'AR-TEST-' + Date.now(),
+    ArtistName: 'Test Artist',
+    Status: 'pending'
   }
 };
 
@@ -121,6 +127,13 @@ const endpoints = [
   { method: 'get', url: '/compare-products?styles=PC61,PC54', name: 'Compare Products' },
   { method: 'get', url: '/recommendations?styleNumber=PC61', name: 'Get Recommendations' },
   { method: 'get', url: '/test-sanmar-bulk', name: 'Test SanMar Bulk' },
+
+  // Art Invoices API
+  { method: 'get', url: '/art-invoices', name: 'Get Art Invoices' },
+  { method: 'get', url: '/art-invoices/2', name: 'Get Art Invoice by ID' },
+  { method: 'post', url: '/art-invoices', name: 'Create Art Invoice', data: sampleData.artInvoice },
+  { method: 'put', url: '/art-invoices/2', name: 'Update Art Invoice', data: { Status: 'completed' } },
+  { method: 'delete', url: '/art-invoices/999', name: 'Delete Art Invoice' },
 
   // Transfers API
   { method: 'get', url: '/transfers/lookup?size=Adult&quantity=10&price_type=Regular', name: 'Transfer Price Lookup' },
