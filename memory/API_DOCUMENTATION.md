@@ -1083,9 +1083,75 @@ The Misc API provides a variety of utility and product-related functionality.
 
 ---
 
+## Art Requests API
+
+The Art Requests API provides functionality for retrieving art request records from the ArtRequests table.
+
+### Art Requests
+
+#### GET /artrequests
+
+-   **Description**: Retrieves a list of art requests. Supports extensive filtering options, field selection, sorting, grouping, and pagination.
+-   **Method**: `GET`
+-   **URL**: `/artrequests`
+-   **Query Parameters**:
+    -   **Filtering**:
+        -   `pk_id` (integer, optional): The primary key ID of the art request.
+        -   `status` (string, optional): The status of the art request (e.g., "Completed", "In Progress", "Awaiting Approval").
+        -   `id_design` (integer, optional): The design ID.
+        -   `companyName` (string, optional): The company name (supports partial matching).
+        -   `customerServiceRep` (string, optional): The customer service representative name.
+        -   `priority` (string, optional): The priority level.
+        -   `mockup` (boolean, optional): Whether this is a mockup request.
+        -   `orderType` (string, optional): The type of order.
+        -   `customerType` (string, optional): The type of customer (e.g., "Construction").
+        -   `happyStatus` (string, optional): The happiness/satisfaction status.
+        -   `salesRep` (string, optional): The sales representative name.
+        -   `id_customer` (integer, optional): The customer ID.
+        -   `id_contact` (integer, optional): The contact ID.
+        -   `dateCreatedFrom` (string, optional): Filter by creation date (from).
+        -   `dateCreatedTo` (string, optional): Filter by creation date (to).
+        -   `dueDateFrom` (string, optional): Filter by due date (from).
+        -   `dueDateTo` (string, optional): Filter by due date (to).
+    -   **Field Selection**:
+        -   `select` (string, optional): Comma-separated list of fields to return.
+    -   **Sorting**:
+        -   `orderBy` (string, optional): ORDER BY clause (default: "Date_Created DESC").
+    -   **Grouping**:
+        -   `groupBy` (string, optional): GROUP BY clause.
+    -   **Pagination**:
+        -   `limit` (integer, optional): Maximum number of records (max: 1000, default: 100).
+        -   `pageNumber` (integer, optional): Page number (used with pageSize).
+        -   `pageSize` (integer, optional): Records per page (5-1000, used with pageNumber).
+-   **Response**: Returns an array of art request objects with fields such as:
+    -   `PK_ID`, `Status`, `ID_Design`, `CompanyName`, `Due_Date`, `NOTES`
+    -   `CustomerServiceRep`, `Priority`, `Date_Created`, `Date_Updated`
+    -   `Mockup`, `Art_Minutes`, `Amount_Art_Billed`
+    -   `GarmentColor`, `GarmentStyle`, `Garment_Placement`
+    -   File upload fields, contact information, and more
+-   **Example `curl` Requests**:
+    ```bash
+    # Get all art requests (default limit: 100)
+    curl "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/artrequests"
+    
+    # Get art requests with specific status
+    curl "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/artrequests?status=In%20Progress"
+    
+    # Get art requests for a specific company with pagination
+    curl "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/artrequests?companyName=Metal&pageNumber=1&pageSize=25"
+    
+    # Get specific fields only
+    curl "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/artrequests?select=PK_ID,Status,CompanyName,Date_Created&limit=50"
+    
+    # Get art requests created in a date range, ordered by priority
+    curl "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/artrequests?dateCreatedFrom=2023-01-01&dateCreatedTo=2023-12-31&orderBy=Priority%20ASC,Date_Created%20DESC"
+    ```
+
+---
+
 ## Art Invoices API
 
-The Art Invoices API provides comprehensive CRUD functionality for managing art invoice records.
+The Art Invoices API provides comprehensive CRUD functionality for managing art invoice records through the Heroku API endpoint.
 
 ### Art Invoices
 

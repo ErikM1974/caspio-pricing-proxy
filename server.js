@@ -2513,6 +2513,120 @@ app.delete('/api/customers/:id', async (req, res) => {
     }
 });
 
+// --- NEW Endpoint: Art Requests ---
+// GET: /api/artrequests - Get all art requests or filter by query parameters
+app.get('/api/artrequests', async (req, res) => {
+    try {
+        console.log("Fetching art requests information");
+        const resource = '/tables/ArtRequests/records';
+        
+        // Build query parameters based on request query
+        const params = {};
+        
+        // Handle filter parameters from the request
+        if (Object.keys(req.query).length > 0) {
+            const whereConditions = [];
+            
+            // Handle common filter fields based on the ArtRequests table structure
+            if (req.query.pk_id) {
+                whereConditions.push(`PK_ID=${req.query.pk_id}`);
+            }
+            if (req.query.status) {
+                whereConditions.push(`Status='${req.query.status}'`);
+            }
+            if (req.query.id_design) {
+                whereConditions.push(`ID_Design=${req.query.id_design}`);
+            }
+            if (req.query.companyName) {
+                whereConditions.push(`CompanyName LIKE '%${req.query.companyName}%'`);
+            }
+            if (req.query.customerServiceRep) {
+                whereConditions.push(`CustomerServiceRep='${req.query.customerServiceRep}'`);
+            }
+            if (req.query.priority) {
+                whereConditions.push(`Priority='${req.query.priority}'`);
+            }
+            if (req.query.mockup) {
+                whereConditions.push(`Mockup=${req.query.mockup}`);
+            }
+            if (req.query.orderType) {
+                whereConditions.push(`Order_Type='${req.query.orderType}'`);
+            }
+            if (req.query.customerType) {
+                whereConditions.push(`CustomerType='${req.query.customerType}'`);
+            }
+            if (req.query.happyStatus) {
+                whereConditions.push(`Happy_Status='${req.query.happyStatus}'`);
+            }
+            if (req.query.salesRep) {
+                whereConditions.push(`Sales_Rep='${req.query.salesRep}'`);
+            }
+            if (req.query.id_customer) {
+                whereConditions.push(`id_customer=${req.query.id_customer}`);
+            }
+            if (req.query.id_contact) {
+                whereConditions.push(`id_contact=${req.query.id_contact}`);
+            }
+            
+            // Date range filters
+            if (req.query.dateCreatedFrom) {
+                whereConditions.push(`Date_Created>='${req.query.dateCreatedFrom}'`);
+            }
+            if (req.query.dateCreatedTo) {
+                whereConditions.push(`Date_Created<='${req.query.dateCreatedTo}'`);
+            }
+            if (req.query.dueDateFrom) {
+                whereConditions.push(`Due_Date>='${req.query.dueDateFrom}'`);
+            }
+            if (req.query.dueDateTo) {
+                whereConditions.push(`Due_Date<='${req.query.dueDateTo}'`);
+            }
+            
+            // Add the WHERE clause if we have conditions
+            if (whereConditions.length > 0) {
+                params['q.where'] = whereConditions.join(' AND ');
+            }
+        }
+        
+        // Handle select parameter for specific fields
+        if (req.query.select) {
+            params['q.select'] = req.query.select;
+        }
+        
+        // Handle orderBy parameter
+        if (req.query.orderBy) {
+            params['q.orderBy'] = req.query.orderBy;
+        } else {
+            // Default ordering by most recent first
+            params['q.orderBy'] = 'Date_Created DESC';
+        }
+        
+        // Handle groupBy parameter
+        if (req.query.groupBy) {
+            params['q.groupBy'] = req.query.groupBy;
+        }
+        
+        // Handle pagination parameters
+        if (req.query.pageNumber && req.query.pageSize) {
+            params['q.pageNumber'] = req.query.pageNumber;
+            params['q.pageSize'] = req.query.pageSize;
+        } else if (req.query.limit) {
+            params['q.limit'] = Math.min(parseInt(req.query.limit) || 100, 1000);
+        } else {
+            params['q.limit'] = 100; // Default limit
+        }
+        
+        console.log(`Fetching art requests with params: ${JSON.stringify(params)}`);
+        const artRequests = await fetchAllCaspioPages(resource, params);
+        
+        console.log(`Found ${artRequests.length} art request records`);
+        res.json(artRequests);
+    } catch (error) {
+        console.error("Error in /api/artrequests:", error);
+        res.status(500).json({ error: 'Failed to fetch art requests' });
+    }
+});
+
 // --- NEW Endpoint: Art Invoices CRUD Operations ---
 // GET: /api/art-invoices - Get all art invoices or filter by query parameters
 // GET: /api/art-invoices/:id - Get a specific art invoice by ID
