@@ -614,6 +614,49 @@ The Order API provides functionality for managing orders and customers.
     curl -X DELETE "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/customers/1"
     ```
 
+### Order ODBC
+
+#### GET /order-odbc
+
+-   **Description**: Retrieves order records from the ORDER_ODBC table. Supports filtering, sorting, and pagination.
+-   **Method**: `GET`
+-   **URL**: `/order-odbc`
+-   **Query Parameters**:
+    -   `q.where` (string, optional): Filter records using SQL-like conditions (e.g., `id_Customer=11824`, `date_OrderPlaced>'2021-03-01'`, `sts_Shipped=0`)
+    -   `q.orderBy` (string, optional): Sort results by field(s) (e.g., `date_OrderPlaced DESC`, `ID_Order ASC`)
+    -   `q.limit` (integer, optional): Maximum number of records to return (default: 100, max: 1000)
+-   **Example `curl` Requests**:
+    ```bash
+    # Get all orders (limited to 100)
+    curl "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/order-odbc"
+    
+    # Get orders for specific customer
+    curl "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/order-odbc?q.where=id_Customer=11824"
+    
+    # Get unshipped orders
+    curl "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/order-odbc?q.where=sts_Shipped=0&q.limit=50"
+    
+    # Get orders in date range, sorted
+    curl "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/order-odbc?q.where=date_OrderPlaced>'2021-03-01' AND date_OrderPlaced<'2021-03-31'&q.orderBy=date_OrderPlaced DESC"
+    
+    # Get invoiced but not shipped orders
+    curl "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/order-odbc?q.where=sts_Invoiced=1 AND sts_Shipped=0"
+    ```
+-   **Response**: Returns an array of order records from the ORDER_ODBC table
+-   **Common Fields**:
+    -   `PK_ID`: Primary key
+    -   `ID_Order`: Order ID
+    -   `date_OrderPlaced`: Order placement date
+    -   `date_OrderRequestedToShip`: Requested ship date
+    -   `id_Customer`: Customer ID
+    -   `CompanyName`: Company name
+    -   `ContactEmail`, `ContactFirst`, `ContactLast`: Contact information
+    -   `sts_Invoiced`, `sts_Shipped`: Order status flags (0 or 1)
+    -   `cur_Subtotal`, `cnCur_TotalInvoice`: Order amounts
+    -   `ORDER_TYPE`: Type of order (e.g., "Digital Printing", "Custom Embroidery")
+    -   `CustomerServiceRep`: CSR name
+    -   `CustomerPurchaseOrder`: PO number
+
 ---
 
 ## Inventory API
@@ -1290,6 +1333,73 @@ The art request object includes fields from the Caspio ArtRequests table. Common
 - `Happy_Status`: Customer satisfaction status
 
 **Note**: This list is not exhaustive. The API automatically handles ALL fields present in your Caspio ArtRequests table, including any custom fields you may have added. Additional fields include contact info, order details, and more.
+
+---
+
+## Production Schedules API
+
+The Production Schedules API provides access to production availability dates for different decoration methods at Northwest Custom Apparel.
+
+### Production Schedules
+
+#### GET /production-schedules
+
+-   **Description**: Retrieves production schedule records showing availability dates for DTG, Embroidery, Screen Print, and other decoration methods.
+-   **Method**: `GET`
+-   **URL**: `/production-schedules`
+-   **Query Parameters**:
+    -   `q.where` (string, optional): Filter records using SQL-like conditions (e.g., `Date>'2021-08-01'`, `Employee='Ruth'`)
+    -   `q.orderBy` (string, optional): Sort results by field(s) (e.g., `Date DESC`, `PK_ID ASC`)
+    -   `q.limit` (integer, optional): Maximum number of records to return (default: 100, max: 1000)
+-   **Example `curl` Requests**:
+    ```bash
+    # Get all production schedules (limited to 100)
+    curl "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/production-schedules"
+    
+    # Get latest 5 schedules
+    curl "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/production-schedules?q.orderBy=Date%20DESC&q.limit=5"
+    
+    # Get schedules after a specific date
+    curl "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/production-schedules?q.where=Date%3E'2021-08-20'&q.orderBy=Date%20ASC"
+    
+    # Get schedules by specific employee
+    curl "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/production-schedules?q.where=Employee%3D'Ruth'&q.limit=10"
+    ```
+-   **Response Example**:
+    ```json
+    [
+      {
+        "PK_ID": 22,
+        "ID_Log": "YUAE5SDQ",
+        "Date": "2021-09-01T08:20:36",
+        "Employee": "Ruth",
+        "DTG": "2021-09-10T00:00:00",
+        "Embroidery": "2021-09-10T00:00:00",
+        "Cap_Embroidery": "2021-09-10T00:00:00",
+        "Screenprint": "2021-09-10T00:00:00",
+        "Transfers": "2021-09-10T00:00:00",
+        "Comment_DTG": "2 weeks out",
+        "Comment_Emb": "",
+        "Comment_Cap": "",
+        "Comment_SP": "3 weeks out",
+        "Comment_Transfers": "",
+        "DTG_Sneak_In": null,
+        "Drop_Dead_Big_Order_Status": ""
+      }
+    ]
+    ```
+
+### Common Production Schedule Fields:
+
+- `PK_ID`: Primary key identifier
+- `Date`: When the schedule was updated
+- `Employee`: Who updated the schedule
+- `DTG`: Direct-to-Garment availability date
+- `Embroidery`: Embroidery availability date
+- `Cap_Embroidery`: Cap embroidery availability date
+- `Screenprint`: Screen printing availability date
+- `Transfers`: Transfer printing availability date
+- `Comment_DTG`, `Comment_Emb`, `Comment_Cap`, `Comment_SP`, `Comment_Transfers`: Comments for each decoration method
 
 ---
 

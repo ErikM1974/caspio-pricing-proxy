@@ -5508,6 +5508,99 @@ function processProductColorRecords(records, styleNumber, res) {
     });
 }
 
+// Get Production Schedules
+// Example: /api/production-schedules
+// Example: /api/production-schedules?q.where=Date>'2021-08-01'
+// Example: /api/production-schedules?q.orderBy=Date DESC&q.limit=50
+app.get('/api/production-schedules', async (req, res) => {
+    console.log(`GET /api/production-schedules requested with params:`, req.query);
+    
+    try {
+        const resource = '/tables/Production_Schedules/records';
+        const params = {};
+        
+        // Handle query parameters
+        if (req.query['q.where']) {
+            params['q.where'] = req.query['q.where'];
+        }
+        
+        if (req.query['q.orderBy']) {
+            params['q.orderby'] = req.query['q.orderBy']; // Note: Caspio uses lowercase 'orderby'
+        }
+        
+        if (req.query['q.limit']) {
+            // Validate limit is within allowed range
+            const limit = parseInt(req.query['q.limit']);
+            if (isNaN(limit) || limit < 1) {
+                return res.status(400).json({ error: 'Invalid limit parameter. Must be a positive integer.' });
+            }
+            if (limit > 1000) {
+                return res.status(400).json({ error: 'Limit parameter cannot exceed 1000.' });
+            }
+            params['q.limit'] = limit;
+        } else {
+            // Default limit
+            params['q.limit'] = 100;
+        }
+        
+        // Use fetchAllCaspioPages to handle pagination
+        const result = await fetchAllCaspioPages(resource, params);
+        console.log(`Found ${result.length} production schedule records`);
+        
+        res.json(result);
+    } catch (error) {
+        console.error("Error fetching production schedules:", error.message);
+        res.status(500).json({ error: 'Failed to fetch production schedules.' });
+    }
+});
+
+// Get Order ODBC Records
+// Example: /api/order-odbc
+// Example: /api/order-odbc?q.where=id_Customer=11824
+// Example: /api/order-odbc?q.where=date_OrderPlaced>'2021-03-01'&q.orderBy=date_OrderPlaced DESC
+// Example: /api/order-odbc?q.where=sts_Shipped=0&q.limit=50
+app.get('/api/order-odbc', async (req, res) => {
+    console.log(`GET /api/order-odbc requested with params:`, req.query);
+    
+    try {
+        const resource = '/tables/ORDER_ODBC/records';
+        const params = {};
+        
+        // Handle query parameters
+        if (req.query['q.where']) {
+            params['q.where'] = req.query['q.where'];
+        }
+        
+        if (req.query['q.orderBy']) {
+            params['q.orderby'] = req.query['q.orderBy']; // Note: Caspio uses lowercase 'orderby'
+        }
+        
+        if (req.query['q.limit']) {
+            // Validate limit is within allowed range
+            const limit = parseInt(req.query['q.limit']);
+            if (isNaN(limit) || limit < 1) {
+                return res.status(400).json({ error: 'Invalid limit parameter. Must be a positive integer.' });
+            }
+            if (limit > 1000) {
+                return res.status(400).json({ error: 'Limit parameter cannot exceed 1000.' });
+            }
+            params['q.limit'] = limit;
+        } else {
+            // Default limit
+            params['q.limit'] = 100;
+        }
+        
+        // Use fetchAllCaspioPages to handle pagination
+        const result = await fetchAllCaspioPages(resource, params);
+        console.log(`Found ${result.length} order records`);
+        
+        res.json(result);
+    } catch (error) {
+        console.error("Error fetching order records:", error.message);
+        res.status(500).json({ error: 'Failed to fetch order records.' });
+    }
+});
+
 // --- Error Handling Middleware (Basic) ---
 // Catches errors from endpoint handlers
 app.use((err, req, res, next) => {
