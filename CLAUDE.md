@@ -26,11 +26,52 @@ When running the server in WSL (Windows Subsystem for Linux), you cannot use `lo
 
 3. **Note**: The WSL IP address changes when Windows restarts, so check it each time.
 
-### Running the Server
+### Quick Start Testing
+
+#### 1. Start the Server (Recommended Method)
 ```bash
 cd /mnt/c/Users/erik/OneDrive\ -\ Northwest\ Custom\ Apparel/2025/caspio-pricing-proxy
-node server.js
+node start-test-server.js
 ```
+
+This helper script will:
+- ✅ Force the server to use port 3002 (avoiding port confusion)
+- ✅ Display your current WSL IP address
+- ✅ Show ready-to-copy Postman URLs
+- ✅ Monitor server health
+- ✅ Handle graceful shutdown with Ctrl+C
+
+#### 2. Test the Endpoints
+```bash
+node test-endpoints.js
+```
+
+This will:
+- 🔍 Auto-detect which port the server is actually using
+- 🧪 Run health checks on key endpoints
+- 📋 Display Postman-ready URLs with your current WSL IP
+- ✅ Verify server is working correctly
+
+#### 3. Quick Health Check
+```bash
+curl http://localhost:3002/api/health
+```
+
+### Running the Server (Manual Method)
+```bash
+cd /mnt/c/Users/erik/OneDrive\ -\ Northwest\ Custom\ Apparel/2025/caspio-pricing-proxy
+PORT=3002 node server.js
+```
+
+### Common Issues & Solutions
+
+| Issue | Solution |
+|-------|----------|
+| Server starts on port 3000 instead of 3002 | Use `node start-test-server.js` or set `PORT=3002` explicitly |
+| Can't connect from Postman | Check WSL IP with `hostname -I` - it changes on reboot |
+| Server won't start | Check if port is in use: `lsof -i :3002` or `netstat -tlnp | grep 3002` |
+| Connection refused errors | Ensure you're using WSL IP, not localhost, from Windows |
+| Endpoints return errors | Run `node test-endpoints.js` to diagnose which endpoints are failing |
 
 ## Project Documentation
 
@@ -112,13 +153,19 @@ Options:
 - Add business logic?
 - Or just "return everything as-is"? (most common)
 
+### Caspio Pagination
+
+**CRITICAL**: Caspio API uses pagination, which means that results may be split across multiple pages. When implementing new endpoints, **ALWAYS** use the `fetchAllCaspioPages` function instead of `makeCaspioRequest` to ensure you get ALL records.
+
+Failure to use `fetchAllCaspioPages` will result in incomplete data when the result set spans multiple pages. We've seen this issue with brands like "OGIO" which were on the second page and were not being returned when using `makeCaspioRequest`.
+
 ### Standard Implementation Pattern
 Most endpoints will follow this pattern:
 1. Add to server.js directly (not modular)
 2. Use Caspio API v2 for consistency
 3. Public access (no authentication)
 4. Standard error handling (400 for bad params, 500 for server errors)
-5. Use `fetchAllCaspioPages` for pagination
+5. **ALWAYS use `fetchAllCaspioPages` for pagination** (never `makeCaspioRequest` for multi-record queries)
 
 ### Example: ORDER_ODBC Endpoint
 ```
@@ -140,11 +187,18 @@ A specialized endpoint for UI dashboards that provides pre-calculated metrics:
 - Breakdown by Customer Service Rep and Order Type
 - Today's statistics
 - Optional detailed order list
-- 60-second in-memory cache for performance
+- Year-over-Year comparison
+- 60-second parameter-aware cache for performance
 
 **Parameters:**
 - `days` (number): Number of days to look back (default: 7)
 - `includeDetails` (boolean): Whether to include recent orders array (default: false)
+- `compareYoY` (boolean): Include year-over-year comparison data (default: false)
+
+**Important Notes:**
+- **Invoice Date Filtering**: All order queries filter by `date_OrderInvoiced` (not `date_OrderPlaced`)
+- This captures orders invoiced in the period, regardless of when they were placed
+- Year-over-year comparisons are based on invoice dates for accurate financial reporting
 
 **Example Usage:**
 ```bash
@@ -153,4 +207,7 @@ GET /api/order-dashboard
 
 # Get 30-day dashboard with order details
 GET /api/order-dashboard?days=30&includeDetails=true
+
+# Get dashboard with year-over-year comparison
+GET /api/order-dashboard?compareYoY=true
 ```
