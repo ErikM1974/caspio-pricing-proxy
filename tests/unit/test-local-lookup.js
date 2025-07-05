@@ -3,7 +3,7 @@
 const axios = require('axios');
 
 // Local server URL
-const serverUrl = 'http://localhost:3000';
+const serverUrl = 'http://localhost:3002';
 
 // Test function
 async function testLookup() {

@@ -2,7 +2,7 @@
 const axios = require('axios');
 
 // Define the base URL for the main server
-const BASE_URL = 'http://localhost:3000';
+const BASE_URL = 'http://localhost:3002';
 
 // Function to test an endpoint
 async function testEndpoint(endpoint) {

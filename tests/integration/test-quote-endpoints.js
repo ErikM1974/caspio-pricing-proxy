@@ -3,7 +3,7 @@
 const axios = require('axios');
 
 // Base URL for the API
-const BASE_URL = 'http://localhost:3000'; // Change if your server runs on a different port
+const BASE_URL = 'http://localhost:3002'; // Change if your server runs on a different port
 
 // Test data for Quote_Analytics
 const testQuoteAnalytics = {

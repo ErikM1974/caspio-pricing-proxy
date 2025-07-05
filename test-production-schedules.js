@@ -3,7 +3,7 @@ const axios = require('axios');
 
 // Configuration - use local URL for testing
 // const BASE_URL = 'https://northwest-pricing-proxy-af0f73fe5d56.herokuapp.com';
-const BASE_URL = 'http://localhost:3000'; // Using local testing
+const BASE_URL = 'http://localhost:3002'; // Using local testing
 
 async function testProductionSchedules() {
     console.log('Testing Production Schedules API...\n');

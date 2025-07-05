@@ -7,7 +7,7 @@ const axios = require('axios');
 // Base URL for the API
 // Use environment variable if set, otherwise try local server first, then fall back to Heroku
 const baseUrl = process.env.API_BASE_URL ||
-                'http://localhost:3000';
+                'http://localhost:3002';
 
 // Heroku URL for testing if local server is not available
 const herokuUrl = 'https://caspio-pricing-proxy-ab30a049961a.herokuapp.com';

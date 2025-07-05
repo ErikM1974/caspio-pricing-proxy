@@ -2,7 +2,7 @@
 const axios = require('axios');
 
 const styleNumber = 'PC61'; // Use a style number that we know exists
-const baseUrl = 'http://localhost:3000'; // Adjust if your server is running on a different port
+const baseUrl = 'http://localhost:3002'; // Adjust if your server is running on a different port
 
 async function testProductColorsEndpoint() {
   try {

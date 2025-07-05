@@ -2,6 +2,36 @@
 
 - Art_Request Invoice
 
+## Local Development Setup
+
+### Server Configuration
+- **Local Port**: 3002 (dedicated port for caspio-pricing-proxy)
+- **Production**: Uses Heroku's assigned port via `process.env.PORT`
+
+### Testing Locally with WSL
+When running the server in WSL (Windows Subsystem for Linux), you cannot use `localhost` in Postman or browsers on Windows. Instead:
+
+1. **Get your WSL IP address:**
+   ```bash
+   hostname -I | awk '{print $1}'
+   ```
+
+2. **Use the WSL IP for all local testing:**
+   ```
+   http://[YOUR-WSL-IP]:3002/api/order-dashboard
+   http://[YOUR-WSL-IP]:3002/api/order-odbc
+   http://[YOUR-WSL-IP]:3002/api/products/search
+   ```
+   Example: `http://172.20.132.206:3002/api/order-dashboard`
+
+3. **Note**: The WSL IP address changes when Windows restarts, so check it each time.
+
+### Running the Server
+```bash
+cd /mnt/c/Users/erik/OneDrive\ -\ Northwest\ Custom\ Apparel/2025/caspio-pricing-proxy
+node server.js
+```
+
 ## Project Documentation
 
 ### Memory Folder
@@ -20,6 +50,7 @@ The `memory/` folder contains important project documentation and reference mate
 - Product API (search, details, categories)
 - Order API (orders, customers)
 - Order ODBC API (detailed order records)
+- **Order Dashboard API** (pre-calculated metrics for UI dashboards)
 - Inventory API
 - Pricing Matrix API
 - Quotes API (analytics, items, sessions)
@@ -97,4 +128,29 @@ Q2: Query parameters? → Standard three (where, orderBy, limit)
 Q3: Response format? → Simple array
 Q4: Special requirements? → Return everything as-is
 Result: Standard endpoint returning filtered, sorted order records
+```
+
+## Recent Additions
+
+### Order Dashboard API (`/api/order-dashboard`)
+A specialized endpoint for UI dashboards that provides pre-calculated metrics:
+
+**Features:**
+- Pre-calculated summary metrics (total orders, sales, shipping status)
+- Breakdown by Customer Service Rep and Order Type
+- Today's statistics
+- Optional detailed order list
+- 60-second in-memory cache for performance
+
+**Parameters:**
+- `days` (number): Number of days to look back (default: 7)
+- `includeDetails` (boolean): Whether to include recent orders array (default: false)
+
+**Example Usage:**
+```bash
+# Get 7-day dashboard
+GET /api/order-dashboard
+
+# Get 30-day dashboard with order details
+GET /api/order-dashboard?days=30&includeDetails=true
 ```

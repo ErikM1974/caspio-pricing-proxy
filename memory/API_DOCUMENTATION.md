@@ -657,6 +657,83 @@ The Order API provides functionality for managing orders and customers.
     -   `CustomerServiceRep`: CSR name
     -   `CustomerPurchaseOrder`: PO number
 
+### Order Dashboard
+
+#### GET /order-dashboard
+
+-   **Description**: Retrieves pre-calculated order metrics for dashboard displays. Optimized for UI dashboards with summary statistics, breakdowns by CSR and order type, and cached for performance.
+-   **Method**: `GET`
+-   **URL**: `/order-dashboard`
+-   **Query Parameters**:
+    -   `days` (integer, optional): Number of days to look back (default: 7)
+    -   `includeDetails` (boolean, optional): Whether to include recent orders array (default: false)
+-   **Example `curl` Requests**:
+    ```bash
+    # Get 7-day dashboard (default)
+    curl "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/order-dashboard"
+    
+    # Get 30-day dashboard
+    curl "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/order-dashboard?days=30"
+    
+    # Get 7-day dashboard with order details
+    curl "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/order-dashboard?days=7&includeDetails=true"
+    
+    # Get today's orders only
+    curl "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/order-dashboard?days=1"
+    ```
+-   **Response Structure**:
+    ```json
+    {
+      "summary": {
+        "totalOrders": 45,
+        "totalSales": 28450.50,
+        "notInvoiced": 12,
+        "notShipped": 23,
+        "avgOrderValue": 632.23
+      },
+      "dateRange": {
+        "start": "2025-06-28T00:00:00Z",
+        "end": "2025-07-04T23:59:59Z",
+        "mostRecentOrder": "2025-07-03T00:00:00"
+      },
+      "breakdown": {
+        "byCsr": [
+          {"name": "Taylar Hanson", "orders": 15, "sales": 9780.00},
+          {"name": "Nika Lao", "orders": 20, "sales": 12450.50}
+        ],
+        "byOrderType": [
+          {"type": "Digital Printing", "orders": 25, "sales": 16300.00},
+          {"type": "Screen Printing", "orders": 15, "sales": 9200.50}
+        ]
+      },
+      "todayStats": {
+        "ordersToday": 3,
+        "salesToday": 1850.00,
+        "shippedToday": 1
+      },
+      "recentOrders": [
+        // Only included when includeDetails=true
+        {
+          "ID_Order": 137091,
+          "date_OrderPlaced": "2025-07-03T00:00:00",
+          "CompanyName": "BlackStone Construction",
+          "CustomerServiceRep": "Nika Lao",
+          "ORDER_TYPE": "Digital Printing",
+          "cur_Subtotal": 652.00,
+          "sts_Invoiced": 0,
+          "sts_Shipped": 0
+        }
+      ]
+    }
+    ```
+-   **Key Features**:
+    -   Pre-calculated metrics for immediate dashboard display
+    -   Sales calculations use `cur_Subtotal` (pre-tax amount)
+    -   60-second server-side cache for performance
+    -   Breakdown by Customer Service Rep and Order Type
+    -   Today's statistics included automatically
+    -   Optional detailed order list (up to 10 most recent)
+
 ---
 
 ## Inventory API

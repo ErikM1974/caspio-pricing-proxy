@@ -2,7 +2,7 @@
 const axios = require('axios');
 
 // Define the base URL
-const BASE_URL = 'http://localhost:3000';
+const BASE_URL = 'http://localhost:3002';
 
 async function testCartItemsEndpoint() {
   try {

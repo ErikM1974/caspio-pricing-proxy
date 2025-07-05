@@ -1,7 +1,7 @@
 // Comprehensive test for ALL endpoints
 
 const axios = require('axios');
-const BASE_URL = 'http://localhost:3000';
+const BASE_URL = 'http://localhost:3002';
 
 // Test results tracking
 let passed = 0;

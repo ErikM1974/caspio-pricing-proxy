@@ -2,7 +2,7 @@
 const axios = require('axios');
 
 // Configuration
-const BASE_URL = 'http://localhost:3000'; // Change to Heroku URL if needed
+const BASE_URL = 'http://localhost:3002'; // Change to Heroku URL if needed
 
 async function testOrderODBC() {
     console.log('Testing Order ODBC API...\n');

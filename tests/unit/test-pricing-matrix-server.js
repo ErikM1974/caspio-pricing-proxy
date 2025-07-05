@@ -3,7 +3,7 @@
 const axios = require('axios');
 
 // Server URL for testing (local or Heroku)
-let serverUrl = 'http://localhost:3000';
+let serverUrl = 'http://localhost:3002';
 
 // Check if local server is available, otherwise use Heroku
 async function determineServerUrl() {
