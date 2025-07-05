@@ -4,11 +4,11 @@ This document provides a comprehensive overview of the Caspio Pricing Proxy API.
 
 ## API Status
 
-Most endpoints (51 out of 59) are fully operational. The following features have limited or no availability:
+Most endpoints are fully operational. The following should be noted:
 
-- Status/Test endpoints (`/status`, `/test`) are not implemented
-- Transfer pricing endpoints (`/transfers/*`) are currently under development
-- Some inventory queries may return 404 if no matching products are found
+- The **Transfers API** (`/transfers/*`) is currently under development.
+- Some inventory-related queries may return a 404 status if no matching products are found for a given style or color.
+- A significant number of endpoints related to carts, orders, and quotes are defined in external route files and are not present in the main `server.js` file.
 
 
 ## Base URL
@@ -320,18 +320,6 @@ The Pricing API provides functionality for retrieving pricing information.
     curl "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/max-prices-by-style?styleNumber=PC61"
     ```
 
-#### GET /pricing-bundle
-
--   **Description**: Retrieves a bundle of pricing information for a given decoration method and style.
--   **Method**: `GET`
--   **URL**: `/pricing-bundle`
--   **Query Parameters**:
-    -   `method` (string, required): The decoration method.
-    -   `styleNumber` (string, optional): The style number of the item.
--   **Example `curl` Request**:
-    ```bash
-    curl "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/pricing-bundle?method=DTG&styleNumber=PC61"
-    ```
 ---
 
 ## Product API
@@ -340,7 +328,7 @@ The Product API provides functionality for searching and retrieving product info
 
 #### GET /stylesearch
 
--   **Description**: Retrieves a list of style suggestions based on a search term.
+-   **Description**: Retrieves a list of style suggestions based on a search term. The search is performed in two stages: first, it looks for styles that **start with** the term, and then for styles that **contain** the term.
 -   **Method**: `GET`
 -   **URL**: `/stylesearch`
 -   **Query Parameters**:
@@ -357,7 +345,7 @@ The Product API provides functionality for searching and retrieving product info
 -   **URL**: `/product-details`
 -   **Query Parameters**:
     -   `styleNumber` (string, required): The style number of the product.
-    -   `color` (string, optional): The color of the product.
+    -   `color` / `COLOR_NAME` / `CATALOG_COLOR` (string, optional): The color of the product. The server accepts any of these parameter names.
 -   **Example `curl` Request**:
     ```bash
     curl "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/product-details?styleNumber=PC61&color=Ash"
@@ -570,7 +558,7 @@ The Order API provides functionality for managing orders and customers.
 
 #### POST /customers
 
--   **Description**: Creates a new customer.
+-   **Description**: Creates a new customer. If the `Name` field is not provided, it will be automatically constructed by combining the `FirstName` and `LastName` fields.
 -   **Method**: `POST`
 -   **URL**: `/customers`
 -   **Request Body**:
@@ -778,6 +766,33 @@ The Pricing Matrix API provides functionality for managing pricing matrices.
 -   **Method**: `GET`
 -   **URL**: `/pricing-matrix`
 -   **Example `curl` Request**:
+#### GET /prices-by-style-color
+
+-   **Description**: Retrieves a list of prices for each size of a given style and color, sorted by size.
+-   **Method**: `GET`
+-   **URL**: `/prices-by-style-color`
+-   **Query Parameters**:
+    -   `styleNumber` (string, required): The style number of the product.
+    -   `color` (string, required): The color of the product.
+-   **Example `curl` Request**:
+    ```bash
+    curl "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/prices-by-style-color?styleNumber=PC61&color=White"
+    ```
+
+#### GET /product-variant-sizes
+
+-   **Description**: Retrieves a list of all available (and sorted) sizes for a specific product variant (style and color combination).
+-   **Method**: `GET`
+-   **URL**: `/product-variant-sizes`
+-   **Query Parameters**:
+    -   `styleNumber` (string, required): The style number of the product.
+    -   `color` / `colorName` / `catalogColor` (string, required): The color of the product. The server accepts any of these parameter names.
+-   **Example `curl` Request**:
+    ```bash
+    curl "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/product-variant-sizes?styleNumber=PC61&color=Aquatic%20Blue"
+    ```
+
+---
     ```bash
     curl "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/pricing-matrix?sessionID=some-session-id"
     ```
@@ -1078,7 +1093,7 @@ The Misc API provides a variety of utility and product-related functionality.
 -   **URL**: `/status`
 -   **Example `curl` Request**:
     ```bash
-    curl "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/status"
+    curl "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/status"
     ```
 
 #### GET /test
@@ -1088,7 +1103,7 @@ The Misc API provides a variety of utility and product-related functionality.
 -   **URL**: `/test`
 -   **Example `curl` Request**:
     ```bash
-    curl "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/test"
+    curl "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/test"
     ```
 
 #### GET /cart-integration.js

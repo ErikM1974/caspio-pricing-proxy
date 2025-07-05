@@ -404,19 +404,62 @@ async function createOrder(sessionId, items, customerId) {
 
 A Postman collection is available in the repository (`caspio-pricing-proxy-postman-collection.json`). Import this collection into Postman to test all the available endpoints.
 
-## Development
+## Local Development
 
 ### Environment Variables
 
-The following environment variables are required:
+The following environment variables are required to run the application:
 
-- `CASPIO_ACCOUNT_DOMAIN`: The domain of your Caspio account
-- `CASPIO_CLIENT_ID`: Your Caspio client ID
-- `CASPIO_CLIENT_SECRET`: Your Caspio client secret
+- `CASPIO_ACCOUNT_DOMAIN`: The domain of your Caspio account.
+- `CASPIO_CLIENT_ID`: Your Caspio client ID.
+- `CASPIO_CLIENT_SECRET`: Your Caspio client secret.
 
-### Running Locally
+Create a `.env` file in the root directory to store these variables.
 
-1. Clone the repository
-2. Install dependencies: `npm install`
-3. Create a `.env` file with the required environment variables
-4. Start the server: `node server.js`
+### Installation
+
+1.  Clone the repository:
+    ```bash
+    git clone <repository-url>
+    ```
+2.  Navigate to the project directory:
+    ```bash
+    cd caspio-pricing-proxy
+    ```
+3.  Install dependencies:
+    ```bash
+    npm install
+    ```
+
+### Starting the Server
+
+To start the local development server, run the following command. This ensures the server starts on the correct port (**3002**), as port 3000 is no longer used.
+
+```bash
+PORT=3002 node server.js
+```
+
+To run the server as a background process, you can append an ampersand (`&`):
+
+```bash
+PORT=3002 node server.js &
+```
+
+### Testing from Windows with WSL
+
+When the server is running inside a WSL environment, it cannot be accessed using `localhost` from Windows applications like a web browser or Postman. You must use the specific IP address assigned to your WSL instance.
+
+1.  **Find your WSL IP Address:**
+    Run the following command in your WSL terminal to get the correct IP:
+    ```bash
+    hostname -I | awk '{print $1}'
+    ```
+
+2.  **Use the IP for Testing:**
+    Use the retrieved IP address for all local testing. For example, if the command returns `172.20.110.45`, you would access the API at `http://172.20.110.45:3002/`.
+
+    **Note:** This IP address may change each time you restart your system. You might need to run the command again to get the new IP.
+
+### Browser-Based Testing
+
+A simple way to test API endpoints is by opening the [`quote-endpoints-test.html`](./quote-endpoints-test.html) file directly in your web browser. This file provides an interface to interact with the various endpoints supported by the server.
