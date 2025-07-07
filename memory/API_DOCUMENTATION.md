@@ -2,13 +2,43 @@
 
 This document provides a comprehensive overview of the Caspio Pricing Proxy API. It includes detailed information about each endpoint, its functionality, and how to interact with it.
 
+## Architecture Overview
+
+**Modular Route Structure** (Updated 2025): The API has been refactored from a monolithic 6,000+ line server.js file into a clean modular architecture for improved maintainability and organization. Each domain area is now organized into separate route modules:
+
+### Route Modules
+- **`/src/routes/cart.js`** - Cart sessions, items, and sizes management
+- **`/src/routes/orders.js`** - Orders, customers, order dashboard, and order ODBC
+- **`/src/routes/products.js`** - Product search, details, colors, brands, and categories  
+- **`/src/routes/inventory.js`** - Inventory lookup and size availability
+- **`/src/routes/pricing.js`** - Pricing tiers, costs, and rules
+- **`/src/routes/pricing-matrix.js`** - Pricing matrix operations and lookups
+- **`/src/routes/quotes.js`** - Quote analytics, items, and sessions
+- **`/src/routes/transfers.js`** - Transfer pricing and availability
+- **`/src/routes/misc.js`** - Utility endpoints and miscellaneous operations
+
+### Benefits of Modular Architecture
+- **Easy Navigation**: Developers can quickly locate endpoint implementations
+- **Domain Separation**: Related functionality grouped logically
+- **Maintainability**: Smaller, focused files instead of one massive file
+- **Backward Compatibility**: All existing endpoints work exactly as before
+
+### Finding Endpoint Implementations
+To locate the code for any specific endpoint, refer to the route module mapping above. For example:
+- Cart endpoints (`/api/cart-sessions`, `/api/cart-items`) → `src/routes/cart.js`
+- Product search (`/api/search`, `/api/stylesearch`) → `src/routes/products.js`  
+- Order dashboard (`/api/order-dashboard`) → `src/routes/orders.js`
+- Inventory lookups (`/api/inventory`) → `src/routes/inventory.js`
+
 ## API Status
 
-Most endpoints are fully operational. The following should be noted:
+All endpoints are fully operational following the recent modular refactoring (2025). Key status notes:
 
-- The **Transfers API** (`/transfers/*`) is currently under development.
-- Some inventory-related queries may return a 404 status if no matching products are found for a given style or color.
-- A significant number of endpoints related to carts, orders, and quotes are defined in external route files and are not present in the main `server.js` file.
+- **✅ Modular Architecture**: All endpoints successfully migrated to organized route modules
+- **✅ Full Compatibility**: No breaking changes - all existing integrations continue to work  
+- **✅ Performance**: Improved maintainability with no performance impact
+- **⚠️ Inventory Queries**: May return 404 if no matching products found for given style/color
+- **🔧 Ongoing**: Transfers API continues active development with new features
 
 
 ## Base URL
@@ -655,6 +685,7 @@ The Order API provides functionality for managing orders and customers.
 -   **Query Parameters**:
     -   `days` (integer, optional): Number of days to look back (default: 7)
     -   `includeDetails` (boolean, optional): Whether to include recent orders array (default: false)
+    -   `compareYoY` (boolean, optional): Include year-over-year comparison data (default: false)
 -   **Example `curl` Requests**:
     ```bash
     # Get 7-day dashboard (default)
@@ -668,6 +699,9 @@ The Order API provides functionality for managing orders and customers.
     
     # Get today's orders only
     curl "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/order-dashboard?days=1"
+    
+    # Get dashboard with year-over-year comparison
+    curl "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/order-dashboard?compareYoY=true"
     ```
 -   **Response Structure**:
     ```json
@@ -711,7 +745,16 @@ The Order API provides functionality for managing orders and customers.
           "sts_Invoiced": 0,
           "sts_Shipped": 0
         }
-      ]
+      ],
+      "yoyComparison": {
+        // Only included when compareYoY=true
+        "currentYearTotal": 125430.50,
+        "lastYearTotal": 108200.25,
+        "currentYearOrders": 245,
+        "lastYearOrders": 198,
+        "salesGrowthPercent": 15.92,
+        "orderGrowthPercent": 23.74
+      }
     }
     ```
 -   **Key Features**:
@@ -721,6 +764,7 @@ The Order API provides functionality for managing orders and customers.
     -   Breakdown by Customer Service Rep and Order Type
     -   Today's statistics included automatically
     -   Optional detailed order list (up to 10 most recent)
+    -   Year-over-year comparison with growth percentages (optional)
 
 ---
 
