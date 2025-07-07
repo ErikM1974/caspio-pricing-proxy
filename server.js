@@ -851,6 +851,8 @@ app.get('/api/stylesearch', async (req, res) => {
 
 
 // --- UPDATED Endpoint: Product Details with Color-Specific Images ---
+// MOVED TO src/routes/products.js
+/*
 // Example: /api/product-details?styleNumber=PC61&color=Red or /api/product-details?styleNumber=PC61&COLOR_NAME=Red
 app.get('/api/product-details', async (req, res) => {
     // Accept both 'color' and 'COLOR_NAME' parameters for flexibility
@@ -946,8 +948,9 @@ app.get('/api/product-details', async (req, res) => {
         res.status(500).json({ error: error.message || 'Failed to fetch product details.' });
     }
 });
+*/
 
-// --- UPDATED Endpoint: Color Swatches (Handles Pagination) ---
+/* --- DUPLICATE ENDPOINT: Color Swatches (Migrated to src/routes/products.js) ---
 // Example: /api/color-swatches?styleNumber=PC61
 app.get('/api/color-swatches', async (req, res) => {
     const { styleNumber } = req.query;
@@ -1053,7 +1056,8 @@ app.get('/api/color-swatches', async (req, res) => {
         });
     }
 });
-// --- UPDATED Endpoint: Get Inventory Data (Handles Pagination) ---
+*/
+/* --- DUPLICATE ENDPOINT: Get Inventory Data (Migrated to src/routes/inventory.js) ---
 // Example: /api/inventory?styleNumber=S100&color=Red
 app.get('/api/inventory', async (req, res) => {
     const { styleNumber, color } = req.query;
@@ -1085,8 +1089,9 @@ app.get('/api/inventory', async (req, res) => {
         res.status(500).json({ error: error.message || 'Failed to fetch inventory data.' });
     }
 });
+*/
 
-// --- UPDATED Endpoint: Product Search by Brand ---
+/* --- DUPLICATE ENDPOINT: Product Search by Brand (Migrated to src/routes/products.js) ---
 // Example: /api/products-by-brand?brand=Bella+%2B+Canvas
 app.get('/api/products-by-brand', async (req, res) => {
     const { brand } = req.query;
@@ -1139,8 +1144,9 @@ app.get('/api/products-by-brand', async (req, res) => {
         res.status(500).json({ error: error.message || 'Failed to fetch products by brand.' });
     }
 });
+*/
 
-// --- NEW Endpoint: Product Search by Category ---
+/* --- DUPLICATE ENDPOINT: Product Search by Category (Migrated to src/routes/misc.js) ---
 // Example: /api/products-by-category?category=T-Shirts
 app.get('/api/products-by-category', async (req, res) => {
     const { category } = req.query;
@@ -1181,8 +1187,9 @@ app.get('/api/products-by-category', async (req, res) => {
         res.status(500).json({ error: error.message || 'Failed to fetch products by category.' });
     }
 });
+*/
 
-// --- NEW Endpoint: Product Search by Subcategory ---
+/* --- DUPLICATE ENDPOINT: Product Search by Subcategory (Migrated to src/routes/products.js) ---
 // Example: /api/products-by-subcategory?subcategory=Youth
 app.get('/api/products-by-subcategory', async (req, res) => {
     const { subcategory } = req.query;
@@ -1223,8 +1230,9 @@ app.get('/api/products-by-subcategory', async (req, res) => {
         res.status(500).json({ error: error.message || 'Failed to fetch products by subcategory.' });
     }
 });
+*/
 
-// --- Endpoint: Get All Brands ---
+/* --- DUPLICATE ENDPOINT: Get All Brands (Migrated to src/routes/products.js) ---
 // Example: /api/all-brands
 app.get('/api/all-brands', async (req, res) => {
     try {
@@ -1262,6 +1270,7 @@ app.get('/api/all-brands', async (req, res) => {
         res.status(500).json({ error: error.message || 'Failed to fetch brands.' });
     }
 });
+*/
 
 // --- NEW Endpoint: Get All Subcategories ---
 // Example: /api/all-subcategories
