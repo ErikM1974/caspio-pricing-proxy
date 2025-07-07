@@ -756,6 +756,8 @@ app.get('/api/size-sort-order', async (req, res) => {
 });
 
 // --- ENHANCED Endpoint: Style Search Autocomplete with Improved Pagination ---
+// MOVED TO src/routes/products.js
+/*
 // Example: /api/stylesearch?term=PC
 app.get('/api/stylesearch', async (req, res) => {
     const { term } = req.query;
@@ -845,6 +847,7 @@ app.get('/api/stylesearch', async (req, res) => {
         res.status(500).json({ error: 'Failed to perform style search.' });
     }
 });
+*/
 
 
 // --- UPDATED Endpoint: Product Details with Color-Specific Images ---
@@ -2177,6 +2180,26 @@ app.use('/api', cartRoutes);
 // --- Orders Routes ---
 const orderRoutes = require('./src/routes/orders');
 app.use('/api', orderRoutes);
+
+// --- Products Routes ---
+const productRoutes = require('./src/routes/products');
+app.use('/api', productRoutes);
+
+// --- Inventory Routes ---
+const inventoryRoutes = require('./src/routes/inventory');
+app.use('/api', inventoryRoutes);
+
+// --- Pricing Matrix Routes ---
+const pricingMatrixRoutes = require('./src/routes/pricing-matrix');
+app.use('/api', pricingMatrixRoutes);
+
+// --- Transfers Routes ---
+const transferRoutes = require('./src/routes/transfers');
+app.use('/api', transferRoutes);
+
+// --- Miscellaneous Routes ---
+const miscRoutes = require('./src/routes/misc');
+app.use('/api', miscRoutes);
 
 // --- Error Handling Middleware (Basic) ---
 // Catches errors from endpoint handlers
