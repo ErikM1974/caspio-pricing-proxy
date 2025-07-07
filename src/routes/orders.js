@@ -466,7 +466,7 @@ router.get('/order-dashboard', async (req, res) => {
             }));
         }
         
-        // Add year-over-year comparison if requested (simplified version)
+        // Add year-over-year comparison if requested (month-by-month chunking)
         if (compareYoY) {
             console.log('Calculating year-over-year comparison...');
             
@@ -480,31 +480,150 @@ router.get('/order-dashboard', async (req, res) => {
             const lastYearEnd = new Date(lastYear.getFullYear(), lastYear.getMonth(), lastYear.getDate());
             
             try {
-                // Fetch current year data
-                const currentYearWhereClause = `date_OrderInvoiced>='${formatDate(currentYearStart)}' AND date_OrderInvoiced<='${formatDate(currentYear)}'`;
-                const currentYearOrders = await fetchAllCaspioPages('/tables/ORDER_ODBC/records', {
-                    'q.where': currentYearWhereClause,
-                    'q.limit': 1000
+                // Helper function to get last day of month
+                const getLastDayOfMonth = (year, month) => {
+                    return new Date(year, month, 0).getDate();
+                };
+                
+                // Helper function for month names
+                function getMonthName(monthNum) {
+                    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                    return months[monthNum - 1];
+                }
+                
+                // Fetch last year's data - chunk by month for reliability
+                console.log('Fetching last year YTD data in chunks by month...');
+                
+                let lastYearOrders = [];
+                let lastYearTotalByMonth = {};
+                
+                // Fetch each month separately (up to same month as current date)
+                const lastYearNum = lastYear.getFullYear();
+                const endMonth = lastYear.getMonth() + 1; // e.g., July = 7
+                
+                for (let month = 1; month <= endMonth; month++) {
+                    const monthStart = `${lastYearNum}-${month.toString().padStart(2, '0')}-01`;
+                    let monthEnd;
+                    
+                    if (month === endMonth) {
+                        // For the final month, only go up to the same day as current year
+                        monthEnd = formatDate(lastYearEnd);
+                    } else {
+                        // For other months, get the full month
+                        const lastDay = getLastDayOfMonth(lastYearNum, month);
+                        monthEnd = `${lastYearNum}-${month.toString().padStart(2, '0')}-${lastDay}`;
+                    }
+                    
+                    console.log(`Fetching ${lastYearNum} ${getMonthName(month)} (${monthStart} to ${monthEnd})...`);
+                    
+                    try {
+                        const monthOrders = await fetchAllCaspioPages('/tables/ORDER_ODBC/records', {
+                            'q.where': `date_OrderInvoiced>='${monthStart}' AND date_OrderInvoiced<='${monthEnd}'`,
+                            'q.limit': 1000,
+                            'q.select': 'ID_Order,cur_Subtotal,date_OrderInvoiced,ORDER_TYPE,CustomerServiceRep,CompanyName',
+                            'q.orderby': 'ID_Order DESC'
+                        }, { maxPages: 3 }); // Allow up to 3000 per month
+                        
+                        console.log(`  Found ${monthOrders.length} orders in ${getMonthName(month)} ${lastYearNum}`);
+                        lastYearTotalByMonth[getMonthName(month)] = monthOrders.length;
+                        lastYearOrders = lastYearOrders.concat(monthOrders);
+                    } catch (error) {
+                        console.error(`  Error fetching ${getMonthName(month)} orders:`, error.message);
+                    }
+                }
+                
+                console.log(`Last year total fetched: ${lastYearOrders.length} records`);
+                
+                // Remove duplicates based on ID_Order
+                const uniqueLastYearOrders = Array.from(
+                    new Map(lastYearOrders.map(order => [order.ID_Order, order])).values()
+                );
+                console.log(`Last year: ${uniqueLastYearOrders.length} unique orders from ${lastYearOrders.length} total records`);
+                
+                // Fetch current year's data - chunk by month for reliability
+                console.log('Fetching current year YTD data in chunks by month...');
+                
+                let currentYearOrders = [];
+                let currentYearTotalByMonth = {};
+                
+                // Fetch each month separately (up to current month)
+                const currentYearNum = currentYear.getFullYear();
+                const currentEndMonth = currentYear.getMonth() + 1; // e.g., July = 7
+                
+                for (let month = 1; month <= currentEndMonth; month++) {
+                    const monthStart = `${currentYearNum}-${month.toString().padStart(2, '0')}-01`;
+                    let monthEnd;
+                    
+                    if (month === currentEndMonth) {
+                        // For the current month, only go up to today
+                        monthEnd = formatDate(currentYear);
+                    } else {
+                        // For previous months, get the full month
+                        const lastDay = getLastDayOfMonth(currentYearNum, month);
+                        monthEnd = `${currentYearNum}-${month.toString().padStart(2, '0')}-${lastDay}`;
+                    }
+                    
+                    console.log(`Fetching ${currentYearNum} ${getMonthName(month)} (${monthStart} to ${monthEnd})...`);
+                    
+                    try {
+                        const monthOrders = await fetchAllCaspioPages('/tables/ORDER_ODBC/records', {
+                            'q.where': `date_OrderInvoiced>='${monthStart}' AND date_OrderInvoiced<='${monthEnd}'`,
+                            'q.limit': 1000,
+                            'q.select': 'ID_Order,cur_Subtotal,date_OrderInvoiced,ORDER_TYPE,CustomerServiceRep,CompanyName',
+                            'q.orderby': 'ID_Order DESC'
+                        }, { maxPages: 3 }); // Allow up to 3000 per month
+                        
+                        console.log(`  Found ${monthOrders.length} orders in ${getMonthName(month)} ${currentYearNum}`);
+                        currentYearTotalByMonth[getMonthName(month)] = monthOrders.length;
+                        currentYearOrders = currentYearOrders.concat(monthOrders);
+                    } catch (error) {
+                        console.error(`  Error fetching ${getMonthName(month)} orders:`, error.message);
+                    }
+                }
+                
+                console.log(`Current year total fetched: ${currentYearOrders.length} records`);
+                
+                // Remove duplicates based on ID_Order
+                const uniqueCurrentYearOrders = Array.from(
+                    new Map(currentYearOrders.map(order => [order.ID_Order, order])).values()
+                );
+                console.log(`Current year: ${uniqueCurrentYearOrders.length} unique orders from ${currentYearOrders.length} total records`);
+                
+                // Log summary
+                console.log(`\nYTD Summary:`);
+                console.log(`  Last year: ${uniqueLastYearOrders.length} unique orders`);
+                console.log(`  Current year: ${uniqueCurrentYearOrders.length} unique orders`);
+                
+                // Show breakdown by month
+                console.log(`\nCurrent Year Breakdown by Month:`);
+                Object.entries(currentYearTotalByMonth).forEach(([month, count]) => {
+                    console.log(`  ${month}: ${count} orders`);
                 });
                 
-                // Fetch last year data
-                const lastYearWhereClause = `date_OrderInvoiced>='${formatDate(lastYearStart)}' AND date_OrderInvoiced<='${formatDate(lastYearEnd)}'`;
-                const lastYearOrders = await fetchAllCaspioPages('/tables/ORDER_ODBC/records', {
-                    'q.where': lastYearWhereClause,
-                    'q.limit': 1000
+                console.log(`\nLast Year Breakdown by Month:`);
+                Object.entries(lastYearTotalByMonth).forEach(([month, count]) => {
+                    console.log(`  ${month}: ${count} orders`);
                 });
                 
-                const currentYearTotal = currentYearOrders.reduce((sum, order) => sum + (parseFloat(order.cur_Subtotal) || 0), 0);
-                const lastYearTotal = lastYearOrders.reduce((sum, order) => sum + (parseFloat(order.cur_Subtotal) || 0), 0);
+                // Calculate YoY metrics using unique orders
+                const currentYearTotal = uniqueCurrentYearOrders.reduce((sum, order) => sum + (parseFloat(order.cur_Subtotal) || 0), 0);
+                const lastYearTotal = uniqueLastYearOrders.reduce((sum, order) => sum + (parseFloat(order.cur_Subtotal) || 0), 0);
                 
                 response.yoyComparison = {
                     currentYearTotal: parseFloat(currentYearTotal.toFixed(2)),
                     lastYearTotal: parseFloat(lastYearTotal.toFixed(2)),
-                    currentYearOrders: currentYearOrders.length,
-                    lastYearOrders: lastYearOrders.length,
+                    currentYearOrders: uniqueCurrentYearOrders.length,
+                    lastYearOrders: uniqueLastYearOrders.length,
                     salesGrowthPercent: lastYearTotal > 0 ? parseFloat(((currentYearTotal - lastYearTotal) / lastYearTotal * 100).toFixed(2)) : 0,
-                    orderGrowthPercent: lastYearOrders.length > 0 ? parseFloat(((currentYearOrders.length - lastYearOrders.length) / lastYearOrders.length * 100).toFixed(2)) : 0
+                    orderGrowthPercent: uniqueLastYearOrders.length > 0 ? parseFloat(((uniqueCurrentYearOrders.length - uniqueLastYearOrders.length) / uniqueLastYearOrders.length * 100).toFixed(2)) : 0,
+                    dateRanges: {
+                        currentYear: `${formatDate(currentYearStart)} to ${formatDate(currentYear)}`,
+                        lastYear: `${formatDate(lastYearStart)} to ${formatDate(lastYearEnd)}`
+                    }
                 };
+                
+                console.log(`Sales: $${currentYearTotal.toFixed(2)} vs $${lastYearTotal.toFixed(2)} (${response.yoyComparison.salesGrowthPercent}% growth)`);
+                
             } catch (yoyError) {
                 console.error('Error calculating YoY comparison:', yoyError.message);
                 response.yoyComparison = { error: 'Failed to calculate year-over-year comparison' };
