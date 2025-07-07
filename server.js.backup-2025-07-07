@@ -2170,14 +2170,6 @@ app.use('/api', quotesRoutes);
 const pricingRoutes = require('./src/routes/pricing');
 app.use('/api', pricingRoutes);
 
-// --- Cart Routes ---
-const cartRoutes = require('./src/routes/cart');
-app.use('/api', cartRoutes);
-
-// --- Orders Routes ---
-const orderRoutes = require('./src/routes/orders');
-app.use('/api', orderRoutes);
-
 // --- Error Handling Middleware (Basic) ---
 // Catches errors from endpoint handlers
 app.use((err, req, res, next) => {
@@ -2380,8 +2372,6 @@ app.get('/api/size-pricing', async (req, res) => {
 });
 
 // --- NEW Endpoint: Customer Information CRUD Operations ---
-// MOVED TO src/routes/orders.js
-/*
 // GET: /api/customers - Get all customers or filter by query parameters
 // POST: /api/customers - Create a new customer
 // PUT: /api/customers/:id - Update a customer by ID
@@ -2562,7 +2552,6 @@ app.delete('/api/customers/:id', async (req, res) => {
         res.status(500).json({ error: 'Failed to delete customer.' });
     }
 });
-*/
 
 // --- NEW Endpoint: Art Requests ---
 // GET: /api/artrequests - Get all art requests or filter by query parameters
@@ -3037,8 +3026,6 @@ app.delete('/api/art-invoices/:id', async (req, res) => {
 });
 
 // --- NEW Endpoint: Cart Items CRUD Operations ---
-// MOVED TO src/routes/cart.js
-/*
 // GET: /api/cart-items - Get all cart items or filter by query parameters
 // POST: /api/cart-items - Create a new cart item
 // PUT: /api/cart-items/:id - Update a cart item by ID
@@ -3382,11 +3369,8 @@ app.delete('/api/cart-items/:id', async (req, res) => {
         res.status(500).json({ error: 'Failed to delete cart item.' });
     }
 });
-*/
 
 // --- NEW Endpoint: Cart Item Sizes CRUD Operations ---
-// MOVED TO src/routes/cart.js
-/*
 // GET: /api/cart-item-sizes - Get all cart item sizes or filter by query parameters
 // POST: /api/cart-item-sizes - Create a new cart item size
 // PUT: /api/cart-item-sizes/:id - Update a cart item size
@@ -3706,11 +3690,8 @@ app.delete('/api/cart-item-sizes/:id', async (req, res) => {
         res.status(500).json({ error: 'Failed to delete cart item size.' });
     }
 });
-*/
 
 // --- NEW Endpoint: Cart Sessions CRUD Operations ---
-// MOVED TO src/routes/cart.js
-/*
 // GET: /api/cart-sessions - Get all cart sessions or filter by query parameters
 // POST: /api/cart-sessions - Create a new cart session
 // PUT: /api/cart-sessions/:id - Update a cart session by ID
@@ -3910,11 +3891,8 @@ app.delete('/api/cart-sessions/:id', async (req, res) => {
         res.status(500).json({ error: 'Failed to delete cart session.' });
     }
 });
-*/
 
 // --- NEW Endpoint: Orders CRUD Operations ---
-// MOVED TO src/routes/orders.js
-/*
 // GET: /api/orders - Get all orders or filter by query parameters
 // POST: /api/orders - Create a new order
 // PUT: /api/orders/:id - Update an order by ID
@@ -4190,11 +4168,8 @@ app.delete('/api/orders/:id', async (req, res) => {
         res.status(500).json({ error: 'Failed to delete order.' });
     }
 });
-*/
 
 // --- ENHANCED Endpoint: Cart Integration JavaScript ---
-// MOVED TO src/routes/cart.js
-/*
 // Example: /api/cart-integration.js
 app.get('/api/cart-integration.js', (req, res) => {
     console.log("Serving cart integration JavaScript");
@@ -4262,9 +4237,7 @@ app.get('/api/cart-integration.js', (req, res) => {
     }
 });
 
-*/
-
-// Redirect cart integration script from root path to API path
+// Also serve the cart integration script at the root path for easier access
 app.get('/cart-integration.js', (req, res) => {
     console.log("Redirecting to /api/cart-integration.js");
     res.redirect('/api/cart-integration.js');
@@ -5626,8 +5599,6 @@ app.get('/api/production-schedules', async (req, res) => {
 // Example: /api/order-odbc?q.where=id_Customer=11824
 // Example: /api/order-odbc?q.where=date_OrderInvoiced>'2021-03-01'&q.orderBy=date_OrderInvoiced DESC
 // Example: /api/order-odbc?q.where=sts_Shipped=0&q.limit=50
-// MOVED TO src/routes/orders.js
-/*
 app.get('/api/order-odbc', async (req, res) => {
     console.log(`GET /api/order-odbc requested with params:`, req.query);
     
@@ -5669,11 +5640,8 @@ app.get('/api/order-odbc', async (req, res) => {
         res.status(500).json({ error: 'Failed to fetch order records.' });
     }
 });
-*/
 
 // --- Order Dashboard Endpoint ---
-// MOVED TO src/routes/orders.js
-/*
 // Parameter-aware in-memory cache for dashboard data
 const dashboardCache = new Map();
 
@@ -6059,7 +6027,6 @@ app.get('/api/order-dashboard', async (req, res) => {
         res.status(500).json({ error: 'Failed to fetch dashboard data.' });
     }
 });
-*/
 
 // --- Error Handling Middleware (Basic) ---
 // Catches errors from endpoint handlers

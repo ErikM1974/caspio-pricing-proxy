@@ -612,4 +612,43 @@ router.delete('/cart-item-sizes/:id', async (req, res) => {
     }
 });
 
+// GET /api/cart-integration.js - Serve cart integration JavaScript
+router.get('/cart-integration.js', (req, res) => {
+    console.log("Serving cart integration JavaScript");
+    
+    // Set the content type to JavaScript
+    res.setHeader('Content-Type', 'application/javascript');
+    // Add cache control headers to prevent caching issues
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    
+    // Read the cart-integration.js file
+    const fs = require('fs');
+    const path = require('path');
+    const filePath = path.join(__dirname, '../../cart-integration.js');
+    
+    fs.readFile(filePath, 'utf8', (err, data) => {
+        if (err) {
+            console.error(`Error reading cart-integration.js: ${err.message}`);
+            res.status(500).send('// Error loading cart integration script');
+            return;
+        }
+        
+        console.log(`Successfully read ${data.length} characters from cart-integration.js`);
+        
+        // Get API URL from environment or use default
+        const apiUrl = process.env.API_URL || 'https://caspio-pricing-proxy-c19ca1e4bfce.herokuapp.com';
+        
+        // Replace API_URL placeholder in the script
+        const updatedScript = data.replace(/\{\{API_URL\}\}/g, apiUrl);
+        
+        // Send the JavaScript content
+        res.send(updatedScript);
+    });
+});
+
+// Note: The redirect from root path /cart-integration.js to /api/cart-integration.js
+// needs to be handled in server.js since this router is mounted at /api
+
 module.exports = router;
