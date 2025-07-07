@@ -2,43 +2,42 @@
 
 This document provides a comprehensive overview of the Caspio Pricing Proxy API. It includes detailed information about each endpoint, its functionality, and how to interact with it.
 
-## Architecture Overview
+## Architecture Overview (Refactored 2025)
 
-**Modular Route Structure** (Updated 2025): The API has been refactored from a monolithic 6,000+ line server.js file into a clean modular architecture for improved maintainability and organization. Each domain area is now organized into separate route modules:
+**Current Architecture**: The API uses a monolithic architecture with all endpoints defined in the main `server.js` file. This approach was chosen after experiencing conflicts with the previous modular system.
 
-### Route Modules
-- **`/src/routes/cart.js`** - Cart sessions, items, and sizes management
-- **`/src/routes/orders.js`** - Orders, customers, order dashboard, and order ODBC
-- **`/src/routes/products.js`** - Product search, details, colors, brands, and categories  
-- **`/src/routes/inventory.js`** - Inventory lookup and size availability
-- **`/src/routes/pricing.js`** - Pricing tiers, costs, and rules
-- **`/src/routes/pricing-matrix.js`** - Pricing matrix operations and lookups
-- **`/src/routes/quotes.js`** - Quote analytics, items, and sessions
-- **`/src/routes/transfers.js`** - Transfer pricing and availability
-- **`/src/routes/misc.js`** - Utility endpoints and miscellaneous operations
+### Server Configuration
+- **Express Version**: 4.21.2 (stable, downgraded from beta v5)
+- **Caspio API**: Standardized on v2 for all endpoints
+- **Port**: 3002 (consistent across all environments)
+- **Configuration**: Unified `config.js` file with validation
 
-### Benefits of Modular Architecture
-- **Easy Navigation**: Developers can quickly locate endpoint implementations
-- **Domain Separation**: Related functionality grouped logically
-- **Maintainability**: Smaller, focused files instead of one massive file
-- **Backward Compatibility**: All existing endpoints work exactly as before
+### Key Improvements
+- **Stability**: Removed conflicting modular routes that caused startup issues
+- **Consistency**: All endpoints use the same Caspio API version
+- **Reliability**: Server starts consistently every time
+- **Error Handling**: Enhanced error middleware with error IDs and logging
+- **Startup Validation**: Verifies Caspio credentials before accepting requests
 
-### Finding Endpoint Implementations
-To locate the code for any specific endpoint, refer to the route module mapping above. For example:
-- Cart endpoints (`/api/cart-sessions`, `/api/cart-items`) → `src/routes/cart.js`
-- Product search (`/api/search`, `/api/stylesearch`) → `src/routes/products.js`  
-- Order dashboard (`/api/order-dashboard`) → `src/routes/orders.js`
-- Inventory lookups (`/api/inventory`) → `src/routes/inventory.js`
+### Available Endpoints
+The server currently has 22 active endpoints in the main server.js file, including:
+- Health check and status endpoints
+- Pricing endpoints (tiers, costs, rules, bundles)
+- Product endpoints (search, details, categories, brands)
+- Inventory and size pricing endpoints
+- Additional utility endpoints
+
+**Note**: Some endpoints from the previous modular system (like `/api/order-dashboard`, `/api/cart-*`, `/api/quotes/*`) are currently not active in the main server. These can be re-enabled by copying the specific endpoint code from the `src/routes/` files if needed.
 
 ## API Status
 
-All endpoints are fully operational following the recent modular refactoring (2025). Key status notes:
+Following the 2025 refactoring for stability:
 
-- **✅ Modular Architecture**: All endpoints successfully migrated to organized route modules
-- **✅ Full Compatibility**: No breaking changes - all existing integrations continue to work  
-- **✅ Performance**: Improved maintainability with no performance impact
-- **⚠️ Inventory Queries**: May return 404 if no matching products found for given style/color
-- **🔧 Ongoing**: Transfers API continues active development with new features
+- **✅ Server Stability**: Starts reliably every time with no conflicts
+- **✅ Consistent API**: All endpoints use Caspio v2 API
+- **✅ Enhanced Reliability**: Improved error handling and startup validation
+- **⚠️ Limited Endpoints**: Some modular endpoints not currently active (can be added as needed)
+- **🔧 Future**: Endpoints can be selectively added from modular files when required
 
 
 ## Base URL

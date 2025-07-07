@@ -4,74 +4,65 @@
 
 ## Local Development Setup
 
-### Server Configuration
-- **Local Port**: 3002 (dedicated port for caspio-pricing-proxy)
+### Server Configuration (Refactored 2025)
+- **Local Port**: 3002 (consistent across all configurations)
 - **Production**: Uses Heroku's assigned port via `process.env.PORT`
+- **Express Version**: 4.21.2 (stable version)
+- **API Version**: Caspio v2 API (standardized)
+- **Architecture**: Monolithic server.js (modular routes disabled to prevent conflicts)
 
-### Testing Locally with WSL
-When running the server in WSL (Windows Subsystem for Linux), you cannot use `localhost` in Postman or browsers on Windows. Instead:
+### Starting the Server
 
-1. **Get your WSL IP address:**
-   ```bash
-   hostname -I | awk '{print $1}'
-   ```
-
-2. **Use the WSL IP for all local testing:**
-   ```
-   http://[YOUR-WSL-IP]:3002/api/order-dashboard
-   http://[YOUR-WSL-IP]:3002/api/order-odbc
-   http://[YOUR-WSL-IP]:3002/api/products/search
-   ```
-   Example: `http://172.20.132.206:3002/api/order-dashboard`
-
-3. **Note**: The WSL IP address changes when Windows restarts, so check it each time.
-
-### Quick Start Testing
-
-#### 1. Start the Server (Recommended Method)
+#### Recommended Method - Enhanced Start Script
 ```bash
 cd /mnt/c/Users/erik/OneDrive\ -\ Northwest\ Custom\ Apparel/2025/caspio-pricing-proxy
-node start-test-server.js
+node start-server.js
 ```
 
-This helper script will:
-- ✅ Force the server to use port 3002 (avoiding port confusion)
-- ✅ Display your current WSL IP address
-- ✅ Show ready-to-copy Postman URLs
-- ✅ Monitor server health
-- ✅ Handle graceful shutdown with Ctrl+C
+Features:
+- ✅ Port availability checking
+- ✅ Automatic WSL IP detection
+- ✅ Startup diagnostics
+- ✅ Caspio credential validation
+- ✅ Graceful shutdown handling
+- ✅ Color-coded output
 
-#### 2. Test the Endpoints
+#### Quick Restart
 ```bash
-node test-endpoints.js
+./restart-server.sh
+```
+Or use the alias: `kill $(lsof -t -i:3002) 2>/dev/null && node start-server.js`
+
+#### Manual Method
+```bash
+node server.js
 ```
 
-This will:
-- 🔍 Auto-detect which port the server is actually using
-- 🧪 Run health checks on key endpoints
-- 📋 Display Postman-ready URLs with your current WSL IP
-- ✅ Verify server is working correctly
+### Testing with WSL
+When running the server in WSL, you cannot use `localhost` from Windows. The enhanced start script automatically displays your WSL IP and ready-to-use URLs.
 
-#### 3. Quick Health Check
+### Configuration
+The server uses a unified configuration file (`config.js`) that:
+- Validates all required environment variables on startup
+- Uses consistent timeouts and pagination settings
+- Standardizes on Caspio API v2
+- Provides clear error messages for misconfiguration
+
+### Server Features
+- **Robust Error Handling**: Enhanced error middleware with error IDs and detailed logging
+- **Startup Validation**: Checks Caspio credentials before accepting requests
+- **Health Check Endpoint**: `/api/health` provides comprehensive diagnostics
+- **Graceful Shutdown**: Handles SIGTERM and SIGINT properly
+- **No More Conflicts**: Removed duplicate modular routes and function definitions
+
+### Quick Test
 ```bash
+# Test server health
 curl http://localhost:3002/api/health
+
+# Run comprehensive tests
+node test-refactored-server.js
 ```
-
-### Running the Server (Manual Method)
-```bash
-cd /mnt/c/Users/erik/OneDrive\ -\ Northwest\ Custom\ Apparel/2025/caspio-pricing-proxy
-PORT=3002 node server.js
-```
-
-### Common Issues & Solutions
-
-| Issue | Solution |
-|-------|----------|
-| Server starts on port 3000 instead of 3002 | Use `node start-test-server.js` or set `PORT=3002` explicitly |
-| Can't connect from Postman | Check WSL IP with `hostname -I` - it changes on reboot |
-| Server won't start | Check if port is in use: `lsof -i :3002` or `netstat -tlnp | grep 3002` |
-| Connection refused errors | Ensure you're using WSL IP, not localhost, from Windows |
-| Endpoints return errors | Run `node test-endpoints.js` to diagnose which endpoints are failing |
 
 ## Project Documentation
 

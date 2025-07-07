@@ -4,7 +4,7 @@ require('dotenv').config();
 
 const config = {
   // Server configuration
-  port: process.env.PORT || 3000,
+  port: process.env.PORT || 3002,
   
   // Caspio configuration
   caspio: {

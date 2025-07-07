@@ -1,18 +1,25 @@
 // server.js - Caspio API Proxy Server
 
+require('dotenv').config(); // Load .env file for local dev
+
 const express = require('express');
 const axios = require('axios');
-const config = require('./config'); // Use unified configuration
 
 const app = express();
+const PORT = process.env.PORT || 3002; // Use Heroku's port or 3002 locally (dedicated port for caspio-pricing-proxy)
 
-// Extract configuration values
-const PORT = config.server.port;
-const caspioDomain = config.caspio.domain;
-const clientId = config.caspio.clientId;
-const clientSecret = config.caspio.clientSecret;
-const caspioTokenUrl = config.caspio.tokenUrl;
-const caspioApiBaseUrl = config.caspio.apiBaseUrl; // Using v2 API from config
+// --- Caspio Configuration ---
+const caspioDomain = process.env.CASPIO_ACCOUNT_DOMAIN;
+const clientId = process.env.CASPIO_CLIENT_ID;
+const clientSecret = process.env.CASPIO_CLIENT_SECRET;
+
+if (!caspioDomain || !clientId || !clientSecret) {
+    console.error("FATAL ERROR: Caspio environment variables (DOMAIN, CLIENT_ID, CLIENT_SECRET) not set.");
+    process.exit(1);
+}
+
+const caspioTokenUrl = `https://${caspioDomain}/oauth/token`;
+const caspioApiBaseUrl = `https://${caspioDomain}/rest/v2`; // Using v2 API
 
 // --- Simple In-Memory Token Cache ---
 let caspioAccessToken = null;
@@ -22,11 +29,14 @@ let tokenExpiryTime = 0;
 app.use(express.json()); // Parse JSON bodies (for potential future POST requests)
 app.use(express.static('.')); // Serve static files from the current directory
 
-// CORS Middleware - Using config settings
+// CORS Middleware - Allow requests from all origins for testing
 app.use((req, res, next) => {
-    res.setHeader('Access-Control-Allow-Origin', config.cors.origin);
-    res.setHeader('Access-Control-Allow-Methods', config.cors.methods.join(', '));
-    res.setHeader('Access-Control-Allow-Headers', config.cors.allowedHeaders.join(', '));
+    // Allow requests from any origin for testing purposes
+    // In production, this should be restricted to specific domains
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
     
     if (req.method === 'OPTIONS') {
         return res.sendStatus(200);
@@ -43,7 +53,7 @@ app.use((req, res, next) => {
  */
 async function getCaspioAccessToken() {
     const now = Math.floor(Date.now() / 1000); // Time in seconds
-    const bufferSeconds = config.timeouts.tokenBuffer;
+    const bufferSeconds = 60; // Refresh token if it expires within 60 seconds
 
     if (caspioAccessToken && now < (tokenExpiryTime - bufferSeconds)) {
         // console.log("Using cached Caspio token."); // Uncomment for debugging
@@ -58,7 +68,7 @@ async function getCaspioAccessToken() {
             'client_secret': clientSecret
         }), {
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            timeout: config.timeouts.perRequest
+            timeout: 10000 // Add timeout (10 seconds)
         });
 
         if (response.data && response.data.access_token) {
@@ -95,7 +105,7 @@ async function makeCaspioRequest(method, resourcePath, params = {}, data = null)
         const url = `${caspioApiBaseUrl}${resourcePath}`;
         console.log(`Making Caspio Request: ${method.toUpperCase()} ${url} PARAMS: ${JSON.stringify(params)}`);
 
-        const axiosConfig = {
+        const config = {
             method: method,
             url: url,
             headers: {
@@ -104,13 +114,13 @@ async function makeCaspioRequest(method, resourcePath, params = {}, data = null)
             },
             params: params, // Axios handles query string building
             data: data,     // Axios handles request body
-            timeout: config.timeouts.perRequest
+            timeout: 15000 // Add timeout (15 seconds)
         };
 
-        console.log(`Request config: ${JSON.stringify(axiosConfig, (key, value) =>
+        console.log(`Request config: ${JSON.stringify(config, (key, value) =>
             key === 'Authorization' ? '***REDACTED***' : value)}`);
 
-        const response = await axios(axiosConfig);
+        const response = await axios(config);
         console.log(`Response status: ${response.status}`);
 
         if (response.data && response.data.Result) {
@@ -137,14 +147,14 @@ async function makeCaspioRequest(method, resourcePath, params = {}, data = null)
 async function fetchAllCaspioPages(resourcePath, initialParams = {}, options = {}) {
     let allResults = [];
     let params = { ...initialParams };
-    params['q.limit'] = params['q.limit'] || config.pagination.defaultLimit;
+    params['q.limit'] = params['q.limit'] || 1000;
     let nextPageUrl = `${caspioApiBaseUrl}${resourcePath}`;
 
     const defaultOptions = {
-        maxPages: config.pagination.maxPages,
+        maxPages: 10, // Default max pages, can be overridden by options
         earlyExitCondition: null,
         pageCallback: null,
-        totalTimeout: config.timeouts.totalPagination
+        totalTimeout: 25000 // Total timeout for all pages combined (25 seconds)
     };
     const mergedOptions = { ...defaultOptions, ...options };
     
@@ -180,15 +190,15 @@ async function fetchAllCaspioPages(resourcePath, initialParams = {}, options = {
             }
             
             // console.log(`Fetching page ${pageCount} from: ${currentUrl.replace(caspioApiBaseUrl, '')} with params: ${JSON.stringify(currentRequestParams)}`); // Verbose
-            const requestConfig = {
+            const config = {
                 method: 'get', url: currentUrl,
                 headers: { 'Authorization': `Bearer ${token}` },
                 params: currentRequestParams,
-                timeout: config.timeouts.perRequest
+                timeout: 10000 // Further reduced timeout to 10 seconds per request
             };
 
             try {
-                const response = await axios(requestConfig);
+                const response = await axios(config);
 
             if (response.data && response.data.Result) {
                 const pageResults = response.data.Result;
@@ -2164,9 +2174,41 @@ app.get('/api/max-prices-by-style', async (req, res) => {
     }
 });
 
-// --- Modular Routes Disabled ---
-// Removed duplicate modular routes to prevent conflicts
-// All routes are now handled inline in this file
+// --- Quote Routes ---
+const quotesRoutes = require('./src/routes/quotes');
+app.use('/api', quotesRoutes);
+
+// --- Pricing Routes ---
+const pricingRoutes = require('./src/routes/pricing');
+app.use('/api', pricingRoutes);
+
+// --- Cart Routes ---
+const cartRoutes = require('./src/routes/cart');
+app.use('/api', cartRoutes);
+
+// --- Orders Routes ---
+const orderRoutes = require('./src/routes/orders');
+app.use('/api', orderRoutes);
+
+// --- Products Routes ---
+const productRoutes = require('./src/routes/products');
+app.use('/api', productRoutes);
+
+// --- Inventory Routes ---
+const inventoryRoutes = require('./src/routes/inventory');
+app.use('/api', inventoryRoutes);
+
+// --- Pricing Matrix Routes ---
+const pricingMatrixRoutes = require('./src/routes/pricing-matrix');
+app.use('/api', pricingMatrixRoutes);
+
+// --- Transfers Routes ---
+const transferRoutes = require('./src/routes/transfers');
+app.use('/api', transferRoutes);
+
+// --- Miscellaneous Routes ---
+const miscRoutes = require('./src/routes/misc');
+app.use('/api', miscRoutes);
 
 // --- Error Handling Middleware (Basic) ---
 // Catches errors from endpoint handlers
@@ -2451,7 +2493,7 @@ app.post('/api/customers', express.json(), async (req, res) => {
         const url = `${caspioApiBaseUrl}${resource}`;
         
         // Prepare the request
-        const requestConfig = {
+        const config = {
             method: 'post',
             url: url,
             headers: {
@@ -2463,7 +2505,7 @@ app.post('/api/customers', express.json(), async (req, res) => {
         };
         
         // Make the request directly using axios
-        const response = await axios(requestConfig);
+        const response = await axios(config);
         
         console.log(`Customer created successfully: ${response.status}`);
         res.status(201).json({
@@ -2492,7 +2534,7 @@ app.put('/api/customers/:id', express.json(), async (req, res) => {
         const url = `${caspioApiBaseUrl}${resource}`;
         
         // Prepare the request
-        const requestConfig = {
+        const config = {
             method: 'put',
             url: url,
             headers: {
@@ -2504,7 +2546,7 @@ app.put('/api/customers/:id', express.json(), async (req, res) => {
         };
         
         // Make the request directly using axios
-        const response = await axios(requestConfig);
+        const response = await axios(config);
         
         console.log(`Customer updated successfully: ${response.status}`);
         res.json({
@@ -2533,7 +2575,7 @@ app.delete('/api/customers/:id', async (req, res) => {
         const url = `${caspioApiBaseUrl}${resource}`;
         
         // Prepare the request
-        const requestConfig = {
+        const config = {
             method: 'delete',
             url: url,
             headers: {
@@ -2543,7 +2585,7 @@ app.delete('/api/customers/:id', async (req, res) => {
         };
         
         // Make the request directly using axios
-        const response = await axios(requestConfig);
+        const response = await axios(config);
         
         console.log(`Customer deleted successfully: ${response.status}`);
         res.json({ message: 'Customer deleted successfully' });
@@ -2705,7 +2747,7 @@ app.post('/api/artrequests', express.json(), async (req, res) => {
         const url = `${caspioApiBaseUrl}${resource}`;
         
         // Prepare the request
-        const requestConfig = {
+        const config = {
             method: 'post',
             url: url,
             headers: {
@@ -2717,7 +2759,7 @@ app.post('/api/artrequests', express.json(), async (req, res) => {
         };
         
         // Make the request directly using axios
-        const response = await axios(requestConfig);
+        const response = await axios(config);
         
         console.log(`Art request created successfully: ${response.status}`);
         res.status(201).json({
@@ -2746,7 +2788,7 @@ app.put('/api/artrequests/:id', express.json(), async (req, res) => {
         const url = `${caspioApiBaseUrl}${resource}`;
         
         // Prepare the request
-        const requestConfig = {
+        const config = {
             method: 'put',
             url: url,
             headers: {
@@ -2758,7 +2800,7 @@ app.put('/api/artrequests/:id', express.json(), async (req, res) => {
         };
         
         // Make the request directly using axios
-        const response = await axios(requestConfig);
+        const response = await axios(config);
         
         console.log(`Art request updated successfully: ${response.status}`);
         res.json({
@@ -2787,7 +2829,7 @@ app.delete('/api/artrequests/:id', async (req, res) => {
         const url = `${caspioApiBaseUrl}${resource}`;
         
         // Prepare the request
-        const requestConfig = {
+        const config = {
             method: 'delete',
             url: url,
             headers: {
@@ -2797,7 +2839,7 @@ app.delete('/api/artrequests/:id', async (req, res) => {
         };
         
         // Make the request directly using axios
-        const response = await axios(requestConfig);
+        const response = await axios(config);
         
         console.log(`Art request deleted successfully: ${response.status}`);
         res.json({
@@ -2922,7 +2964,7 @@ app.post('/api/art-invoices', express.json(), async (req, res) => {
         const url = `${caspioApiBaseUrl}${resource}`;
         
         // Prepare the request
-        const requestConfig = {
+        const config = {
             method: 'post',
             url: url,
             headers: {
@@ -2934,7 +2976,7 @@ app.post('/api/art-invoices', express.json(), async (req, res) => {
         };
         
         // Make the request directly using axios
-        const response = await axios(requestConfig);
+        const response = await axios(config);
         
         console.log(`Art invoice created successfully: ${response.status}`);
         res.status(201).json({
@@ -2963,7 +3005,7 @@ app.put('/api/art-invoices/:id', express.json(), async (req, res) => {
         const url = `${caspioApiBaseUrl}${resource}`;
         
         // Prepare the request
-        const requestConfig = {
+        const config = {
             method: 'put',
             url: url,
             headers: {
@@ -2975,7 +3017,7 @@ app.put('/api/art-invoices/:id', express.json(), async (req, res) => {
         };
         
         // Make the request directly using axios
-        const response = await axios(requestConfig);
+        const response = await axios(config);
         
         console.log(`Art invoice updated successfully: ${response.status}`);
         res.json({
@@ -3004,7 +3046,7 @@ app.delete('/api/art-invoices/:id', async (req, res) => {
         const url = `${caspioApiBaseUrl}${resource}`;
         
         // Prepare the request
-        const requestConfig = {
+        const config = {
             method: 'delete',
             url: url,
             headers: {
@@ -3014,7 +3056,7 @@ app.delete('/api/art-invoices/:id', async (req, res) => {
         };
         
         // Make the request directly using axios
-        const response = await axios(requestConfig);
+        const response = await axios(config);
         
         console.log(`Art invoice deleted successfully: ${response.status}`);
         res.json({
@@ -3124,7 +3166,7 @@ app.post('/api/cart-items', express.json(), async (req, res) => {
         const url = `${caspioApiBaseUrl}${resource}`;
         
         // Prepare the request
-        const requestConfig = {
+        const config = {
             method: 'post',
             url: url,
             headers: {
@@ -3136,7 +3178,7 @@ app.post('/api/cart-items', express.json(), async (req, res) => {
         };
         
         // Make the request directly using axios
-        const response = await axios(requestConfig);
+        const response = await axios(config);
         
         console.log(`Cart item created successfully: ${response.status}`);
         console.log(`Response data: ${JSON.stringify(response.data)}`);
@@ -3309,7 +3351,7 @@ app.put('/api/cart-items/:id', express.json(), async (req, res) => {
         const url = `${caspioApiBaseUrl}${resource}`;
         
         // Prepare the request
-        const requestConfig = {
+        const config = {
             method: 'put',
             url: url,
             headers: {
@@ -3321,7 +3363,7 @@ app.put('/api/cart-items/:id', express.json(), async (req, res) => {
         };
         
         // Make the request directly using axios
-        const response = await axios(requestConfig);
+        const response = await axios(config);
         
         console.log(`Cart item updated successfully: ${response.status}`);
         res.json({
@@ -3350,7 +3392,7 @@ app.delete('/api/cart-items/:id', async (req, res) => {
         const url = `${caspioApiBaseUrl}${resource}`;
         
         // Prepare the request
-        const requestConfig = {
+        const config = {
             method: 'delete',
             url: url,
             headers: {
@@ -3360,7 +3402,7 @@ app.delete('/api/cart-items/:id', async (req, res) => {
         };
         
         // Make the request directly using axios
-        const response = await axios(requestConfig);
+        const response = await axios(config);
         
         console.log(`Cart item deleted successfully: ${response.status}`);
         res.json({
@@ -3486,7 +3528,7 @@ app.post('/api/cart-item-sizes', express.json(), async (req, res) => {
         const url = `${caspioApiBaseUrl}${resource}`;
         
         // Prepare the request
-        const requestConfig = {
+        const config = {
             method: 'post',
             url: url,
             headers: {
@@ -3498,7 +3540,7 @@ app.post('/api/cart-item-sizes', express.json(), async (req, res) => {
         };
         
         // Make the request directly using axios
-        const response = await axios(requestConfig);
+        const response = await axios(config);
         
         console.log(`Cart item size created successfully: ${response.status}`);
         
@@ -3633,7 +3675,7 @@ app.put('/api/cart-item-sizes/:id', express.json(), async (req, res) => {
         const url = `${caspioApiBaseUrl}${resource}`;
         
         // Prepare the request
-        const requestConfig = {
+        const config = {
             method: 'put',
             url: url,
             headers: {
@@ -3645,7 +3687,7 @@ app.put('/api/cart-item-sizes/:id', express.json(), async (req, res) => {
         };
         
         // Make the request directly using axios
-        const response = await axios(requestConfig);
+        const response = await axios(config);
         
         console.log(`Cart item size updated successfully: ${response.status}`);
         res.json({
@@ -3674,7 +3716,7 @@ app.delete('/api/cart-item-sizes/:id', async (req, res) => {
         const url = `${caspioApiBaseUrl}${resource}`;
         
         // Prepare the request
-        const requestConfig = {
+        const config = {
             method: 'delete',
             url: url,
             headers: {
@@ -3684,7 +3726,7 @@ app.delete('/api/cart-item-sizes/:id', async (req, res) => {
         };
         
         // Make the request directly using axios
-        const response = await axios(requestConfig);
+        const response = await axios(config);
         
         console.log(`Cart item size deleted successfully: ${response.status}`);
         res.json({
@@ -3783,7 +3825,7 @@ app.post('/api/cart-sessions', express.json(), async (req, res) => {
         const url = `${caspioApiBaseUrl}${resource}`;
         
         // Prepare the request
-        const requestConfig = {
+        const config = {
             method: 'post',
             url: url,
             headers: {
@@ -3795,7 +3837,7 @@ app.post('/api/cart-sessions', express.json(), async (req, res) => {
         };
         
         // Make the request directly using axios
-        const response = await axios(requestConfig);
+        const response = await axios(config);
         
         console.log(`Cart session created successfully: ${response.status}`);
         res.status(201).json({
@@ -3837,7 +3879,7 @@ app.put('/api/cart-sessions/:id', express.json(), async (req, res) => {
         const url = `${caspioApiBaseUrl}${resource}`;
         
         // Prepare the request
-        const requestConfig = {
+        const config = {
             method: 'put',
             url: url,
             headers: {
@@ -3849,7 +3891,7 @@ app.put('/api/cart-sessions/:id', express.json(), async (req, res) => {
         };
         
         // Make the request directly using axios
-        const response = await axios(requestConfig);
+        const response = await axios(config);
         
         console.log(`Cart session updated successfully: ${response.status}`);
         res.json({
@@ -3878,7 +3920,7 @@ app.delete('/api/cart-sessions/:id', async (req, res) => {
         const url = `${caspioApiBaseUrl}${resource}`;
         
         // Prepare the request
-        const requestConfig = {
+        const config = {
             method: 'delete',
             url: url,
             headers: {
@@ -3888,7 +3930,7 @@ app.delete('/api/cart-sessions/:id', async (req, res) => {
         };
         
         // Make the request directly using axios
-        const response = await axios(requestConfig);
+        const response = await axios(config);
         
         console.log(`Cart session deleted successfully: ${response.status}`);
         res.json({
@@ -4055,7 +4097,7 @@ app.post('/api/orders', express.json(), async (req, res) => {
         const url = `${caspioApiBaseUrl}${resource}`;
         
         // Prepare the request
-        const requestConfig = {
+        const config = {
             method: 'post',
             url: url,
             headers: {
@@ -4067,7 +4109,7 @@ app.post('/api/orders', express.json(), async (req, res) => {
         };
         
         // Make the request directly using axios
-        const response = await axios(requestConfig);
+        const response = await axios(config);
         
         console.log(`Order created successfully: ${response.status}`);
         res.status(201).json({
@@ -4117,7 +4159,7 @@ app.put('/api/orders/:id', express.json(), async (req, res) => {
         const url = `${caspioApiBaseUrl}${resource}`;
         
         // Prepare the request
-        const requestConfig = {
+        const config = {
             method: 'put',
             url: url,
             headers: {
@@ -4129,7 +4171,7 @@ app.put('/api/orders/:id', express.json(), async (req, res) => {
         };
         
         // Make the request directly using axios
-        const response = await axios(requestConfig);
+        const response = await axios(config);
         
         console.log(`Order updated successfully: ${response.status}`);
         res.json({
@@ -4158,7 +4200,7 @@ app.delete('/api/orders/:id', async (req, res) => {
         const url = `${caspioApiBaseUrl}${resource}`;
         
         // Prepare the request
-        const requestConfig = {
+        const config = {
             method: 'delete',
             url: url,
             headers: {
@@ -4168,7 +4210,7 @@ app.delete('/api/orders/:id', async (req, res) => {
         };
         
         // Make the request directly using axios
-        const response = await axios(requestConfig);
+        const response = await axios(config);
         
         console.log(`Order deleted successfully: ${response.status}`);
         res.json({
@@ -4319,7 +4361,7 @@ app.post('/api/process-checkout', express.json(), async (req, res) => {
             const url = `${caspioApiBaseUrl}${orderResource}`;
             
             // Prepare the request
-            const requestConfig = {
+            const config = {
                 method: 'post',
                 url: url,
                 headers: {
@@ -4331,7 +4373,7 @@ app.post('/api/process-checkout', express.json(), async (req, res) => {
             };
             
             // Make the request directly using axios
-            const response = await axios(requestConfig);
+            const response = await axios(config);
             
             console.log(`Order created successfully: ${response.status}`);
             
@@ -4533,7 +4575,7 @@ app.post('/api/pricing-matrix', express.json(), async (req, res) => {
         const url = `${caspioApiBaseUrl}${resource}`;
         
         // Prepare the request
-        const requestConfig = {
+        const config = {
             method: 'post',
             url: url,
             headers: {
@@ -4545,7 +4587,7 @@ app.post('/api/pricing-matrix', express.json(), async (req, res) => {
         };
         
         // Make the request directly using axios
-        const response = await axios(requestConfig);
+        const response = await axios(config);
         
         console.log(`Pricing matrix created successfully: ${response.status}`);
         res.status(201).json({
@@ -4588,7 +4630,7 @@ app.put('/api/pricing-matrix/:id', express.json(), async (req, res) => {
         const url = `${caspioApiBaseUrl}${resource}`;
         
         // Prepare the request
-        const requestConfig = {
+        const config = {
             method: 'put',
             url: url,
             headers: {
@@ -4600,7 +4642,7 @@ app.put('/api/pricing-matrix/:id', express.json(), async (req, res) => {
         };
         
         // Make the request directly using axios
-        const response = await axios(requestConfig);
+        const response = await axios(config);
         
         console.log(`Pricing matrix updated successfully: ${response.status}`);
         res.json({
@@ -4629,7 +4671,7 @@ app.delete('/api/pricing-matrix/:id', async (req, res) => {
         const url = `${caspioApiBaseUrl}${resource}`;
         
         // Prepare the request
-        const requestConfig = {
+        const config = {
             method: 'delete',
             url: url,
             headers: {
@@ -4639,7 +4681,7 @@ app.delete('/api/pricing-matrix/:id', async (req, res) => {
         };
         
         // Make the request directly using axios
-        const response = await axios(requestConfig);
+        const response = await axios(config);
         
         console.log(`Pricing matrix deleted successfully: ${response.status}`);
         res.json({
@@ -4775,7 +4817,7 @@ app.post('/api/quote_analytics', express.json(), async (req, res) => {
         const token = await getCaspioAccessToken();
         const url = `${caspioApiBaseUrl}${resource}`;
         
-        const requestConfig = {
+        const config = {
             method: 'post',
             url: url,
             headers: {
@@ -4786,7 +4828,7 @@ app.post('/api/quote_analytics', express.json(), async (req, res) => {
             timeout: 15000
         };
         
-        const response = await axios(requestConfig);
+        const response = await axios(config);
         
         console.log(`Quote_Analytics record created successfully: ${response.status}`);
         // Caspio POST response usually includes the created record with its auto-generated IDs
@@ -4820,7 +4862,7 @@ app.put('/api/quote_analytics/:id', express.json(), async (req, res) => {
         const token = await getCaspioAccessToken();
         const url = `${caspioApiBaseUrl}${resource}`;
         
-        const requestConfig = {
+        const config = {
             method: 'put',
             url: url,
             headers: {
@@ -4831,7 +4873,7 @@ app.put('/api/quote_analytics/:id', express.json(), async (req, res) => {
             timeout: 15000
         };
         
-        const response = await axios(requestConfig);
+        const response = await axios(config);
         
         console.log(`Quote_Analytics record updated successfully: ${response.status}`);
         // Caspio PUT response for a single record update (by where clause) usually returns the number of records affected.
@@ -4872,7 +4914,7 @@ app.delete('/api/quote_analytics/:id', async (req, res) => {
         const token = await getCaspioAccessToken();
         const url = `${caspioApiBaseUrl}${resource}`;
         
-        const requestConfig = {
+        const config = {
             method: 'delete',
             url: url,
             headers: {
@@ -4881,7 +4923,7 @@ app.delete('/api/quote_analytics/:id', async (req, res) => {
             timeout: 15000
         };
         
-        const response = await axios(requestConfig);
+        const response = await axios(config);
         
         console.log(`Quote_Analytics record deleted successfully: ${response.status}`);
         if (response.data && response.data.RecordsAffected > 0) {
@@ -5006,7 +5048,7 @@ app.post('/api/quote_items', express.json(), async (req, res) => {
         const token = await getCaspioAccessToken();
         const url = `${caspioApiBaseUrl}${resource}`;
         
-        const requestConfig = {
+        const config = {
             method: 'post',
             url: url,
             headers: {
@@ -5017,7 +5059,7 @@ app.post('/api/quote_items', express.json(), async (req, res) => {
             timeout: 15000
         };
         
-        const response = await axios(requestConfig);
+        const response = await axios(config);
         
         console.log(`Quote_Items record created successfully: ${response.status}`);
         // Caspio POST response usually includes the created record with its auto-generated IDs
@@ -5052,7 +5094,7 @@ app.put('/api/quote_items/:id', express.json(), async (req, res) => {
         const token = await getCaspioAccessToken();
         const url = `${caspioApiBaseUrl}${resource}`;
         
-        const requestConfig = {
+        const config = {
             method: 'put',
             url: url,
             headers: {
@@ -5063,7 +5105,7 @@ app.put('/api/quote_items/:id', express.json(), async (req, res) => {
             timeout: 15000
         };
         
-        const response = await axios(requestConfig);
+        const response = await axios(config);
         
         console.log(`Quote_Items record updated successfully: ${response.status}`);
         
@@ -5104,7 +5146,7 @@ app.delete('/api/quote_items/:id', async (req, res) => {
         const token = await getCaspioAccessToken();
         const url = `${caspioApiBaseUrl}${resource}`;
         
-        const requestConfig = {
+        const config = {
             method: 'delete',
             url: url,
             headers: {
@@ -5113,7 +5155,7 @@ app.delete('/api/quote_items/:id', async (req, res) => {
             timeout: 15000
         };
         
-        const response = await axios(requestConfig);
+        const response = await axios(config);
         
         console.log(`Quote_Items record deleted successfully: ${response.status}`);
         if (response.data && response.data.RecordsAffected > 0) {
@@ -5238,7 +5280,7 @@ app.post('/api/quote_sessions', express.json(), async (req, res) => {
         const token = await getCaspioAccessToken();
         const url = `${caspioApiBaseUrl}${resource}`;
         
-        const requestConfig = {
+        const config = {
             method: 'post',
             url: url,
             headers: {
@@ -5249,7 +5291,7 @@ app.post('/api/quote_sessions', express.json(), async (req, res) => {
             timeout: 15000
         };
         
-        const response = await axios(requestConfig);
+        const response = await axios(config);
         
         console.log(`Quote_Sessions record created successfully: ${response.status}`);
         // Caspio POST response usually includes the created record with its auto-generated PK_ID
@@ -5287,7 +5329,7 @@ app.put('/api/quote_sessions/:id', express.json(), async (req, res) => {
         const token = await getCaspioAccessToken();
         const url = `${caspioApiBaseUrl}${resource}`;
         
-        const requestConfig = {
+        const config = {
             method: 'put',
             url: url,
             headers: {
@@ -5298,7 +5340,7 @@ app.put('/api/quote_sessions/:id', express.json(), async (req, res) => {
             timeout: 15000
         };
         
-        const response = await axios(requestConfig);
+        const response = await axios(config);
         
         console.log(`Quote_Sessions record updated successfully: ${response.status}`);
         
@@ -5337,7 +5379,7 @@ app.delete('/api/quote_sessions/:id', async (req, res) => {
         const token = await getCaspioAccessToken();
         const url = `${caspioApiBaseUrl}${resource}`;
         
-        const requestConfig = {
+        const config = {
             method: 'delete',
             url: url,
             headers: {
@@ -5346,7 +5388,7 @@ app.delete('/api/quote_sessions/:id', async (req, res) => {
             timeout: 15000
         };
         
-        const response = await axios(requestConfig);
+        const response = await axios(config);
         
         console.log(`Quote_Sessions record deleted successfully: ${response.status}`);
         if (response.data && response.data.RecordsAffected > 0) {
@@ -6051,81 +6093,16 @@ app.get('/api/order-dashboard', async (req, res) => {
 });
 */
 
-// --- Enhanced Error Handling Middleware ---
+// --- Error Handling Middleware (Basic) ---
+// Catches errors from endpoint handlers
 app.use((err, req, res, next) => {
-    const timestamp = new Date().toISOString();
-    const errorId = Math.random().toString(36).substring(7);
-    
-    // Log detailed error information
-    console.error(`[${timestamp}] Error ID: ${errorId}`);
-    console.error(`Path: ${req.method} ${req.path}`);
-    console.error(`Error:`, err.stack || err);
-    
-    // Determine error type and status code
-    let statusCode = 500;
-    let errorMessage = 'An unexpected error occurred';
-    
-    if (err.response?.status === 401) {
-        statusCode = 401;
-        errorMessage = 'Caspio authentication failed';
-    } else if (err.response?.status === 404) {
-        statusCode = 404;
-        errorMessage = 'Caspio resource not found';
-    } else if (err.message?.includes('timeout')) {
-        statusCode = 504;
-        errorMessage = 'Request timeout';
-    }
-    
-    res.status(statusCode).json({
-        error: errorMessage,
-        errorId: errorId,
-        timestamp: timestamp,
-        path: req.path,
-        details: config.server.env === 'development' ? err.message : undefined
-    });
+    console.error("Unhandled Error:", err.stack || err);
+    res.status(500).json({ error: 'An unexpected internal server error occurred.' });
 });
-
-// --- Graceful Shutdown Handler ---
-process.on('SIGTERM', () => {
-    console.log('SIGTERM received: closing HTTP server');
-    server.close(() => {
-        console.log('HTTP server closed');
-        process.exit(0);
-    });
-});
-
-process.on('SIGINT', () => {
-    console.log('\nSIGINT received: closing HTTP server');
-    server.close(() => {
-        console.log('HTTP server closed');
-        process.exit(0);
-    });
-});
-
-// --- Start the Server with Enhanced Logging ---
-const server = app.listen(PORT, async () => {
-    console.log('\n' + '='.repeat(60));
-    console.log('🚀 CASPIO PROXY SERVER STARTED');
-    console.log('='.repeat(60));
-    console.log(`📍 Port: ${PORT}`);
-    console.log(`🌐 Caspio Domain: ${caspioDomain}`);
-    console.log(`🔧 Environment: ${config.server.env}`);
-    console.log(`📚 API Version: ${config.caspio.apiVersion}`);
-    console.log('='.repeat(60));
-    
-    // Try to get a token on startup to verify credentials
-    try {
-        console.log('🔐 Verifying Caspio credentials...');
-        await getCaspioAccessToken();
-        console.log('✅ Caspio authentication successful!');
-    } catch (err) {
-        console.error('❌ Caspio authentication failed:', err.message);
-        console.error('   Please check your .env file credentials');
-    }
-    
-    console.log('\n📋 Available endpoints:');
-    console.log('   Health Check: http://localhost:' + PORT + '/api/health');
-    console.log('   Status: http://localhost:' + PORT + '/status');
-    console.log('\n✨ Server is ready to handle requests!');
-    console.log('='.repeat(60) + '\n');
+// --- Start the Server ---
+app.listen(PORT, () => {
+    console.log(`Caspio Proxy Server listening on port ${PORT}`);
+    console.log(`Using Caspio Domain: ${caspioDomain}`);
+    // Optional: Try to get a token on startup to verify credentials early
+    // getCaspioAccessToken().catch(err => console.error("Initial token fetch failed. Check credentials."));
 });
