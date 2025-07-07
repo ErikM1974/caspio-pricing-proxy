@@ -1260,6 +1260,50 @@ The Misc API provides a variety of utility and product-related functionality.
     curl "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/test-sanmar-bulk"
     ```
 
+#### GET /staff-announcements
+
+-   **Description**: Retrieves active staff announcements for the dashboard. Returns only announcements where IsActive=true, sorted by Priority in ascending order (1 = highest priority).
+-   **Method**: `GET`
+-   **URL**: `/staff-announcements`
+-   **Response**: Returns an array of announcement objects with the following fields:
+    -   `PK_ID` (integer): Primary key ID
+    -   `Title` (string): Announcement title
+    -   `Type` (string): Type of announcement (e.g., "birthday", "success", "info", "warning")
+    -   `Icon` (string): Display icon/emoji
+    -   `DateLabel` (string): Label for the date (e.g., "This Month", "Achievement", "Now Live")
+    -   `Content` (string): HTML-formatted content of the announcement
+    -   `Priority` (integer): Display priority (1 = highest)
+    -   `IsActive` (boolean): Whether the announcement is active
+    -   `ExpiryDate` (string/null): When the announcement expires
+    -   `CreatedDate` (string): Creation timestamp
+    -   `CreatedBy` (string): Creator username
+    -   `ModifiedDate` (string): Last modification timestamp
+    -   `ModifiedBy` (string): Last modifier username
+-   **Example `curl` Request**:
+    ```bash
+    curl "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/staff-announcements"
+    ```
+-   **Example Response**:
+    ```json
+    [
+      {
+        "PK_ID": 1,
+        "Title": "June Birthdays",
+        "Type": "birthday",
+        "Icon": "🎂",
+        "DateLabel": "This Month",
+        "Content": "<p>Join us in celebrating our June birthdays!</p>...",
+        "Priority": 1,
+        "IsActive": true,
+        "ExpiryDate": "2025-06-30T23:59:59",
+        "CreatedDate": "2025-01-06T10:00:00",
+        "CreatedBy": "Admin",
+        "ModifiedDate": "2025-01-06T10:00:00",
+        "ModifiedBy": "Admin"
+      }
+    ]
+    ```
+
 ---
 
 ## Art Requests API

@@ -414,4 +414,24 @@ router.get('/test-sanmar-bulk', async (req, res) => {
   }
 });
 
+// GET /api/staff-announcements
+router.get('/staff-announcements', async (req, res) => {
+  console.log('GET /api/staff-announcements requested');
+  
+  try {
+    // Fetch active announcements from Caspio
+    const announcements = await fetchAllCaspioPages('/tables/staff_announcements/records', {
+      'q.where': 'IsActive=1',  // Only get active announcements (1 = true in Caspio)
+      'q.orderBy': 'Priority ASC',  // Show highest priority first (1 is highest)
+      'q.limit': 100
+    });
+    
+    console.log(`Staff announcements: ${announcements.length} active announcement(s) found`);
+    res.json(announcements);
+  } catch (error) {
+    console.error('Error fetching staff announcements:', error.message);
+    res.status(500).json({ error: 'Failed to fetch staff announcements', details: error.message });
+  }
+});
+
 module.exports = router;
