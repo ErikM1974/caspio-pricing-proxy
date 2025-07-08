@@ -6307,6 +6307,26 @@ const productRoutes = require('./src/routes/products');
 app.use('/api', productRoutes);
 console.log('✓ Product routes loaded');
 
+// Cart Routes
+const cartRoutes = require('./src/routes/cart');
+app.use('/api', cartRoutes);
+console.log('✓ Cart routes loaded');
+
+// Quotes Routes
+const quotesRoutes = require('./src/routes/quotes');
+app.use('/api', quotesRoutes);
+console.log('✓ Quotes routes loaded');
+
+// Pricing Matrix Routes
+const pricingMatrixRoutes = require('./src/routes/pricing-matrix');
+app.use('/api', pricingMatrixRoutes);
+console.log('✓ Pricing Matrix routes loaded');
+
+// Transfers Routes
+const transferRoutes = require('./src/routes/transfers');
+app.use('/api', transferRoutes);
+console.log('✓ Transfer routes loaded');
+
 // --- Enhanced Error Handling Middleware ---
 app.use((err, req, res, next) => {
     const timestamp = new Date().toISOString();
