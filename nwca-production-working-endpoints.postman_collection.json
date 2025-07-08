@@ -1,0 +1,582 @@
+{
+  "info": {
+    "name": "NWCA Production API - Working Endpoints Only",
+    "description": "Production-ready API endpoints for TEAMNWCA website. Only includes tested and working endpoints deployed on Heroku.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_postman_id": "production-api-2025",
+    "version": "1.0.0"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com",
+      "type": "string"
+    },
+    {
+      "key": "localUrl",
+      "value": "http://localhost:3002",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "✅ Health & System",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "health"]
+            },
+            "description": "System health check - verify API is running"
+          }
+        },
+        {
+          "name": "Locations List",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/locations",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "locations"]
+            }
+          }
+        },
+        {
+          "name": "Test Sanmar Bulk",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/test-sanmar-bulk",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "test-sanmar-bulk"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "✅ Product Search",
+      "item": [
+        {
+          "name": "Style Search (Autocomplete)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/stylesearch?term=PC54",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "stylesearch"],
+              "query": [
+                {
+                  "key": "term",
+                  "value": "PC54"
+                }
+              ]
+            },
+            "description": "Search for styles - returns array of matching style numbers"
+          }
+        },
+        {
+          "name": "Product Colors",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/product-colors?styleNumber=PC54",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "product-colors"],
+              "query": [
+                {
+                  "key": "styleNumber",
+                  "value": "PC54"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Sizes by Style & Color",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/sizes-by-style-color?styleNumber=PC54&color=Red",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "sizes-by-style-color"],
+              "query": [
+                {
+                  "key": "styleNumber",
+                  "value": "PC54"
+                },
+                {
+                  "key": "color",
+                  "value": "Red"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Check Inventory",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/inventory?styleNumber=PC54",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "inventory"],
+              "query": [
+                {
+                  "key": "styleNumber",
+                  "value": "PC54"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "✅ Pricing & Costs",
+      "item": [
+        {
+          "name": "Pricing Tiers",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/pricing-tiers?method=DTG",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "pricing-tiers"],
+              "query": [
+                {
+                  "key": "method",
+                  "value": "DTG",
+                  "description": "DTG, Embroidery, ScreenPrint, etc."
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Base Item Costs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/base-item-costs?styleNumber=PC54",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "base-item-costs"],
+              "query": [
+                {
+                  "key": "styleNumber",
+                  "value": "PC54"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Size Pricing",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/size-pricing?styleNumber=PC54",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "size-pricing"],
+              "query": [
+                {
+                  "key": "styleNumber",
+                  "value": "PC54"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Max Prices by Style",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/max-prices-by-style?styleNumber=PC54",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "max-prices-by-style"],
+              "query": [
+                {
+                  "key": "styleNumber",
+                  "value": "PC54"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Pricing Bundle",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/pricing-bundle?method=DTG",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "pricing-bundle"],
+              "query": [
+                {
+                  "key": "method",
+                  "value": "DTG"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Embroidery Costs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/embroidery-costs?itemType=Cap&stitchCount=8000",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "embroidery-costs"],
+              "query": [
+                {
+                  "key": "itemType",
+                  "value": "Cap"
+                },
+                {
+                  "key": "stitchCount",
+                  "value": "8000"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "DTG Costs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/dtg-costs",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "dtg-costs"]
+            }
+          }
+        },
+        {
+          "name": "Screen Print Costs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/screenprint-costs?costType=PrimaryLocation",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "screenprint-costs"],
+              "query": [
+                {
+                  "key": "costType",
+                  "value": "PrimaryLocation"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Size Upcharges",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/size-upcharges",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "size-upcharges"]
+            }
+          }
+        },
+        {
+          "name": "Size Sort Order",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/size-sort-order",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "size-sort-order"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "✅ Pricing Matrix",
+      "item": [
+        {
+          "name": "Get All Pricing Matrices",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/pricing-matrix",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "pricing-matrix"]
+            }
+          }
+        },
+        {
+          "name": "Create Pricing Matrix",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"SessionID\": \"test-session\",\n  \"StyleNumber\": \"PC54\",\n  \"Color\": \"Red\",\n  \"EmbellishmentType\": \"DTG\",\n  \"TierStructure\": {\n    \"tiers\": [\n      {\"min\": 24, \"max\": 47, \"label\": \"24-47\"},\n      {\"min\": 48, \"max\": 71, \"label\": \"48-71\"},\n      {\"min\": 72, \"max\": 999, \"label\": \"72+\"}\n    ]\n  },\n  \"PriceMatrix\": {\n    \"24-47\": {\n      \"S\": 15.99,\n      \"M\": 15.99,\n      \"L\": 15.99,\n      \"XL\": 15.99,\n      \"2XL\": 17.99\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/pricing-matrix",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "pricing-matrix"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "✅ Cart Management",
+      "item": [
+        {
+          "name": "Get Cart Sessions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/cart-sessions",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "cart-sessions"]
+            }
+          }
+        },
+        {
+          "name": "Create Cart Session",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"SessionID\": \"test-cart-001\",\n  \"CustomerEmail\": \"customer@example.com\",\n  \"Status\": \"Active\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/cart-sessions",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "cart-sessions"]
+            }
+          }
+        },
+        {
+          "name": "Get Cart Items",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/cart-items",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "cart-items"]
+            }
+          }
+        },
+        {
+          "name": "Get Cart Item Sizes",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/cart-item-sizes",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "cart-item-sizes"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "✅ Quote Management",
+      "item": [
+        {
+          "name": "Get Quote Sessions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/quote_sessions",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "quote_sessions"]
+            }
+          }
+        },
+        {
+          "name": "Get Quote Items",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/quote_items",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "quote_items"]
+            }
+          }
+        },
+        {
+          "name": "Get Quote Analytics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/quote_analytics",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "quote_analytics"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "✅ Art Invoices",
+      "item": [
+        {
+          "name": "Get Art Requests",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/artrequests?limit=10",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "artrequests"],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "10"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Art Invoices",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/art-invoices?limit=10",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "art-invoices"],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "10"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "✅ Order Management",
+      "item": [
+        {
+          "name": "Get Orders",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/orders",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "orders"]
+            }
+          }
+        },
+        {
+          "name": "Get Customers",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/customers",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "customers"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "✅ Dashboard",
+      "item": [
+        {
+          "name": "Staff Announcements",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/staff-announcements",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "staff-announcements"]
+            }
+          }
+        },
+        {
+          "name": "Order Dashboard",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/order-dashboard",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "order-dashboard"]
+            },
+            "description": "Main dashboard with order statistics"
+          }
+        },
+        {
+          "name": "Order Dashboard (30 days)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/order-dashboard?days=30&includeDetails=true",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "order-dashboard"],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "30"
+                },
+                {
+                  "key": "includeDetails",
+                  "value": "true"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

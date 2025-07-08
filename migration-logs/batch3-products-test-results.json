@@ -1,0 +1,308 @@
+{
+  "timestamp": "2025-07-08T21:01:29.685Z",
+  "summary": {
+    "total": 23,
+    "passed": 23,
+    "failed": 0,
+    "successRate": "100.0%"
+  },
+  "results": [
+    {
+      "endpoint": "/stylesearch",
+      "method": "GET",
+      "params": {
+        "term": "PC"
+      },
+      "status": 200,
+      "success": true,
+      "duration": 963,
+      "dataReceived": true,
+      "recordCount": 20,
+      "error": null
+    },
+    {
+      "endpoint": "/product-details",
+      "method": "GET",
+      "params": {
+        "styleNumber": "PC61"
+      },
+      "status": 200,
+      "success": true,
+      "duration": 900,
+      "dataReceived": true,
+      "recordCount": 558,
+      "error": null
+    },
+    {
+      "endpoint": "/color-swatches",
+      "method": "GET",
+      "params": {
+        "styleNumber": "PC61"
+      },
+      "status": 200,
+      "success": true,
+      "duration": 601,
+      "dataReceived": true,
+      "recordCount": 62,
+      "error": null
+    },
+    {
+      "endpoint": "/inventory",
+      "method": "GET",
+      "params": {
+        "styleNumber": "PC61",
+        "color": "Red"
+      },
+      "status": 200,
+      "success": true,
+      "duration": 442,
+      "dataReceived": true,
+      "recordCount": 9,
+      "error": null
+    },
+    {
+      "endpoint": "/products-by-brand",
+      "method": "GET",
+      "params": {
+        "brand": "Port Authority"
+      },
+      "status": 200,
+      "success": true,
+      "duration": 1178,
+      "dataReceived": true,
+      "recordCount": 1000,
+      "error": null
+    },
+    {
+      "endpoint": "/products-by-category",
+      "method": "GET",
+      "params": {
+        "category": "T-Shirts"
+      },
+      "status": 200,
+      "success": true,
+      "duration": 2080,
+      "dataReceived": true,
+      "recordCount": 1000,
+      "error": null
+    },
+    {
+      "endpoint": "/products-by-subcategory",
+      "method": "GET",
+      "params": {
+        "subcategory": "Short Sleeve"
+      },
+      "status": 200,
+      "success": true,
+      "duration": 418,
+      "dataReceived": true,
+      "recordCount": 0,
+      "error": null
+    },
+    {
+      "endpoint": "/all-brands",
+      "method": "GET",
+      "params": {},
+      "status": 200,
+      "success": true,
+      "duration": 507,
+      "dataReceived": true,
+      "recordCount": 28,
+      "error": null
+    },
+    {
+      "endpoint": "/all-subcategories",
+      "method": "GET",
+      "params": {},
+      "status": 200,
+      "success": true,
+      "duration": 434,
+      "dataReceived": true,
+      "recordCount": 0,
+      "error": null
+    },
+    {
+      "endpoint": "/all-categories",
+      "method": "GET",
+      "params": {},
+      "status": 200,
+      "success": true,
+      "duration": 465,
+      "dataReceived": true,
+      "recordCount": 0,
+      "error": null
+    },
+    {
+      "endpoint": "/subcategories-by-category",
+      "method": "GET",
+      "params": {
+        "category": "T-Shirts"
+      },
+      "status": 200,
+      "success": true,
+      "duration": 545,
+      "dataReceived": true,
+      "recordCount": 1,
+      "error": null
+    },
+    {
+      "endpoint": "/products-by-category-subcategory",
+      "method": "GET",
+      "params": {
+        "category": "T-Shirts",
+        "subcategory": "Short Sleeve"
+      },
+      "status": 200,
+      "success": true,
+      "duration": 1700,
+      "dataReceived": true,
+      "recordCount": 5,
+      "error": null
+    },
+    {
+      "endpoint": "/search",
+      "method": "GET",
+      "params": {
+        "q": "hoodie"
+      },
+      "status": 200,
+      "success": true,
+      "duration": 1413,
+      "dataReceived": true,
+      "recordCount": 18,
+      "error": null
+    },
+    {
+      "endpoint": "/featured-products",
+      "method": "GET",
+      "params": {},
+      "status": 200,
+      "success": true,
+      "duration": 4648,
+      "dataReceived": true,
+      "recordCount": 2,
+      "error": null
+    },
+    {
+      "endpoint": "/related-products",
+      "method": "GET",
+      "params": {
+        "styleNumber": "PC61"
+      },
+      "status": 200,
+      "success": true,
+      "duration": 10473,
+      "dataReceived": true,
+      "recordCount": 1,
+      "error": null
+    },
+    {
+      "endpoint": "/filter-products",
+      "method": "GET",
+      "params": {
+        "category": "T-Shirts",
+        "color": "Red"
+      },
+      "status": 200,
+      "success": true,
+      "duration": 886,
+      "dataReceived": true,
+      "recordCount": 123,
+      "error": null
+    },
+    {
+      "endpoint": "/quick-view",
+      "method": "GET",
+      "params": {
+        "styleNumber": "PC61"
+      },
+      "status": 200,
+      "success": true,
+      "duration": 6203,
+      "dataReceived": true,
+      "recordCount": 1,
+      "error": null
+    },
+    {
+      "endpoint": "/compare-products",
+      "method": "GET",
+      "params": {
+        "styles": "PC61,3001C"
+      },
+      "status": 200,
+      "success": true,
+      "duration": 773,
+      "dataReceived": true,
+      "recordCount": 1,
+      "error": null
+    },
+    {
+      "endpoint": "/recommendations",
+      "method": "GET",
+      "params": {
+        "styleNumber": "PC61"
+      },
+      "status": 200,
+      "success": true,
+      "duration": 7915,
+      "dataReceived": true,
+      "recordCount": 1,
+      "error": null
+    },
+    {
+      "endpoint": "/sizes-by-style-color",
+      "method": "GET",
+      "params": {
+        "styleNumber": "PC61",
+        "color": "Red"
+      },
+      "status": 200,
+      "success": true,
+      "duration": 360,
+      "dataReceived": true,
+      "recordCount": 1,
+      "error": null
+    },
+    {
+      "endpoint": "/prices-by-style-color",
+      "method": "GET",
+      "params": {
+        "styleNumber": "PC61",
+        "color": "Red"
+      },
+      "status": 200,
+      "success": true,
+      "duration": 359,
+      "dataReceived": true,
+      "recordCount": 1,
+      "error": null
+    },
+    {
+      "endpoint": "/product-variant-sizes",
+      "method": "GET",
+      "params": {
+        "styleNumber": "PC61",
+        "color": "Red"
+      },
+      "status": 200,
+      "success": true,
+      "duration": 4323,
+      "dataReceived": true,
+      "recordCount": 1,
+      "error": null
+    },
+    {
+      "endpoint": "/product-colors",
+      "method": "GET",
+      "params": {
+        "styleNumber": "PC61"
+      },
+      "status": 200,
+      "success": true,
+      "duration": 880,
+      "dataReceived": true,
+      "recordCount": 62,
+      "error": null
+    }
+  ]
+}

@@ -9,7 +9,42 @@
 - **Production**: Uses Heroku's assigned port via `process.env.PORT`
 - **Express Version**: 4.21.2 (stable version)
 - **API Version**: Caspio v2 API (standardized)
-- **Architecture**: Monolithic server.js (modular routes disabled to prevent conflicts)
+- **Architecture**: Transitioning to modular routes (Phase 3 in progress - July 2025)
+
+## IMPORTANT: Endpoint Migration Status (July 2025)
+
+### Current Architecture
+- **Migration Status**: Transitioning from monolithic server.js to modular routes
+- **New Development**: ALL new endpoints MUST be added to modular route files in `src/routes/`
+- **Old Code**: 6,000+ lines of commented endpoints in server.js are kept for reference/rollback
+
+### Development Rules Going Forward
+1. **✅ DO**: Add all new endpoints to the appropriate module in `src/routes/`:
+   - Pricing endpoints → `src/routes/pricing.js`
+   - Product endpoints → `src/routes/products.js`
+   - Order endpoints → `src/routes/orders.js`
+   - Cart endpoints → `src/routes/cart.js`
+   - Inventory endpoints → `src/routes/inventory.js`
+   - Quotes endpoints → `src/routes/quotes.js`
+   - Misc endpoints → `src/routes/misc.js`
+   - etc.
+
+2. **❌ DON'T**: Add any new endpoints to server.js
+
+3. **❌ DON'T**: Uncomment or modify the commented code in server.js
+
+### Cleanup Reminder
+**DELETE AFTER**: August 5, 2025 (4 weeks from migration completion)
+- Once the system has been stable in production for 4 weeks
+- Delete all commented endpoint code from server.js
+- This will reduce server.js from 6,400+ lines to ~500 lines
+
+### Quick Reference for New Endpoints
+When adding a new endpoint:
+1. Identify the appropriate module in `src/routes/`
+2. Add the endpoint using Express Router syntax
+3. Test the endpoint at `/api/your-endpoint`
+4. All routes are automatically prefixed with `/api` when mounted
 
 ### Starting the Server
 
@@ -152,7 +187,7 @@ Failure to use `fetchAllCaspioPages` will result in incomplete data when the res
 
 ### Standard Implementation Pattern
 Most endpoints will follow this pattern:
-1. Add to server.js directly (not modular)
+1. **Add to appropriate module in `src/routes/`** (NOT to server.js!)
 2. Use Caspio API v2 for consistency
 3. Public access (no authentication)
 4. Standard error handling (400 for bad params, 500 for server errors)

@@ -297,35 +297,35 @@ async function fetchAllCaspioPages(resourcePath, initialParams = {}, options = {
 // Example: /api/pricing-tiers?method=DTG
 // MIGRATED to src/routes/pricing.js
 // app.get('/api/pricing-tiers', async (req, res) => {
-//     const { method } = req.query;
-//     if (!method) {
-//         return res.status(400).json({ error: 'Missing required query parameter: method' });
-//     }
-//     try {
-//         // Use Pricing_Tiers table instead of view
-//         const resource = '/tables/Pricing_Tiers/records';
-//         
-//         // Special handling for Embroidery - map to EmbroideryShirts
-//         let whereClause;
-//         if (method === 'Embroidery') {
-//             whereClause = `DecorationMethod='EmbroideryShirts'`;
-//             console.log(`Special handling for Embroidery method: querying for EmbroideryShirts`);
-//         } else {
-//             whereClause = `DecorationMethod='${method}'`;
-//         }
-//         
-//         const params = {
-//             'q.where': whereClause,
-//             // Select all fields from the Pricing_Tiers table
-//             'q.select': 'PK_ID,TierID,DecorationMethod,TierLabel,MinQuantity,MaxQuantity,MarginDenominator,TargetMargin,LTM_Fee',
-//             'q.limit': 100 // Ensure all tiers are fetched
-//         };
-//         // Use fetchAllCaspioPages to handle pagination
-//         const result = await fetchAllCaspioPages(resource, params);
-//         res.json(result);
-//     } catch (error) {
-//         res.status(500).json({ error: error.message || 'Failed to fetch pricing tiers.' });
-//     }
+    const { method } = req.query;
+    if (!method) {
+        return res.status(400).json({ error: 'Missing required query parameter: method' });
+    }
+    try {
+        // Use Pricing_Tiers table instead of view
+        const resource = '/tables/Pricing_Tiers/records';
+        
+        // Special handling for Embroidery - map to EmbroideryShirts
+        let whereClause;
+        if (method === 'Embroidery') {
+            whereClause = `DecorationMethod='EmbroideryShirts'`;
+            console.log(`Special handling for Embroidery method: querying for EmbroideryShirts`);
+        } else {
+            whereClause = `DecorationMethod='${method}'`;
+        }
+        
+        const params = {
+            'q.where': whereClause,
+            // Select all fields from the Pricing_Tiers table
+            'q.select': 'PK_ID,TierID,DecorationMethod,TierLabel,MinQuantity,MaxQuantity,MarginDenominator,TargetMargin,LTM_Fee',
+            'q.limit': 100 // Ensure all tiers are fetched
+        };
+        // Use fetchAllCaspioPages to handle pagination
+        const result = await fetchAllCaspioPages(resource, params);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ error: error.message || 'Failed to fetch pricing tiers.' });
+    }
 // });
 
 
@@ -333,123 +333,120 @@ async function fetchAllCaspioPages(resourcePath, initialParams = {}, options = {
 // Example: /api/embroidery-costs?itemType=Cap&stitchCount=8000
 // MIGRATED to src/routes/pricing.js
 // app.get('/api/embroidery-costs', async (req, res) => {
-//     const { itemType, stitchCount } = req.query;
-//     if (!itemType || !stitchCount) {
-//         return res.status(400).json({ error: 'Missing required query parameters: itemType, stitchCount' });
-//     }
-//     // Basic validation for stitch count
-//     const validStitches = ['5000', '8000', '10000'];
-//     if (!validStitches.includes(stitchCount)) {
-//          return res.status(400).json({ error: 'Invalid stitchCount parameter.' });
-//     }
-// 
-//     try {
-//         const resource = '/tables/Embroidery_Costs/records'; // Using table instead of view
-//         const params = {
-//             'q.where': `ItemType='${itemType}' AND StitchCount=${stitchCount}`,
-//             'q.select': 'TierLabel,EmbroideryCost', // Select needed fields
-//             'q.limit': 100
-//         };
-//         // Use fetchAllCaspioPages to handle pagination
-//         const result = await fetchAllCaspioPages(resource, params);
-//         // Return as an object keyed by TierLabel for easier lookup in frontend
-//         const costs = {};
-//         result.forEach(item => {
-//              costs[item.TierLabel] = item.EmbroideryCost;
-//         });
-//         res.json(costs);
-//     } catch (error) {
-//         res.status(500).json({ error: error.message || 'Failed to fetch embroidery costs.' });
-//     }
-// });
+    const { itemType, stitchCount } = req.query;
+    if (!itemType || !stitchCount) {
+        return res.status(400).json({ error: 'Missing required query parameters: itemType, stitchCount' });
+    }
+    // Basic validation for stitch count
+    const validStitches = ['5000', '8000', '10000'];
+    if (!validStitches.includes(stitchCount)) {
+         return res.status(400).json({ error: 'Invalid stitchCount parameter.' });
+    }
+
+    try {
+        const resource = '/tables/Embroidery_Costs/records'; // Using table instead of view
+        const params = {
+            'q.where': `ItemType='${itemType}' AND StitchCount=${stitchCount}`,
+            'q.select': 'TierLabel,EmbroideryCost', // Select needed fields
+            'q.limit': 100
+        };
+        // Use fetchAllCaspioPages to handle pagination
+        const result = await fetchAllCaspioPages(resource, params);
+        // Return as an object keyed by TierLabel for easier lookup in frontend
+        const costs = {};
+        result.forEach(item => {
+             costs[item.TierLabel] = item.EmbroideryCost;
+        });
+        res.json(costs);
+    } catch (error) {
+        res.status(500).json({ error: error.message || 'Failed to fetch embroidery costs.' });
+    }
+});
 
 // Get DTG Costs (Fetch all and let frontend filter/use as needed)
 // Example: /api/dtg-costs
-// MIGRATED to src/routes/pricing.js
-// app.get('/api/dtg-costs', async (req, res) => {
-//     try {
-//         const resource = '/tables/DTG_Costs/records'; // Using table instead of view
-//         const params = {
-//              'q.select': 'PrintLocationCode,TierLabel,PrintCost',
-//              'q.limit': 500 // Ensure all location/tier combos are fetched
-//         };
-//         // Use fetchAllCaspioPages to handle pagination
-//         const result = await fetchAllCaspioPages(resource, params);
-//          // Return as nested object: { LC: { '1-23': 7.00, ... }, FF: { ... } }
-//          const costs = {};
-//          result.forEach(item => {
-//              if (!costs[item.PrintLocationCode]) {
-//                  costs[item.PrintLocationCode] = {};
-//              }
-//              costs[item.PrintLocationCode][item.TierLabel] = item.PrintCost;
-//          });
-//         res.json(costs);
-//     } catch (error) {
-//         res.status(500).json({ error: error.message || 'Failed to fetch DTG costs.' });
-//     }
-// });
+app.get('/api/dtg-costs', async (req, res) => {
+    try {
+        const resource = '/tables/DTG_Costs/records'; // Using table instead of view
+        const params = {
+             'q.select': 'PrintLocationCode,TierLabel,PrintCost',
+             'q.limit': 500 // Ensure all location/tier combos are fetched
+        };
+        // Use fetchAllCaspioPages to handle pagination
+        const result = await fetchAllCaspioPages(resource, params);
+         // Return as nested object: { LC: { '1-23': 7.00, ... }, FF: { ... } }
+         const costs = {};
+         result.forEach(item => {
+             if (!costs[item.PrintLocationCode]) {
+                 costs[item.PrintLocationCode] = {};
+             }
+             costs[item.PrintLocationCode][item.TierLabel] = item.PrintCost;
+         });
+        res.json(costs);
+    } catch (error) {
+        res.status(500).json({ error: error.message || 'Failed to fetch DTG costs.' });
+    }
+});
 
 // Get Screenprint Costs
 // Example: /api/screenprint-costs?costType=PrimaryLocation
 // Example: /api/screenprint-costs?costType=AdditionalLocation
-// MIGRATED to src/routes/pricing.js
-// app.get('/api/screenprint-costs', async (req, res) => {
-//      const { costType } = req.query;
-//      if (!costType || (costType !== 'PrimaryLocation' && costType !== 'AdditionalLocation')) {
-//          return res.status(400).json({ error: 'Missing or invalid required query parameter: costType (PrimaryLocation or AdditionalLocation)' });
-//      }
-//     try {
-//         const resource = '/tables/Screenprint_Costs/records'; // Using table instead of view
-//         const params = {
-//              'q.where': `CostType='${costType}'`,
-//              'q.select': 'TierLabel,ColorCount,BasePrintCost',
-//              'q.limit': 500 // Ensure all tier/color combos are fetched
-//         };
-//         // Use fetchAllCaspioPages to handle pagination
-//         const result = await fetchAllCaspioPages(resource, params);
-//          // Return as nested object: { '13-36': { 1: 2.35, 2: 2.85, ... }, '37-72': { ... } }
-//          const costs = {};
-//          result.forEach(item => {
-//              if (!costs[item.TierLabel]) {
-//                  costs[item.TierLabel] = {};
-//              }
-//              costs[item.TierLabel][item.ColorCount] = item.BasePrintCost;
-//          });
-//         res.json(costs);
-//     } catch (error) {
-//         res.status(500).json({ error: error.message || 'Failed to fetch screenprint costs.' });
-//     }
-// });
+app.get('/api/screenprint-costs', async (req, res) => {
+     const { costType } = req.query;
+     if (!costType || (costType !== 'PrimaryLocation' && costType !== 'AdditionalLocation')) {
+         return res.status(400).json({ error: 'Missing or invalid required query parameter: costType (PrimaryLocation or AdditionalLocation)' });
+     }
+    try {
+        const resource = '/tables/Screenprint_Costs/records'; // Using table instead of view
+        const params = {
+             'q.where': `CostType='${costType}'`,
+             'q.select': 'TierLabel,ColorCount,BasePrintCost',
+             'q.limit': 500 // Ensure all tier/color combos are fetched
+        };
+        // Use fetchAllCaspioPages to handle pagination
+        const result = await fetchAllCaspioPages(resource, params);
+         // Return as nested object: { '13-36': { 1: 2.35, 2: 2.85, ... }, '37-72': { ... } }
+         const costs = {};
+         result.forEach(item => {
+             if (!costs[item.TierLabel]) {
+                 costs[item.TierLabel] = {};
+             }
+             costs[item.TierLabel][item.ColorCount] = item.BasePrintCost;
+         });
+        res.json(costs);
+    } catch (error) {
+        res.status(500).json({ error: error.message || 'Failed to fetch screenprint costs.' });
+    }
+});
 
 // Get Pricing Rules based on Decoration Method
 // Example: /api/pricing-rules?method=ScreenPrint
-// MIGRATED to src/routes/pricing.js
-// app.get('/api/pricing-rules', async (req, res) => {
-//      const { method } = req.query;
-//      if (!method) {
-//          return res.status(400).json({ error: 'Missing required query parameter: method' });
-//      }
-//     try {
-//         const resource = '/tables/Pricing_Rules/records'; // Using table instead of view
-//         // Fetch rules specific to the method OR 'All'
-//         const whereClause = `DecorationMethod='${method}' OR DecorationMethod='All'`;
-//         const params = {
-//              'q.where': whereClause,
-//              'q.select': 'RuleName,RuleValue',
-//              'q.limit': 100
-//         };
-//         // Use fetchAllCaspioPages to handle pagination
-//         const result = await fetchAllCaspioPages(resource, params);
-//          // Return as object: { RoundingMethod: 'CeilDollar', FlashCharge: '0.35', ... }
-//          const rules = {};
-//          result.forEach(item => {
-//              rules[item.RuleName] = item.RuleValue;
-//          });
-//         res.json(rules);
-//     } catch (error) {
-//         res.status(500).json({ error: error.message || 'Failed to fetch pricing rules.' });
-//     }
-// });
+app.get('/api/pricing-rules', async (req, res) => {
+     const { method } = req.query;
+     if (!method) {
+         return res.status(400).json({ error: 'Missing required query parameter: method' });
+     }
+    try {
+        const resource = '/tables/Pricing_Rules/records'; // Using table instead of view
+        // Fetch rules specific to the method OR 'All'
+        const whereClause = `DecorationMethod='${method}' OR DecorationMethod='All'`;
+        const params = {
+             'q.where': whereClause,
+             'q.select': 'RuleName,RuleValue',
+             'q.limit': 100
+        };
+        // Use fetchAllCaspioPages to handle pagination
+        const result = await fetchAllCaspioPages(resource, params);
+         // Return as object: { RoundingMethod: 'CeilDollar', FlashCharge: '0.35', ... }
+         const rules = {};
+         result.forEach(item => {
+             rules[item.RuleName] = item.RuleValue;
+         });
+        res.json(rules);
+    } catch (error) {
+        res.status(500).json({ error: error.message || 'Failed to fetch pricing rules.' });
+    }
+});
 
 // Get Pricing Bundle - Consolidates tiers, rules, and costs for DTG
 // Example: /api/pricing-bundle?method=DTG
@@ -618,63 +615,62 @@ app.get('/api/pricing-bundle', async (req, res) => {
 
 // Get Base Item Costs (Max Case Price per Size for a Style)
 // Example: /api/base-item-costs?styleNumber=XYZ123
-// MIGRATED to src/routes/pricing.js
-// app.get('/api/base-item-costs', async (req, res) => {
-//     const { styleNumber } = req.query;
-//     if (!styleNumber) {
-//         return res.status(400).json({ error: 'Missing required query parameter: styleNumber' });
-//     }
-//     try {
-//         // Use Inventory table
-//         const resource = '/tables/Inventory/records'; // Using Inventory table
-//         const params = {
-//             'q.where': `catalog_no='${styleNumber}'`, // Ensure field name matches your table/view
-//             'q.select': 'size,case_price,SizeSortOrder', // Added SizeSortOrder for proper size sorting
-//             'q.limit': 2000 // Fetch all relevant size/color records for the style
-//         };
-//         // Use fetchAllCaspioPages to handle pagination
-//         const result = await fetchAllCaspioPages(resource, params);
-// 
-//         // Process results server-side to find max case price per size
-//         const maxPrices = {};
-//         const sizeSortOrders = {};
-//         
-//         result.forEach(item => {
-//             if (item.size && item.case_price !== null && !isNaN(item.case_price)) {
-//                 const size = item.size;
-//                 const price = parseFloat(item.case_price);
-//                 const sortOrder = item.SizeSortOrder || 999; // Default high value if missing
-//                 
-//                 // Store the sort order for each size
-//                 if (!sizeSortOrders[size] || sortOrder < sizeSortOrders[size]) {
-//                     sizeSortOrders[size] = sortOrder;
-//                 }
-//                 
-//                 // Find the max price for each size
-//                 if (!maxPrices[size] || price > maxPrices[size]) {
-//                     maxPrices[size] = price;
-//                 }
-//             }
-//         });
-// 
-//         if (Object.keys(maxPrices).length === 0) {
-//             // Optional: Return 404 if no data found for the style? Or just empty object?
-//             console.warn(`No inventory cost data found for style: ${styleNumber}`);
-//             // return res.status(404).json({ error: `No inventory cost data found for style: ${styleNumber}` });
-//         }
-// 
-//         // Create a response that includes both the original format and the sort orders
-//         const response = {
-//             prices: maxPrices,
-//             sortOrders: sizeSortOrders
-//         };
-// 
-//         res.json(response); // Return object: { prices: { "S": 10.50, "M": 10.50 }, sortOrders: { "S": 10, "M": 20 } }
-// 
-//     } catch (error) {
-//         res.status(500).json({ error: error.message || 'Failed to fetch base item costs.' });
-//     }
-// });
+app.get('/api/base-item-costs', async (req, res) => {
+    const { styleNumber } = req.query;
+    if (!styleNumber) {
+        return res.status(400).json({ error: 'Missing required query parameter: styleNumber' });
+    }
+    try {
+        // Use Inventory table
+        const resource = '/tables/Inventory/records'; // Using Inventory table
+        const params = {
+            'q.where': `catalog_no='${styleNumber}'`, // Ensure field name matches your table/view
+            'q.select': 'size,case_price,SizeSortOrder', // Added SizeSortOrder for proper size sorting
+            'q.limit': 2000 // Fetch all relevant size/color records for the style
+        };
+        // Use fetchAllCaspioPages to handle pagination
+        const result = await fetchAllCaspioPages(resource, params);
+
+        // Process results server-side to find max case price per size
+        const maxPrices = {};
+        const sizeSortOrders = {};
+        
+        result.forEach(item => {
+            if (item.size && item.case_price !== null && !isNaN(item.case_price)) {
+                const size = item.size;
+                const price = parseFloat(item.case_price);
+                const sortOrder = item.SizeSortOrder || 999; // Default high value if missing
+                
+                // Store the sort order for each size
+                if (!sizeSortOrders[size] || sortOrder < sizeSortOrders[size]) {
+                    sizeSortOrders[size] = sortOrder;
+                }
+                
+                // Find the max price for each size
+                if (!maxPrices[size] || price > maxPrices[size]) {
+                    maxPrices[size] = price;
+                }
+            }
+        });
+
+        if (Object.keys(maxPrices).length === 0) {
+            // Optional: Return 404 if no data found for the style? Or just empty object?
+            console.warn(`No inventory cost data found for style: ${styleNumber}`);
+            // return res.status(404).json({ error: `No inventory cost data found for style: ${styleNumber}` });
+        }
+
+        // Create a response that includes both the original format and the sort orders
+        const response = {
+            prices: maxPrices,
+            sortOrders: sizeSortOrders
+        };
+
+        res.json(response); // Return object: { prices: { "S": 10.50, "M": 10.50 }, sortOrders: { "S": 10, "M": 20 } }
+
+    } catch (error) {
+        res.status(500).json({ error: error.message || 'Failed to fetch base item costs.' });
+    }
+});
 
 // Test endpoint for Sanmar_Bulk_251816_Feb2024 table
 app.get('/api/test-sanmar-bulk', async (req, res) => {
@@ -742,45 +738,43 @@ app.get('/api/staff-announcements', async (req, res) => {
 
 // GET /api/size-upcharges - Get standard size upcharges
 // Example: /api/size-upcharges
-// MIGRATED to src/routes/pricing.js
-// app.get('/api/size-upcharges', async (req, res) => {
-//     console.log('GET /api/size-upcharges requested');
-// 
-//     try {
-//         const upcharges = await fetchAllCaspioPages('/tables/Standard_Size_Upcharges/records', {
-//             'q.select': 'SizeDesignation,StandardAddOnAmount',
-//             'q.orderBy': 'SizeDesignation ASC',
-//             'q.limit': 200
-//         });
-//         
-//         console.log(`Size upcharges: ${upcharges.length} record(s) found`);
-//         res.json(upcharges);
-//     } catch (error) {
-//         console.error('Error fetching size upcharges:', error.message);
-//         res.status(500).json({ error: 'Failed to fetch size upcharges', details: error.message });
-//     }
-// });
+app.get('/api/size-upcharges', async (req, res) => {
+    console.log('GET /api/size-upcharges requested');
+
+    try {
+        const upcharges = await fetchAllCaspioPages('/tables/Standard_Size_Upcharges/records', {
+            'q.select': 'SizeDesignation,StandardAddOnAmount',
+            'q.orderBy': 'SizeDesignation ASC',
+            'q.limit': 200
+        });
+        
+        console.log(`Size upcharges: ${upcharges.length} record(s) found`);
+        res.json(upcharges);
+    } catch (error) {
+        console.error('Error fetching size upcharges:', error.message);
+        res.status(500).json({ error: 'Failed to fetch size upcharges', details: error.message });
+    }
+});
 
 // GET /api/size-sort-order - Get size display order
 // Example: /api/size-sort-order
-// MIGRATED to src/routes/pricing.js
-// app.get('/api/size-sort-order', async (req, res) => {
-//     console.log('GET /api/size-sort-order requested');
-// 
-//     try {
-//         const sortOrders = await fetchAllCaspioPages('/tables/Size_Display_Order/records', {
-//             'q.select': 'size,sort_order',
-//             'q.orderBy': 'sort_order ASC',
-//             'q.limit': 200
-//         });
-//         
-//         console.log(`Size sort orders: ${sortOrders.length} record(s) found`);
-//         res.json(sortOrders);
-//     } catch (error) {
-//         console.error('Error fetching size sort orders:', error.message);
-//         res.status(500).json({ error: 'Failed to fetch size sort orders', details: error.message });
-//     }
-// });
+app.get('/api/size-sort-order', async (req, res) => {
+    console.log('GET /api/size-sort-order requested');
+
+    try {
+        const sortOrders = await fetchAllCaspioPages('/tables/Size_Display_Order/records', {
+            'q.select': 'size,sort_order',
+            'q.orderBy': 'sort_order ASC',
+            'q.limit': 200
+        });
+        
+        console.log(`Size sort orders: ${sortOrders.length} record(s) found`);
+        res.json(sortOrders);
+    } catch (error) {
+        console.error('Error fetching size sort orders:', error.message);
+        res.status(500).json({ error: 'Failed to fetch size sort orders', details: error.message });
+    }
+});
 
 // --- ENHANCED Endpoint: Style Search Autocomplete with Improved Pagination ---
 // MOVED TO src/routes/products.js
@@ -1300,8 +1294,6 @@ app.get('/api/all-brands', async (req, res) => {
 */
 
 // --- NEW Endpoint: Get All Subcategories ---
-// MIGRATED to src/routes/products.js
-/*
 // Example: /api/all-subcategories
 app.get('/api/all-subcategories', async (req, res) => {
     try {
@@ -1332,11 +1324,8 @@ app.get('/api/all-subcategories', async (req, res) => {
         res.status(500).json({ error: error.message || 'Failed to fetch subcategories.' });
     }
 });
-*/
 
 // --- NEW Endpoint: Get All Categories ---
-// MIGRATED to src/routes/products.js
-/*
 // Example: /api/all-categories
 app.get('/api/all-categories', async (req, res) => {
     try {
@@ -1367,11 +1356,8 @@ app.get('/api/all-categories', async (req, res) => {
         res.status(500).json({ error: error.message || 'Failed to fetch categories.' });
     }
 });
-*/
 
 // --- NEW Endpoint: Get Subcategories by Category ---
-// MIGRATED to src/routes/products.js
-/*
 // Example: /api/subcategories-by-category?category=Caps
 app.get('/api/subcategories-by-category', async (req, res) => {
     try {
@@ -1409,11 +1395,8 @@ app.get('/api/subcategories-by-category', async (req, res) => {
         res.status(500).json({ error: error.message || 'Failed to fetch subcategories by category.' });
     }
 });
-*/
 
 // --- NEW Endpoint: Get Products by Category and Subcategory ---
-// MIGRATED to src/routes/products.js
-/*
 // Example: /api/products-by-category-subcategory?category=Caps&subcategory=Mesh%20Back
 app.get('/api/products-by-category-subcategory', async (req, res) => {
     try {
@@ -1470,11 +1453,7 @@ app.get('/api/products-by-category-subcategory', async (req, res) => {
         res.status(500).json({ error: error.message || 'Failed to fetch products by category and subcategory.' });
     }
 });
-*/
-
 // --- NEW Endpoint: Search Across All Products ---
-// MIGRATED to src/routes/products.js
-/*
 // Example: /api/search?q=hoodie
 app.get('/api/search', async (req, res) => {
     const { q } = req.query;
@@ -1514,11 +1493,8 @@ app.get('/api/search', async (req, res) => {
         res.status(500).json({ error: 'Failed to perform search.' });
     }
 });
-*/
 
 // --- NEW Endpoint: Featured/New Products ---
-// MIGRATED to src/routes/products.js
-/*
 // Example: /api/featured-products
 app.get('/api/featured-products', async (req, res) => {
     try {
@@ -1553,11 +1529,8 @@ app.get('/api/featured-products', async (req, res) => {
         res.status(500).json({ error: 'Failed to fetch featured products.' });
     }
 });
-*/
 
 // --- NEW Endpoint: Related Products ---
-// MIGRATED to src/routes/products.js
-/*
 // Example: /api/related-products?styleNumber=PC61
 app.get('/api/related-products', async (req, res) => {
     const { styleNumber } = req.query;
@@ -1619,11 +1592,8 @@ app.get('/api/related-products', async (req, res) => {
         res.status(500).json({ error: 'Failed to fetch related products.' });
     }
 });
-*/
 
 // --- NEW Endpoint: Advanced Filtering ---
-// MIGRATED to src/routes/products.js
-/*
 // Example: /api/filter-products?category=T-Shirts&color=Red&minPrice=10&maxPrice=30&brand=Bella
 app.get('/api/filter-products', async (req, res) => {
     const { category, subcategory, color, brand, minPrice, maxPrice } = req.query;
@@ -1693,11 +1663,8 @@ app.get('/api/filter-products', async (req, res) => {
         res.status(500).json({ error: 'Failed to filter products.' });
     }
 });
-*/
 
 // --- NEW Endpoint: Quick View ---
-// MIGRATED to src/routes/products.js
-/*
 // Example: /api/quick-view?styleNumber=PC61
 app.get('/api/quick-view', async (req, res) => {
     const { styleNumber } = req.query;
@@ -1746,11 +1713,8 @@ app.get('/api/quick-view', async (req, res) => {
         res.status(500).json({ error: 'Failed to fetch quick view data.' });
     }
 });
-*/
 
 // --- NEW Endpoint: Product Comparison ---
-// MIGRATED to src/routes/products.js
-/*
 // Example: /api/compare-products?styles=PC61,3001C,5000
 app.get('/api/compare-products', async (req, res) => {
     const { styles } = req.query;
@@ -1798,11 +1762,8 @@ app.get('/api/compare-products', async (req, res) => {
         res.status(500).json({ error: 'Failed to fetch product comparison data.' });
     }
 });
-*/
 
 // --- NEW Endpoint: Product Recommendations ---
-// MIGRATED to src/routes/products.js
-/*
 // Example: /api/recommendations?styleNumber=PC61
 app.get('/api/recommendations', async (req, res) => {
     const { styleNumber } = req.query;
@@ -1867,11 +1828,8 @@ app.get('/api/recommendations', async (req, res) => {
         res.status(500).json({ error: 'Failed to fetch product recommendations.' });
     }
 });
-*/
 
 // --- NEW Endpoint: Get Inventory Table by Style and Color ---
-// MIGRATED to src/routes/inventory.js
-/*
 // Example: /api/sizes-by-style-color?styleNumber=PC61&color=Red
 app.get('/api/sizes-by-style-color', async (req, res) => {
     const { styleNumber, color } = req.query;
@@ -1986,11 +1944,8 @@ app.get('/api/sizes-by-style-color', async (req, res) => {
         res.status(500).json({ error: 'Failed to fetch sizes for the specified style and color.' });
     }
 });
-*/
 
 // --- NEW Endpoint: Get Prices by Style and Color with Ordered Sizes ---
-// MIGRATED to src/routes/inventory.js
-/*
 // Example: /api/prices-by-style-color?styleNumber=PC61&color=White
 app.get('/api/prices-by-style-color', async (req, res) => {
     const { styleNumber, color } = req.query;
@@ -2059,11 +2014,8 @@ app.get('/api/prices-by-style-color', async (req, res) => {
         res.status(500).json({ error: 'Failed to fetch prices for the specified style and color.' });
     }
 });
-*/
 
 // --- NEW Endpoint: Get Unique Sizes by Style and Color ---
-// MIGRATED to src/routes/inventory.js
-/*
 // Example: /api/product-variant-sizes?styleNumber=PC61&color=Aquatic%20Blue
 // Fetches STYLE, COLOR_NAME, CATALOG_COLOR from Sanmar_Bulk and SIZES (sorted) from Inventory.
 app.get('/api/product-variant-sizes', async (req, res) => {
@@ -2149,7 +2101,6 @@ app.get('/api/product-variant-sizes', async (req, res) => {
         res.status(500).json({ error: `Failed to fetch product variant sizes. ${error.message}` });
     }
 });
-*/
 
 // --- MODIFIED Endpoint: /api/max-prices-by-style ---
 // Provides raw garment costs (max across colors for a style/size)
@@ -2257,198 +2208,197 @@ app.use((err, req, res, next) => {
 
 // --- MODIFIED Endpoint: /api/size-pricing ---
 // Fetches ALL sizes from Inventory and includes sellingPriceDisplayAddOns.
-// MIGRATED to src/routes/pricing.js
-// app.get('/api/size-pricing', async (req, res) => {
-//     const { styleNumber, color } = req.query;
-//     if (!styleNumber) {
-//         return res.status(400).json({ error: 'Missing required query parameter: styleNumber' });
-//     }
-//     
-//     try {
-//         console.log(`Fetching data for /api/size-pricing: Style=${styleNumber}, Color=${color || 'ALL (max price per size if no color specified)'}`);
-// 
-//         // 1. Fetch Selling Price Display Add-Ons from Caspio
-//         let sellingPriceDisplayAddOns = {};
-//         try {
-//             const upchargeResourcePath = '/tables/Standard_Size_Upcharges/records';
-//             const upchargeParams = {
-//                 'q.select': 'SizeDesignation,StandardAddOnAmount',
-//                 'q.orderby': 'SizeDesignation ASC',
-//                 'q.limit': 200
-//             };
-//             const upchargeResults = await fetchAllCaspioPages(upchargeResourcePath, upchargeParams);
-//             upchargeResults.forEach(rule => {
-//                 if (rule.SizeDesignation && rule.StandardAddOnAmount !== null && !isNaN(parseFloat(rule.StandardAddOnAmount))) {
-//                     sellingPriceDisplayAddOns[String(rule.SizeDesignation).trim().toUpperCase()] = parseFloat(rule.StandardAddOnAmount);
-//                 }
-//             });
-//             console.log("Fetched Selling Price Display Add-Ons for /api/size-pricing:", sellingPriceDisplayAddOns);
-//             if (Object.keys(sellingPriceDisplayAddOns).length === 0) {
-//                 console.warn(`No Selling Price Display Add-On rules found for /api/size-pricing.`);
-//             }
-//         } catch (upchargeError) {
-//             console.error("CRITICAL ERROR fetching Selling Price Display Add-Ons for /api/size-pricing:", upchargeError.message);
-//             sellingPriceDisplayAddOns = {};
-//         }
-// 
-//         // 2. Fetch Inventory Data
-//         const inventoryResource = '/tables/Inventory/records';
-//         let inventoryWhereClause = `catalog_no='${styleNumber}'`;
-//         if (color) {
-//             inventoryWhereClause += ` AND catalog_color='${String(color).trim()}'`;
-//         }
-//         
-//         const inventoryParams = {
-//             'q.where': inventoryWhereClause,
-//             'q.select': 'size, case_price, SizeSortOrder, catalog_color',
-//             'q.limit': 1000
-//         };
-//         
-//         console.log(`Fetching ALL inventory pages for style ${styleNumber} (color filter: ${color || 'none'}) with params: ${JSON.stringify(inventoryParams)}`);
-//         
-//         // Create a custom callback to track progress and detect when we have all sizes
-//         const pageCallback = (pageNum, pageData) => {
-//             console.log(`Inventory fetch - Page ${pageNum}: ${pageData.length} records`);
-//             return pageData;
-//         };
-//         
-//         // Create an early exit condition to stop when we've likely found all sizes for this style
-//         const earlyExitCondition = (allResults) => {
-//             // Extract unique sizes from current results
-//             const uniqueSizes = new Set();
-//             allResults.forEach(item => {
-//                 if (item.size) uniqueSizes.add(item.size.trim().toUpperCase());
-//             });
-//             
-//             // Check if we have the expected large sizes (5XL, 6XL) - if so, we probably have everything
-//             const hasLargeSizes = uniqueSizes.has('5XL') && uniqueSizes.has('6XL');
-//             const sizeCount = uniqueSizes.size;
-//             
-//             // Log current progress
-//             console.log(`Current unique sizes found: ${Array.from(uniqueSizes).sort()}`);
-//             console.log(`Size count: ${sizeCount}, Has large sizes (5XL, 6XL): ${hasLargeSizes}`);
-//             
-//             // Exit early if we have a reasonable number of sizes AND the large sizes
-//             // This prevents unnecessary API calls while ensuring completeness
-//             if (sizeCount >= 7 && hasLargeSizes) {
-//                 console.log(`Early exit: Found ${sizeCount} sizes including large sizes (5XL, 6XL)`);
-//                 return true;
-//             }
-//             
-//             return false;
-//         };
-//         
-//         // Fetch ALL pages from Inventory with significantly increased maxPages and smart early exit
-//         const inventoryResult = await fetchAllCaspioPages(inventoryResource, inventoryParams, {
-//             maxPages: 100, // Dramatically increased from 20 to 100 to ensure we get all records
-//             pageCallback: pageCallback,
-//             earlyExitCondition: earlyExitCondition
-//         });
-// 
-//         if (inventoryResult.length === 0) {
-//             console.warn(`No inventory found for style: ${styleNumber} with criteria: ${inventoryWhereClause} in /api/size-pricing`);
-//             return res.json({
-//                 style: styleNumber, color: color || 'all (no inventory found)', baseSizePrice: null,
-//                 sizes: [], sellingPriceDisplayAddOns: sellingPriceDisplayAddOns,
-//                 message: `No inventory records found for style ${styleNumber} with where: ${inventoryWhereClause}`
-//             });
-//         }
-// 
-//         // Log detailed information about what we found
-//         const uniqueSizesFound = new Set();
-//         inventoryResult.forEach(item => {
-//             if (item.size) uniqueSizesFound.add(item.size.trim().toUpperCase());
-//         });
-//         console.log(`Total inventory records fetched: ${inventoryResult.length}`);
-//         console.log(`Unique sizes found: ${Array.from(uniqueSizesFound).sort()}`);
-//         console.log(`Size count: ${uniqueSizesFound.size}`);
-// 
-//         const garmentCosts = {};
-//         const sortOrders = {};
-//         let processedColor = color ? String(color).trim() : null;
-// 
-//         inventoryResult.forEach(item => {
-//             if (item.size && item.case_price !== null && !isNaN(parseFloat(item.case_price))) {
-//                 const sizeKey = String(item.size).trim().toUpperCase();
-//                 const price = parseFloat(item.case_price);
-//                 const itemColor = String(item.catalog_color || '').trim();
-//                 const sortOrder = parseInt(item.SizeSortOrder, 10) || 999;
-// 
-//                 if (color) {
-//                      if (itemColor.toUpperCase() === color.trim().toUpperCase()) {
-//                          if (!garmentCosts[sizeKey] || price > garmentCosts[sizeKey]) {
-//                              garmentCosts[sizeKey] = price;
-//                          }
-//                      }
-//                 } else {
-//                     if (!garmentCosts[sizeKey] || price > garmentCosts[sizeKey]) {
-//                         garmentCosts[sizeKey] = price;
-//                     }
-//                     if (!processedColor && inventoryResult.length > 0) {
-//                         const firstColorInResults = inventoryResult[0]?.catalog_color;
-//                         processedColor = firstColorInResults ? String(firstColorInResults).trim() : "all colors (aggregated)";
-//                     } else if (!processedColor) {
-//                         processedColor = "all colors (aggregated)";
-//                     }
-//                 }
-//                 
-//                 if (!sortOrders[sizeKey] || sortOrder < sortOrders[sizeKey]) {
-//                     sortOrders[sizeKey] = sortOrder;
-//                 }
-//             }
-//         });
-//         
-//         if (Object.keys(garmentCosts).length === 0) {
-//              console.warn(`No valid garment costs derived for style: ${styleNumber} (color: ${color || 'any'}) from inventory for /api/size-pricing.`);
-//              return res.json({
-//                 style: styleNumber, color: color || 'all (no costs derived)', baseSizePrice: null,
-//                 sizes: [], sellingPriceDisplayAddOns: sellingPriceDisplayAddOns,
-//                 message: `No valid garment costs could be derived for style ${styleNumber} (color: ${color || 'any'}).`
-//             });
-//         }
-//         
-//         let baseSizePrice = null;
-//         const preferredBaseSizes = ['XL', 'L', 'M', 'S'];
-//         for (const bSize of preferredBaseSizes) {
-//             if (garmentCosts[bSize] !== undefined) {
-//                 baseSizePrice = garmentCosts[bSize];
-//                 break;
-//             }
-//         }
-//         if (baseSizePrice === null && Object.keys(garmentCosts).length > 0) {
-//             const firstSortedSize = Object.keys(garmentCosts).sort((a,b) => (sortOrders[a]||999) - (sortOrders[b]||999))[0];
-//             if(firstSortedSize) baseSizePrice = garmentCosts[firstSortedSize];
-//         }
-//         
-//         const sortedSizeKeys = Object.keys(garmentCosts).sort((a, b) => (sortOrders[a] || 999) - (sortOrders[b] || 999));
-//         
-//         const responsePayload = {
-//             style: styleNumber,
-//             color: processedColor || (color ? String(color).trim() : 'all colors (aggregated)'),
-//             baseSizePrice: baseSizePrice,
-//             sizes: sortedSizeKeys.map(sizeKey => ({
-//                 size: sizeKey,
-//                 price: garmentCosts[sizeKey],
-//                 sortOrder: sortOrders[sizeKey]
-//             })),
-//             sellingPriceDisplayAddOns: sellingPriceDisplayAddOns,
-//             // Add debugging information to help track pagination completeness
-//             debug: {
-//                 totalInventoryRecords: inventoryResult.length,
-//                 uniqueSizesFound: uniqueSizesFound.size,
-//                 allSizesFound: Array.from(uniqueSizesFound).sort()
-//             }
-//         };
-//         
-//         console.log(`Returning data for /api/size-pricing, style: ${styleNumber}, sizes found: ${sortedSizeKeys.length}`);
-//         console.log(`Debug info - Total records: ${inventoryResult.length}, Unique sizes: ${uniqueSizesFound.size}`);
-//         res.json(responsePayload);
-//         
-//     } catch (error) {
-//         console.error(`Error in /api/size-pricing for ${styleNumber} (color: ${color || 'any'}):`, error.message, error.stack);
-//         res.status(500).json({ error: `Failed to fetch size pricing for style ${styleNumber}. ${error.message}` });
-//     }
-// });
+app.get('/api/size-pricing', async (req, res) => {
+    const { styleNumber, color } = req.query;
+    if (!styleNumber) {
+        return res.status(400).json({ error: 'Missing required query parameter: styleNumber' });
+    }
+    
+    try {
+        console.log(`Fetching data for /api/size-pricing: Style=${styleNumber}, Color=${color || 'ALL (max price per size if no color specified)'}`);
+
+        // 1. Fetch Selling Price Display Add-Ons from Caspio
+        let sellingPriceDisplayAddOns = {};
+        try {
+            const upchargeResourcePath = '/tables/Standard_Size_Upcharges/records';
+            const upchargeParams = {
+                'q.select': 'SizeDesignation,StandardAddOnAmount',
+                'q.orderby': 'SizeDesignation ASC',
+                'q.limit': 200
+            };
+            const upchargeResults = await fetchAllCaspioPages(upchargeResourcePath, upchargeParams);
+            upchargeResults.forEach(rule => {
+                if (rule.SizeDesignation && rule.StandardAddOnAmount !== null && !isNaN(parseFloat(rule.StandardAddOnAmount))) {
+                    sellingPriceDisplayAddOns[String(rule.SizeDesignation).trim().toUpperCase()] = parseFloat(rule.StandardAddOnAmount);
+                }
+            });
+            console.log("Fetched Selling Price Display Add-Ons for /api/size-pricing:", sellingPriceDisplayAddOns);
+            if (Object.keys(sellingPriceDisplayAddOns).length === 0) {
+                console.warn(`No Selling Price Display Add-On rules found for /api/size-pricing.`);
+            }
+        } catch (upchargeError) {
+            console.error("CRITICAL ERROR fetching Selling Price Display Add-Ons for /api/size-pricing:", upchargeError.message);
+            sellingPriceDisplayAddOns = {};
+        }
+
+        // 2. Fetch Inventory Data
+        const inventoryResource = '/tables/Inventory/records';
+        let inventoryWhereClause = `catalog_no='${styleNumber}'`;
+        if (color) {
+            inventoryWhereClause += ` AND catalog_color='${String(color).trim()}'`;
+        }
+        
+        const inventoryParams = {
+            'q.where': inventoryWhereClause,
+            'q.select': 'size, case_price, SizeSortOrder, catalog_color',
+            'q.limit': 1000
+        };
+        
+        console.log(`Fetching ALL inventory pages for style ${styleNumber} (color filter: ${color || 'none'}) with params: ${JSON.stringify(inventoryParams)}`);
+        
+        // Create a custom callback to track progress and detect when we have all sizes
+        const pageCallback = (pageNum, pageData) => {
+            console.log(`Inventory fetch - Page ${pageNum}: ${pageData.length} records`);
+            return pageData;
+        };
+        
+        // Create an early exit condition to stop when we've likely found all sizes for this style
+        const earlyExitCondition = (allResults) => {
+            // Extract unique sizes from current results
+            const uniqueSizes = new Set();
+            allResults.forEach(item => {
+                if (item.size) uniqueSizes.add(item.size.trim().toUpperCase());
+            });
+            
+            // Check if we have the expected large sizes (5XL, 6XL) - if so, we probably have everything
+            const hasLargeSizes = uniqueSizes.has('5XL') && uniqueSizes.has('6XL');
+            const sizeCount = uniqueSizes.size;
+            
+            // Log current progress
+            console.log(`Current unique sizes found: ${Array.from(uniqueSizes).sort()}`);
+            console.log(`Size count: ${sizeCount}, Has large sizes (5XL, 6XL): ${hasLargeSizes}`);
+            
+            // Exit early if we have a reasonable number of sizes AND the large sizes
+            // This prevents unnecessary API calls while ensuring completeness
+            if (sizeCount >= 7 && hasLargeSizes) {
+                console.log(`Early exit: Found ${sizeCount} sizes including large sizes (5XL, 6XL)`);
+                return true;
+            }
+            
+            return false;
+        };
+        
+        // Fetch ALL pages from Inventory with significantly increased maxPages and smart early exit
+        const inventoryResult = await fetchAllCaspioPages(inventoryResource, inventoryParams, {
+            maxPages: 100, // Dramatically increased from 20 to 100 to ensure we get all records
+            pageCallback: pageCallback,
+            earlyExitCondition: earlyExitCondition
+        });
+
+        if (inventoryResult.length === 0) {
+            console.warn(`No inventory found for style: ${styleNumber} with criteria: ${inventoryWhereClause} in /api/size-pricing`);
+            return res.json({
+                style: styleNumber, color: color || 'all (no inventory found)', baseSizePrice: null,
+                sizes: [], sellingPriceDisplayAddOns: sellingPriceDisplayAddOns,
+                message: `No inventory records found for style ${styleNumber} with where: ${inventoryWhereClause}`
+            });
+        }
+
+        // Log detailed information about what we found
+        const uniqueSizesFound = new Set();
+        inventoryResult.forEach(item => {
+            if (item.size) uniqueSizesFound.add(item.size.trim().toUpperCase());
+        });
+        console.log(`Total inventory records fetched: ${inventoryResult.length}`);
+        console.log(`Unique sizes found: ${Array.from(uniqueSizesFound).sort()}`);
+        console.log(`Size count: ${uniqueSizesFound.size}`);
+
+        const garmentCosts = {};
+        const sortOrders = {};
+        let processedColor = color ? String(color).trim() : null;
+
+        inventoryResult.forEach(item => {
+            if (item.size && item.case_price !== null && !isNaN(parseFloat(item.case_price))) {
+                const sizeKey = String(item.size).trim().toUpperCase();
+                const price = parseFloat(item.case_price);
+                const itemColor = String(item.catalog_color || '').trim();
+                const sortOrder = parseInt(item.SizeSortOrder, 10) || 999;
+
+                if (color) {
+                     if (itemColor.toUpperCase() === color.trim().toUpperCase()) {
+                         if (!garmentCosts[sizeKey] || price > garmentCosts[sizeKey]) {
+                             garmentCosts[sizeKey] = price;
+                         }
+                     }
+                } else {
+                    if (!garmentCosts[sizeKey] || price > garmentCosts[sizeKey]) {
+                        garmentCosts[sizeKey] = price;
+                    }
+                    if (!processedColor && inventoryResult.length > 0) {
+                        const firstColorInResults = inventoryResult[0]?.catalog_color;
+                        processedColor = firstColorInResults ? String(firstColorInResults).trim() : "all colors (aggregated)";
+                    } else if (!processedColor) {
+                        processedColor = "all colors (aggregated)";
+                    }
+                }
+                
+                if (!sortOrders[sizeKey] || sortOrder < sortOrders[sizeKey]) {
+                    sortOrders[sizeKey] = sortOrder;
+                }
+            }
+        });
+        
+        if (Object.keys(garmentCosts).length === 0) {
+             console.warn(`No valid garment costs derived for style: ${styleNumber} (color: ${color || 'any'}) from inventory for /api/size-pricing.`);
+             return res.json({
+                style: styleNumber, color: color || 'all (no costs derived)', baseSizePrice: null,
+                sizes: [], sellingPriceDisplayAddOns: sellingPriceDisplayAddOns,
+                message: `No valid garment costs could be derived for style ${styleNumber} (color: ${color || 'any'}).`
+            });
+        }
+        
+        let baseSizePrice = null;
+        const preferredBaseSizes = ['XL', 'L', 'M', 'S'];
+        for (const bSize of preferredBaseSizes) {
+            if (garmentCosts[bSize] !== undefined) {
+                baseSizePrice = garmentCosts[bSize];
+                break;
+            }
+        }
+        if (baseSizePrice === null && Object.keys(garmentCosts).length > 0) {
+            const firstSortedSize = Object.keys(garmentCosts).sort((a,b) => (sortOrders[a]||999) - (sortOrders[b]||999))[0];
+            if(firstSortedSize) baseSizePrice = garmentCosts[firstSortedSize];
+        }
+        
+        const sortedSizeKeys = Object.keys(garmentCosts).sort((a, b) => (sortOrders[a] || 999) - (sortOrders[b] || 999));
+        
+        const responsePayload = {
+            style: styleNumber,
+            color: processedColor || (color ? String(color).trim() : 'all colors (aggregated)'),
+            baseSizePrice: baseSizePrice,
+            sizes: sortedSizeKeys.map(sizeKey => ({
+                size: sizeKey,
+                price: garmentCosts[sizeKey],
+                sortOrder: sortOrders[sizeKey]
+            })),
+            sellingPriceDisplayAddOns: sellingPriceDisplayAddOns,
+            // Add debugging information to help track pagination completeness
+            debug: {
+                totalInventoryRecords: inventoryResult.length,
+                uniqueSizesFound: uniqueSizesFound.size,
+                allSizesFound: Array.from(uniqueSizesFound).sort()
+            }
+        };
+        
+        console.log(`Returning data for /api/size-pricing, style: ${styleNumber}, sizes found: ${sortedSizeKeys.length}`);
+        console.log(`Debug info - Total records: ${inventoryResult.length}, Unique sizes: ${uniqueSizesFound.size}`);
+        res.json(responsePayload);
+        
+    } catch (error) {
+        console.error(`Error in /api/size-pricing for ${styleNumber} (color: ${color || 'any'}):`, error.message, error.stack);
+        res.status(500).json({ error: `Failed to fetch size pricing for style ${styleNumber}. ${error.message}` });
+    }
+});
 
 // --- NEW Endpoint: Customer Information CRUD Operations ---
 // MOVED TO src/routes/orders.js
@@ -5444,8 +5394,6 @@ app.delete('/api/quote_sessions/:id', async (req, res) => {
 // --- END Quote_Sessions CRUD Operations ---
 
 // --- UPDATED Endpoint: Product Colors (Refactored to use Live Caspio Data) ---
-// MIGRATED to src/routes/products.js
-/*
 // Example: /api/product-colors?styleNumber=PC61
 app.get('/api/product-colors', async (req, res) => {
     const { styleNumber } = req.query;
@@ -5647,7 +5595,6 @@ function processProductColorRecords(records, styleNumber, res) {
         colors: colorsArray
     });
 }
-*/
 
 // Get Production Schedules
 // Example: /api/production-schedules

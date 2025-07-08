@@ -63,16 +63,16 @@ Critical Endpoints: All Passing ✅
 ### Batch 2: Pricing Endpoints (10 endpoints)
 | Endpoint | Line # | Status | Test Result | Commit |
 |----------|--------|--------|-------------|--------|
-| /api/pricing-tiers | ~327 | ✅ Commented | ✅ Pass | 2e7ad84 |
-| /api/embroidery-costs | ~351 | ✅ Commented | ⚠️ Refactored | 2e7ad84 |
-| /api/dtg-costs | ~368 | ✅ Commented | ✅ Pass | current |
-| /api/screenprint-costs | ~392 | ✅ Commented | ✅ Pass | current |
-| /api/pricing-rules | ~424 | ✅ Commented | ✅ Pass | current |
-| /api/pricing-bundle | ~455 | ✅ Commented | ✅ Pass | current |
-| /api/base-item-costs | ~618 | ✅ Commented | ✅ Pass | current |
-| /api/size-pricing | ~2211 | ✅ Commented | ✅ Pass | current |
-| /api/size-upcharges | ~741 | ✅ Commented | ✅ Pass | current |
-| /api/size-sort-order | ~761 | ✅ Commented | ✅ Pass | current |
+| /api/pricing-tiers | ~298 | ✅ Commented | ✅ Pass | 7f5445a |
+| /api/embroidery-costs | ~333 | ✅ Commented | ✅ Pass | 7f5445a |
+| /api/dtg-costs | ~368 | ✅ Commented | ✅ Pass | 7f5445a |
+| /api/screenprint-costs | ~394 | ✅ Commented | ✅ Pass | 7f5445a |
+| /api/pricing-rules | ~424 | ✅ Commented | ✅ Pass | 7f5445a |
+| /api/pricing-bundle | ~455 | ✅ Commented | ✅ Pass | 7f5445a |
+| /api/base-item-costs | ~618 | ✅ Commented | ✅ Pass | 7f5445a |
+| /api/size-pricing | ~2211 | ✅ Commented | ✅ Pass | 7f5445a |
+| /api/size-upcharges | ~741 | ✅ Commented | ✅ Pass | 7f5445a |
+| /api/size-sort-order | ~761 | ✅ Commented | ✅ Pass | 7f5445a |
 
 **Notes**: 
 - All 10 pricing endpoints successfully migrated to src/routes/pricing.js
@@ -80,8 +80,40 @@ Critical Endpoints: All Passing ✅
 - All 10/10 endpoints passing tests
 - Each endpoint has "MIGRATED to src/routes/pricing.js" comment
 
-### Batch 3: Product Endpoints (15 endpoints)
-[Similar format for remaining batches...]
+### Batch 3: Product Endpoints (21 endpoints)
+| Endpoint | Line # | Status | Test Result | Commit |
+|----------|--------|--------|-------------|--------|
+| /api/stylesearch | ~789 | ✅ Commented | Pending | Current |
+| /api/product-details | ~884 | ✅ Commented | Pending | Current |
+| /api/color-swatches | ~982 | ✅ Commented | Pending | Current |
+| /api/inventory | ~1089 | ✅ Commented | Pending | Current |
+| /api/products-by-brand | ~1123 | ✅ Commented | Pending | Current |
+| /api/products-by-category | ~1178 | ✅ Commented | Pending | Current |
+| /api/products-by-subcategory | ~1221 | ✅ Commented | Pending | Current |
+| /api/all-brands | ~1264 | ✅ Commented | Pending | Current |
+| /api/all-subcategories | ~1304 | ✅ Commented | Pending | Current |
+| /api/all-categories | ~1336 | ✅ Commented | Pending | Current |
+| /api/subcategories-by-category | ~1368 | ✅ Commented | Pending | Current |
+| /api/products-by-category-subcategory | ~1407 | ✅ Commented | Pending | Current |
+| /api/search | ~1464 | ✅ Commented | Pending | Current |
+| /api/featured-products | ~1505 | ✅ Commented | Pending | Current |
+| /api/related-products | ~1541 | ✅ Commented | Pending | Current |
+| /api/filter-products | ~1604 | ✅ Commented | Pending | Current |
+| /api/quick-view | ~1698 | ✅ Commented | Pending | Current |
+| /api/compare-products | ~1748 | ✅ Commented | Pending | Current |
+| /api/recommendations | ~1797 | ✅ Commented | Pending | Current |
+| /api/sizes-by-style-color | ~1863 | ✅ Commented | Pending | Current |
+| /api/prices-by-style-color | ~1992 | ✅ Commented | Pending | Current |
+| /api/product-variant-sizes | ~2066 | ✅ Commented | Pending | Current |
+| /api/product-colors | ~5448 | ✅ Commented | Pending | Current |
+
+**Notes**: 
+- All 21 product/inventory endpoints successfully commented out
+- Each endpoint has appropriate "MIGRATED to src/routes/products.js" or "MIGRATED to src/routes/inventory.js" comment
+- Ready for testing
+
+### Batch 4: Remaining Endpoints
+[To be completed...]
 
 ## Phase 4: Cleanup Status
 

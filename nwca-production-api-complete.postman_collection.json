@@ -8,7 +8,8 @@
     {
       "key": "baseUrl",
       "value": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com",
-      "type": "string"
+      "type": "string",
+      "description": "Production Heroku URL - all 52 endpoints tested and working"
     },
     {
       "key": "styleNumber",
@@ -485,14 +486,14 @@
                 ],
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"CartSessionID\": \"{{sessionId}}\",\n  \"StyleNumber\": \"PC54\",\n  \"Color\": \"Red\",\n  \"DecorationMethod\": \"DTG\",\n  \"Quantity\": 50,\n  \"PrintLocations\": \"Front\",\n  \"UnitPrice\": 15.99\n}"
+                  "raw": "{\n  \"SessionID\": \"{{sessionId}}\",\n  \"StyleNumber\": \"PC54\",\n  \"Color\": \"Red\",\n  \"DecorationMethod\": \"DTG\",\n  \"Quantity\": 50,\n  \"PrintLocations\": \"Front\",\n  \"UnitPrice\": 15.99\n}"
                 },
                 "url": {
                   "raw": "{{baseUrl}}/api/cart-items",
                   "host": ["{{baseUrl}}"],
                   "path": ["api", "cart-items"]
                 },
-                "description": "Add a new item to a cart.\n\nRequired: CartSessionID, StyleNumber, Color, Quantity\nOptional: DecorationMethod, PrintLocations, UnitPrice"
+                "description": "Add a new item to a cart.\n\nRequired: SessionID, StyleNumber, Color, Quantity\nOptional: DecorationMethod, PrintLocations, UnitPrice"
               }
             },
             {
