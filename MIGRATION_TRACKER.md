@@ -52,9 +52,9 @@ Critical Endpoints: All Passing ✅
 ### Batch 1: System/Health Endpoints
 | Endpoint | Line # | Status | Test Result | Commit |
 |----------|--------|--------|-------------|--------|
-| /api/health | ~249 | ✅ Commented | ✅ Pass | - |
-| /api/status | ~244 | ✅ Commented | ✅ Pass | - |
-| /api/test | ~289 | ✅ Commented | ✅ Pass | - |
+| /api/health | ~249 | ✅ Commented | ✅ Pass | a778a10 |
+| /api/status | ~244 | ✅ Commented | ✅ Pass | a778a10 |
+| /api/test | ~289 | ✅ Commented | ✅ Pass | a778a10 |
 
 **Notes**: 
 - Added /api/health endpoint to misc.js before commenting out
@@ -63,16 +63,22 @@ Critical Endpoints: All Passing ✅
 ### Batch 2: Pricing Endpoints (10 endpoints)
 | Endpoint | Line # | Status | Test Result | Commit |
 |----------|--------|--------|-------------|--------|
-| /api/pricing-tiers | ~1806 | ⏳ | - | - |
-| /api/embroidery-costs | ~2193 | ⏳ | - | - |
-| /api/dtg-costs | ~2081 | ⏳ | - | - |
-| /api/screenprint-costs | ~2290 | ⏳ | - | - |
-| /api/pricing-rules | ~2400 | ⏳ | - | - |
-| /api/pricing-bundle | ~2500 | ⏳ | - | - |
-| /api/base-item-costs | ~3000 | ⏳ | - | - |
-| /api/size-pricing | ~5500 | ⏳ | - | - |
-| /api/size-upcharges | ~730 | ⏳ | - | - |
-| /api/size-sort-order | ~750 | ⏳ | - | - |
+| /api/pricing-tiers | ~327 | ✅ Commented | ✅ Pass | 2e7ad84 |
+| /api/embroidery-costs | ~351 | ✅ Commented | ⚠️ Refactored | 2e7ad84 |
+| /api/dtg-costs | ~368 | ✅ Commented | ✅ Pass | current |
+| /api/screenprint-costs | ~392 | ✅ Commented | ✅ Pass | current |
+| /api/pricing-rules | ~424 | ✅ Commented | ✅ Pass | current |
+| /api/pricing-bundle | ~455 | ✅ Commented | ✅ Pass | current |
+| /api/base-item-costs | ~618 | ✅ Commented | ✅ Pass | current |
+| /api/size-pricing | ~2211 | ✅ Commented | ✅ Pass | current |
+| /api/size-upcharges | ~741 | ✅ Commented | ✅ Pass | current |
+| /api/size-sort-order | ~761 | ✅ Commented | ✅ Pass | current |
+
+**Notes**: 
+- All 10 pricing endpoints successfully migrated to src/routes/pricing.js
+- Created test-batch2-pricing.js for verification  
+- All 10/10 endpoints passing tests
+- Each endpoint has "MIGRATED to src/routes/pricing.js" comment
 
 ### Batch 3: Product Endpoints (15 endpoints)
 [Similar format for remaining batches...]
@@ -99,7 +105,7 @@ Critical Endpoints: All Passing ✅
 | Phase 1 Complete | ✅ | ✅ | ✅ | All modules enabled |
 | Phase 2 Complete | ✅ | ✅ | ✅ | 26/27 tests passed |
 | Phase 3 Batch 1 | ✅ | ✅ | ✅ | System endpoints migrated |
-| Phase 3 Batch 2 | - | - | - | - |
+| Phase 3 Batch 2 | ✅ | ✅ | ✅ | Pricing endpoints migrated |
 | Final | - | - | - | - |
 
 ## Performance Metrics
