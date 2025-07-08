@@ -6279,14 +6279,23 @@ app.get('/api/order-dashboard', async (req, res) => {
 });
 */
 
-// --- Load only critical modular routes needed for dashboard ---
+// --- Load all modular routes ---
+// MIGRATION IN PROGRESS: Enabling all modular routes for endpoint migration
+
 // Orders Routes (contains order-dashboard endpoint)
 const orderRoutes = require('./src/routes/orders');
 app.use('/api', orderRoutes);
+console.log('✓ Orders routes loaded');
 
 // Miscellaneous Routes (contains staff-announcements endpoint)
 const miscRoutes = require('./src/routes/misc');
 app.use('/api', miscRoutes);
+console.log('✓ Misc routes loaded');
+
+// Pricing Routes
+const pricingRoutes = require('./src/routes/pricing');
+app.use('/api', pricingRoutes);
+console.log('✓ Pricing routes loaded');
 
 // --- Enhanced Error Handling Middleware ---
 app.use((err, req, res, next) => {
