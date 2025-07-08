@@ -6302,6 +6302,11 @@ const inventoryRoutes = require('./src/routes/inventory');
 app.use('/api', inventoryRoutes);
 console.log('✓ Inventory routes loaded');
 
+// Products Routes
+const productRoutes = require('./src/routes/products');
+app.use('/api', productRoutes);
+console.log('✓ Product routes loaded');
+
 // --- Enhanced Error Handling Middleware ---
 app.use((err, req, res, next) => {
     const timestamp = new Date().toISOString();
