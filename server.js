@@ -705,6 +705,29 @@ app.get('/api/locations', async (req, res) => {
     }
 });
 
+// GET /api/staff-announcements - Get active staff announcements
+// NOTE: This endpoint is now loaded from src/routes/misc.js
+/*
+app.get('/api/staff-announcements', async (req, res) => {
+    console.log('GET /api/staff-announcements requested');
+    
+    try {
+        // Fetch active announcements from Caspio
+        const announcements = await fetchAllCaspioPages('/tables/staff_announcements/records', {
+            'q.where': 'IsActive=1',  // Only get active announcements (1 = true in Caspio)
+            'q.orderBy': 'Priority ASC',  // Show highest priority first (1 is highest)
+            'q.limit': 100
+        });
+        
+        console.log(`Staff announcements: ${announcements.length} active announcement(s) found`);
+        res.json(announcements);
+    } catch (error) {
+        console.error('Error fetching staff announcements:', error.message);
+        res.status(500).json({ error: 'Failed to fetch staff announcements', details: error.message });
+    }
+});
+*/
+
 // GET /api/size-upcharges - Get standard size upcharges
 // Example: /api/size-upcharges
 app.get('/api/size-upcharges', async (req, res) => {
@@ -6050,6 +6073,220 @@ app.get('/api/order-dashboard', async (req, res) => {
     }
 });
 */
+
+// --- Order Dashboard endpoint for UI ---
+// NOTE: This endpoint is now loaded from src/routes/orders.js
+/*
+// Parameter-aware in-memory cache for dashboard data
+const dashboardCache = new Map();
+
+app.get('/api/order-dashboard', async (req, res) => {
+    console.log(`GET /api/order-dashboard requested with params:`, req.query);
+    
+    try {
+        // Parse parameters first
+        const days = parseInt(req.query.days) || 7;
+        const includeDetails = req.query.includeDetails === 'true';
+        const compareYoY = req.query.compareYoY === 'true';
+        
+        // Create cache key based on parameters
+        const cacheKey = `days:${days}-details:${includeDetails}-yoy:${compareYoY}`;
+        
+        // Check cache (60 seconds)
+        const now = Date.now();
+        const cachedEntry = dashboardCache.get(cacheKey);
+        if (cachedEntry && now - cachedEntry.timestamp < 60000) {
+            console.log(`Returning cached dashboard data for ${cacheKey}`);
+            return res.json(cachedEntry.data);
+        }
+        
+        // Calculate date range
+        const endDate = new Date();
+        const startDate = new Date();
+        startDate.setDate(startDate.getDate() - days);
+        
+        // Format dates for Caspio (YYYY-MM-DD)
+        const formatDate = (date) => date.toISOString().split('T')[0];
+        
+        // Fetch orders in date range
+        const whereClause = `date_OrderInvoiced>='${formatDate(startDate)}' AND date_OrderInvoiced<='${formatDate(endDate)}'`;
+        console.log(`Fetching orders with whereClause: ${whereClause}`);
+        
+        const orders = await fetchAllCaspioPages('/tables/ORDER_ODBC/records', {
+            'q.where': whereClause,
+            'q.limit': 1000,
+            'q.orderby': 'date_OrderInvoiced DESC'
+        });
+        
+        console.log(`Found ${orders.length} orders in the last ${days} days`);
+        
+        // Calculate summary metrics
+        const summary = {
+            totalOrders: orders.length,
+            totalSales: orders.reduce((sum, order) => sum + (parseFloat(order.cur_Subtotal) || 0), 0),
+            notInvoiced: orders.filter(order => order.sts_Invoiced === 0).length,
+            notShipped: orders.filter(order => order.sts_Shipped === 0).length,
+            avgOrderValue: 0
+        };
+        
+        // Calculate average order value
+        if (summary.totalOrders > 0) {
+            summary.avgOrderValue = summary.totalSales / summary.totalOrders;
+        }
+        
+        // Calculate date range info
+        const dateRange = {
+            start: formatDate(startDate) + 'T00:00:00Z',
+            end: formatDate(endDate) + 'T23:59:59Z',
+            mostRecentOrder: null
+        };
+        
+        if (orders.length > 0) {
+            dateRange.mostRecentOrder = orders[0].date_OrderInvoiced;
+        }
+        
+        // CSR name normalization mapping
+        const csrNameMap = {
+            'Ruth  Nhoung': 'Ruthie Nhoung',
+            'Ruth Nhoung': 'Ruthie Nhoung',
+            'ruth': 'Ruthie Nhoung',
+            'House ': 'House Account',
+            'House': 'House Account',
+            'Unknown': 'Unassigned'
+        };
+        
+        // Function to normalize CSR names
+        const normalizeCSRName = (name) => {
+            return csrNameMap[name] || name;
+        };
+        
+        // Group by CSR with name normalization
+        const csrMap = {};
+        orders.forEach(order => {
+            const originalCsr = order.CustomerServiceRep || 'Unknown';
+            const csr = normalizeCSRName(originalCsr);
+            if (!csrMap[csr]) {
+                csrMap[csr] = { name: csr, orders: 0, sales: 0 };
+            }
+            csrMap[csr].orders++;
+            csrMap[csr].sales += parseFloat(order.cur_Subtotal) || 0;
+        });
+        
+        const byCsr = Object.values(csrMap)
+            .sort((a, b) => b.sales - a.sales)
+            .map(csr => ({
+                name: csr.name,
+                orders: csr.orders,
+                sales: parseFloat(csr.sales.toFixed(2))
+            }));
+        
+        // Order Type normalization mapping
+        const orderTypeMap = {
+            'Wow Embroidery': 'WOW',
+            'Sample Return to Vendor': 'Sample Returns',
+            'Inksoft': 'Webstores',
+            '77 Account': 'Samples',
+            'Digital Printing': 'DTG',
+            'Transfers': 'DTF',
+            'Shopify': '253GEAR'
+        };
+        
+        // Function to normalize Order Types
+        const normalizeOrderType = (type) => {
+            return orderTypeMap[type] || type;
+        };
+        
+        // Group by Order Type with normalization
+        const typeMap = {};
+        orders.forEach(order => {
+            const originalType = order.ORDER_TYPE || 'Unknown';
+            const type = normalizeOrderType(originalType);
+            if (!typeMap[type]) {
+                typeMap[type] = { type: type, orders: 0, sales: 0 };
+            }
+            typeMap[type].orders++;
+            typeMap[type].sales += parseFloat(order.cur_Subtotal) || 0;
+        });
+        
+        const byOrderType = Object.values(typeMap)
+            .sort((a, b) => b.sales - a.sales)
+            .map(type => ({
+                type: type.type,
+                orders: type.orders,
+                sales: parseFloat(type.sales.toFixed(2))
+            }));
+        
+        // Calculate today's stats
+        const today = new Date();
+        const todayStr = formatDate(today);
+        const todayOrders = orders.filter(order => 
+            order.date_OrderInvoiced && order.date_OrderInvoiced.startsWith(todayStr)
+        );
+        
+        const todayStats = {
+            ordersToday: todayOrders.length,
+            salesToday: todayOrders.reduce((sum, order) => sum + (parseFloat(order.cur_Subtotal) || 0), 0),
+            shippedToday: todayOrders.filter(order => order.sts_Shipped === 1).length
+        };
+        
+        // Round sales values to 2 decimal places
+        summary.totalSales = parseFloat(summary.totalSales.toFixed(2));
+        summary.avgOrderValue = parseFloat(summary.avgOrderValue.toFixed(2));
+        todayStats.salesToday = parseFloat(todayStats.salesToday.toFixed(2));
+        
+        // Build response
+        const response = {
+            summary,
+            dateRange,
+            breakdown: {
+                byCsr,
+                byOrderType
+            },
+            todayStats
+        };
+        
+        // Add recent orders if requested
+        if (includeDetails) {
+            response.recentOrders = orders.slice(0, 10).map(order => ({
+                ID_Order: order.ID_Order,
+                date_OrderInvoiced: order.date_OrderInvoiced,
+                CompanyName: order.CompanyName,
+                CustomerServiceRep: order.CustomerServiceRep,
+                ORDER_TYPE: order.ORDER_TYPE,
+                cur_Subtotal: parseFloat(order.cur_Subtotal) || 0,
+                sts_Invoiced: order.sts_Invoiced,
+                sts_Shipped: order.sts_Shipped
+            }));
+        }
+        
+        // Add year-over-year comparison if requested
+        if (compareYoY) {
+            console.log('Year-over-year comparison requested but not implemented in this simplified version');
+            response.yearOverYear = {
+                note: 'YoY comparison requires additional implementation'
+            };
+        }
+        
+        // Cache the response with parameter-based key
+        dashboardCache.set(cacheKey, { data: response, timestamp: now });
+        console.log(`Cached dashboard data for ${cacheKey}`);
+        
+        res.json(response);
+    } catch (error) {
+        console.error("Error fetching dashboard data:", error.message);
+        res.status(500).json({ error: 'Failed to fetch dashboard data.' });
+    }
+});
+*/
+
+// --- Load only critical modular routes needed for dashboard ---
+// Orders Routes (contains order-dashboard endpoint)
+const orderRoutes = require('./src/routes/orders');
+app.use('/api', orderRoutes);
+
+// Miscellaneous Routes (contains staff-announcements endpoint)
+const miscRoutes = require('./src/routes/misc');
+app.use('/api', miscRoutes);
 
 // --- Enhanced Error Handling Middleware ---
 app.use((err, req, res, next) => {
