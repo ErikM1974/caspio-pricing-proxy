@@ -6297,6 +6297,11 @@ const pricingRoutes = require('./src/routes/pricing');
 app.use('/api', pricingRoutes);
 console.log('✓ Pricing routes loaded');
 
+// Inventory Routes
+const inventoryRoutes = require('./src/routes/inventory');
+app.use('/api', inventoryRoutes);
+console.log('✓ Inventory routes loaded');
+
 // --- Enhanced Error Handling Middleware ---
 app.use((err, req, res, next) => {
     const timestamp = new Date().toISOString();
