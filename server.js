@@ -237,55 +237,61 @@ async function fetchAllCaspioPages(resourcePath, initialParams = {}, options = {
 
 // --- API Endpoints ---
 
+// MIGRATION: System endpoints need to stay in server.js for now
+// These are core server monitoring endpoints
+
 // Simple status check
-app.get('/status', (req, res) => {
-    res.json({ status: 'Proxy server running', caspio_domain: caspioDomain });
-});
+// MIGRATED to src/routes/misc.js
+// app.get('/status', (req, res) => {
+//     res.json({ status: 'Proxy server running', caspio_domain: caspioDomain });
+// });
 
 // Health check endpoint with comprehensive info
-app.get('/api/health', (req, res) => {
-    const os = require('os');
-    
-    // Get WSL IP
-    const interfaces = os.networkInterfaces();
-    let wslIP = '127.0.0.1';
-    for (const name of Object.keys(interfaces)) {
-        for (const iface of interfaces[name]) {
-            if (iface.family === 'IPv4' && !iface.internal && iface.address.startsWith('172.')) {
-                wslIP = iface.address;
-                break;
-            }
-        }
-    }
-    
-    res.json({
-        status: 'healthy',
-        message: 'Caspio Proxy Server is running',
-        server: {
-            port: PORT,
-            actualPort: req.socket.localPort,
-            environment: process.env.NODE_ENV || 'development',
-            uptime: process.uptime(),
-            wslIP: wslIP
-        },
-        caspio: {
-            domain: caspioDomain,
-            tokenCached: !!caspioAccessToken,
-            tokenExpiry: tokenExpiryTime ? new Date(tokenExpiryTime * 1000).toISOString() : null
-        },
-        testUrls: {
-            dashboard: `http://${wslIP}:${PORT}/api/order-dashboard`,
-            products: `http://${wslIP}:${PORT}/api/products/PC54`,
-            health: `http://${wslIP}:${PORT}/api/health`
-        },
-        timestamp: new Date().toISOString()
-    });
-});
+// MIGRATED to src/routes/misc.js
+// app.get('/api/health', (req, res) => {
+//     const os = require('os');
+//     
+//     // Get WSL IP
+//     const interfaces = os.networkInterfaces();
+//     let wslIP = '127.0.0.1';
+//     for (const name of Object.keys(interfaces)) {
+//         for (const iface of interfaces[name]) {
+//             if (iface.family === 'IPv4' && !iface.internal && iface.address.startsWith('172.')) {
+//                 wslIP = iface.address;
+//                 break;
+//             }
+//         }
+//     }
+//     
+//     res.json({
+//         status: 'healthy',
+//         message: 'Caspio Proxy Server is running',
+//         server: {
+//             port: PORT,
+//             actualPort: req.socket.localPort,
+//             environment: process.env.NODE_ENV || 'development',
+//             uptime: process.uptime(),
+//             wslIP: wslIP
+//         },
+//         caspio: {
+//             domain: caspioDomain,
+//             tokenCached: !!caspioAccessToken,
+//             tokenExpiry: tokenExpiryTime ? new Date(tokenExpiryTime * 1000).toISOString() : null
+//         },
+//         testUrls: {
+//             dashboard: `http://${wslIP}:${PORT}/api/order-dashboard`,
+//             products: `http://${wslIP}:${PORT}/api/products/PC54`,
+//             health: `http://${wslIP}:${PORT}/api/health`
+//         },
+//         timestamp: new Date().toISOString()
+//     });
+// });
 
 // Test endpoint
-app.get('/test', (req, res) => {
-    res.json({ message: 'Test endpoint is working!' });
-});
+// MIGRATED to src/routes/misc.js
+// app.get('/test', (req, res) => {
+//     res.json({ message: 'Test endpoint is working!' });
+// });
 
 // Get Pricing Tiers based on Decoration Method
 // Example: /api/pricing-tiers?method=DTG

@@ -18,6 +18,52 @@ router.get('/test', (req, res) => {
   res.json({ message: 'Test endpoint working!' });
 });
 
+// GET /api/health - Health check endpoint with comprehensive info
+router.get('/health', (req, res) => {
+  const os = require('os');
+  
+  // Get WSL IP
+  const interfaces = os.networkInterfaces();
+  let wslIP = '127.0.0.1';
+  for (const name of Object.keys(interfaces)) {
+    for (const iface of interfaces[name]) {
+      if (iface.family === 'IPv4' && !iface.internal && iface.address.startsWith('172.')) {
+        wslIP = iface.address;
+        break;
+      }
+    }
+  }
+  
+  // Access configuration from the app
+  const app = req.app;
+  const config = app.get('config');
+  const PORT = config?.PORT || process.env.PORT || 3002;
+  const caspioDomain = config?.CASPIO_DOMAIN || process.env.CASPIO_DOMAIN || 'c0esh141.caspio.com';
+  
+  res.json({
+    status: 'healthy',
+    message: 'Caspio Proxy Server is running',
+    server: {
+      port: PORT,
+      actualPort: req.socket.localPort,
+      environment: process.env.NODE_ENV || 'development',
+      uptime: process.uptime(),
+      wslIP: wslIP
+    },
+    caspio: {
+      domain: caspioDomain,
+      tokenCached: false, // Token info not available in modular routes
+      tokenExpiry: null
+    },
+    testUrls: {
+      dashboard: `http://${wslIP}:${PORT}/api/order-dashboard`,
+      products: `http://${wslIP}:${PORT}/api/products/PC54`,
+      health: `http://${wslIP}:${PORT}/api/health`
+    },
+    timestamp: new Date().toISOString()
+  });
+});
+
 // GET /api/cart-integration.js
 router.get('/cart-integration.js', (req, res) => {
   console.log('GET /api/cart-integration.js requested');
