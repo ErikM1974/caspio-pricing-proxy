@@ -285,6 +285,11 @@ const transferRoutes = require('./src/routes/transfers');
 app.use('/api', transferRoutes);
 console.log('✓ Transfer routes loaded');
 
+// Art Routes (artrequests and art-invoices)
+const artRoutes = require('./src/routes/art');
+app.use('/api', artRoutes);
+console.log('✓ Art routes loaded');
+
 // --- Enhanced Error Handling Middleware ---
 app.use((err, req, res, next) => {
     const timestamp = new Date().toISOString();

@@ -1,0 +1,125 @@
+{
+  "timestamp": "2025-07-09T12:01:00.738Z",
+  "results": [
+    {
+      "endpoint": "/api/artrequests",
+      "method": "GET",
+      "description": "Art requests list",
+      "status": 404,
+      "statusText": "Not Found",
+      "working": false
+    },
+    {
+      "endpoint": "/api/artrequests/52503",
+      "method": "PUT",
+      "description": "Update art request",
+      "status": 404,
+      "statusText": "Not Found",
+      "working": false
+    },
+    {
+      "endpoint": "/api/art-invoices",
+      "method": "GET",
+      "description": "Art invoices list",
+      "status": 404,
+      "statusText": "Not Found",
+      "working": false
+    },
+    {
+      "endpoint": "/api/art-invoices",
+      "method": "POST",
+      "description": "Create art invoice",
+      "status": 404,
+      "statusText": "Not Found",
+      "working": false
+    },
+    {
+      "endpoint": "/api/art-invoices/1",
+      "method": "PUT",
+      "description": "Update invoice",
+      "status": 404,
+      "statusText": "Not Found",
+      "working": false
+    },
+    {
+      "endpoint": "/api/customers",
+      "method": "GET",
+      "description": "Customers list",
+      "status": 200,
+      "statusText": "OK",
+      "working": true
+    },
+    {
+      "endpoint": "/api/product-colors",
+      "method": "GET",
+      "description": "Product colors",
+      "status": 400,
+      "statusText": "Bad Request",
+      "working": false
+    },
+    {
+      "endpoint": "/api/pricing-tiers",
+      "method": "GET",
+      "description": "Pricing tiers",
+      "status": 400,
+      "statusText": "Bad Request",
+      "working": false
+    },
+    {
+      "endpoint": "/api/quote_items",
+      "method": "GET",
+      "description": "Quote items",
+      "status": 200,
+      "statusText": "OK",
+      "working": true
+    },
+    {
+      "endpoint": "/api/quote_analytics",
+      "method": "GET",
+      "description": "Quote analytics",
+      "status": 200,
+      "statusText": "OK",
+      "working": true
+    },
+    {
+      "endpoint": "/api/quote_sessions",
+      "method": "GET",
+      "description": "Quote sessions",
+      "status": 200,
+      "statusText": "OK",
+      "working": true
+    },
+    {
+      "endpoint": "/api/orders",
+      "method": "GET",
+      "description": "List orders",
+      "status": 200,
+      "statusText": "OK",
+      "working": true
+    },
+    {
+      "endpoint": "/api/health",
+      "method": "GET",
+      "description": "Health check",
+      "status": 200,
+      "statusText": "OK",
+      "working": true
+    },
+    {
+      "endpoint": "/api/order-dashboard",
+      "method": "GET",
+      "description": "Order dashboard",
+      "status": 200,
+      "statusText": "OK",
+      "working": true
+    },
+    {
+      "endpoint": "/api/staff-announcements",
+      "method": "GET",
+      "description": "Staff announcements",
+      "status": 200,
+      "statusText": "OK",
+      "working": true
+    }
+  ]
+}

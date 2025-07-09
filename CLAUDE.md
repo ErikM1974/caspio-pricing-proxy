@@ -2,150 +2,96 @@
 
 - Art_Request Invoice
 
-## Production Status (July 2025)
-
-### Deployment Information
-- **Production URL**: https://caspio-pricing-proxy-ab30a049961a.herokuapp.com
-- **Deployment Status**: ✅ LIVE - 52 critical endpoints working
-- **Last Deployment**: July 8, 2025
-- **Success Rate**: 83.3% (40/48 tested endpoints working)
-
 ## Local Development Setup
 
-### Server Configuration (Modular Architecture - Completed July 2025)
-- **Local Port**: 3002 (consistent across all configurations)
+### Server Configuration
+- **Local Port**: 3002 (dedicated port for caspio-pricing-proxy)
 - **Production**: Uses Heroku's assigned port via `process.env.PORT`
-- **Express Version**: 4.21.2 (stable version)
-- **API Version**: Caspio v2 API (standardized)
-- **Architecture**: ✅ Modular routes fully deployed (migration completed July 8, 2025)
+## Claude Rules
+1. First think through the problem, read the codebase for relevant files, and write a plan to tasks/todo.md.
+2. The plan should have a list of todo items that you can check off as you complete them
+3. Before you begin working, check in with me and I will verify the plan.
+4. Then, begin working on the todo items, marking them as complete as you go.
+5. Please every step of the way just give me a high level explanation of what changes you made
+6. Make every task and code change you do as simple as possible. We want to avoid making any massive or complex changes. Every change should impact as little code as possible. Everything is about simplicity.
 
-### Starting the Server
+### Testing Locally with WSL
+When running the server in WSL (Windows Subsystem for Linux), you cannot use `localhost` in Postman or browsers on Windows. Instead:
+### we are now using Routes, so when making a new endpoint add to a route file in the /routes folder.
 
-#### Recommended Method - Enhanced Start Script
+1. **Get your WSL IP address:**
+   ```bash
+   hostname -I | awk '{print $1}'
+   ```
+
+2. **Use the WSL IP for all local testing:**
+   ```
+   http://[YOUR-WSL-IP]:3002/api/order-dashboard
+   http://[YOUR-WSL-IP]:3002/api/order-odbc
+   http://[YOUR-WSL-IP]:3002/api/products/search
+   ```
+   Example: `http://172.20.132.206:3002/api/order-dashboard`
+
+3. **Note**: The WSL IP address changes when Windows restarts, so check it each time.
+
+### Quick Start Testing
+
+#### 1. Start the Server (Recommended Method)
 ```bash
 cd /mnt/c/Users/erik/OneDrive\ -\ Northwest\ Custom\ Apparel/2025/caspio-pricing-proxy
-node start-server.js
+node start-test-server.js
 ```
 
-Features:
-- ✅ Port availability checking
-- ✅ Automatic WSL IP detection
-- ✅ Startup diagnostics
-- ✅ Caspio credential validation
-- ✅ Graceful shutdown handling
-- ✅ Color-coded output
+This helper script will:
+- ✅ Force the server to use port 3002 (avoiding port confusion)
+- ✅ Display your current WSL IP address
+- ✅ Show ready-to-copy Postman URLs
+- ✅ Monitor server health
+- ✅ Handle graceful shutdown with Ctrl+C
 
-#### Quick Restart
+#### 2. Test the Endpoints
 ```bash
-./restart-server.sh
-```
-Or use the alias: `kill $(lsof -t -i:3002) 2>/dev/null && node start-server.js`
-
-#### Manual Method
-```bash
-node server.js
+node test-endpoints.js
 ```
 
-### Testing with WSL
-When running the server in WSL, you cannot use `localhost` from Windows. The enhanced start script automatically displays your WSL IP and ready-to-use URLs.
+This will:
+- 🔍 Auto-detect which port the server is actually using
+- 🧪 Run health checks on key endpoints
+- 📋 Display Postman-ready URLs with your current WSL IP
+- ✅ Verify server is working correctly
 
-### Configuration
-The server uses a unified configuration file (`config.js`) that:
-- Validates all required environment variables on startup
-- Uses consistent timeouts and pagination settings
-- Standardizes on Caspio API v2
-- Provides clear error messages for misconfiguration
-
-**Note**: No `.env` file exists locally. All configuration is handled through `config.js` and environment variables.
-
-### Server Features
-- **Robust Error Handling**: Enhanced error middleware with error IDs and detailed logging
-- **Startup Validation**: Checks Caspio credentials before accepting requests
-- **Health Check Endpoint**: `/api/health` provides comprehensive diagnostics
-- **Graceful Shutdown**: Handles SIGTERM and SIGINT properly
-- **Modular Architecture**: All endpoints organized into logical route modules
-
-### Quick Test
+#### 3. Quick Health Check
 ```bash
-# Test server health
 curl http://localhost:3002/api/health
-
-# Test all 52 production endpoints on Heroku
-node test-heroku-52-after-deploy.js
 ```
 
-## IMPORTANT: Endpoint Migration COMPLETED (July 2025)
+### Running the Server (Manual Method)
+```bash
+cd /mnt/c/Users/erik/OneDrive\ -\ Northwest\ Custom\ Apparel/2025/caspio-pricing-proxy
+PORT=3002 node server.js
+```
 
-### Current Architecture
-- **Migration Status**: ✅ COMPLETED - All critical endpoints migrated to modular routes
-- **Production Status**: ✅ DEPLOYED - 52 endpoints live on Heroku
-- **Code Cleanup**: ✅ COMPLETED - 6,000+ lines of dead code removed from server.js (July 9, 2025)
+### Common Issues & Solutions
 
-### Available Route Modules
-All modules are located in `src/routes/`:
-- `cart.js` - Cart sessions, items, and sizes management
-- `inventory.js` - Inventory checking and management
-- `misc.js` - Health check, announcements, and utility endpoints
-- `orders.js` - Order management and dashboard
-- `pricing-matrix.js` - Pricing matrix CRUD operations
-- `pricing.js` - All pricing and cost calculations
-- `products.js` - Product search, details, and categories
-- `quotes.js` - Quote sessions, items, and analytics
-- `transfers.js` - Transfer printing management
-
-### Development Rules Going Forward
-1. **✅ DO**: Add all new endpoints to the appropriate module in `src/routes/`
-2. **❌ DON'T**: Add any new endpoints to server.js
-3. **❌ DON'T**: Uncomment or modify the commented code in server.js
-
-### Cleanup Status
-**COMPLETED**: July 9, 2025
-- ✅ All 6,000+ lines of commented code removed from server.js
-- ✅ server.js reduced from 6,467 lines to 360 lines
-- ✅ All functionality preserved in modular routes
-- ✅ Production deployment stable with 52 working endpoints
-
-### Quick Reference for New Endpoints
-
-**🚨 CRITICAL: NEVER add new endpoints to server.js! Always use the modular route files.**
-
-When adding a new endpoint:
-1. **Choose the correct module** in `src/routes/`:
-   - `cart.js` → Cart sessions, items, sizes
-   - `inventory.js` → Stock checking, availability
-   - `misc.js` → Health checks, utility endpoints
-   - `orders.js` → Order management, dashboard
-   - `pricing-matrix.js` → Matrix CRUD operations
-   - `pricing.js` → Costs, tiers, rules
-   - `products.js` → Search, categories, details
-   - `quotes.js` → Quote sessions, analytics
-   - `transfers.js` → Transfer printing
-
-2. **Use Express Router syntax**:
-   ```javascript
-   router.get('/your-endpoint', async (req, res) => {
-     // Your code here
-   });
-   ```
-
-3. **Import shared utilities** from server.js:
-   ```javascript
-   const { fetchAllCaspioPages } = require('../../server');
-   ```
-
-4. **Test locally** at `/api/your-endpoint` (routes auto-prefixed with `/api`)
+| Issue | Solution |
+|-------|----------|
+| Server starts on port 3000 instead of 3002 | Use `node start-test-server.js` or set `PORT=3002` explicitly |
+| Can't connect from Postman | Check WSL IP with `hostname -I` - it changes on reboot |
+| Server won't start | Check if port is in use: `lsof -i :3002` or `netstat -tlnp | grep 3002` |
+| Connection refused errors | Ensure you're using WSL IP, not localhost, from Windows |
+| Endpoints return errors | Run `node test-endpoints.js` to diagnose which endpoints are failing |
 
 ## Project Documentation
 
 ### Memory Folder
 The `memory/` folder contains important project documentation and reference materials:
 
-- **[API Documentation](memory/API_DOCUMENTATION.md)** - Comprehensive API endpoint documentation
-- **[API Endpoints List](memory/API_ENDPOINTS.md)** - List of all 52 production endpoints used on teamnwca.com
-
-### Testing Resources
-- **Postman Collection**: `52-working-endpoints.postman_collection.json` - Import this for easy API testing
-- **Heroku Test Script**: `test-heroku-52-after-deploy.js` - Tests all production endpoints
+- **[API Documentation](memory/API_DOCUMENTATION.md)** - Comprehensive API endpoint documentation including:
+  - Complete list of all endpoints with examples
+  - Request/response formats
+  - Query parameters and filters
+  - CRUD operations for all entities
+  - Recently added Art Invoices API endpoints
 
 ### Key APIs Available:
 - Cart API (sessions, items, sizes)
@@ -159,21 +105,10 @@ The `memory/` folder contains important project documentation and reference mate
 - Quotes API (analytics, items, sessions)
 - Art Invoices API (full CRUD operations)
 - Transfers API
-- Production Schedules API
 - Misc API utilities
+- Production Schedules API
 
 ## Creating New API Endpoints
-
-### 🚨 IMPORTANT: Module-First Architecture
-
-**DO NOT add any new endpoints to server.js!** The server.js file should remain at ~360 lines and only contain:
-- Express server setup
-- Helper functions (getCaspioAccessToken, fetchAllCaspioPages)
-- Route module imports
-- Error handling middleware
-- Server startup code
-
-All new endpoints MUST be added to the appropriate module in `src/routes/`.
 
 When creating a new API endpoint, follow this step-by-step process:
 
@@ -234,196 +169,11 @@ Failure to use `fetchAllCaspioPages` will result in incomplete data when the res
 
 ### Standard Implementation Pattern
 Most endpoints will follow this pattern:
-1. **Add to appropriate module in `src/routes/`** (NOT to server.js!)
+1. Add to server.js directly (not modular)
 2. Use Caspio API v2 for consistency
 3. Public access (no authentication)
 4. Standard error handling (400 for bad params, 500 for server errors)
 5. **ALWAYS use `fetchAllCaspioPages` for pagination** (never `makeCaspioRequest` for multi-record queries)
-
-### Step-by-Step Implementation Guide
-
-#### 1. Choose the Right Module
-Before writing any code, determine which module your endpoint belongs in:
-
-```javascript
-// Example: Adding a new product variant endpoint
-// This belongs in src/routes/products.js, NOT server.js!
-```
-
-#### 2. Import Required Functions
-```javascript
-// At the top of your route module
-const express = require('express');
-const router = express.Router();
-const { fetchAllCaspioPages } = require('../../server');
-```
-
-#### 3. Implement the Endpoint
-```javascript
-// Standard GET endpoint pattern
-router.get('/your-endpoint-name', async (req, res) => {
-  try {
-    // Extract query parameters
-    const whereClause = req.query['q.where'] || '';
-    const orderBy = req.query['q.orderBy'] || '';
-    const limit = req.query['q.limit'] || '100';
-    
-    // Build Caspio parameters
-    const params = {};
-    if (whereClause) params['q.where'] = whereClause;
-    if (orderBy) params['q.orderBy'] = orderBy;
-    params['q.limit'] = limit;
-    
-    // ALWAYS use fetchAllCaspioPages for multi-record queries
-    const records = await fetchAllCaspioPages(
-      '/tables/Your_Table_Name/records',
-      params
-    );
-    
-    // Return the data
-    res.json(records);
-  } catch (error) {
-    console.error('Error in /your-endpoint-name:', error);
-    res.status(500).json({ 
-      error: 'Failed to fetch data',
-      details: error.message 
-    });
-  }
-});
-```
-
-#### 4. POST/PUT/DELETE Endpoints
-```javascript
-// For single record operations, makeCaspioRequest is acceptable
-router.post('/your-endpoint-name', async (req, res) => {
-  try {
-    const { makeCaspioRequest } = require('../../server');
-    
-    // Validate required fields
-    const requiredFields = ['field1', 'field2'];
-    for (const field of requiredFields) {
-      if (!req.body[field]) {
-        return res.status(400).json({ 
-          error: `Missing required field: ${field}` 
-        });
-      }
-    }
-    
-    // Make the request
-    const result = await makeCaspioRequest(
-      'post',
-      '/tables/Your_Table_Name/records',
-      {},
-      req.body
-    );
-    
-    res.json(result);
-  } catch (error) {
-    console.error('Error creating record:', error);
-    res.status(500).json({ 
-      error: 'Failed to create record',
-      details: error.message 
-    });
-  }
-});
-```
-
-### Common Mistakes to Avoid
-
-1. **❌ DON'T add endpoints to server.js**
-   ```javascript
-   // WRONG - Never do this in server.js!
-   app.get('/api/new-endpoint', (req, res) => { ... });
-   ```
-
-2. **❌ DON'T use makeCaspioRequest for multi-record queries**
-   ```javascript
-   // WRONG - This only gets one page!
-   const data = await makeCaspioRequest('get', '/tables/Table/records');
-   ```
-
-3. **❌ DON'T forget error handling**
-   ```javascript
-   // WRONG - No try/catch
-   router.get('/endpoint', async (req, res) => {
-     const data = await fetchAllCaspioPages(...);
-     res.json(data);
-   });
-   ```
-
-4. **✅ DO use the router pattern in modules**
-   ```javascript
-   // CORRECT - In src/routes/module.js
-   router.get('/endpoint', async (req, res) => { ... });
-   ```
-
-5. **✅ DO validate parameters**
-   ```javascript
-   // CORRECT - Check for required params
-   if (!req.query.styleNumber) {
-     return res.status(400).json({ error: 'styleNumber parameter required' });
-   }
-   ```
-
-### Creating a New Route Module
-
-If none of the existing modules fit your endpoint category:
-
-1. **Create a new file** in `src/routes/`:
-   ```bash
-   touch src/routes/your-category.js
-   ```
-
-2. **Set up the module structure**:
-   ```javascript
-   const express = require('express');
-   const router = express.Router();
-   const { fetchAllCaspioPages } = require('../../server');
-   
-   // Add your endpoints here
-   router.get('/your-endpoint', async (req, res) => {
-     // Implementation
-   });
-   
-   module.exports = router;
-   ```
-
-3. **Register in server.js** (this is the ONLY time you modify server.js):
-   ```javascript
-   // In server.js, with the other route imports
-   const yourCategoryRoutes = require('./src/routes/your-category');
-   app.use('/api', yourCategoryRoutes);
-   console.log('✓ Your Category routes loaded');
-   ```
-
-### Testing Your New Endpoint
-
-1. **Start the server**:
-   ```bash
-   node start-server.js
-   ```
-
-2. **Test with curl**:
-   ```bash
-   # GET request
-   curl http://localhost:3002/api/your-endpoint
-   
-   # POST request
-   curl -X POST http://localhost:3002/api/your-endpoint \
-     -H "Content-Type: application/json" \
-     -d '{"field1": "value1", "field2": "value2"}'
-   ```
-
-3. **Add to test suite**:
-   ```javascript
-   // In your test file
-   {
-     name: 'Your New Endpoint',
-     endpoint: '/api/your-endpoint',
-     params: { 'q.limit': '10' },
-     description: 'What this endpoint does'
-   }
-   ```
 
 ### Example: ORDER_ODBC Endpoint
 ```
@@ -433,30 +183,6 @@ Q2: Query parameters? → Standard three (where, orderBy, limit)
 Q3: Response format? → Simple array
 Q4: Special requirements? → Return everything as-is
 Result: Standard endpoint returning filtered, sorted order records
-```
-
-**Implementation location**: `src/routes/orders.js` (NOT server.js!)
-
-```javascript
-// In src/routes/orders.js
-router.get('/order-odbc', async (req, res) => {
-  try {
-    const params = {};
-    if (req.query['q.where']) params['q.where'] = req.query['q.where'];
-    if (req.query['q.orderBy']) params['q.orderBy'] = req.query['q.orderBy'];
-    params['q.limit'] = req.query['q.limit'] || '100';
-    
-    const records = await fetchAllCaspioPages(
-      '/tables/ORDER_ODBC/records',
-      params
-    );
-    
-    res.json(records);
-  } catch (error) {
-    console.error('Error fetching ORDER_ODBC:', error);
-    res.status(500).json({ error: 'Failed to fetch order ODBC data' });
-  }
-});
 ```
 
 ## Recent Additions
@@ -493,27 +219,3 @@ GET /api/order-dashboard?days=30&includeDetails=true
 # Get dashboard with year-over-year comparison
 GET /api/order-dashboard?compareYoY=true
 ```
-
-## Production Endpoint Status
-
-### Working Endpoints (40/48 tested)
-All critical endpoints for teamnwca.com are working, including:
-- ✅ All art invoice endpoints
-- ✅ Most pricing endpoints (tiers, base costs, size pricing, DTG, screenprint)
-- ✅ All quote endpoints
-- ✅ All product search/discovery endpoints
-- ✅ Cart sessions and most cart operations
-- ✅ Orders and customers
-- ✅ All utility endpoints (health, dashboard, announcements)
-
-### Known Issues (8 endpoints)
-These endpoints have minor issues but don't affect core functionality:
-- `embroidery-costs` - Parameter validation issue
-- `size-upcharges`, `size-sort-order` - Not implemented yet
-- `pricing-matrix/lookup` - Not implemented
-- `cart-items POST` - Requires ProductID field
-- `pricing-rules` - Requires both styleNumber AND method parameters
-- `brands`, `active-products` - Not implemented
-
-### Note on Testing
-When testing endpoints, ensure you're using the correct parameters. Many "failures" are simply due to missing or incorrect parameters, not actual endpoint problems.
