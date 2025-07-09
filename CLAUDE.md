@@ -79,7 +79,7 @@ node test-heroku-52-after-deploy.js
 ### Current Architecture
 - **Migration Status**: ✅ COMPLETED - All critical endpoints migrated to modular routes
 - **Production Status**: ✅ DEPLOYED - 52 endpoints live on Heroku
-- **Old Code**: 6,000+ lines of commented endpoints in server.js kept for reference/rollback
+- **Code Cleanup**: ✅ COMPLETED - 6,000+ lines of dead code removed from server.js (July 9, 2025)
 
 ### Available Route Modules
 All modules are located in `src/routes/`:
@@ -98,18 +98,42 @@ All modules are located in `src/routes/`:
 2. **❌ DON'T**: Add any new endpoints to server.js
 3. **❌ DON'T**: Uncomment or modify the commented code in server.js
 
-### Cleanup Reminder
-**DELETE AFTER**: August 5, 2025 (4 weeks from migration completion)
-- Once the system has been stable in production for 4 weeks
-- Delete all commented endpoint code from server.js
-- This will reduce server.js from 6,400+ lines to ~500 lines
+### Cleanup Status
+**COMPLETED**: July 9, 2025
+- ✅ All 6,000+ lines of commented code removed from server.js
+- ✅ server.js reduced from 6,467 lines to 360 lines
+- ✅ All functionality preserved in modular routes
+- ✅ Production deployment stable with 52 working endpoints
 
 ### Quick Reference for New Endpoints
+
+**🚨 CRITICAL: NEVER add new endpoints to server.js! Always use the modular route files.**
+
 When adding a new endpoint:
-1. Identify the appropriate module in `src/routes/`
-2. Add the endpoint using Express Router syntax
-3. Test the endpoint at `/api/your-endpoint`
-4. All routes are automatically prefixed with `/api` when mounted
+1. **Choose the correct module** in `src/routes/`:
+   - `cart.js` → Cart sessions, items, sizes
+   - `inventory.js` → Stock checking, availability
+   - `misc.js` → Health checks, utility endpoints
+   - `orders.js` → Order management, dashboard
+   - `pricing-matrix.js` → Matrix CRUD operations
+   - `pricing.js` → Costs, tiers, rules
+   - `products.js` → Search, categories, details
+   - `quotes.js` → Quote sessions, analytics
+   - `transfers.js` → Transfer printing
+
+2. **Use Express Router syntax**:
+   ```javascript
+   router.get('/your-endpoint', async (req, res) => {
+     // Your code here
+   });
+   ```
+
+3. **Import shared utilities** from server.js:
+   ```javascript
+   const { fetchAllCaspioPages } = require('../../server');
+   ```
+
+4. **Test locally** at `/api/your-endpoint` (routes auto-prefixed with `/api`)
 
 ## Project Documentation
 
@@ -139,6 +163,17 @@ The `memory/` folder contains important project documentation and reference mate
 - Misc API utilities
 
 ## Creating New API Endpoints
+
+### 🚨 IMPORTANT: Module-First Architecture
+
+**DO NOT add any new endpoints to server.js!** The server.js file should remain at ~360 lines and only contain:
+- Express server setup
+- Helper functions (getCaspioAccessToken, fetchAllCaspioPages)
+- Route module imports
+- Error handling middleware
+- Server startup code
+
+All new endpoints MUST be added to the appropriate module in `src/routes/`.
 
 When creating a new API endpoint, follow this step-by-step process:
 
@@ -205,6 +240,191 @@ Most endpoints will follow this pattern:
 4. Standard error handling (400 for bad params, 500 for server errors)
 5. **ALWAYS use `fetchAllCaspioPages` for pagination** (never `makeCaspioRequest` for multi-record queries)
 
+### Step-by-Step Implementation Guide
+
+#### 1. Choose the Right Module
+Before writing any code, determine which module your endpoint belongs in:
+
+```javascript
+// Example: Adding a new product variant endpoint
+// This belongs in src/routes/products.js, NOT server.js!
+```
+
+#### 2. Import Required Functions
+```javascript
+// At the top of your route module
+const express = require('express');
+const router = express.Router();
+const { fetchAllCaspioPages } = require('../../server');
+```
+
+#### 3. Implement the Endpoint
+```javascript
+// Standard GET endpoint pattern
+router.get('/your-endpoint-name', async (req, res) => {
+  try {
+    // Extract query parameters
+    const whereClause = req.query['q.where'] || '';
+    const orderBy = req.query['q.orderBy'] || '';
+    const limit = req.query['q.limit'] || '100';
+    
+    // Build Caspio parameters
+    const params = {};
+    if (whereClause) params['q.where'] = whereClause;
+    if (orderBy) params['q.orderBy'] = orderBy;
+    params['q.limit'] = limit;
+    
+    // ALWAYS use fetchAllCaspioPages for multi-record queries
+    const records = await fetchAllCaspioPages(
+      '/tables/Your_Table_Name/records',
+      params
+    );
+    
+    // Return the data
+    res.json(records);
+  } catch (error) {
+    console.error('Error in /your-endpoint-name:', error);
+    res.status(500).json({ 
+      error: 'Failed to fetch data',
+      details: error.message 
+    });
+  }
+});
+```
+
+#### 4. POST/PUT/DELETE Endpoints
+```javascript
+// For single record operations, makeCaspioRequest is acceptable
+router.post('/your-endpoint-name', async (req, res) => {
+  try {
+    const { makeCaspioRequest } = require('../../server');
+    
+    // Validate required fields
+    const requiredFields = ['field1', 'field2'];
+    for (const field of requiredFields) {
+      if (!req.body[field]) {
+        return res.status(400).json({ 
+          error: `Missing required field: ${field}` 
+        });
+      }
+    }
+    
+    // Make the request
+    const result = await makeCaspioRequest(
+      'post',
+      '/tables/Your_Table_Name/records',
+      {},
+      req.body
+    );
+    
+    res.json(result);
+  } catch (error) {
+    console.error('Error creating record:', error);
+    res.status(500).json({ 
+      error: 'Failed to create record',
+      details: error.message 
+    });
+  }
+});
+```
+
+### Common Mistakes to Avoid
+
+1. **❌ DON'T add endpoints to server.js**
+   ```javascript
+   // WRONG - Never do this in server.js!
+   app.get('/api/new-endpoint', (req, res) => { ... });
+   ```
+
+2. **❌ DON'T use makeCaspioRequest for multi-record queries**
+   ```javascript
+   // WRONG - This only gets one page!
+   const data = await makeCaspioRequest('get', '/tables/Table/records');
+   ```
+
+3. **❌ DON'T forget error handling**
+   ```javascript
+   // WRONG - No try/catch
+   router.get('/endpoint', async (req, res) => {
+     const data = await fetchAllCaspioPages(...);
+     res.json(data);
+   });
+   ```
+
+4. **✅ DO use the router pattern in modules**
+   ```javascript
+   // CORRECT - In src/routes/module.js
+   router.get('/endpoint', async (req, res) => { ... });
+   ```
+
+5. **✅ DO validate parameters**
+   ```javascript
+   // CORRECT - Check for required params
+   if (!req.query.styleNumber) {
+     return res.status(400).json({ error: 'styleNumber parameter required' });
+   }
+   ```
+
+### Creating a New Route Module
+
+If none of the existing modules fit your endpoint category:
+
+1. **Create a new file** in `src/routes/`:
+   ```bash
+   touch src/routes/your-category.js
+   ```
+
+2. **Set up the module structure**:
+   ```javascript
+   const express = require('express');
+   const router = express.Router();
+   const { fetchAllCaspioPages } = require('../../server');
+   
+   // Add your endpoints here
+   router.get('/your-endpoint', async (req, res) => {
+     // Implementation
+   });
+   
+   module.exports = router;
+   ```
+
+3. **Register in server.js** (this is the ONLY time you modify server.js):
+   ```javascript
+   // In server.js, with the other route imports
+   const yourCategoryRoutes = require('./src/routes/your-category');
+   app.use('/api', yourCategoryRoutes);
+   console.log('✓ Your Category routes loaded');
+   ```
+
+### Testing Your New Endpoint
+
+1. **Start the server**:
+   ```bash
+   node start-server.js
+   ```
+
+2. **Test with curl**:
+   ```bash
+   # GET request
+   curl http://localhost:3002/api/your-endpoint
+   
+   # POST request
+   curl -X POST http://localhost:3002/api/your-endpoint \
+     -H "Content-Type: application/json" \
+     -d '{"field1": "value1", "field2": "value2"}'
+   ```
+
+3. **Add to test suite**:
+   ```javascript
+   // In your test file
+   {
+     name: 'Your New Endpoint',
+     endpoint: '/api/your-endpoint',
+     params: { 'q.limit': '10' },
+     description: 'What this endpoint does'
+   }
+   ```
+
 ### Example: ORDER_ODBC Endpoint
 ```
 User provides: Swagger response for ORDER_ODBC table
@@ -213,6 +433,30 @@ Q2: Query parameters? → Standard three (where, orderBy, limit)
 Q3: Response format? → Simple array
 Q4: Special requirements? → Return everything as-is
 Result: Standard endpoint returning filtered, sorted order records
+```
+
+**Implementation location**: `src/routes/orders.js` (NOT server.js!)
+
+```javascript
+// In src/routes/orders.js
+router.get('/order-odbc', async (req, res) => {
+  try {
+    const params = {};
+    if (req.query['q.where']) params['q.where'] = req.query['q.where'];
+    if (req.query['q.orderBy']) params['q.orderBy'] = req.query['q.orderBy'];
+    params['q.limit'] = req.query['q.limit'] || '100';
+    
+    const records = await fetchAllCaspioPages(
+      '/tables/ORDER_ODBC/records',
+      params
+    );
+    
+    res.json(records);
+  } catch (error) {
+    console.error('Error fetching ORDER_ODBC:', error);
+    res.status(500).json({ error: 'Failed to fetch order ODBC data' });
+  }
+});
 ```
 
 ## Recent Additions
