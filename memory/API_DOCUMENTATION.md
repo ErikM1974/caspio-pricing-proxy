@@ -6,6 +6,8 @@ This document provides a comprehensive overview of the Caspio Pricing Proxy API.
 
 **Current Architecture**: The API uses a modular architecture with endpoints organized into logical route modules in the `src/routes/` directory. This migration was completed in July 2025 to improve code organization and maintainability.
 
+**Code Cleanup Achievement**: As part of the modular migration, 6,000+ lines of commented legacy code were successfully removed from server.js on July 9, 2025, reducing it from 6,467 lines to just 360 lines. This dramatic reduction improves performance and maintainability.
+
 ### Server Configuration
 - **Express Version**: 4.21.2 (stable version)
 - **Caspio API**: Standardized on v2 for all endpoints

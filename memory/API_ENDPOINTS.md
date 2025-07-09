@@ -5,10 +5,12 @@ _Total Endpoints: 52_
 
 This document provides a comprehensive list of all API endpoints used in the application, organized by service area. This documentation is maintained as part of the API consolidation project (Phase 5) and includes endpoints across Art Invoice System, Production Schedule, Pricing, Orders, User Management, and Utility Services.
 
+**Architecture Update (July 2025)**: The API has successfully completed migration to a modular architecture. All 52 critical endpoints have been migrated from the monolithic server.js to organized route modules, resulting in the removal of 6,000+ lines of legacy code. The modular architecture improves maintainability and code organization.
+
 ## Base URLs
 
 - Production API: `https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api`
-- Development API: `http://localhost:3000/api`
+- Development API: `http://localhost:3002/api`
 - Caspio API: `https://c3eku948.caspio.com/integrations/rest/v3`
 
 ## API Architecture Overview
