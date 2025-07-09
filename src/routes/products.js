@@ -18,12 +18,15 @@ router.get('/stylesearch', async (req, res) => {
     const whereClause = `STYLE LIKE '%${term}%'`;
     const records = await fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
       'q.where': whereClause,
-      'q.select': 'STYLE',
-      'q.groupBy': 'STYLE',
+      'q.select': 'STYLE,PRODUCT_TITLE',
+      'q.groupBy': 'STYLE,PRODUCT_TITLE',
       'q.limit': 20
     });
 
-    const suggestions = records.map(r => r.STYLE);
+    const suggestions = records.map(r => ({
+      value: r.STYLE,
+      label: `${r.STYLE} - ${r.PRODUCT_TITLE}`
+    }));
     console.log(`Style search for "${term}": ${suggestions.length} result(s)`);
     res.json(suggestions);
   } catch (error) {
