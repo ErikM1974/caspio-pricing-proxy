@@ -41,75 +41,110 @@ router.get('/sizes-by-style-color', async (req, res) => {
   }
 
   try {
-    const whereClause = `STYLE='${styleNumber}' AND COLOR_NAME='${color}'`;
-    const records = await fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
-      'q.where': whereClause
-    });
-
-    if (records.length === 0) {
-      return res.status(404).json({ error: 'No inventory found for the specified style and color' });
+    console.log(`Fetching inventory table for style: ${styleNumber}, color: ${color}`);
+    const resource = '/tables/Inventory/records';
+    const params = {
+      'q.where': `catalog_no='${styleNumber}' AND catalog_color='${color}'`,
+      'q.select': 'catalog_no, catalog_color, size, SizeSortOrder, WarehouseName, quantity, WarehouseSort',
+      'q.orderby': 'WarehouseSort ASC, SizeSortOrder ASC',
+      'q.limit': 1000
+    };
+    
+    const result = await fetchAllCaspioPages(resource, params);
+    
+    if (result.length === 0) {
+      console.warn(`No inventory found for style: ${styleNumber} and color: ${color}`);
+      return res.status(404).json({ error: `No inventory found for style: ${styleNumber} and color: ${color}` });
     }
-
-    // Define the size columns we're interested in
-    const sizeColumns = [
-      'XS_Qty', 'S_Qty', 'M_Qty', 'L_Qty', 'XL_Qty', 
-      'XXL_Qty', 'XXXL_Qty', 'XXXXL_Qty', 'XXXXXL_Qty', 'XXXXXXL_Qty'
-    ];
     
-    // Extract unique sizes that have any inventory
+    // Extract unique sizes and warehouses
     const sizesSet = new Set();
-    const warehouses = [];
+    const warehousesSet = new Set();
     
-    records.forEach(record => {
-      const warehouseData = {
-        warehouse: record.WAREHOUSE || 'Unknown',
-        inventory: {}
-      };
-      
-      sizeColumns.forEach(sizeCol => {
-        const size = sizeCol.replace('_Qty', '');
-        const qty = parseInt(record[sizeCol] || 0);
-        
-        if (qty > 0) {
-          sizesSet.add(size);
-        }
-        warehouseData.inventory[size] = qty;
-      });
-      
-      warehouses.push(warehouseData);
+    result.forEach(item => {
+      if (item.size) sizesSet.add(item.size);
+      if (item.WarehouseName) warehousesSet.add(item.WarehouseName);
     });
     
+    // Get size sort order mapping
+    const sizeSortMap = {};
+    result.forEach(item => {
+      if (item.size && item.SizeSortOrder) {
+        sizeSortMap[item.size] = item.SizeSortOrder;
+      }
+    });
+    
+    // Sort sizes by SizeSortOrder
     const sizes = Array.from(sizesSet).sort((a, b) => {
-      const sizeOrder = ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL', 'XXXXL', 'XXXXXL', 'XXXXXXL'];
-      return sizeOrder.indexOf(a) - sizeOrder.indexOf(b);
+      return (sizeSortMap[a] || 0) - (sizeSortMap[b] || 0);
     });
     
-    // Calculate totals
+    // Get warehouse sort order mapping
+    const warehouseSortMap = {};
+    result.forEach(item => {
+      if (item.WarehouseName && item.WarehouseSort) {
+        warehouseSortMap[item.WarehouseName] = item.WarehouseSort;
+      }
+    });
+    
+    // Sort warehouses by WarehouseSort
+    const warehouses = Array.from(warehousesSet).sort((a, b) => {
+      return (warehouseSortMap[a] || 0) - (warehouseSortMap[b] || 0);
+    });
+    
+    // Create inventory matrix
+    const inventoryMatrix = {};
     const sizeTotals = {};
-    let grandTotal = 0;
     
-    sizes.forEach(size => {
-      sizeTotals[size] = 0;
-      warehouses.forEach(wh => {
-        sizeTotals[size] += wh.inventory[size] || 0;
+    // Initialize the matrix with zeros and size totals
+    warehouses.forEach(warehouse => {
+      inventoryMatrix[warehouse] = {};
+      sizes.forEach(size => {
+        inventoryMatrix[warehouse][size] = 0;
+        if (!sizeTotals[size]) sizeTotals[size] = 0;
       });
-      grandTotal += sizeTotals[size];
     });
-
+    
+    // Fill in the inventory quantities
+    result.forEach(item => {
+      if (item.WarehouseName && item.size && item.quantity !== null) {
+        inventoryMatrix[item.WarehouseName][item.size] = item.quantity;
+        sizeTotals[item.size] += item.quantity;
+      }
+    });
+    
+    // Calculate warehouse totals
+    const warehouseTotals = {};
+    warehouses.forEach(warehouse => {
+      warehouseTotals[warehouse] = sizes.reduce((total, size) => {
+        return total + (inventoryMatrix[warehouse][size] || 0);
+      }, 0);
+    });
+    
+    // Calculate grand total
+    const grandTotal = sizes.reduce((total, size) => {
+      return total + (sizeTotals[size] || 0);
+    }, 0);
+    
+    // Format the response for a tabular display
     const response = {
       style: styleNumber,
       color: color,
       sizes: sizes,
-      warehouses: warehouses,
-      sizeTotals: sizeTotals,
+      warehouses: warehouses.map(warehouse => ({
+        name: warehouse,
+        inventory: sizes.map(size => inventoryMatrix[warehouse][size]),
+        total: warehouseTotals[warehouse]
+      })),
+      sizeTotals: sizes.map(size => sizeTotals[size]),
       grandTotal: grandTotal
     };
-
-    console.log(`Inventory table for ${styleNumber} ${color}: ${warehouses.length} warehouses, ${sizes.length} sizes`);
+    
+    console.log(`Returning inventory table with ${warehouses.length} warehouses and ${sizes.length} sizes for style: ${styleNumber}, color: ${color}`);
     res.json(response);
   } catch (error) {
-    console.error('Error fetching inventory table:', error.message);
-    res.status(500).json({ error: 'Failed to fetch inventory table', details: error.message });
+    console.error('Error fetching sizes:', error.message);
+    res.status(500).json({ error: 'Failed to fetch sizes for the specified style and color', details: error.message });
   }
 });
 
