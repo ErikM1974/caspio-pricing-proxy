@@ -290,6 +290,11 @@ const artRoutes = require('./src/routes/art');
 app.use('/api', artRoutes);
 console.log('✓ Art routes loaded');
 
+// Production Schedules Routes
+const productionSchedulesRoutes = require('./src/routes/production-schedules');
+app.use('/api', productionSchedulesRoutes);
+console.log('✓ Production Schedules routes loaded');
+
 // --- Enhanced Error Handling Middleware ---
 app.use((err, req, res, next) => {
     const timestamp = new Date().toISOString();

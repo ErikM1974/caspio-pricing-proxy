@@ -480,4 +480,29 @@ router.get('/staff-announcements', async (req, res) => {
   }
 });
 
+// GET /api/locations
+router.get('/locations', async (req, res) => {
+    const { type } = req.query;
+    console.log(`GET /api/locations requested with type=${type || 'all'}`);
+
+    try {
+        const params = {
+            'q.select': 'location_code,location_name,Type',
+            'q.orderBy': 'PK_ID ASC',
+            'q.limit': 100
+        };
+        
+        if (type) {
+            params['q.where'] = `Type='${type}'`;
+        }
+        
+        const locations = await fetchAllCaspioPages('/tables/location/records', params);
+        console.log(`Locations: ${locations.length} record(s) found`);
+        res.json(locations);
+    } catch (error) {
+        console.error('Error fetching locations:', error.message);
+        res.status(500).json({ error: 'Failed to fetch locations', details: error.message });
+    }
+});
+
 module.exports = router;

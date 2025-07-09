@@ -1,0 +1,357 @@
+{
+  "timestamp": "2025-07-09T12:27:56.652Z",
+  "results": [
+    {
+      "endpoint": "/api/artrequests",
+      "method": "GET",
+      "description": "Art requests list",
+      "status": 404,
+      "statusText": "Not Found",
+      "working": false
+    },
+    {
+      "endpoint": "/api/art-invoices",
+      "method": "GET",
+      "description": "Art invoices list",
+      "status": 404,
+      "statusText": "Not Found",
+      "working": false
+    },
+    {
+      "endpoint": "/api/production-schedules",
+      "method": "GET",
+      "description": "Production schedules",
+      "status": 404,
+      "statusText": "Not Found",
+      "working": false
+    },
+    {
+      "endpoint": "/api/orders",
+      "method": "GET",
+      "description": "Orders list",
+      "status": 200,
+      "statusText": "OK",
+      "working": true
+    },
+    {
+      "endpoint": "/api/order-dashboard",
+      "method": "GET",
+      "description": "Order dashboard",
+      "status": 200,
+      "statusText": "OK",
+      "working": true
+    },
+    {
+      "endpoint": "/api/order-odbc",
+      "method": "GET",
+      "description": "Order ODBC",
+      "status": 200,
+      "statusText": "OK",
+      "working": true
+    },
+    {
+      "endpoint": "/api/stylesearch?term=PC",
+      "method": "GET",
+      "description": "Style search",
+      "status": 200,
+      "statusText": "OK",
+      "working": true
+    },
+    {
+      "endpoint": "/api/search?q=shirt",
+      "method": "GET",
+      "description": "General search",
+      "status": 200,
+      "statusText": "OK",
+      "working": true
+    },
+    {
+      "endpoint": "/api/products/PC54",
+      "method": "GET",
+      "description": "Product details by style",
+      "status": 404,
+      "statusText": "Not Found",
+      "working": false
+    },
+    {
+      "endpoint": "/api/product-details?styleNumber=PC54",
+      "method": "GET",
+      "description": "Product details query",
+      "status": 200,
+      "statusText": "OK",
+      "working": true
+    },
+    {
+      "endpoint": "/api/all-brands",
+      "method": "GET",
+      "description": "All brands",
+      "status": 200,
+      "statusText": "OK",
+      "working": true
+    },
+    {
+      "endpoint": "/api/all-categories",
+      "method": "GET",
+      "description": "All categories",
+      "status": 200,
+      "statusText": "OK",
+      "working": true
+    },
+    {
+      "endpoint": "/api/all-subcategories",
+      "method": "GET",
+      "description": "All subcategories",
+      "status": 200,
+      "statusText": "OK",
+      "working": true
+    },
+    {
+      "endpoint": "/api/products-by-brand?brand=Port%20Authority",
+      "method": "GET",
+      "description": "Products by brand",
+      "status": 200,
+      "statusText": "OK",
+      "working": true
+    },
+    {
+      "endpoint": "/api/products-by-category?category=T-Shirts",
+      "method": "GET",
+      "description": "Products by category",
+      "status": 200,
+      "statusText": "OK",
+      "working": true
+    },
+    {
+      "endpoint": "/api/featured-products",
+      "method": "GET",
+      "description": "Featured products",
+      "status": 200,
+      "statusText": "OK",
+      "working": true
+    },
+    {
+      "endpoint": "/api/product-colors?styleNumber=PC54",
+      "method": "GET",
+      "description": "Product colors",
+      "status": 200,
+      "statusText": "OK",
+      "working": true
+    },
+    {
+      "endpoint": "/api/color-swatches?styleNumber=PC54",
+      "method": "GET",
+      "description": "Color swatches",
+      "status": 200,
+      "statusText": "OK",
+      "working": true
+    },
+    {
+      "endpoint": "/api/sizes-by-style-color?styleNumber=PC54&colorName=Navy",
+      "method": "GET",
+      "description": "Sizes by style/color",
+      "status": 400,
+      "statusText": "Bad Request",
+      "working": false
+    },
+    {
+      "endpoint": "/api/product-variant-sizes?style=PC54",
+      "method": "GET",
+      "description": "Product variant sizes",
+      "status": 404,
+      "statusText": "Not Found",
+      "working": false
+    },
+    {
+      "endpoint": "/api/pricing-tiers?decorationMethod=screenprint",
+      "method": "GET",
+      "description": "Pricing tiers",
+      "status": 400,
+      "statusText": "Bad Request",
+      "working": false
+    },
+    {
+      "endpoint": "/api/pricing-rules",
+      "method": "GET",
+      "description": "Pricing rules",
+      "status": 400,
+      "statusText": "Bad Request",
+      "working": false
+    },
+    {
+      "endpoint": "/api/pricing-bundle",
+      "method": "GET",
+      "description": "Pricing bundle",
+      "status": 400,
+      "statusText": "Bad Request",
+      "working": false
+    },
+    {
+      "endpoint": "/api/prices-by-style-color?style=PC54&color=Navy",
+      "method": "GET",
+      "description": "Prices by style/color",
+      "status": 404,
+      "statusText": "Not Found",
+      "working": false
+    },
+    {
+      "endpoint": "/api/max-prices-by-style?style=PC54",
+      "method": "GET",
+      "description": "Max prices by style",
+      "status": 400,
+      "statusText": "Bad Request",
+      "working": false
+    },
+    {
+      "endpoint": "/api/inventory?styleNumber=PC54",
+      "method": "GET",
+      "description": "Inventory",
+      "status": 200,
+      "statusText": "OK",
+      "working": true
+    },
+    {
+      "endpoint": "/api/cart-sessions",
+      "method": "GET",
+      "description": "Cart sessions",
+      "status": 200,
+      "statusText": "OK",
+      "working": true
+    },
+    {
+      "endpoint": "/api/cart-items",
+      "method": "GET",
+      "description": "Cart items",
+      "status": 200,
+      "statusText": "OK",
+      "working": true
+    },
+    {
+      "endpoint": "/api/cart-integration.js",
+      "method": "GET",
+      "description": "Cart integration script",
+      "status": 200,
+      "statusText": "OK",
+      "working": true
+    },
+    {
+      "endpoint": "/api/quote_items",
+      "method": "GET",
+      "description": "Quote items",
+      "status": 200,
+      "statusText": "OK",
+      "working": true
+    },
+    {
+      "endpoint": "/api/quote_sessions",
+      "method": "GET",
+      "description": "Quote sessions",
+      "status": 200,
+      "statusText": "OK",
+      "working": true
+    },
+    {
+      "endpoint": "/api/quote_analytics",
+      "method": "GET",
+      "description": "Quote analytics",
+      "status": 200,
+      "statusText": "OK",
+      "working": true
+    },
+    {
+      "endpoint": "/api/staff-announcements",
+      "method": "GET",
+      "description": "Staff announcements",
+      "status": 200,
+      "statusText": "OK",
+      "working": true
+    },
+    {
+      "endpoint": "/api/locations",
+      "method": "GET",
+      "description": "Locations",
+      "status": 404,
+      "statusText": "Not Found",
+      "working": false
+    },
+    {
+      "endpoint": "/api/customers",
+      "method": "GET",
+      "description": "Customers",
+      "status": 200,
+      "statusText": "OK",
+      "working": true
+    },
+    {
+      "endpoint": "/api/transfers",
+      "method": "GET",
+      "description": "Transfers",
+      "status": 200,
+      "statusText": "OK",
+      "working": true
+    },
+    {
+      "endpoint": "/api/embroidery-costs?locations=1&stitches=5000",
+      "method": "GET",
+      "description": "Embroidery costs",
+      "status": 400,
+      "statusText": "Bad Request",
+      "working": false
+    },
+    {
+      "endpoint": "/api/screenprint-costs?colors=3&locations=1",
+      "method": "GET",
+      "description": "Screen print costs",
+      "status": 400,
+      "statusText": "Bad Request",
+      "working": false
+    },
+    {
+      "endpoint": "/api/dtg-costs?printSize=standard",
+      "method": "GET",
+      "description": "DTG costs",
+      "status": 200,
+      "statusText": "OK",
+      "working": true
+    },
+    {
+      "endpoint": "/api/related-products?styleNumber=PC54",
+      "method": "GET",
+      "description": "Related products",
+      "status": 500,
+      "statusText": "Internal Server Error",
+      "working": false
+    },
+    {
+      "endpoint": "/api/quick-view?styleNumber=PC54",
+      "method": "GET",
+      "description": "Quick view",
+      "status": 500,
+      "statusText": "Internal Server Error",
+      "working": false
+    },
+    {
+      "endpoint": "/api/compare-products?styles=PC54,PC61",
+      "method": "GET",
+      "description": "Compare products",
+      "status": 500,
+      "statusText": "Internal Server Error",
+      "working": false
+    },
+    {
+      "endpoint": "/api/recommendations?category=T-Shirts",
+      "method": "GET",
+      "description": "Recommendations",
+      "status": 400,
+      "statusText": "Bad Request",
+      "working": false
+    },
+    {
+      "endpoint": "/api/health",
+      "method": "GET",
+      "description": "Health check",
+      "status": 200,
+      "statusText": "OK",
+      "working": true
+    }
+  ]
+}
