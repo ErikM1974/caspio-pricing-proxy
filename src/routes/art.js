@@ -1,4 +1,4 @@
-// Art-related endpoints (artrequests and art-invoices)
+// Art-related endpoints (artrequests, art-invoices, and design-notes)
 const express = require('express');
 const router = express.Router();
 const axios = require('axios');
@@ -474,6 +474,258 @@ router.delete('/art-invoices/:id', async (req, res) => {
     } catch (error) {
         console.error("Error deleting art invoice:", error.response ? JSON.stringify(error.response.data) : error.message);
         res.status(500).json({ error: 'Failed to delete art invoice.' });
+    }
+});
+
+// --- Design Notes Endpoints ---
+
+// GET /api/design-notes - List all design notes with filtering
+router.get('/design-notes', async (req, res) => {
+    try {
+        const params = {};
+        const whereConditions = [];
+        
+        // Build dynamic filters
+        if (req.query.id_design) {
+            whereConditions.push(`ID_Design=${req.query.id_design}`);
+        }
+        
+        if (req.query.note_type) {
+            whereConditions.push(`Note_Type='${req.query.note_type}'`);
+        }
+        
+        if (req.query.note_by) {
+            whereConditions.push(`Note_By LIKE '%${req.query.note_by}%'`);
+        }
+        
+        if (req.query.parent_note_id) {
+            whereConditions.push(`Parent_Note_ID=${req.query.parent_note_id}`);
+        }
+        
+        // Date range filtering
+        if (req.query.date_from) {
+            whereConditions.push(`Note_Date >= '${req.query.date_from}'`);
+        }
+        
+        if (req.query.date_to) {
+            whereConditions.push(`Note_Date <= '${req.query.date_to}'`);
+        }
+        
+        // Apply where clause if conditions exist
+        if (whereConditions.length > 0) {
+            params['q.where'] = whereConditions.join(' AND ');
+        }
+        
+        // Sorting and pagination
+        params['q.orderBy'] = req.query.orderBy || 'Note_Date DESC';
+        params['q.limit'] = req.query.limit || 100;
+        
+        console.log('Fetching design notes with params:', params);
+        
+        const records = await fetchAllCaspioPages('/tables/DesignNotes/records', params);
+        
+        console.log(`Found ${records.length} design notes`);
+        res.json(records);
+        
+    } catch (error) {
+        console.error('Error fetching design notes:', error.message);
+        res.status(500).json({ error: 'Failed to fetch design notes' });
+    }
+});
+
+// GET /api/design-notes/:id - Get single design note by Note_ID
+router.get('/design-notes/:id', async (req, res) => {
+    const { id } = req.params;
+    
+    if (!id) {
+        return res.status(400).json({ error: 'Note ID is required' });
+    }
+    
+    try {
+        const params = {
+            'q.where': `Note_ID=${id}`,
+            'q.limit': 1
+        };
+        
+        console.log(`Fetching design note with ID: ${id}`);
+        
+        const records = await fetchAllCaspioPages('/tables/DesignNotes/records', params);
+        
+        if (records.length === 0) {
+            return res.status(404).json({ error: 'Design note not found' });
+        }
+        
+        res.json(records[0]);
+        
+    } catch (error) {
+        console.error('Error fetching design note:', error.message);
+        res.status(500).json({ error: 'Failed to fetch design note' });
+    }
+});
+
+// POST /api/design-notes - Create new design note
+router.post('/design-notes', express.json(), async (req, res) => {
+    try {
+        // Validate required fields
+        const { ID_Design, Note_Type, Note_Text } = req.body;
+        
+        if (!ID_Design || !Note_Type || !Note_Text) {
+            return res.status(400).json({ 
+                error: 'Missing required fields: ID_Design, Note_Type, and Note_Text are required' 
+            });
+        }
+        
+        // Validate field lengths
+        if (Note_Type.length > 255) {
+            return res.status(400).json({ error: 'Note_Type must be 255 characters or less' });
+        }
+        
+        if (Note_Text.length > 64000) {
+            return res.status(400).json({ error: 'Note_Text must be 64000 characters or less' });
+        }
+        
+        // Build request body (Note_ID and Note_Date are auto-generated)
+        const noteData = {
+            ID_Design: parseInt(ID_Design),
+            Note_Type,
+            Note_Text
+        };
+        
+        // Add optional fields if provided
+        if (req.body.Note_By) {
+            noteData.Note_By = req.body.Note_By;
+        }
+        
+        if (req.body.Parent_Note_ID) {
+            noteData.Parent_Note_ID = parseInt(req.body.Parent_Note_ID);
+        }
+        
+        console.log('Creating new design note:', noteData);
+        
+        const token = await getCaspioAccessToken();
+        const url = `${caspioApiBaseUrl}/tables/DesignNotes/records`;
+        
+        const response = await axios({
+            method: 'post',
+            url: url,
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            data: noteData,
+            timeout: 15000
+        });
+        
+        console.log('Design note created successfully');
+        res.status(201).json({
+            message: 'Design note created successfully',
+            data: response.data
+        });
+        
+    } catch (error) {
+        console.error('Error creating design note:', error.response?.data || error.message);
+        res.status(500).json({ 
+            error: 'Failed to create design note',
+            details: error.response?.data || error.message
+        });
+    }
+});
+
+// PUT /api/design-notes/:id - Update existing design note
+router.put('/design-notes/:id', express.json(), async (req, res) => {
+    const { id } = req.params;
+    
+    if (!id) {
+        return res.status(400).json({ error: 'Note ID is required' });
+    }
+    
+    try {
+        // Build update data - only allow certain fields to be updated
+        const updateData = {};
+        
+        if (req.body.Note_Type !== undefined) {
+            if (req.body.Note_Type.length > 255) {
+                return res.status(400).json({ error: 'Note_Type must be 255 characters or less' });
+            }
+            updateData.Note_Type = req.body.Note_Type;
+        }
+        
+        if (req.body.Note_Text !== undefined) {
+            if (req.body.Note_Text.length > 64000) {
+                return res.status(400).json({ error: 'Note_Text must be 64000 characters or less' });
+            }
+            updateData.Note_Text = req.body.Note_Text;
+        }
+        
+        if (Object.keys(updateData).length === 0) {
+            return res.status(400).json({ error: 'No valid fields to update' });
+        }
+        
+        console.log(`Updating design note ${id} with:`, updateData);
+        
+        const token = await getCaspioAccessToken();
+        const url = `${caspioApiBaseUrl}/tables/DesignNotes/records?q.where=Note_ID=${id}`;
+        
+        const response = await axios({
+            method: 'put',
+            url: url,
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            data: updateData,
+            timeout: 15000
+        });
+        
+        console.log('Design note updated successfully');
+        res.json({
+            message: 'Design note updated successfully',
+            data: response.data
+        });
+        
+    } catch (error) {
+        console.error('Error updating design note:', error.response?.data || error.message);
+        res.status(500).json({ 
+            error: 'Failed to update design note',
+            details: error.response?.data || error.message
+        });
+    }
+});
+
+// DELETE /api/design-notes/:id - Delete design note
+router.delete('/design-notes/:id', async (req, res) => {
+    const { id } = req.params;
+    
+    if (!id) {
+        return res.status(400).json({ error: 'Note ID is required' });
+    }
+    
+    try {
+        console.log(`Deleting design note with ID: ${id}`);
+        
+        const token = await getCaspioAccessToken();
+        const url = `${caspioApiBaseUrl}/tables/DesignNotes/records?q.where=Note_ID=${id}`;
+        
+        const response = await axios({
+            method: 'delete',
+            url: url,
+            headers: {
+                'Authorization': `Bearer ${token}`
+            },
+            timeout: 15000
+        });
+        
+        console.log('Design note deleted successfully');
+        res.json({
+            message: 'Design note deleted successfully'
+        });
+        
+    } catch (error) {
+        console.error('Error deleting design note:', error.response?.data || error.message);
+        res.status(500).json({ 
+            error: 'Failed to delete design note',
+            details: error.response?.data || error.message
+        });
     }
 });
 
