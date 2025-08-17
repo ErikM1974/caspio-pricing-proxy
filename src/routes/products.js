@@ -333,6 +333,410 @@ router.get('/featured-products', async (req, res) => {
   }
 });
 
+// GET /api/products/search - Enhanced catalog search endpoint
+router.get('/products/search', async (req, res) => {
+  console.log('GET /api/products/search requested with query:', req.query);
+
+  try {
+    // Extract query parameters
+    const {
+      q,                    // Search query
+      category,             // Filter by category (can be array)
+      subcategory,          // Filter by subcategory (can be array)
+      brand,                // Filter by brand (can be array)
+      color,                // Filter by color (can be array)
+      size,                 // Filter by size (can be array)
+      minPrice,             // Minimum price filter
+      maxPrice,             // Maximum price filter
+      status = 'Active',    // Product status filter (default to Active)
+      isTopSeller,          // Filter for top sellers only
+      sort = 'name_asc',    // Sort order (default to name ascending)
+      page = 1,             // Page number (default: 1)
+      limit = 24,           // Results per page (default: 24, max: 100)
+      includeFacets = false // Include aggregation counts
+    } = req.query;
+
+    // Build WHERE clause
+    let whereConditions = [];
+
+    // Status filter (hide discontinued unless specified)
+    if (status && status !== 'all') {
+      whereConditions.push(`PRODUCT_STATUS='${status}'`);
+    }
+
+    // Text search across multiple fields
+    if (q && q.trim()) {
+      const searchTerm = q.trim().replace(/'/g, "''");
+      whereConditions.push(`(
+        STYLE LIKE '%${searchTerm}%' OR 
+        PRODUCT_TITLE LIKE '%${searchTerm}%' OR 
+        PRODUCT_DESCRIPTION LIKE '%${searchTerm}%' OR
+        KEYWORDS LIKE '%${searchTerm}%' OR
+        BRAND_NAME LIKE '%${searchTerm}%'
+      )`);
+    }
+
+    // Category filter
+    if (category) {
+      const categories = Array.isArray(category) ? category : [category];
+      const categoryList = categories.map(c => `'${c.replace(/'/g, "''")}'`).join(',');
+      whereConditions.push(`CATEGORY_NAME IN (${categoryList})`);
+    }
+
+    // Subcategory filter
+    if (subcategory) {
+      const subcategories = Array.isArray(subcategory) ? subcategory : [subcategory];
+      const subcategoryList = subcategories.map(s => `'${s.replace(/'/g, "''")}'`).join(',');
+      whereConditions.push(`SUBCATEGORY_NAME IN (${subcategoryList})`);
+    }
+
+    // Brand filter
+    if (brand) {
+      const brands = Array.isArray(brand) ? brand : [brand];
+      const brandList = brands.map(b => `'${b.replace(/'/g, "''")}'`).join(',');
+      whereConditions.push(`BRAND_NAME IN (${brandList})`);
+    }
+
+    // Color filter
+    if (color) {
+      const colors = Array.isArray(color) ? color : [color];
+      const colorList = colors.map(c => `'${c.replace(/'/g, "''")}'`).join(',');
+      whereConditions.push(`COLOR_NAME IN (${colorList})`);
+    }
+
+    // Size filter
+    if (size) {
+      const sizes = Array.isArray(size) ? size : [size];
+      const sizeList = sizes.map(s => `'${s.replace(/'/g, "''")}'`).join(',');
+      whereConditions.push(`SIZE IN (${sizeList})`);
+    }
+
+    // Price range filters
+    if (minPrice) {
+      whereConditions.push(`PIECE_PRICE >= ${parseFloat(minPrice)}`);
+    }
+    if (maxPrice) {
+      whereConditions.push(`PIECE_PRICE <= ${parseFloat(maxPrice)}`);
+    }
+
+    // Top seller filter
+    if (isTopSeller === 'true') {
+      whereConditions.push(`IsTopSeller=true`);
+    }
+
+    // Build final WHERE clause
+    const whereClause = whereConditions.length > 0 ? whereConditions.join(' AND ') : '1=1';
+
+    // Determine sort field and order
+    let orderBy = 'PRODUCT_TITLE ASC';
+    switch (sort) {
+      case 'name_asc':
+        orderBy = 'PRODUCT_TITLE ASC';
+        break;
+      case 'name_desc':
+        orderBy = 'PRODUCT_TITLE DESC';
+        break;
+      case 'price_asc':
+        orderBy = 'PIECE_PRICE ASC';
+        break;
+      case 'price_desc':
+        orderBy = 'PIECE_PRICE DESC';
+        break;
+      case 'newest':
+        orderBy = 'Date_Updated DESC';
+        break;
+      case 'style':
+        orderBy = 'STYLE ASC';
+        break;
+      default:
+        orderBy = 'PRODUCT_TITLE ASC';
+    }
+
+    // Calculate pagination
+    const pageNum = Math.max(1, parseInt(page));
+    const pageSize = Math.min(100, Math.max(1, parseInt(limit) || 24));
+    const skip = (pageNum - 1) * pageSize;
+
+    console.log(`Executing search with WHERE: ${whereClause}, ORDER BY: ${orderBy}`);
+
+    // Fetch all matching records (we'll aggregate them by style)
+    const allRecords = await fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
+      'q.where': whereClause,
+      'q.orderBy': orderBy
+    });
+
+    console.log(`Found ${allRecords.length} total records before grouping`);
+
+    // Group records by STYLE to create unique products
+    const productsByStyle = new Map();
+
+    allRecords.forEach(record => {
+      const style = record.STYLE;
+      if (!productsByStyle.has(style)) {
+        // First record for this style - use it as the base product
+        productsByStyle.set(style, {
+          // Basic product information
+          id: record.PK_ID,
+          styleNumber: style,
+          productName: record.PRODUCT_TITLE,
+          description: record.PRODUCT_DESCRIPTION,
+          brand: record.BRAND_NAME,
+          category: record.CATEGORY_NAME,
+          subcategory: record.SUBCATEGORY_NAME,
+          status: record.PRODUCT_STATUS,
+          keywords: record.KEYWORDS,
+          
+          // Pricing (will collect min/max across all variants)
+          pricing: {
+            current: record.PIECE_PRICE,
+            minPrice: record.PIECE_PRICE,
+            maxPrice: record.PIECE_PRICE,
+            dozen: record.DOZEN_PRICE,
+            case: record.CASE_PRICE,
+            msrp: record.MSRP,
+            map: record.MAP_PRICING
+          },
+          
+          // Images
+          images: {
+            thumbnail: record.THUMBNAIL_IMAGE,
+            main: record.PRODUCT_IMAGE,
+            colorSwatch: record.COLOR_SWATCH_IMAGE,
+            specSheet: record.SPEC_SHEET,
+            decorationSpec: record.DECORATION_SPEC_SHEET,
+            productMeasurements: record.PRODUCT_MEASUREMENTS,
+            brandLogo: record.BRAND_LOGO_IMAGE,
+            display: record.Display_Image_URL || record.FRONT_MODEL,
+            model: {
+              front: record.FRONT_MODEL,
+              back: record.BACK_MODEL,
+              side: record.SIDE_MODEL,
+              threeQ: record.THREE_Q_MODEL
+            },
+            flat: {
+              front: record.FRONT_FLAT,
+              back: record.BACK_FLAT
+            }
+          },
+          
+          // Initialize collections for aggregation
+          colors: new Map(),
+          sizes: new Set(),
+          availableSizes: record.AVAILABLE_SIZES,
+          
+          // Features
+          features: {
+            isTopSeller: record.IsTopSeller || false,
+            priceText: record.PRICE_TEXT,
+            caseSize: record.CASE_SIZE,
+            companionStyles: record.COMPANION_STYLES
+          },
+          
+          // Metadata
+          dateUpdated: record.Date_Updated,
+          gtin: record.GTIN,
+          
+          // For tracking total quantity across all variants
+          totalQty: record.QTY || 0
+        });
+      } else {
+        // Additional record for same style - aggregate data
+        const product = productsByStyle.get(style);
+        
+        // Update price range
+        if (record.PIECE_PRICE) {
+          product.pricing.minPrice = Math.min(product.pricing.minPrice, record.PIECE_PRICE);
+          product.pricing.maxPrice = Math.max(product.pricing.maxPrice, record.PIECE_PRICE);
+        }
+        
+        // Add to total quantity
+        product.totalQty += (record.QTY || 0);
+      }
+
+      // Add color information
+      const product = productsByStyle.get(style);
+      if (record.COLOR_NAME && !product.colors.has(record.COLOR_NAME)) {
+        product.colors.set(record.COLOR_NAME, {
+          name: record.COLOR_NAME,
+          catalogColor: record.CATALOG_COLOR,
+          pmsCode: record.PMS_COLOR,
+          swatchUrl: record.COLOR_SQUARE_IMAGE,
+          productImageUrl: record.COLOR_PRODUCT_IMAGE,
+          productImageThumbnail: record.COLOR_PRODUCT_IMAGE_THUMBNAIL,
+          mainframeColor: record.SANMAR_MAINFRAME_COLOR
+        });
+      }
+
+      // Add size
+      if (record.SIZE) {
+        product.sizes.add(record.SIZE);
+      }
+    });
+
+    // Convert Map to array and format final products
+    let products = Array.from(productsByStyle.values()).map(product => ({
+      ...product,
+      colors: Array.from(product.colors.values()),
+      sizes: Array.from(product.sizes).sort((a, b) => {
+        // Sort sizes in logical order (XS, S, M, L, XL, 2XL, etc.)
+        const sizeOrder = ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL', '6XL'];
+        const aIndex = sizeOrder.indexOf(a);
+        const bIndex = sizeOrder.indexOf(b);
+        if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
+        if (aIndex !== -1) return -1;
+        if (bIndex !== -1) return 1;
+        return a.localeCompare(b);
+      })
+    }));
+
+    console.log(`Grouped into ${products.length} unique products`);
+
+    // Get total count before pagination
+    const totalProducts = products.length;
+
+    // Apply pagination to grouped products
+    const paginatedProducts = products.slice(skip, skip + pageSize);
+
+    // Build response
+    const response = {
+      success: true,
+      data: {
+        products: paginatedProducts,
+        pagination: {
+          page: pageNum,
+          limit: pageSize,
+          total: totalProducts,
+          totalPages: Math.ceil(totalProducts / pageSize),
+          hasNext: pageNum < Math.ceil(totalProducts / pageSize),
+          hasPrev: pageNum > 1
+        },
+        metadata: {
+          query: q || null,
+          executionTime: Date.now() - req._startTime || 0,
+          filters: {
+            category: category || null,
+            subcategory: subcategory || null,
+            brand: brand || null,
+            color: color || null,
+            size: size || null,
+            priceRange: (minPrice || maxPrice) ? [minPrice || 0, maxPrice || 999999] : null,
+            status: status
+          }
+        }
+      }
+    };
+
+    // Optionally include facets for filter counts
+    if (includeFacets === 'true' || includeFacets === true) {
+      console.log('Calculating facets...');
+      
+      // Get unique values for facets from all matching records
+      const facets = {
+        categories: new Map(),
+        subcategories: new Map(),
+        brands: new Map(),
+        colors: new Map(),
+        sizes: new Map(),
+        priceRanges: [
+          { label: 'Under $25', min: 0, max: 25, count: 0 },
+          { label: '$25-$50', min: 25, max: 50, count: 0 },
+          { label: '$50-$100', min: 50, max: 100, count: 0 },
+          { label: '$100-$200', min: 100, max: 200, count: 0 },
+          { label: 'Over $200', min: 200, max: null, count: 0 }
+        ]
+      };
+
+      // Count occurrences from grouped products (not raw records)
+      products.forEach(product => {
+        // Categories
+        if (product.category) {
+          facets.categories.set(product.category, (facets.categories.get(product.category) || 0) + 1);
+        }
+        
+        // Subcategories
+        if (product.subcategory) {
+          facets.subcategories.set(product.subcategory, (facets.subcategories.get(product.subcategory) || 0) + 1);
+        }
+        
+        // Brands
+        if (product.brand) {
+          facets.brands.set(product.brand, (facets.brands.get(product.brand) || 0) + 1);
+        }
+        
+        // Colors (count products that have each color)
+        product.colors.forEach(color => {
+          if (color.name) {
+            facets.colors.set(color.name, (facets.colors.get(color.name) || 0) + 1);
+          }
+        });
+        
+        // Sizes (count products that have each size)
+        product.sizes.forEach(size => {
+          if (size) {
+            facets.sizes.set(size, (facets.sizes.get(size) || 0) + 1);
+          }
+        });
+        
+        // Price ranges
+        const price = product.pricing.current;
+        if (price < 25) facets.priceRanges[0].count++;
+        else if (price < 50) facets.priceRanges[1].count++;
+        else if (price < 100) facets.priceRanges[2].count++;
+        else if (price < 200) facets.priceRanges[3].count++;
+        else facets.priceRanges[4].count++;
+      });
+
+      // Convert maps to arrays and sort by count
+      response.data.facets = {
+        categories: Array.from(facets.categories.entries())
+          .map(([name, count]) => ({ name, count, selected: category && category.includes(name) }))
+          .sort((a, b) => b.count - a.count),
+        
+        subcategories: Array.from(facets.subcategories.entries())
+          .map(([name, count]) => ({ name, count, selected: subcategory && subcategory.includes(name) }))
+          .sort((a, b) => b.count - a.count),
+        
+        brands: Array.from(facets.brands.entries())
+          .map(([name, count]) => ({ name, count, selected: brand && brand.includes(name) }))
+          .sort((a, b) => b.count - a.count),
+        
+        colors: Array.from(facets.colors.entries())
+          .map(([name, count]) => ({ name, count, selected: color && color.includes(name) }))
+          .sort((a, b) => b.count - a.count),
+        
+        sizes: Array.from(facets.sizes.entries())
+          .map(([name, count]) => ({ name, count, selected: size && size.includes(name) }))
+          .sort((a, b) => {
+            // Sort sizes in logical order
+            const sizeOrder = ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL', '6XL'];
+            const aIndex = sizeOrder.indexOf(a.name);
+            const bIndex = sizeOrder.indexOf(b.name);
+            if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
+            if (aIndex !== -1) return -1;
+            if (bIndex !== -1) return 1;
+            return a.name.localeCompare(b.name);
+          }),
+        
+        priceRanges: facets.priceRanges.filter(range => range.count > 0)
+      };
+    }
+
+    console.log(`Returning ${paginatedProducts.length} products for page ${pageNum}`);
+    res.json(response);
+
+  } catch (error) {
+    console.error('Error in /api/products/search:', error);
+    res.status(500).json({
+      success: false,
+      error: {
+        code: 'SEARCH_ERROR',
+        message: 'Failed to execute product search',
+        details: error.message
+      }
+    });
+  }
+});
+
 // GET /api/product-colors
 router.get('/product-colors', async (req, res) => {
   const { styleNumber } = req.query;
