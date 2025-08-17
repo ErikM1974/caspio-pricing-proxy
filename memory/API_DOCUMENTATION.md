@@ -41,7 +41,7 @@ This document provides a comprehensive overview of the Caspio Pricing Proxy API.
 - **Pagination Support**: All endpoints use `fetchAllCaspioPages` for complete data retrieval
 
 ### Available Route Modules
-The server has 52+ active endpoints organized into modules:
+The server has 53+ active endpoints organized into modules:
 - **cart.js**: Cart sessions, items, and sizes management
 - **inventory.js**: Inventory checking and management  
 - **misc.js**: Health check, announcements, and utility endpoints
@@ -495,6 +495,36 @@ The Product API provides functionality for searching and retrieving product info
 -   **Example `curl` Request**:
     ```bash
     curl "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/search?q=shirt"
+    ```
+
+#### GET /products/search 🆕 Enhanced Catalog Search
+
+-   **Description**: Advanced product search with smart grouping by style, faceted filtering, and comprehensive product data. Groups multiple records by STYLE to eliminate duplicates and aggregates colors/sizes. Perfect for catalog search pages.
+-   **Method**: `GET`
+-   **URL**: `/products/search`
+-   **Query Parameters**:
+    -   `q` (string, optional): Search across style, title, description, keywords, brand
+    -   `category` (string/array, optional): Filter by categories
+    -   `brand` (string/array, optional): Filter by brands
+    -   `color` (string/array, optional): Filter by colors
+    -   `size` (string/array, optional): Filter by sizes
+    -   `minPrice` (number, optional): Minimum price filter
+    -   `maxPrice` (number, optional): Maximum price filter
+    -   `status` (string, optional): Product status (Active/Discontinued/all, default: Active)
+    -   `sort` (string, optional): Sort order (name_asc, price_asc, newest, etc.)
+    -   `page` (number, optional): Page number (default: 1)
+    -   `limit` (number, optional): Results per page (default: 24, max: 100)
+    -   `includeFacets` (boolean, optional): Include filter counts for UI
+-   **Features**: Smart product grouping, faceted search, complete image sets, color/size aggregation
+-   **Response Time**: ~1.2 seconds (production verified)
+-   **Documentation**: See [PRODUCTS_SEARCH_API.md](../PRODUCTS_SEARCH_API.md) for complete details
+-   **Example `curl` Request**:
+    ```bash
+    # Basic search
+    curl "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/products/search?q=polo"
+    
+    # Advanced filtering with facets
+    curl "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/products/search?category=T-Shirts&brand=OGIO&includeFacets=true"
     ```
 
 #### GET /featured-products
