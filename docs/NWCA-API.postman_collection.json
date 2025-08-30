@@ -1,0 +1,1422 @@
+{
+	"info": {
+		"_postman_id": "6ece08ff-b668-4081-a062-cb02a2931869",
+		"name": "NWCA Production API - Complete",
+		"description": "Complete API collection for Northwest Custom Apparel. Includes all production endpoints with enhanced product search, cart management, pricing, orders, and more. Keep this updated when adding new endpoints!",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "27149873",
+		"_collection_link": "https://erik-mehar.postman.co/workspace/Erik-Mehar-Workspace~60158e94-65f8-40b7-8a22-4e577afe3464/collection/27149873-6ece08ff-b668-4081-a062-cb02a2931869?action=share&source=collection_link&creator=27149873"
+	},
+	"item": [
+		{
+			"name": "🎨 Art & Invoicing",
+			"item": [
+				{
+					"name": "Get Art Requests",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/artrequests?limit=10",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"artrequests"
+							],
+							"query": [
+								{
+									"key": "limit",
+									"value": "10",
+									"description": "Number of records to return"
+								}
+							]
+						},
+						"description": "Get list of art requests. Filter by status, company, or sales rep."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Art Invoices",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/art-invoices?limit=10",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"art-invoices"
+							],
+							"query": [
+								{
+									"key": "limit",
+									"value": "10"
+								}
+							]
+						},
+						"description": "Get list of art invoices. Shows all invoices with status, customer, and balance info."
+					},
+					"response": []
+				},
+				{
+					"name": "Create Art Invoice",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"InvoiceID\": \"ART-{{$timestamp}}\",\n  \"ArtRequestID\": \"52503\",\n  \"CustomerName\": \"Test Customer\",\n  \"CustomerEmail\": \"customer@example.com\",\n  \"ProjectName\": \"Logo Design\",\n  \"TimeSpent\": 2.5,\n  \"HourlyRate\": 75,\n  \"Status\": \"Draft\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/art-invoices",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"art-invoices"
+							]
+						},
+						"description": "Create a new art invoice. Links to art request and tracks time/billing."
+					},
+					"response": []
+				},
+				{
+					"name": "Get DesignNotes",
+					"request": {
+						"method": "GET",
+						"header": []
+					},
+					"response": []
+				},
+				{
+					"name": "Update Art Request",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/artrequests/{{id}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"artrequests",
+								"{{id}}"
+							]
+						},
+						"description": "Update existing art request. Accepts any fields from the ArtRequests table.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"Status\": \"Completed\",\n  \"Invoiced\": true,\n  \"Invoiced_Date\": \"2025-01-15\"\n}"
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Art Request",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/artrequests/{{id}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"artrequests",
+								"{{id}}"
+							]
+						},
+						"description": "Delete art request by ID"
+					},
+					"response": []
+				},
+				{
+					"name": "Create Art Request",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/artrequests",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"artrequests"
+							]
+						},
+						"description": "Create new art request. Accepts any fields from the ArtRequests table.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"CompanyName\": \"Test Company\",\n  \"Status\": \"In Progress\",\n  \"CustomerServiceRep\": \"John Doe\",\n  \"Priority\": \"High\",\n  \"Mockup\": true,\n  \"GarmentStyle\": \"PC61\",\n  \"GarmentColor\": \"Navy\",\n  \"NOTES\": \"Rush order - need by Friday\"\n}"
+						}
+					},
+					"response": []
+				}
+			],
+			"description": "Art request and invoice management system"
+		},
+		{
+			"name": "💰 Pricing & Costs",
+			"item": [
+				{
+					"name": "Get Pricing Tiers",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/pricing-tiers?method={{method}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"pricing-tiers"
+							],
+							"query": [
+								{
+									"key": "method",
+									"value": "{{method}}",
+									"description": "Decoration method: DTG, EMB, CAP, ScreenPrint, DTF"
+								}
+							]
+						},
+						"description": "Get quantity pricing tiers for a decoration method. Shows price breaks at different quantities."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Base Item Costs",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/base-item-costs?styleNumber={{styleNumber}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"base-item-costs"
+							],
+							"query": [
+								{
+									"key": "styleNumber",
+									"value": "{{styleNumber}}"
+								}
+							]
+						},
+						"description": "Get blank garment cost by size. Returns base price before decoration."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Size Pricing",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/size-pricing?styleNumber={{styleNumber}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"size-pricing"
+							],
+							"query": [
+								{
+									"key": "styleNumber",
+									"value": "{{styleNumber}}"
+								}
+							]
+						},
+						"description": "Get comprehensive size pricing including upcharges for extended sizes (2XL, 3XL, etc)."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Max Prices by Style",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/max-prices-by-style?styleNumber={{styleNumber}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"max-prices-by-style"
+							],
+							"query": [
+								{
+									"key": "styleNumber",
+									"value": "{{styleNumber}}"
+								}
+							]
+						},
+						"description": "Get highest price per size across all colors. Used for 'Starting at' pricing."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Pricing Bundle",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/pricing-bundle?method={{method}}&styleNumber={{styleNumber}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"pricing-bundle"
+							],
+							"query": [
+								{
+									"key": "method",
+									"value": "{{method}}",
+									"description": "DTG, EMB, CAP, ScreenPrint, DTF"
+								},
+								{
+									"key": "styleNumber",
+									"value": "{{styleNumber}}",
+									"description": "Optional for size-specific pricing"
+								}
+							]
+						},
+						"description": "Get complete pricing package for a decoration method. Includes all tiers, rules, and costs."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Embroidery Costs",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/embroidery-costs?itemType=Cap&stitchCount=8000",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"embroidery-costs"
+							],
+							"query": [
+								{
+									"key": "itemType",
+									"value": "Cap",
+									"description": "Cap or Standard"
+								},
+								{
+									"key": "stitchCount",
+									"value": "8000",
+									"description": "Number of stitches"
+								}
+							]
+						},
+						"description": "Get embroidery pricing based on stitch count and item type."
+					},
+					"response": []
+				},
+				{
+					"name": "Get DTG Costs",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/dtg-costs",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"dtg-costs"
+							]
+						},
+						"description": "Get all DTG (Direct to Garment) printing costs by location and size."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Screen Print Costs",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/screenprint-costs?costType=PrimaryLocation",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"screenprint-costs"
+							],
+							"query": [
+								{
+									"key": "costType",
+									"value": "PrimaryLocation",
+									"description": "PrimaryLocation or AdditionalLocation"
+								}
+							]
+						},
+						"description": "Get screen printing costs by number of colors and location type."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Pricing Rules",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/pricing-rules?styleNumber={{styleNumber}}&method={{method}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"pricing-rules"
+							],
+							"query": [
+								{
+									"key": "styleNumber",
+									"value": "{{styleNumber}}"
+								},
+								{
+									"key": "method",
+									"value": "{{method}}"
+								}
+							]
+						},
+						"description": "Get pricing rules and markups for style/method combination."
+					},
+					"response": []
+				}
+			],
+			"description": "Product pricing, decoration costs, and pricing calculations"
+		},
+		{
+			"name": "🛍️ Product Search",
+			"item": [
+				{
+					"name": "Enhanced Product Search",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/products/search?q=polo&category=Polos&includeFacets=true&limit=24",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"products",
+								"search"
+							],
+							"query": [
+								{
+									"key": "q",
+									"value": "polo",
+									"description": "Search query across style, title, description, keywords, brand"
+								},
+								{
+									"key": "category",
+									"value": "Polos",
+									"description": "Filter by category (can be array: category[]=Polos&category[]=T-Shirts)"
+								},
+								{
+									"key": "brand",
+									"value": "",
+									"description": "Filter by brand (can be array)",
+									"disabled": true
+								},
+								{
+									"key": "color",
+									"value": "",
+									"description": "Filter by color (can be array)",
+									"disabled": true
+								},
+								{
+									"key": "size",
+									"value": "",
+									"description": "Filter by size (can be array)",
+									"disabled": true
+								},
+								{
+									"key": "minPrice",
+									"value": "10",
+									"description": "Minimum price filter",
+									"disabled": true
+								},
+								{
+									"key": "maxPrice",
+									"value": "50",
+									"description": "Maximum price filter",
+									"disabled": true
+								},
+								{
+									"key": "status",
+									"value": "Active",
+									"description": "Product status (Active/Discontinued/all)",
+									"disabled": true
+								},
+								{
+									"key": "sort",
+									"value": "price_asc",
+									"description": "Sort order (name_asc, name_desc, price_asc, price_desc, newest, oldest)",
+									"disabled": true
+								},
+								{
+									"key": "page",
+									"value": "1",
+									"description": "Page number",
+									"disabled": true
+								},
+								{
+									"key": "limit",
+									"value": "24",
+									"description": "Results per page (max 100)"
+								},
+								{
+									"key": "includeFacets",
+									"value": "true",
+									"description": "Include filter counts for UI"
+								}
+							]
+						},
+						"description": "🆕 Advanced product search with smart grouping by style, faceted filtering, and comprehensive product data. Groups multiple records by STYLE to eliminate duplicates and aggregates colors/sizes. Perfect for catalog search pages."
+					},
+					"response": []
+				},
+				{
+					"name": "Style Search",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/stylesearch?term=PC54",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"stylesearch"
+							],
+							"query": [
+								{
+									"key": "term",
+									"value": "PC54",
+									"description": "Search term (style number or name)"
+								}
+							]
+						},
+						"description": "Search products by style number or name. Returns autocomplete suggestions."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Product Colors",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/product-colors?styleNumber={{styleNumber}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"product-colors"
+							],
+							"query": [
+								{
+									"key": "styleNumber",
+									"value": "{{styleNumber}}"
+								}
+							]
+						},
+						"description": "Get all available colors for a style. Used for color picker."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Product Details",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/product-details?styleNumber={{styleNumber}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"product-details"
+							],
+							"query": [
+								{
+									"key": "styleNumber",
+									"value": "{{styleNumber}}"
+								}
+							]
+						},
+						"description": "Get complete product information including description, features, and specs."
+					},
+					"response": []
+				},
+				{
+					"name": "Check Inventory",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/inventory?styleNumber={{styleNumber}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"inventory"
+							],
+							"query": [
+								{
+									"key": "styleNumber",
+									"value": "{{styleNumber}}"
+								}
+							]
+						},
+						"description": "Check real-time inventory levels by size and color."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Sizes by Style & Color",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/sizes-by-style-color?styleNumber={{styleNumber}}&color={{color}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"sizes-by-style-color"
+							],
+							"query": [
+								{
+									"key": "styleNumber",
+									"value": "{{styleNumber}}"
+								},
+								{
+									"key": "color",
+									"value": "{{color}}"
+								}
+							]
+						},
+						"description": "Get available sizes for specific style/color combination."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Color Swatches",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/color-swatches?styleNumber={{styleNumber}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"color-swatches"
+							],
+							"query": [
+								{
+									"key": "styleNumber",
+									"value": "{{styleNumber}}"
+								}
+							]
+						},
+						"description": "Get color swatches with hex codes for visual display."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Products by Brand",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/products-by-brand?brand=Port %26 Company",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"products-by-brand"
+							],
+							"query": [
+								{
+									"key": "brand",
+									"value": "Port & Company"
+								}
+							]
+						},
+						"description": "Get all products from a specific brand."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Products by Category",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/products-by-category?category=T-Shirts",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"products-by-category"
+							],
+							"query": [
+								{
+									"key": "category",
+									"value": "T-Shirts"
+								}
+							]
+						},
+						"description": "Get all products in a category."
+					},
+					"response": []
+				},
+				{
+					"name": "Get All Brands",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/all-brands",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"all-brands"
+							]
+						},
+						"description": "Get list of all available brands."
+					},
+					"response": []
+				},
+				{
+					"name": "Get All Categories",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/all-categories",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"all-categories"
+							]
+						},
+						"description": "Get list of all product categories."
+					},
+					"response": []
+				},
+				{
+					"name": "Get All Subcategories",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/all-subcategories",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"all-subcategories"
+							]
+						},
+						"description": "Get list of all product subcategories."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Product Search Index",
+					"request": {
+						"method": "GET",
+						"header": []
+					},
+					"response": []
+				}
+			],
+			"description": "Find products, colors, sizes, and check inventory"
+		},
+		{
+			"name": "📊 Pricing Matrix",
+			"item": [
+				{
+					"name": "Get All Pricing Matrices",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/pricing-matrix",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"pricing-matrix"
+							]
+						},
+						"description": "Get all saved pricing configurations. Filter by session, style, color, or method."
+					},
+					"response": []
+				},
+				{
+					"name": "Create Pricing Matrix",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"SessionID\": \"{{sessionId}}\",\n  \"StyleNumber\": \"PC54\",\n  \"Color\": \"Red\",\n  \"EmbellishmentType\": \"DTG\",\n  \"TierStructure\": {\n    \"tiers\": [\n      {\"min\": 24, \"max\": 47, \"label\": \"24-47\"},\n      {\"min\": 48, \"max\": 71, \"label\": \"48-71\"},\n      {\"min\": 72, \"max\": 999, \"label\": \"72+\"}\n    ]\n  },\n  \"PriceMatrix\": {\n    \"24-47\": {\n      \"S\": 15.99,\n      \"M\": 15.99,\n      \"L\": 15.99,\n      \"XL\": 15.99,\n      \"2XL\": 17.99\n    },\n    \"48-71\": {\n      \"S\": 14.99,\n      \"M\": 14.99,\n      \"L\": 14.99,\n      \"XL\": 14.99,\n      \"2XL\": 16.99\n    },\n    \"72+\": {\n      \"S\": 13.99,\n      \"M\": 13.99,\n      \"L\": 13.99,\n      \"XL\": 13.99,\n      \"2XL\": 15.99\n    }\n  }\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/pricing-matrix",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"pricing-matrix"
+							]
+						},
+						"description": "Save custom pricing with quantity tiers for a product/decoration combo."
+					},
+					"response": []
+				},
+				{
+					"name": "Lookup Pricing Matrix",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/pricing-matrix/lookup?styleNumber={{styleNumber}}&color={{color}}&embellishmentType={{method}}&sessionID={{sessionId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"pricing-matrix",
+								"lookup"
+							],
+							"query": [
+								{
+									"key": "styleNumber",
+									"value": "{{styleNumber}}"
+								},
+								{
+									"key": "color",
+									"value": "{{color}}"
+								},
+								{
+									"key": "embellishmentType",
+									"value": "{{method}}"
+								},
+								{
+									"key": "sessionID",
+									"value": "{{sessionId}}"
+								}
+							]
+						},
+						"description": "Check if pricing exists for specific product/color/decoration combo."
+					},
+					"response": []
+				}
+			],
+			"description": "Save and retrieve custom pricing configurations"
+		},
+		{
+			"name": "🛒 Cart Management",
+			"item": [
+				{
+					"name": "Get Cart Sessions",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/cart-sessions",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"cart-sessions"
+							]
+						},
+						"description": "Get all cart sessions. Each session represents one customer's cart."
+					},
+					"response": []
+				},
+				{
+					"name": "Create Cart Session",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"SessionID\": \"{{$guid}}\",\n  \"CustomerEmail\": \"customer@example.com\",\n  \"CustomerName\": \"John Doe\",\n  \"Status\": \"Active\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/cart-sessions",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"cart-sessions"
+							]
+						},
+						"description": "Create new cart session for a customer."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Cart Items",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/cart-items",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"cart-items"
+							]
+						},
+						"description": "Get all cart items across all sessions."
+					},
+					"response": []
+				},
+				{
+					"name": "Add Cart Item",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"SessionID\": \"{{sessionId}}\",\n  \"ProductID\": \"PC54-Red\",\n  \"StyleNumber\": \"PC54\",\n  \"Color\": \"Red\",\n  \"Quantity\": 50,\n  \"DecorationMethod\": \"DTG\",\n  \"PrintLocations\": \"Front\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/cart-items",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"cart-items"
+							]
+						},
+						"description": "Add product to cart. Requires ProductID and SessionID."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Cart Item Sizes",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/cart-item-sizes",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"cart-item-sizes"
+							]
+						},
+						"description": "Get size breakdown for cart items (e.g., 10 Small, 15 Medium)."
+					},
+					"response": []
+				}
+			],
+			"description": "Shopping cart sessions and items"
+		},
+		{
+			"name": "📝 Quote System",
+			"item": [
+				{
+					"name": "Get Quote Sessions",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/quote_sessions",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"quote_sessions"
+							]
+						},
+						"description": "Get all quote sessions. Formal quotes with terms and expiration."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Quote Items",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/quote_items",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"quote_items"
+							]
+						},
+						"description": "Get all quote line items with pricing details."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Quote Analytics",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/quote_analytics",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"quote_analytics"
+							]
+						},
+						"description": "Track quote views, modifications, and conversion metrics."
+					},
+					"response": []
+				}
+			],
+			"description": "Formal quotes with expiration and tracking"
+		},
+		{
+			"name": "📦 Orders & Customers",
+			"item": [
+				{
+					"name": "Get Orders",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/orders",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"orders"
+							]
+						},
+						"description": "Get all orders. Shows production status and tracking info."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Order ODBC Data",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/order-odbc?limit=100",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"order-odbc"
+							],
+							"query": [
+								{
+									"key": "limit",
+									"value": "100"
+								}
+							]
+						},
+						"description": "Get detailed order records from ODBC connection."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Customers",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/customers",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"customers"
+							]
+						},
+						"description": "Get all customer records with contact info."
+					},
+					"response": []
+				}
+			],
+			"description": "Order management and customer records"
+		},
+		{
+			"name": "📈 Dashboard & Reports",
+			"item": [
+				{
+					"name": "Order Dashboard",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/order-dashboard?days=7",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"order-dashboard"
+							],
+							"query": [
+								{
+									"key": "days",
+									"value": "7",
+									"description": "Number of days to look back"
+								},
+								{
+									"key": "includeDetails",
+									"value": "false",
+									"description": "Include order list",
+									"disabled": true
+								}
+							]
+						},
+						"description": "Get order metrics, sales by rep, shipping status. Pre-calculated for performance."
+					},
+					"response": []
+				},
+				{
+					"name": "Staff Announcements",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/staff-announcements",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"staff-announcements"
+							]
+						},
+						"description": "Get current staff announcements and updates."
+					},
+					"response": []
+				},
+				{
+					"name": "Production Schedules",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/production-schedules?limit=10",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"production-schedules"
+							],
+							"query": [
+								{
+									"key": "limit",
+									"value": "10"
+								}
+							]
+						},
+						"description": "Get production availability dates for all decoration methods."
+					},
+					"response": []
+				}
+			],
+			"description": "Business metrics and operational data"
+		},
+		{
+			"name": "⚙️ Utilities",
+			"item": [
+				{
+					"name": "Health Check",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/health",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"health"
+							]
+						},
+						"description": "Check API health, Caspio connection, and system info."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Locations",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/locations",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"locations"
+							]
+						},
+						"description": "Get list of print locations (Front, Back, Left Chest, etc)."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Transfers",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/transfers",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"transfers"
+							]
+						},
+						"description": "Get transfer printing options and pricing."
+					},
+					"response": []
+				},
+				{
+					"name": "Test Sanmar Bulk",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/test-sanmar-bulk",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"test-sanmar-bulk"
+							]
+						},
+						"description": "Test bulk product import from Sanmar."
+					},
+					"response": []
+				}
+			],
+			"description": "System health and miscellaneous endpoints"
+		},
+		{
+			"name": "🎨 Transfers",
+			"item": [
+				{
+					"name": "Get Transfer Price",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/transfers/lookup?size=Adult&quantity=10&price_type=Regular",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"transfers",
+								"lookup"
+							],
+							"query": [
+								{
+									"key": "size",
+									"value": "Adult",
+									"description": "Transfer size"
+								},
+								{
+									"key": "quantity",
+									"value": "10",
+									"description": "Quantity"
+								},
+								{
+									"key": "price_type",
+									"value": "Regular",
+									"description": "Price type"
+								}
+							]
+						},
+						"description": "Lookup transfer price by size and quantity"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Transfer Matrix",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/transfers/matrix?size=Adult",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"transfers",
+								"matrix"
+							],
+							"query": [
+								{
+									"key": "size",
+									"value": "Adult",
+									"description": "Transfer size"
+								}
+							]
+						},
+						"description": "Get transfer pricing matrix for a size"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Transfer Sizes",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/transfers/sizes",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"transfers",
+								"sizes"
+							],
+							"query": []
+						},
+						"description": "Get all available transfer sizes"
+					},
+					"response": []
+				}
+			],
+			"description": "Transfer printing pricing and management"
+		}
+	],
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com",
+			"type": "string",
+			"description": "Production Heroku URL"
+		},
+		{
+			"key": "styleNumber",
+			"value": "PC54",
+			"type": "string"
+		},
+		{
+			"key": "color",
+			"value": "Red",
+			"type": "string"
+		},
+		{
+			"key": "method",
+			"value": "DTG",
+			"type": "string"
+		},
+		{
+			"key": "sessionId",
+			"value": "test-session-123",
+			"type": "string"
+		},
+		{
+			"key": "id",
+			"value": "1",
+			"type": "string",
+			"description": "Generic ID for CRUD operations"
+		}
+	]
+}

@@ -196,6 +196,121 @@ Q4: Special requirements? → Return everything as-is
 Result: Standard endpoint returning filtered, sorted order records
 ```
 
+## Postman Collection Management
+
+### CRITICAL: Single Source of Truth
+**There is ONE official Postman collection file that must be kept up-to-date:**
+`docs/NWCA-API.postman_collection.json`
+
+### When Adding or Modifying Endpoints
+
+**IMPORTANT**: Every time you add, modify, or remove an API endpoint, you MUST update the Postman collection:
+
+1. **For NEW endpoints:**
+   - Add the endpoint to the appropriate category in `docs/NWCA-API.postman_collection.json`
+   - Include example query parameters with descriptions
+   - Set appropriate request body examples for POST/PUT endpoints
+   - Run `node scripts/update-postman-collection.js` to ensure consistency
+
+2. **For MODIFIED endpoints:**
+   - Update the endpoint's URL, parameters, or body in the Postman collection
+   - Update any example values or descriptions
+   - Verify the endpoint still works with `node test-endpoints.js`
+
+3. **For DELETED endpoints:**
+   - Remove the endpoint from the Postman collection
+   - Update any documentation that references the removed endpoint
+
+### Postman Collection Structure
+The collection is organized by category:
+- 🛍️ Product Search (Enhanced search, related products, quick view)
+- 🛒 Cart Management (Sessions, items, sizes)
+- 💰 Pricing (Tiers, costs, rules)
+- 📦 Orders & Customers (CRUD operations)
+- 🎨 Art & Invoicing (Art requests, invoices)
+- 📝 Quote System (Sessions, items, analytics)
+- 🎨 Transfers (Pricing, matrices, sizes)
+- 📊 Pricing Matrix (Lookup, CRUD)
+- 📦 Inventory (Sizes, variants, prices)
+- ⚙️ Utilities (Health, status, recommendations)
+
+### Automation Tools
+
+**Update Script**: `scripts/update-postman-collection.js`
+- Automatically adds missing endpoints
+- Updates collection variables
+- Maintains proper structure
+- Run after any major endpoint changes
+
+**Test Script**: `test-endpoints.js`
+- Validates all endpoints are working
+- Checks server connectivity
+- Provides Postman-ready URLs
+
+### Active Endpoints Only
+This collection contains ONLY the endpoints actively used in the pricing-index application (~53 endpoints).
+Do NOT add experimental or unused endpoints. If an endpoint is not being used in production, it should not be in the Postman collection.
+
+### Environment Variables
+The collection uses these variables:
+- `{{baseUrl}}` - Production: `https://caspio-pricing-proxy-ab30a049961a.herokuapp.com`
+- `{{styleNumber}}` - Example style: `PC54`
+- `{{color}}` - Example color: `Red`
+- `{{method}}` - Decoration method: `DTG`
+- `{{sessionId}}` - Test session ID
+- `{{id}}` - Generic ID for CRUD operations
+
+## CRITICAL: Cross-Project API Documentation Sync & Inter-Claude Communication
+
+### Shared Documentation File
+**Path**: `/mnt/c/Users/erik/OneDrive - Northwest Custom Apparel/2025/Pricing Index File 2025/memory/CASPIO_API_TEMPLATE.md`
+
+This file is the **single source of truth** shared between this project (API Provider) and Pricing Index (API Consumer). Both Claude instances use this file to coordinate changes and communicate.
+
+### 🔔 Session Start Protocol
+**IMPORTANT: At the start of each session, you MUST:**
+1. Read the shared CASPIO_API_TEMPLATE.md file
+2. Check the "Active Conversations" section for pending messages from Consumer Claude
+3. Review "Recent Updates Requiring Acknowledgment"
+4. Update your "Last Checked by Provider" timestamp
+5. Respond to any questions or acknowledge updates
+
+### 📝 When Making API Changes
+**When you add, modify, or remove ANY API endpoint:**
+
+1. **Update the Postman collection**: `docs/NWCA-API.postman_collection.json`
+
+2. **Update the shared documentation** with:
+   - Complete endpoint documentation
+   - Leave a message in the Communication Log using appropriate prefix:
+     - 🚨 **BREAKING** for breaking changes
+     - 📝 **UPDATE** for new endpoints
+     - 🐛 **BUG** for fixes
+   - Add item to "Recent Updates Requiring Acknowledgment"
+   - Update version number and "Last Updated By" timestamp
+
+3. **Example message format**:
+   ```
+   **2025-01-30 16:00** - 📝 **UPDATE** from API Provider:
+   Added new endpoint GET /api/products/bulk for bulk product retrieval.
+   Max 500 items per request. See documentation in Products section.
+   ```
+
+### 💬 Communication Guidelines
+- Check for messages from Consumer Claude regularly
+- Use ❓ **QUESTION** prefix when you need information
+- Use ✅ **ANSWER** prefix when responding
+- Use 🤝 **ACKNOWLEDGED** when you've read and understood a message
+- Move resolved conversations from "Active" to "History"
+
+### 🚨 Important Notes
+- The Consumer Claude will report bugs, usage patterns, and requirements
+- You own the API implementation and performance optimization
+- Always document breaking changes with migration guides
+- The file acts as a "bulletin board" for asynchronous communication between Claudes
+
+**Why this matters**: This enables coordination between the API provider (you) and consumer (Pricing Index Claude) without human intervention, ensuring both sides stay synchronized.
+
 ## Recent Additions
 
 ### Order Dashboard API (`/api/order-dashboard`)

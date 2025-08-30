@@ -1,0 +1,447 @@
+{
+  "endpoints_to_add": [
+    {
+      "category": "🛍️ Product Search",
+      "endpoints": [
+        {
+          "name": "Enhanced Product Search",
+          "description": "Advanced product search with smart grouping by style, faceted filtering, and comprehensive product data. Groups multiple records by STYLE to eliminate duplicates.",
+          "method": "GET",
+          "url": "{{baseUrl}}/api/products/search",
+          "params": [
+            {"key": "q", "value": "polo", "description": "Search query across style, title, description, keywords, brand"},
+            {"key": "category", "value": "Polos", "description": "Filter by category (can be array)"},
+            {"key": "brand", "value": "Port & Company", "description": "Filter by brand (can be array)"},
+            {"key": "minPrice", "value": "10", "description": "Minimum price filter"},
+            {"key": "maxPrice", "value": "50", "description": "Maximum price filter"},
+            {"key": "status", "value": "Active", "description": "Product status (Active/Discontinued/all)"},
+            {"key": "sort", "value": "price_asc", "description": "Sort order (name_asc, price_asc, newest, etc.)"},
+            {"key": "page", "value": "1", "description": "Page number"},
+            {"key": "limit", "value": "24", "description": "Results per page (max 100)"},
+            {"key": "includeFacets", "value": "true", "description": "Include filter counts for UI"}
+          ]
+        },
+        {
+          "name": "Get Related Products",
+          "description": "Get products related to a specific style",
+          "method": "GET",
+          "url": "{{baseUrl}}/api/related-products",
+          "params": [
+            {"key": "styleNumber", "value": "{{styleNumber}}", "description": "Style number"}
+          ]
+        },
+        {
+          "name": "Compare Products",
+          "description": "Compare multiple products",
+          "method": "GET",
+          "url": "{{baseUrl}}/api/compare-products",
+          "params": [
+            {"key": "styles", "value": "PC61,PC54", "description": "Comma-separated list of style numbers"}
+          ]
+        },
+        {
+          "name": "Product Quick View",
+          "description": "Get quick view data for a product",
+          "method": "GET",
+          "url": "{{baseUrl}}/api/quick-view",
+          "params": [
+            {"key": "styleNumber", "value": "{{styleNumber}}", "description": "Style number"}
+          ]
+        }
+      ]
+    },
+    {
+      "category": "🎨 Art & Invoicing",
+      "endpoints": [
+        {
+          "name": "Get Art Request by ID",
+          "description": "Get specific art request",
+          "method": "GET",
+          "url": "{{baseUrl}}/api/artrequests/{{id}}"
+        },
+        {
+          "name": "Update Art Request",
+          "description": "Update existing art request",
+          "method": "PUT",
+          "url": "{{baseUrl}}/api/artrequests/{{id}}",
+          "body": {
+            "Status": "Completed",
+            "Invoiced": true,
+            "Invoiced_Date": "2025-01-15"
+          }
+        },
+        {
+          "name": "Delete Art Request",
+          "description": "Delete art request",
+          "method": "DELETE",
+          "url": "{{baseUrl}}/api/artrequests/{{id}}"
+        },
+        {
+          "name": "Create Art Request",
+          "description": "Create new art request",
+          "method": "POST",
+          "url": "{{baseUrl}}/api/artrequests",
+          "body": {
+            "CompanyName": "Test Company",
+            "Status": "In Progress",
+            "CustomerServiceRep": "John Doe",
+            "Priority": "High",
+            "Mockup": true,
+            "GarmentStyle": "PC61",
+            "GarmentColor": "Navy",
+            "NOTES": "Rush order - need by Friday"
+          }
+        },
+        {
+          "name": "Update Art Invoice",
+          "description": "Update existing art invoice",
+          "method": "PUT",
+          "url": "{{baseUrl}}/api/art-invoices/{{id}}",
+          "body": {
+            "Status": "Paid",
+            "PaymentDate": "2025-01-15",
+            "PaymentAmount": 500.00
+          }
+        },
+        {
+          "name": "Delete Art Invoice",
+          "description": "Delete art invoice",
+          "method": "DELETE",
+          "url": "{{baseUrl}}/api/art-invoices/{{id}}"
+        }
+      ]
+    },
+    {
+      "category": "🛒 Cart Management",
+      "endpoints": [
+        {
+          "name": "Update Cart Session",
+          "description": "Update cart session",
+          "method": "PUT",
+          "url": "{{baseUrl}}/api/cart-sessions/{{id}}",
+          "body": {
+            "IsActive": false,
+            "LastActivity": "2025-01-15T10:00:00Z"
+          }
+        },
+        {
+          "name": "Delete Cart Session",
+          "description": "Delete cart session",
+          "method": "DELETE",
+          "url": "{{baseUrl}}/api/cart-sessions/{{id}}"
+        },
+        {
+          "name": "Update Cart Item",
+          "description": "Update cart item",
+          "method": "PUT",
+          "url": "{{baseUrl}}/api/cart-items/{{id}}",
+          "body": {
+            "CartStatus": "Saved",
+            "OrderID": 12345
+          }
+        },
+        {
+          "name": "Delete Cart Item",
+          "description": "Remove item from cart",
+          "method": "DELETE",
+          "url": "{{baseUrl}}/api/cart-items/{{id}}"
+        },
+        {
+          "name": "Add Cart Item Size",
+          "description": "Add size and quantity to cart item",
+          "method": "POST",
+          "url": "{{baseUrl}}/api/cart-item-sizes",
+          "body": {
+            "CartItemID": 1,
+            "Size": "L",
+            "Quantity": 5,
+            "UnitPrice": 12.99
+          }
+        },
+        {
+          "name": "Update Cart Item Size",
+          "description": "Update cart item size/quantity",
+          "method": "PUT",
+          "url": "{{baseUrl}}/api/cart-item-sizes/{{id}}",
+          "body": {
+            "Quantity": 10
+          }
+        },
+        {
+          "name": "Delete Cart Item Size",
+          "description": "Remove size from cart item",
+          "method": "DELETE",
+          "url": "{{baseUrl}}/api/cart-item-sizes/{{id}}"
+        }
+      ]
+    },
+    {
+      "category": "📦 Orders & Customers",
+      "endpoints": [
+        {
+          "name": "Create Order",
+          "description": "Create new order",
+          "method": "POST",
+          "url": "{{baseUrl}}/api/orders",
+          "body": {
+            "CustomerID": 1,
+            "SessionID": "session_123",
+            "TotalAmount": 299.99,
+            "OrderStatus": "Pending",
+            "PaymentMethod": "Credit Card"
+          }
+        },
+        {
+          "name": "Update Order",
+          "description": "Update order status",
+          "method": "PUT",
+          "url": "{{baseUrl}}/api/orders/{{id}}",
+          "body": {
+            "OrderStatus": "Shipped",
+            "TrackingNumber": "1Z999AA10123456784"
+          }
+        },
+        {
+          "name": "Delete Order",
+          "description": "Delete order",
+          "method": "DELETE",
+          "url": "{{baseUrl}}/api/orders/{{id}}"
+        },
+        {
+          "name": "Create Customer",
+          "description": "Create new customer",
+          "method": "POST",
+          "url": "{{baseUrl}}/api/customers",
+          "body": {
+            "Name": "John Doe",
+            "Email": "john@example.com",
+            "Company": "Test Company"
+          }
+        },
+        {
+          "name": "Update Customer",
+          "description": "Update customer info",
+          "method": "PUT",
+          "url": "{{baseUrl}}/api/customers/{{id}}",
+          "body": {
+            "Email": "newemail@example.com"
+          }
+        },
+        {
+          "name": "Delete Customer",
+          "description": "Delete customer",
+          "method": "DELETE",
+          "url": "{{baseUrl}}/api/customers/{{id}}"
+        }
+      ]
+    },
+    {
+      "category": "📝 Quote System",
+      "endpoints": [
+        {
+          "name": "Create Quote Session",
+          "description": "Create new quote session",
+          "method": "POST",
+          "url": "{{baseUrl}}/api/quote_sessions",
+          "body": {
+            "QuoteID": "Q-2025-001",
+            "SessionID": "session_123",
+            "Status": "Active"
+          }
+        },
+        {
+          "name": "Update Quote Session",
+          "description": "Update quote session",
+          "method": "PUT",
+          "url": "{{baseUrl}}/api/quote_sessions/{{id}}",
+          "body": {
+            "Status": "Saved"
+          }
+        },
+        {
+          "name": "Delete Quote Session",
+          "description": "Delete quote session",
+          "method": "DELETE",
+          "url": "{{baseUrl}}/api/quote_sessions/{{id}}"
+        },
+        {
+          "name": "Create Quote Item",
+          "description": "Add item to quote",
+          "method": "POST",
+          "url": "{{baseUrl}}/api/quote_items",
+          "body": {
+            "QuoteID": "Q-2025-001",
+            "StyleNumber": "PC61",
+            "Quantity": 100
+          }
+        },
+        {
+          "name": "Update Quote Item",
+          "description": "Update quote item",
+          "method": "PUT",
+          "url": "{{baseUrl}}/api/quote_items/{{id}}",
+          "body": {
+            "Quantity": 150
+          }
+        },
+        {
+          "name": "Delete Quote Item",
+          "description": "Remove item from quote",
+          "method": "DELETE",
+          "url": "{{baseUrl}}/api/quote_items/{{id}}"
+        },
+        {
+          "name": "Create Quote Analytics",
+          "description": "Track quote event",
+          "method": "POST",
+          "url": "{{baseUrl}}/api/quote_analytics",
+          "body": {
+            "SessionID": "session_123",
+            "EventType": "View",
+            "QuoteID": "Q-2025-001"
+          }
+        }
+      ]
+    },
+    {
+      "category": "📊 Pricing Matrix",
+      "endpoints": [
+        {
+          "name": "Get Pricing Matrix by ID",
+          "description": "Get specific pricing matrix",
+          "method": "GET",
+          "url": "{{baseUrl}}/api/pricing-matrix/{{id}}"
+        },
+        {
+          "name": "Update Pricing Matrix",
+          "description": "Update pricing matrix",
+          "method": "PUT",
+          "url": "{{baseUrl}}/api/pricing-matrix/{{id}}",
+          "body": {
+            "PriceMatrix": {},
+            "TierStructure": {}
+          }
+        },
+        {
+          "name": "Delete Pricing Matrix",
+          "description": "Delete pricing matrix",
+          "method": "DELETE",
+          "url": "{{baseUrl}}/api/pricing-matrix/{{id}}"
+        }
+      ]
+    },
+    {
+      "category": "🎨 Transfers",
+      "endpoints": [
+        {
+          "name": "Get Transfer Price",
+          "description": "Lookup transfer price by size and quantity",
+          "method": "GET",
+          "url": "{{baseUrl}}/api/transfers/lookup",
+          "params": [
+            {"key": "size", "value": "Adult", "description": "Transfer size"},
+            {"key": "quantity", "value": "10", "description": "Quantity"},
+            {"key": "price_type", "value": "Regular", "description": "Price type"}
+          ]
+        },
+        {
+          "name": "Get Transfer Matrix",
+          "description": "Get transfer pricing matrix",
+          "method": "GET",
+          "url": "{{baseUrl}}/api/transfers/matrix",
+          "params": [
+            {"key": "size", "value": "Adult", "description": "Transfer size"},
+            {"key": "price_type", "value": "Regular", "description": "Price type (optional)"}
+          ]
+        },
+        {
+          "name": "Get Transfer Sizes",
+          "description": "Get all available transfer sizes",
+          "method": "GET",
+          "url": "{{baseUrl}}/api/transfers/sizes"
+        },
+        {
+          "name": "Get Transfer Price Types",
+          "description": "Get all available price types",
+          "method": "GET",
+          "url": "{{baseUrl}}/api/transfers/price-types"
+        },
+        {
+          "name": "Get Transfer Quantity Ranges",
+          "description": "Get all quantity ranges",
+          "method": "GET",
+          "url": "{{baseUrl}}/api/transfers/quantity-ranges"
+        }
+      ]
+    },
+    {
+      "category": "📦 Inventory",
+      "endpoints": [
+        {
+          "name": "Get Product Variant Sizes",
+          "description": "Get available sizes for style/color combination",
+          "method": "GET",
+          "url": "{{baseUrl}}/api/product-variant-sizes",
+          "params": [
+            {"key": "styleNumber", "value": "{{styleNumber}}", "description": "Style number"},
+            {"key": "color", "value": "{{color}}", "description": "Color name"}
+          ]
+        },
+        {
+          "name": "Get Prices by Style Color",
+          "description": "Get prices for each size of style/color",
+          "method": "GET",
+          "url": "{{baseUrl}}/api/prices-by-style-color",
+          "params": [
+            {"key": "styleNumber", "value": "{{styleNumber}}", "description": "Style number"},
+            {"key": "color", "value": "{{color}}", "description": "Color name"}
+          ]
+        }
+      ]
+    },
+    {
+      "category": "⚙️ Utilities",
+      "endpoints": [
+        {
+          "name": "Get Recommendations",
+          "description": "Get product recommendations",
+          "method": "GET",
+          "url": "{{baseUrl}}/api/recommendations",
+          "params": [
+            {"key": "styleNumber", "value": "{{styleNumber}}", "description": "Style number"}
+          ]
+        },
+        {
+          "name": "Filter Products",
+          "description": "Filter products by multiple criteria",
+          "method": "GET",
+          "url": "{{baseUrl}}/api/filter-products",
+          "params": [
+            {"key": "category", "value": "T-Shirts", "description": "Category"},
+            {"key": "minPrice", "value": "10", "description": "Minimum price"},
+            {"key": "maxPrice", "value": "50", "description": "Maximum price"}
+          ]
+        },
+        {
+          "name": "Get Subcategories by Category",
+          "description": "Get subcategories for a category",
+          "method": "GET",
+          "url": "{{baseUrl}}/api/subcategories-by-category",
+          "params": [
+            {"key": "category", "value": "T-Shirts", "description": "Category name"}
+          ]
+        },
+        {
+          "name": "Get Products by Category Subcategory",
+          "description": "Get products for category/subcategory combo",
+          "method": "GET",
+          "url": "{{baseUrl}}/api/products-by-category-subcategory",
+          "params": [
+            {"key": "category", "value": "T-Shirts", "description": "Category"},
+            {"key": "subcategory", "value": "Performance", "description": "Subcategory"}
+          ]
+        }
+      ]
+    }
+  ]
+}

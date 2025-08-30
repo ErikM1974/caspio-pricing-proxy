@@ -1,0 +1,762 @@
+{
+  "baseUrl": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api",
+  "version": "1.0.0",
+  "lastUpdated": "2025-01-30",
+  "categories": {
+    "productSearch": {
+      "name": "Product Search & Catalog",
+      "description": "Endpoints for searching and displaying products",
+      "endpoints": {
+        "search": {
+          "method": "GET",
+          "path": "/products/search",
+          "description": "Enhanced product search with faceted filtering",
+          "params": {
+            "q": { "type": "string", "description": "Search query", "required": false },
+            "category": { "type": "array", "description": "Filter by categories", "required": false },
+            "brand": { "type": "array", "description": "Filter by brands", "required": false },
+            "color": { "type": "array", "description": "Filter by colors", "required": false },
+            "size": { "type": "array", "description": "Filter by sizes", "required": false },
+            "minPrice": { "type": "number", "description": "Minimum price", "required": false },
+            "maxPrice": { "type": "number", "description": "Maximum price", "required": false },
+            "status": { "type": "string", "description": "Product status (Active/Discontinued/all)", "default": "Active" },
+            "sort": { "type": "string", "description": "Sort order", "enum": ["name_asc", "name_desc", "price_asc", "price_desc", "newest", "oldest"] },
+            "page": { "type": "number", "description": "Page number", "default": 1 },
+            "limit": { "type": "number", "description": "Results per page", "default": 24, "max": 100 },
+            "includeFacets": { "type": "boolean", "description": "Include filter counts", "default": false }
+          }
+        },
+        "styleSearch": {
+          "method": "GET",
+          "path": "/stylesearch",
+          "description": "Autocomplete for style numbers",
+          "params": {
+            "term": { "type": "string", "description": "Search term", "required": true },
+            "limit": { "type": "number", "description": "Max results", "default": 10 }
+          }
+        },
+        "productDetails": {
+          "method": "GET",
+          "path": "/product-details",
+          "description": "Get detailed product information",
+          "params": {
+            "styleNumber": { "type": "string", "description": "Product style number", "required": true },
+            "color": { "type": "string", "description": "Product color", "required": false }
+          }
+        },
+        "colorSwatches": {
+          "method": "GET",
+          "path": "/color-swatches",
+          "description": "Get color swatches for a style",
+          "params": {
+            "styleNumber": { "type": "string", "description": "Product style number", "required": true }
+          }
+        },
+        "productColors": {
+          "method": "GET",
+          "path": "/product-colors",
+          "description": "Get available colors for a style",
+          "params": {
+            "styleNumber": { "type": "string", "description": "Product style number", "required": true }
+          }
+        },
+        "relatedProducts": {
+          "method": "GET",
+          "path": "/related-products",
+          "description": "Get related products",
+          "params": {
+            "styleNumber": { "type": "string", "description": "Product style number", "required": true }
+          }
+        },
+        "compareProducts": {
+          "method": "GET",
+          "path": "/compare-products",
+          "description": "Compare multiple products",
+          "params": {
+            "styles": { "type": "string", "description": "Comma-separated style numbers", "required": true }
+          }
+        },
+        "quickView": {
+          "method": "GET",
+          "path": "/quick-view",
+          "description": "Get quick view data for a product",
+          "params": {
+            "styleNumber": { "type": "string", "description": "Product style number", "required": true }
+          }
+        },
+        "featuredProducts": {
+          "method": "GET",
+          "path": "/featured-products",
+          "description": "Get featured products",
+          "params": {
+            "limit": { "type": "number", "description": "Max results", "default": 10 }
+          }
+        }
+      }
+    },
+    "cart": {
+      "name": "Shopping Cart",
+      "description": "Cart session and item management",
+      "endpoints": {
+        "getSessions": {
+          "method": "GET",
+          "path": "/cart-sessions",
+          "description": "List cart sessions",
+          "params": {
+            "q.where": { "type": "string", "description": "SQL-like filter" },
+            "q.limit": { "type": "number", "description": "Max results" }
+          }
+        },
+        "createSession": {
+          "method": "POST",
+          "path": "/cart-sessions",
+          "description": "Create new cart session",
+          "body": {
+            "SessionID": { "type": "string", "required": true },
+            "IsActive": { "type": "boolean", "default": true },
+            "CreatedDate": { "type": "string", "format": "datetime" }
+          }
+        },
+        "updateSession": {
+          "method": "PUT",
+          "path": "/cart-sessions/{id}",
+          "description": "Update cart session",
+          "params": {
+            "id": { "type": "number", "description": "Session ID", "required": true }
+          }
+        },
+        "deleteSession": {
+          "method": "DELETE",
+          "path": "/cart-sessions/{id}",
+          "description": "Delete cart session",
+          "params": {
+            "id": { "type": "number", "description": "Session ID", "required": true }
+          }
+        },
+        "getItems": {
+          "method": "GET",
+          "path": "/cart-items",
+          "description": "List cart items",
+          "params": {
+            "q.where": { "type": "string", "description": "SQL-like filter (e.g., SessionID='xyz')" },
+            "q.limit": { "type": "number", "description": "Max results" }
+          }
+        },
+        "addItem": {
+          "method": "POST",
+          "path": "/cart-items",
+          "description": "Add item to cart",
+          "body": {
+            "SessionID": { "type": "string", "required": true },
+            "StyleNumber": { "type": "string", "required": true },
+            "Color": { "type": "string", "required": true },
+            "Method": { "type": "string", "description": "Decoration method" },
+            "CartStatus": { "type": "string", "default": "Active" }
+          }
+        },
+        "updateItem": {
+          "method": "PUT",
+          "path": "/cart-items/{id}",
+          "description": "Update cart item",
+          "params": {
+            "id": { "type": "number", "description": "Item ID", "required": true }
+          }
+        },
+        "deleteItem": {
+          "method": "DELETE",
+          "path": "/cart-items/{id}",
+          "description": "Remove item from cart",
+          "params": {
+            "id": { "type": "number", "description": "Item ID", "required": true }
+          }
+        },
+        "addItemSize": {
+          "method": "POST",
+          "path": "/cart-item-sizes",
+          "description": "Add size/quantity to cart item",
+          "body": {
+            "CartItemID": { "type": "number", "required": true },
+            "Size": { "type": "string", "required": true },
+            "Quantity": { "type": "number", "required": true },
+            "UnitPrice": { "type": "number", "required": true }
+          }
+        },
+        "updateItemSize": {
+          "method": "PUT",
+          "path": "/cart-item-sizes/{id}",
+          "description": "Update cart item size/quantity",
+          "params": {
+            "id": { "type": "number", "description": "Size ID", "required": true }
+          }
+        },
+        "deleteItemSize": {
+          "method": "DELETE",
+          "path": "/cart-item-sizes/{id}",
+          "description": "Remove size from cart item",
+          "params": {
+            "id": { "type": "number", "description": "Size ID", "required": true }
+          }
+        }
+      }
+    },
+    "pricing": {
+      "name": "Pricing & Costs",
+      "description": "Pricing calculations for various decoration methods",
+      "endpoints": {
+        "pricingTiers": {
+          "method": "GET",
+          "path": "/pricing-tiers",
+          "description": "Get pricing tiers by method",
+          "params": {
+            "method": { "type": "string", "description": "Decoration method", "required": true }
+          }
+        },
+        "embroideryCosts": {
+          "method": "GET",
+          "path": "/embroidery-costs",
+          "description": "Calculate embroidery cost",
+          "params": {
+            "stitchCount": { "type": "number", "description": "Number of stitches", "required": true },
+            "quantity": { "type": "number", "description": "Quantity", "required": true }
+          }
+        },
+        "dtgCosts": {
+          "method": "GET",
+          "path": "/dtg-costs",
+          "description": "Get DTG printing costs",
+          "params": {
+            "styleNumber": { "type": "string", "description": "Style number", "required": true },
+            "color": { "type": "string", "description": "Color", "required": true },
+            "printSize": { "type": "string", "description": "Print size", "required": true },
+            "quantity": { "type": "number", "description": "Quantity", "required": true }
+          }
+        },
+        "screenprintCosts": {
+          "method": "GET",
+          "path": "/screenprint-costs",
+          "description": "Get screen printing costs",
+          "params": {
+            "colors": { "type": "number", "description": "Number of colors", "required": true },
+            "quantity": { "type": "number", "description": "Quantity", "required": true },
+            "locations": { "type": "number", "description": "Number of print locations", "default": 1 }
+          }
+        },
+        "pricingRules": {
+          "method": "GET",
+          "path": "/pricing-rules",
+          "description": "Get pricing rules and markups"
+        },
+        "baseItemCosts": {
+          "method": "GET",
+          "path": "/base-item-costs",
+          "description": "Get base costs by style",
+          "params": {
+            "styleNumber": { "type": "string", "description": "Style number", "required": true }
+          }
+        },
+        "sizePricing": {
+          "method": "GET",
+          "path": "/size-pricing",
+          "description": "Get size-based pricing",
+          "params": {
+            "styleNumber": { "type": "string", "description": "Style number", "required": true },
+            "size": { "type": "string", "description": "Size", "required": true }
+          }
+        }
+      }
+    },
+    "orders": {
+      "name": "Orders & Customers",
+      "description": "Order management and customer data",
+      "endpoints": {
+        "dashboard": {
+          "method": "GET",
+          "path": "/order-dashboard",
+          "description": "Get order dashboard metrics",
+          "params": {
+            "days": { "type": "number", "description": "Days to look back", "default": 7 },
+            "includeDetails": { "type": "boolean", "description": "Include order list", "default": false },
+            "compareYoY": { "type": "boolean", "description": "Include year-over-year", "default": false }
+          }
+        },
+        "getOrders": {
+          "method": "GET",
+          "path": "/orders",
+          "description": "List orders",
+          "params": {
+            "q.where": { "type": "string", "description": "SQL-like filter" },
+            "q.orderBy": { "type": "string", "description": "Sort order" },
+            "q.limit": { "type": "number", "description": "Max results" }
+          }
+        },
+        "createOrder": {
+          "method": "POST",
+          "path": "/orders",
+          "description": "Create new order",
+          "body": {
+            "CustomerID": { "type": "number", "required": true },
+            "SessionID": { "type": "string", "required": true },
+            "TotalAmount": { "type": "number", "required": true },
+            "OrderStatus": { "type": "string", "default": "Pending" },
+            "PaymentMethod": { "type": "string" }
+          }
+        },
+        "updateOrder": {
+          "method": "PUT",
+          "path": "/orders/{id}",
+          "description": "Update order",
+          "params": {
+            "id": { "type": "number", "description": "Order ID", "required": true }
+          }
+        },
+        "deleteOrder": {
+          "method": "DELETE",
+          "path": "/orders/{id}",
+          "description": "Delete order",
+          "params": {
+            "id": { "type": "number", "description": "Order ID", "required": true }
+          }
+        },
+        "orderOdbc": {
+          "method": "GET",
+          "path": "/order-odbc",
+          "description": "Get detailed order records",
+          "params": {
+            "q.where": { "type": "string", "description": "SQL-like filter" },
+            "q.orderBy": { "type": "string", "description": "Sort order" },
+            "q.limit": { "type": "number", "description": "Max results" }
+          }
+        },
+        "getCustomers": {
+          "method": "GET",
+          "path": "/customers",
+          "description": "List customers",
+          "params": {
+            "q.where": { "type": "string", "description": "SQL-like filter" },
+            "q.limit": { "type": "number", "description": "Max results" }
+          }
+        },
+        "createCustomer": {
+          "method": "POST",
+          "path": "/customers",
+          "description": "Create new customer",
+          "body": {
+            "Name": { "type": "string", "required": true },
+            "Email": { "type": "string", "required": true },
+            "Company": { "type": "string" }
+          }
+        },
+        "updateCustomer": {
+          "method": "PUT",
+          "path": "/customers/{id}",
+          "description": "Update customer",
+          "params": {
+            "id": { "type": "number", "description": "Customer ID", "required": true }
+          }
+        },
+        "deleteCustomer": {
+          "method": "DELETE",
+          "path": "/customers/{id}",
+          "description": "Delete customer",
+          "params": {
+            "id": { "type": "number", "description": "Customer ID", "required": true }
+          }
+        }
+      }
+    },
+    "artRequests": {
+      "name": "Art Requests & Invoices",
+      "description": "Art request and invoice management",
+      "endpoints": {
+        "getArtRequests": {
+          "method": "GET",
+          "path": "/artrequests",
+          "description": "List art requests",
+          "params": {
+            "q.where": { "type": "string", "description": "SQL-like filter" },
+            "q.orderBy": { "type": "string", "description": "Sort order" },
+            "q.limit": { "type": "number", "description": "Max results" }
+          }
+        },
+        "getArtRequest": {
+          "method": "GET",
+          "path": "/artrequests/{id}",
+          "description": "Get specific art request",
+          "params": {
+            "id": { "type": "number", "description": "Request ID", "required": true }
+          }
+        },
+        "createArtRequest": {
+          "method": "POST",
+          "path": "/artrequests",
+          "description": "Create new art request",
+          "body": {
+            "CompanyName": { "type": "string", "required": true },
+            "Status": { "type": "string", "default": "In Progress" },
+            "CustomerServiceRep": { "type": "string" },
+            "Priority": { "type": "string" },
+            "Mockup": { "type": "boolean" },
+            "GarmentStyle": { "type": "string" },
+            "GarmentColor": { "type": "string" },
+            "NOTES": { "type": "string" }
+          }
+        },
+        "updateArtRequest": {
+          "method": "PUT",
+          "path": "/artrequests/{id}",
+          "description": "Update art request",
+          "params": {
+            "id": { "type": "number", "description": "Request ID", "required": true }
+          }
+        },
+        "deleteArtRequest": {
+          "method": "DELETE",
+          "path": "/artrequests/{id}",
+          "description": "Delete art request",
+          "params": {
+            "id": { "type": "number", "description": "Request ID", "required": true }
+          }
+        },
+        "getArtInvoices": {
+          "method": "GET",
+          "path": "/art-invoices",
+          "description": "List art invoices",
+          "params": {
+            "q.where": { "type": "string", "description": "SQL-like filter" },
+            "q.limit": { "type": "number", "description": "Max results" }
+          }
+        },
+        "createArtInvoice": {
+          "method": "POST",
+          "path": "/art-invoices",
+          "description": "Create new art invoice"
+        },
+        "updateArtInvoice": {
+          "method": "PUT",
+          "path": "/art-invoices/{id}",
+          "description": "Update art invoice",
+          "params": {
+            "id": { "type": "number", "description": "Invoice ID", "required": true }
+          }
+        },
+        "deleteArtInvoice": {
+          "method": "DELETE",
+          "path": "/art-invoices/{id}",
+          "description": "Delete art invoice",
+          "params": {
+            "id": { "type": "number", "description": "Invoice ID", "required": true }
+          }
+        }
+      }
+    },
+    "quotes": {
+      "name": "Quote System",
+      "description": "Quote management and analytics",
+      "endpoints": {
+        "getQuoteSessions": {
+          "method": "GET",
+          "path": "/quote_sessions",
+          "description": "List quote sessions"
+        },
+        "createQuoteSession": {
+          "method": "POST",
+          "path": "/quote_sessions",
+          "description": "Create new quote session",
+          "body": {
+            "QuoteID": { "type": "string", "required": true },
+            "SessionID": { "type": "string", "required": true },
+            "Status": { "type": "string", "default": "Active" }
+          }
+        },
+        "updateQuoteSession": {
+          "method": "PUT",
+          "path": "/quote_sessions/{id}",
+          "description": "Update quote session",
+          "params": {
+            "id": { "type": "number", "description": "Session ID", "required": true }
+          }
+        },
+        "deleteQuoteSession": {
+          "method": "DELETE",
+          "path": "/quote_sessions/{id}",
+          "description": "Delete quote session",
+          "params": {
+            "id": { "type": "number", "description": "Session ID", "required": true }
+          }
+        },
+        "getQuoteItems": {
+          "method": "GET",
+          "path": "/quote_items",
+          "description": "List quote items"
+        },
+        "createQuoteItem": {
+          "method": "POST",
+          "path": "/quote_items",
+          "description": "Add item to quote",
+          "body": {
+            "QuoteID": { "type": "string", "required": true },
+            "StyleNumber": { "type": "string", "required": true },
+            "Quantity": { "type": "number", "required": true }
+          }
+        },
+        "updateQuoteItem": {
+          "method": "PUT",
+          "path": "/quote_items/{id}",
+          "description": "Update quote item",
+          "params": {
+            "id": { "type": "number", "description": "Item ID", "required": true }
+          }
+        },
+        "deleteQuoteItem": {
+          "method": "DELETE",
+          "path": "/quote_items/{id}",
+          "description": "Delete quote item",
+          "params": {
+            "id": { "type": "number", "description": "Item ID", "required": true }
+          }
+        },
+        "createQuoteAnalytics": {
+          "method": "POST",
+          "path": "/quote_analytics",
+          "description": "Track quote event",
+          "body": {
+            "SessionID": { "type": "string", "required": true },
+            "EventType": { "type": "string", "required": true },
+            "QuoteID": { "type": "string" }
+          }
+        }
+      }
+    },
+    "transfers": {
+      "name": "Transfer Printing",
+      "description": "Transfer pricing and management",
+      "endpoints": {
+        "getTransferPrice": {
+          "method": "GET",
+          "path": "/transfers/lookup",
+          "description": "Lookup transfer price",
+          "params": {
+            "size": { "type": "string", "description": "Transfer size", "required": true },
+            "quantity": { "type": "number", "description": "Quantity", "required": true },
+            "price_type": { "type": "string", "description": "Price type", "default": "Regular" }
+          }
+        },
+        "getTransferMatrix": {
+          "method": "GET",
+          "path": "/transfers/matrix",
+          "description": "Get transfer pricing matrix",
+          "params": {
+            "size": { "type": "string", "description": "Transfer size", "required": true }
+          }
+        },
+        "getTransferSizes": {
+          "method": "GET",
+          "path": "/transfers/sizes",
+          "description": "Get all available transfer sizes"
+        }
+      }
+    },
+    "inventory": {
+      "name": "Inventory",
+      "description": "Product inventory and availability",
+      "endpoints": {
+        "getInventory": {
+          "method": "GET",
+          "path": "/inventory",
+          "description": "Get inventory levels",
+          "params": {
+            "styleNumber": { "type": "string", "description": "Style number" },
+            "color": { "type": "string", "description": "Color" }
+          }
+        },
+        "sizesByStyleColor": {
+          "method": "GET",
+          "path": "/sizes-by-style-color",
+          "description": "Get available sizes for style/color",
+          "params": {
+            "styleNumber": { "type": "string", "description": "Style number", "required": true },
+            "color": { "type": "string", "description": "Color", "required": true }
+          }
+        },
+        "productVariantSizes": {
+          "method": "GET",
+          "path": "/product-variant-sizes",
+          "description": "Get variant sizes with prices",
+          "params": {
+            "styleNumber": { "type": "string", "description": "Style number", "required": true },
+            "color": { "type": "string", "description": "Color", "required": true }
+          }
+        },
+        "pricesByStyleColor": {
+          "method": "GET",
+          "path": "/prices-by-style-color",
+          "description": "Get prices for each size",
+          "params": {
+            "styleNumber": { "type": "string", "description": "Style number", "required": true },
+            "color": { "type": "string", "description": "Color", "required": true }
+          }
+        }
+      }
+    },
+    "pricingMatrix": {
+      "name": "Pricing Matrix",
+      "description": "Advanced pricing matrix management",
+      "endpoints": {
+        "getPricingMatrices": {
+          "method": "GET",
+          "path": "/pricing-matrix",
+          "description": "List pricing matrices"
+        },
+        "lookupPricingMatrix": {
+          "method": "GET",
+          "path": "/pricing-matrix/lookup",
+          "description": "Lookup pricing matrix",
+          "params": {
+            "method": { "type": "string", "description": "Decoration method", "required": true },
+            "quantity": { "type": "number", "description": "Quantity", "required": true }
+          }
+        },
+        "getPricingMatrix": {
+          "method": "GET",
+          "path": "/pricing-matrix/{id}",
+          "description": "Get specific pricing matrix",
+          "params": {
+            "id": { "type": "number", "description": "Matrix ID", "required": true }
+          }
+        },
+        "createPricingMatrix": {
+          "method": "POST",
+          "path": "/pricing-matrix",
+          "description": "Create pricing matrix"
+        },
+        "updatePricingMatrix": {
+          "method": "PUT",
+          "path": "/pricing-matrix/{id}",
+          "description": "Update pricing matrix",
+          "params": {
+            "id": { "type": "number", "description": "Matrix ID", "required": true }
+          }
+        },
+        "deletePricingMatrix": {
+          "method": "DELETE",
+          "path": "/pricing-matrix/{id}",
+          "description": "Delete pricing matrix",
+          "params": {
+            "id": { "type": "number", "description": "Matrix ID", "required": true }
+          }
+        }
+      }
+    },
+    "production": {
+      "name": "Production",
+      "description": "Production scheduling and management",
+      "endpoints": {
+        "getProductionSchedules": {
+          "method": "GET",
+          "path": "/production-schedules",
+          "description": "Get production schedules",
+          "params": {
+            "q.where": { "type": "string", "description": "SQL-like filter" },
+            "q.orderBy": { "type": "string", "description": "Sort order", "default": "Date DESC" },
+            "q.limit": { "type": "number", "description": "Max results", "default": 100 }
+          }
+        }
+      }
+    },
+    "utilities": {
+      "name": "Utilities",
+      "description": "Utility and reference endpoints",
+      "endpoints": {
+        "health": {
+          "method": "GET",
+          "path": "/health",
+          "description": "Health check"
+        },
+        "status": {
+          "method": "GET",
+          "path": "/status",
+          "description": "API status"
+        },
+        "allBrands": {
+          "method": "GET",
+          "path": "/all-brands",
+          "description": "List all brands"
+        },
+        "allCategories": {
+          "method": "GET",
+          "path": "/all-categories",
+          "description": "List all categories"
+        },
+        "allSubcategories": {
+          "method": "GET",
+          "path": "/all-subcategories",
+          "description": "List all subcategories"
+        },
+        "subcategoriesByCategory": {
+          "method": "GET",
+          "path": "/subcategories-by-category",
+          "description": "Get subcategories for a category",
+          "params": {
+            "category": { "type": "string", "description": "Category name", "required": true }
+          }
+        },
+        "productsByBrand": {
+          "method": "GET",
+          "path": "/products-by-brand",
+          "description": "Get products by brand",
+          "params": {
+            "brand": { "type": "string", "description": "Brand name", "required": true }
+          }
+        },
+        "productsByCategory": {
+          "method": "GET",
+          "path": "/products-by-category",
+          "description": "Get products by category",
+          "params": {
+            "category": { "type": "string", "description": "Category name", "required": true }
+          }
+        },
+        "productsBySubcategory": {
+          "method": "GET",
+          "path": "/products-by-subcategory",
+          "description": "Get products by subcategory",
+          "params": {
+            "subcategory": { "type": "string", "description": "Subcategory name", "required": true }
+          }
+        },
+        "productsByCategorySubcategory": {
+          "method": "GET",
+          "path": "/products-by-category-subcategory",
+          "description": "Get products by category and subcategory",
+          "params": {
+            "category": { "type": "string", "description": "Category name", "required": true },
+            "subcategory": { "type": "string", "description": "Subcategory name", "required": true }
+          }
+        },
+        "filterProducts": {
+          "method": "GET",
+          "path": "/filter-products",
+          "description": "Filter products by multiple criteria",
+          "params": {
+            "category": { "type": "string", "description": "Category" },
+            "minPrice": { "type": "number", "description": "Minimum price" },
+            "maxPrice": { "type": "number", "description": "Maximum price" }
+          }
+        },
+        "recommendations": {
+          "method": "GET",
+          "path": "/recommendations",
+          "description": "Get product recommendations",
+          "params": {
+            "styleNumber": { "type": "string", "description": "Style number", "required": true }
+          }
+        },
+        "staffAnnouncements": {
+          "method": "GET",
+          "path": "/staff-announcements",
+          "description": "Get staff announcements"
+        }
+      }
+    }
+  }
+}
