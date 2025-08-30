@@ -1,12 +1,22 @@
 #!/usr/bin/env node
 
 /**
- * Script to update Postman collection with missing endpoints
- * This ensures the collection stays in sync with actual API endpoints
+ * Enhanced Script to update Postman collection with missing endpoints
+ * Now includes automatic sync with Postman API to eliminate manual JSON editing
+ * 
+ * Features:
+ * - Updates local JSON file (existing functionality)
+ * - Syncs changes with Postman API automatically
+ * - Can mark endpoints as deployed with status updates
  */
 
 const fs = require('fs');
 const path = require('path');
+const colors = require('colors');
+require('dotenv').config();
+
+// Import our Postman API client
+const PostmanAPIClient = require('./postman-api-client');
 
 // Read the existing collection
 const collectionPath = path.join(__dirname, '../docs/NWCA-API.postman_collection.json');
@@ -271,12 +281,8 @@ requiredVars.forEach(reqVar => {
 
 // Save the updated collection
 fs.writeFileSync(collectionPath, JSON.stringify(collection, null, "\t"));
-console.log('\n✅ Postman collection updated successfully!');
+console.log('\n✅ Postman collection updated successfully!'.green);
 console.log(`📁 Saved to: ${collectionPath}`);
-console.log('\n📝 Remember to:');
-console.log('1. Import this collection into Postman');
-console.log('2. Test the new endpoints');
-console.log('3. Keep it updated when adding new API endpoints');
 
 // Count endpoints
 let totalEndpoints = 0;
@@ -285,4 +291,53 @@ collection.item.forEach(category => {
     totalEndpoints += category.item.length;
   }
 });
-console.log(`\n📊 Total endpoints in collection: ${totalEndpoints}`);
+console.log(`\n📊 Total endpoints in collection: ${totalEndpoints}`.cyan);
+
+// Sync with Postman API if credentials are available
+async function syncWithPostmanAPI() {
+  const apiKey = process.env.POSTMAN_API_KEY;
+  const collectionId = process.env.POSTMAN_COLLECTION_ID;
+
+  if (!apiKey || !collectionId || apiKey === 'your-postman-api-key-here') {
+    console.log('\n⚠️  Postman API credentials not configured - skipping API sync'.yellow);
+    console.log('💡 To enable automatic sync:'.cyan);
+    console.log('   1. Get API key from https://postman.co/settings/me/api-keys'.gray);
+    console.log('   2. Set POSTMAN_API_KEY in your .env file'.gray);
+    console.log('   3. Run this script again for automatic sync'.gray);
+    return false;
+  }
+
+  try {
+    console.log('\n🔄 Syncing with Postman API...'.yellow);
+    const client = new PostmanAPIClient(apiKey, collectionId);
+    
+    // Test connection first
+    const connected = await client.testConnection();
+    if (!connected) {
+      throw new Error('Failed to connect to Postman API');
+    }
+
+    // Update the collection in Postman
+    await client.updateCollection(collection);
+    console.log('🎉 Successfully synced collection with Postman API!'.green);
+    console.log('💫 No manual JSON import needed - changes are live!'.cyan);
+    return true;
+  } catch (error) {
+    console.error('\n❌ Failed to sync with Postman API:'.red, error.message);
+    console.log('⚠️  Local JSON file was still updated successfully'.yellow);
+    console.log('📥 You can manually import the JSON file as a fallback'.gray);
+    return false;
+  }
+}
+
+// Run the sync
+syncWithPostmanAPI().then((synced) => {
+  if (!synced) {
+    console.log('\n📝 Manual steps:'.cyan);
+    console.log('1. Import this collection into Postman'.gray);
+    console.log('2. Test the new endpoints'.gray);
+    console.log('3. Keep it updated when adding new API endpoints'.gray);
+  }
+  
+  console.log('\n🚀 Collection update complete!'.green.bold);
+});

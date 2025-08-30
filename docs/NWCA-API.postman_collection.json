@@ -391,7 +391,7 @@
 								}
 							]
 						},
-						"description": "🚀 OPTIMIZED: Get complete DTG bundle data in one request. Combines product details, colors, pricing tiers, DTG costs, size-based pricing, and upcharges. Reduces 3-4 API calls to 1."
+						"description": "🚀 OPTIMIZED & TESTED: Get complete DTG bundle data in one request. ✅ DEPLOYED on Heroku and production tested (Aug 30, 2025). Combines product details, colors, pricing tiers, DTG costs, size-based pricing, and upcharges. Reduces 4 API calls to 1. Parameters: styleNumber (required), color (optional). Performance: ~0.5-1 second response, 5-minute cache."
 					},
 					"response": []
 				},

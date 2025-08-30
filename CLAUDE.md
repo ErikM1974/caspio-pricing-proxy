@@ -229,6 +229,77 @@ Options:
 
 **IMPORTANT**: Do not proceed with documentation updates or commits until local testing is complete and all criteria are met.
 
+### Step 7: Post-Deployment Updates (MANDATORY - AUTOMATED)
+**CRITICAL**: After successful Heroku deployment, you MUST update documentation with production status.
+
+#### 🚀 **AUTOMATED Post-Deployment Workflow:**
+
+**Quick Command (Recommended):**
+```bash
+# Mark endpoint as deployed with all documentation updates
+npm run deploy-status -- --endpoint="your-endpoint-path" --deployed --performance="1-2s response, 5min cache"
+```
+
+**This single command will:**
+- ✅ Update Postman collection description with deployment status
+- ✅ Sync changes with live Postman workspace (no manual JSON import!)
+- ✅ Mark endpoint as "DEPLOYED & TESTED" with current date
+- ✅ Add performance metrics and testing status
+- ✅ Update both local JSON file and Postman API simultaneously
+
+#### 📋 **Step-by-Step Checklist:**
+1. **Test the production endpoint** on Heroku to confirm it's working
+2. **Run automated deployment update:**
+   ```bash
+   # Example for DTG endpoint
+   npm run deploy-status -- --endpoint="dtg/product-bundle" --deployed --performance="0.5-1s response, 5min cache"
+   
+   # Or by exact name
+   npm run deploy-status -- --name="Get DTG Product Bundle" --deployed
+   
+   # Or with custom status
+   npm run deploy-status -- --path="api/products/search" --status="LIVE & OPTIMIZED" --notes="Handles 250K+ records"
+   ```
+3. **Verify automation succeeded** - check console output for success messages
+4. **Update shared documentation** (CASPIO_API_TEMPLATE.md) with deployment confirmation message
+5. **Update agent file** with deployment status for Consumer Claude
+
+#### 🔧 **Manual Fallback (If Automation Fails):**
+If Postman API is unavailable, you can still update manually:
+```bash
+# Update local collection only
+npm run update-postman
+# Then manually import JSON file into Postman workspace
+```
+
+#### 🎛️ **Available Automation Commands:**
+```bash
+# Test Postman API connection
+npm run postman-test
+
+# List all endpoints with deployment status
+npm run deploy-status -- --list
+
+# Update entire collection structure
+npm run update-postman
+
+# Mark specific endpoints as deployed
+npm run deploy-status -- --endpoint="path" --deployed
+npm run deploy-status -- --name="Endpoint Name" --performance="metrics"
+npm run deploy-status -- --path="api/path" --status="CUSTOM STATUS"
+```
+
+#### 🔑 **One-Time Setup Required:**
+1. Get Postman API key from https://postman.co/settings/me/api-keys
+2. Set `POSTMAN_API_KEY=your-key` in `.env` file
+3. Collection ID is already configured in `.env.example`
+
+**Benefits**: No more manual JSON editing, instant workspace sync, consistent deployment status tracking.
+5. **Update agent file** with deployment status
+6. **Add to Recent Updates Requiring Acknowledgment** for Consumer Claude
+
+**Why this matters**: This ensures users have confidence the endpoint is production-ready and Consumer Claude knows it's available for integration.
+
 ### Caspio Pagination
 
 **CRITICAL**: Caspio API uses pagination, which means that results may be split across multiple pages. When implementing new endpoints, **ALWAYS** use the `fetchAllCaspioPages` function instead of `makeCaspioRequest` to ensure you get ALL records.
@@ -243,6 +314,8 @@ Most endpoints will follow this pattern:
 4. Standard error handling (400 for bad params, 500 for server errors)
 5. **ALWAYS use `fetchAllCaspioPages` for pagination** (never `makeCaspioRequest` for multi-record queries)
 6. **MANDATORY local testing** on port 3002 before completion (see Step 6 above)
+7. **Update all documentation** (Postman, shared docs, changelog, agent file)
+8. **After Heroku deployment**: Update Postman description with production status
 
 ### Example: ORDER_ODBC Endpoint
 ```
@@ -279,6 +352,13 @@ Result: Standard endpoint returning filtered, sorted order records
    - Remove the endpoint from the Postman collection
    - Update any documentation that references the removed endpoint
 
+4. **For DEPLOYED endpoints (CRITICAL - Don't forget!):**
+   - After successful Heroku deployment and testing, update the endpoint description
+   - Add production status: "✅ DEPLOYED on Heroku and production tested ([DATE])"
+   - Include actual performance metrics from testing (response times, cache info)
+   - Update parameter information if any changes were made during testing
+   - This ensures users have confidence the endpoint is production-ready
+
 ### Postman Collection Structure
 The collection is organized by category:
 - 🛍️ Product Search (Enhanced search, related products, quick view)
@@ -292,17 +372,27 @@ The collection is organized by category:
 - 📦 Inventory (Sizes, variants, prices)
 - ⚙️ Utilities (Health, status, recommendations)
 
-### Automation Tools
+### 🤖 **Automation Tools (NEW - Eliminates Manual JSON Editing)**
 
-**Update Script**: `scripts/update-postman-collection.js`
-- Automatically adds missing endpoints
-- Updates collection variables
-- Maintains proper structure
-- Run after any major endpoint changes
+**🚀 Automated Deployment Status Updates:**
+```bash
+npm run deploy-status -- --endpoint="dtg/product-bundle" --deployed --performance="1-2s response"
+```
+- ✅ Updates endpoint descriptions with deployment status
+- ✅ Syncs directly with Postman workspace via API
+- ✅ No more manual JSON import/export required
+- ✅ Tracks production testing and performance metrics
 
-**Test Script**: `test-endpoints.js`
+**📊 Collection Management:**
+```bash
+npm run update-postman     # Update structure + sync with Postman API
+npm run postman-list       # List endpoints with deployment status
+npm run postman-test       # Test API connection
+```
+
+**🔧 Legacy Script**: `test-endpoints.js`
 - Validates all endpoints are working
-- Checks server connectivity
+- Checks server connectivity  
 - Provides Postman-ready URLs
 
 ### Active Endpoints Only
