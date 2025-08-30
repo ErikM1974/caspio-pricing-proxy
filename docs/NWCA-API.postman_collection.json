@@ -364,6 +364,43 @@
 					"response": []
 				},
 				{
+					"name": "Get DTG Product Bundle",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/dtg/product-bundle?styleNumber={{styleNumber}}&color={{color}}&includeInventory=false",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"dtg",
+								"product-bundle"
+							],
+							"query": [
+								{
+									"key": "styleNumber",
+									"value": "{{styleNumber}}",
+									"description": "Product style number (required)"
+								},
+								{
+									"key": "color",
+									"value": "{{color}}",
+									"description": "Specific color to focus on (optional)"
+								},
+								{
+									"key": "includeInventory",
+									"value": "false",
+									"description": "Include inventory levels (optional, default: false)"
+								}
+							]
+						},
+						"description": "🚀 OPTIMIZED: Get complete DTG bundle data in one request. Combines product details, colors, pricing tiers, DTG costs, size-based pricing, and upcharges. Reduces 3-4 API calls to 1."
+					},
+					"response": []
+				},
+				{
 					"name": "Get Screen Print Costs",
 					"request": {
 						"method": "GET",

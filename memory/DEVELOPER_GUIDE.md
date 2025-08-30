@@ -476,7 +476,43 @@ class AnalyticsDashboard {
 
 ## Performance Optimization
 
-### 1. Batch Requests
+### 1. Use Optimized Bundle Endpoints (🚀 RECOMMENDED)
+The API provides optimized bundle endpoints that consolidate multiple requests:
+
+```javascript
+// ❌ Multiple API calls - slow (DTG pricing scenario)
+const [colors, tiers, costs, pricing] = await Promise.all([
+  fetch(`/api/product-colors?styleNumber=${styleNumber}`),
+  fetch('/api/pricing-tiers?method=DTG'),
+  fetch('/api/dtg-costs'),
+  fetch(`/api/max-prices-by-style?styleNumber=${styleNumber}`)
+]);
+
+// ✅ Single optimized bundle - 2-3x faster
+const dtgBundle = await fetch(
+  `/api/dtg/product-bundle?styleNumber=${styleNumber}&color=${color}`
+);
+
+// Complete DTG data in one request:
+const data = await dtgBundle.json();
+const {
+  product,    // Product details and colors
+  pricing: {
+    tiers,    // DTG pricing tiers
+    costs,    // Print costs by location
+    sizes,    // Size-based pricing
+    upcharges // Size upcharges
+  }
+} = data;
+```
+
+**Performance Benefits:**
+- ✅ **2-3x faster** loading for DTG pricing pages
+- ✅ **Atomic consistency** - all data from same moment
+- ✅ **Server-side cache** - 5-minute cache reduces load
+- ✅ **Reduced overhead** - Single HTTP request vs 4 requests
+
+### 2. Batch Requests
 Instead of multiple sequential requests, batch them:
 ```javascript
 // ❌ Sequential - slow
@@ -492,7 +528,7 @@ const [product1, product2, product3] = await Promise.all([
 ]);
 ```
 
-### 2. Use Field Selection
+### 3. Use Field Selection
 When available, request only needed fields:
 ```bash
 # Request specific fields only

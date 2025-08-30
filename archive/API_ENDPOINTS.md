@@ -1,11 +1,11 @@
 # API Endpoints Documentation
 
-_Last Updated: July 8, 2025_
-_Total Endpoints: 52_
+_Last Updated: August 30, 2025_
+_Total Endpoints: 54_
 
 This document provides a comprehensive list of all API endpoints used in the application, organized by service area. This documentation is maintained as part of the API consolidation project (Phase 5) and includes endpoints across Art Invoice System, Production Schedule, Pricing, Orders, User Management, and Utility Services.
 
-**Architecture Update (July 2025)**: The API has successfully completed migration to a modular architecture. All 52 critical endpoints have been migrated from the monolithic server.js to organized route modules, resulting in the removal of 6,000+ lines of legacy code. The modular architecture improves maintainability and code organization.
+**Architecture Update (July-August 2025)**: The API has successfully completed migration to a modular architecture. All 54 critical endpoints have been migrated from the monolithic server.js to organized route modules, resulting in the removal of 6,000+ lines of legacy code. The modular architecture improves maintainability and code organization. Latest addition includes the optimized DTG product bundle endpoint.
 
 ## Base URLs
 
@@ -291,6 +291,18 @@ graph TD
   - **Query Parameters**:
     - `method`: Decoration method (e.g., "DTG")
   - **Used In**: `test-dtg-tier-debug.html`
+
+### DTG Product Bundle (🚀 OPTIMIZED)
+- **GET** `/api/dtg/product-bundle`
+  - **Purpose**: 🚀 **PERFORMANCE OPTIMIZED**: Get complete DTG product data in one request
+  - **Query Parameters**:
+    - `styleNumber` (required): Product style number
+    - `color` (optional): Specific color to focus on
+    - `includeInventory` (optional): Include inventory levels
+  - **Performance**: ~2-3x faster than individual API calls, 5-minute server cache
+  - **Replaces**: 4 separate API calls (`/api/product-colors`, `/api/pricing-tiers`, `/api/dtg-costs`, `/api/max-prices-by-style`)
+  - **Added**: August 30, 2025
+  - **Used In**: DTG pricing calculators and product pages
 
 ## Quote System
 

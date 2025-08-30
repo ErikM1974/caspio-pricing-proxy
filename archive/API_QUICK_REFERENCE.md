@@ -47,6 +47,7 @@ Quick reference for all Caspio Pricing Proxy API endpoints.
 | GET | `/pricing-tiers` | Get pricing tiers by method |
 | GET | `/embroidery-costs` | Calculate embroidery cost |
 | GET | `/dtg-costs` | Get DTG costs |
+| GET | `/dtg/product-bundle` | 🚀 **OPTIMIZED**: Complete DTG data bundle |
 | GET | `/screenprint-costs` | Get screen print costs |
 | GET | `/pricing-rules` | Get pricing rules |
 | GET | `/base-item-costs` | Get base costs by style |

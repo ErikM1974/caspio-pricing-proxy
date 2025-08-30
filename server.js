@@ -295,6 +295,11 @@ const productionSchedulesRoutes = require('./src/routes/production-schedules');
 app.use('/api', productionSchedulesRoutes);
 console.log('✓ Production Schedules routes loaded');
 
+// DTG Routes (including optimized product-bundle endpoint)
+const dtgRoutes = require('./src/routes/dtg');
+app.use('/api/dtg', dtgRoutes);
+console.log('✓ DTG routes loaded');
+
 // --- Enhanced Error Handling Middleware ---
 app.use((err, req, res, next) => {
     const timestamp = new Date().toISOString();

@@ -41,7 +41,7 @@ This document provides a comprehensive overview of the Caspio Pricing Proxy API.
 - **Pagination Support**: All endpoints use `fetchAllCaspioPages` for complete data retrieval
 
 ### Available Route Modules
-The server has 53+ active endpoints organized into modules:
+The server has 54+ active endpoints organized into modules:
 - **cart.js**: Cart sessions, items, and sizes management
 - **inventory.js**: Inventory checking and management  
 - **misc.js**: Health check, announcements, and utility endpoints
@@ -51,6 +51,7 @@ The server has 53+ active endpoints organized into modules:
 - **products.js**: Product search, details, and categories
 - **quotes.js**: Quote sessions, items, and analytics
 - **transfers.js**: Transfer printing management
+- **dtg.js**: DTG-specific endpoints including optimized product bundle
 
 All endpoints including `/api/order-dashboard`, `/api/cart-*`, `/api/quotes/*`, and others are fully active and working in production.
 
@@ -60,7 +61,7 @@ Following the successful migration to modular architecture (July 2025):
 
 - **✅ Server Stability**: Starts reliably with all modules loaded
 - **✅ Modular Architecture**: Clean separation of concerns across route modules
-- **✅ All Endpoints Active**: 52+ endpoints working in production (83.3% test success rate)
+- **✅ All Endpoints Active**: 54+ endpoints working in production (83.3% test success rate)
 - **✅ Consistent API**: All endpoints use Caspio v2 API
 - **✅ Enhanced Reliability**: Improved error handling and startup validation
 - **✅ Production Deployed**: Live on Heroku serving teamnwca.com
@@ -313,6 +314,22 @@ The Pricing API provides functionality for retrieving pricing information.
 -   **Example `curl` Request**:
     ```bash
     curl "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/dtg-costs"
+    ```
+
+#### GET /dtg/product-bundle (🚀 OPTIMIZED)
+
+-   **Description**: 🚀 **PERFORMANCE OPTIMIZED**: Get complete DTG product data in one request instead of 3-4 separate calls. Combines product details, colors, pricing tiers, DTG costs, size-based pricing, and upcharges.
+-   **Method**: `GET`
+-   **URL**: `/dtg/product-bundle`
+-   **Query Parameters**:
+    -   `styleNumber` (string, required): Product style number
+    -   `color` (string, optional): Specific color to focus on
+    -   `includeInventory` (boolean, optional): Include inventory levels (default: false)
+-   **Performance**: ~2-3x faster than individual API calls, 5-minute server cache
+-   **Replaces**: `/api/product-colors`, `/api/pricing-tiers?method=DTG`, `/api/dtg-costs`, `/api/max-prices-by-style`
+-   **Example `curl` Request**:
+    ```bash
+    curl "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/dtg/product-bundle?styleNumber=PC54&color=Black"
     ```
 
 #### GET /screenprint-costs

@@ -83,20 +83,28 @@ PORT=3002 node server.js
 
 ## Project Documentation
 
-### Memory Folder
-The `memory/` folder contains important project documentation and reference materials:
+### Documentation Structure (Simplified)
 
-- **[API Documentation](memory/API_DOCUMENTATION.md)** - Comprehensive API endpoint documentation including:
-  - Complete list of all endpoints with examples
-  - Request/response formats
-  - Query parameters and filters
-  - CRUD operations for all entities
-  - Recently added Art Invoices API endpoints
-- **[OpenAPI Specification](memory/API_SPECIFICATION.yaml)** - Complete OpenAPI 3.0 specification for all endpoints
-- **[Developer Guide](memory/DEVELOPER_GUIDE.md)** - Best practices, integration patterns, and troubleshooting
-- **[API Changelog](memory/API_CHANGELOG.md)** - Version history and recent changes
-- **[Quick Reference](memory/API_QUICK_REFERENCE.md)** - Quick endpoint reference with examples
-- **[Endpoint Inventory](memory/API_ENDPOINTS.md)** - Complete list of all 52 endpoints
+The project uses a **streamlined documentation architecture** to eliminate duplication:
+
+#### 📖 **Primary API Documentation**
+- **[CASPIO_API_TEMPLATE.md](../Pricing%20Index%20File%202025/memory/CASPIO_API_TEMPLATE.md)** - 🎯 **SINGLE SOURCE OF TRUTH**
+  - Complete specification for all 54 endpoints
+  - Request/response examples and parameters
+  - Inter-Claude communication channel
+  - Performance optimizations and usage patterns
+
+#### 📚 **Supporting Documentation**
+- **[Developer Guide](memory/DEVELOPER_GUIDE.md)** - Integration patterns, best practices, performance tips
+- **[API Changelog](memory/API_CHANGELOG.md)** - Version history and breaking changes  
+- **[OpenAPI Spec](memory/API_SPECIFICATION.yaml)** - Machine-readable specification
+
+#### 📁 **Archive Folder**
+Legacy documentation files have been moved to `archive/` to reduce maintenance overhead:
+- `API_DOCUMENTATION.md` (archived - redundant with shared template)
+- `API_ENDPOINTS.md` (archived - redundant) 
+- `API_QUICK_REFERENCE.md` (archived - redundant)
+- Plus legacy feature-specific docs
 
 ### SDK Examples
 The `examples/` folder contains ready-to-use code examples:
@@ -104,20 +112,19 @@ The `examples/` folder contains ready-to-use code examples:
 - **[Python Examples](examples/python/examples.py)** - Python SDK examples  
 - **[cURL Examples](examples/curl/examples.sh)** - Command-line examples
 
-### Key APIs Available:
-- Cart API (sessions, items, sizes)
-- Pricing API (tiers, costs, rules)
-- Product API (search, details, categories)
-- Order API (orders, customers)
-- Order ODBC API (detailed order records)
-- **Order Dashboard API** (pre-calculated metrics for UI dashboards)
-- Inventory API
-- Pricing Matrix API
-- Quotes API (analytics, items, sessions)
-- Art Invoices API (full CRUD operations)
-- Transfers API
-- Misc API utilities
-- Production Schedules API
+### Key APIs Available (54 Active Endpoints):
+- **Products API** (search, details, colors, variants) - 12 endpoints
+- **Pricing API** (tiers, costs, rules, **DTG bundle**) - 8 endpoints  
+- **Cart API** (sessions, items, sizes) - 6 endpoints
+- **Orders API** (orders, customers, dashboard) - 6 endpoints
+- **Quotes API** (analytics, items, sessions) - 6 endpoints
+- **Art API** (requests, invoices) - 4 endpoints
+- **Others** (inventory, transfers, utilities) - 12 endpoints
+
+#### 🚀 **Performance Optimized Endpoints:**
+- **DTG Product Bundle** (`/api/dtg/product-bundle`) - Consolidates 4 API calls into 1
+- **Enhanced Product Search** (`/api/products/search`) - Smart grouping and faceted filtering  
+- **Order Dashboard** (`/api/order-dashboard`) - Pre-calculated metrics with caching
 
 ## Creating New API Endpoints
 
