@@ -311,6 +311,55 @@ This file is the **single source of truth** shared between this project (API Pro
 
 **Why this matters**: This enables coordination between the API provider (you) and consumer (Pricing Index Claude) without human intervention, ensuring both sides stay synchronized.
 
+## 📤 Agent Update Protocol
+
+**IMPORTANT**: The Pricing Index application has an agent that needs updates when APIs change.
+
+**Agent Path**: `/mnt/c/Users/erik/OneDrive - Northwest Custom Apparel/2025/Pricing Index File 2025/.claude/agents/caspio-api-architect.md`
+
+### When to Update the Agent:
+You MUST update the agent file when:
+1. **Adding New Endpoints**: Add to "Recently Deployed Endpoints" section with full details
+2. **Making Breaking Changes**: Update affected endpoint documentation immediately
+3. **Adding Major Features**: Document in "Recent API Communications" section
+4. **Deprecating Endpoints**: Mark as deprecated with migration notes and timeline
+
+### Agent Update Checklist:
+When making API changes:
+- [ ] Update the shared CASPIO_API_TEMPLATE.md (primary documentation)
+- [ ] Update the agent's "Recently Deployed Endpoints" section
+- [ ] Add to "Recent API Communications" with date
+- [ ] Include complete endpoint specification (URL, params, response)
+- [ ] Note any breaking changes with 🚨 prefix
+- [ ] Provide migration guides for deprecated endpoints
+
+### Example Agent Update Format:
+```markdown
+### `/api/products/bulk-search` - Bulk Product Search
+**Status**: LIVE as of January 31, 2025
+**Base URL**: `https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/products/bulk-search`
+**Method**: POST
+**Purpose**: Retrieve multiple products by style numbers in one request
+**Request Body**:
+```json
+{
+  "styleNumbers": ["PC54", "PC61", "PC55"],
+  "includeVariants": true
+}
+```
+**Response**: Array of products with full details
+**Use Case**: Product comparison tables, bulk operations
+```
+
+### Why This Matters:
+The caspio-api-architect agent is used by the Pricing Index Claude to:
+- Discover available endpoints
+- Understand API capabilities
+- Make architecture decisions
+- Request new functionality
+
+Keeping it updated ensures the agent has accurate information for decision-making.
+
 ## Recent Additions
 
 ### Order Dashboard API (`/api/order-dashboard`)
