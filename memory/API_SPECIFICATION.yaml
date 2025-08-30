@@ -1,0 +1,1665 @@
+openapi: 3.0.3
+info:
+  title: Caspio Pricing Proxy API
+  description: |
+    API Proxy for Northwest Custom Apparel's Caspio database integration.
+    
+    This API provides comprehensive access to product catalogs, pricing information, 
+    order management, cart functionality, and more. Built with a modular architecture,
+    it serves as the backend for teamnwca.com and internal dashboards.
+    
+    ## Base URLs
+    - Production: `https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api`
+    - Development: `http://localhost:3002/api`
+    
+    ## Key Features
+    - 50+ endpoints across 12 functional areas
+    - Automatic Caspio pagination handling
+    - Dynamic field mapping (adapts to schema changes)
+    - Comprehensive filtering and sorting options
+    - Production-ready with 83.3% uptime
+  version: 1.0.0
+  contact:
+    name: Northwest Custom Apparel
+    email: support@nwcustomapparel.com
+  license:
+    name: Proprietary
+    
+servers:
+  - url: https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api
+    description: Production server
+  - url: http://localhost:3002/api
+    description: Development server
+
+tags:
+  - name: Cart
+    description: Shopping cart management (sessions, items, sizes)
+  - name: Products
+    description: Product catalog, search, and details
+  - name: Pricing
+    description: Pricing tiers, costs, and calculations
+  - name: Orders
+    description: Order management and dashboard
+  - name: Inventory
+    description: Inventory checking and availability
+  - name: Quotes
+    description: Quote sessions and analytics
+  - name: Art
+    description: Art requests and invoices
+  - name: Production
+    description: Production schedules and availability
+  - name: Transfers
+    description: Transfer printing pricing
+  - name: Misc
+    description: Utility endpoints and announcements
+
+paths:
+  # Cart Endpoints
+  /cart-sessions:
+    get:
+      tags: [Cart]
+      summary: List cart sessions
+      description: Retrieves cart sessions with optional filtering
+      parameters:
+        - name: sessionID
+          in: query
+          schema:
+            type: string
+          description: Filter by session ID
+        - name: userID
+          in: query
+          schema:
+            type: integer
+          description: Filter by user ID
+        - name: isActive
+          in: query
+          schema:
+            type: boolean
+          description: Filter by active status
+      responses:
+        '200':
+          description: List of cart sessions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CartSession'
+    post:
+      tags: [Cart]
+      summary: Create cart session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CartSessionCreate'
+      responses:
+        '201':
+          description: Cart session created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CartSession'
+
+  /cart-sessions/{id}:
+    put:
+      tags: [Cart]
+      summary: Update cart session
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CartSessionUpdate'
+      responses:
+        '200':
+          description: Cart session updated
+    delete:
+      tags: [Cart]
+      summary: Delete cart session
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Cart session deleted
+
+  /cart-items:
+    get:
+      tags: [Cart]
+      summary: List cart items
+      parameters:
+        - name: sessionID
+          in: query
+          schema:
+            type: string
+        - name: productID
+          in: query
+          schema:
+            type: string
+        - name: cartStatus
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of cart items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CartItem'
+    post:
+      tags: [Cart]
+      summary: Create cart item
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CartItemCreate'
+      responses:
+        '201':
+          description: Cart item created
+
+  /cart-items/{id}:
+    put:
+      tags: [Cart]
+      summary: Update cart item
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CartItemUpdate'
+      responses:
+        '200':
+          description: Cart item updated
+    delete:
+      tags: [Cart]
+      summary: Delete cart item
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Cart item deleted
+
+  /cart-item-sizes:
+    get:
+      tags: [Cart]
+      summary: List cart item sizes
+      parameters:
+        - name: cartItemID
+          in: query
+          schema:
+            type: integer
+        - name: size
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of cart item sizes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CartItemSize'
+    post:
+      tags: [Cart]
+      summary: Create cart item size
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CartItemSizeCreate'
+      responses:
+        '201':
+          description: Cart item size created
+
+  # Product Endpoints
+  /products/search:
+    get:
+      tags: [Products]
+      summary: Enhanced product search
+      description: |
+        Advanced product search with smart grouping by style, faceted filtering, 
+        and comprehensive product data. Groups multiple records by STYLE to eliminate 
+        duplicates and aggregates colors/sizes.
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+          description: Search across style, title, description, keywords, brand
+        - name: category
+          in: query
+          schema:
+            oneOf:
+              - type: string
+              - type: array
+                items:
+                  type: string
+          description: Filter by categories
+        - name: brand
+          in: query
+          schema:
+            oneOf:
+              - type: string
+              - type: array
+                items:
+                  type: string
+          description: Filter by brands
+        - name: color
+          in: query
+          schema:
+            oneOf:
+              - type: string
+              - type: array
+                items:
+                  type: string
+          description: Filter by colors
+        - name: size
+          in: query
+          schema:
+            oneOf:
+              - type: string
+              - type: array
+                items:
+                  type: string
+          description: Filter by sizes
+        - name: minPrice
+          in: query
+          schema:
+            type: number
+          description: Minimum price filter
+        - name: maxPrice
+          in: query
+          schema:
+            type: number
+          description: Maximum price filter
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [Active, Discontinued, all]
+            default: Active
+          description: Product status filter
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [name_asc, name_desc, price_asc, price_desc, newest, oldest]
+          description: Sort order
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+          description: Page number
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 24
+          description: Results per page
+        - name: includeFacets
+          in: query
+          schema:
+            type: boolean
+            default: false
+          description: Include filter counts for UI
+      responses:
+        '200':
+          description: Search results with optional facets
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductSearchResponse'
+
+  /stylesearch:
+    get:
+      tags: [Products]
+      summary: Style number search
+      description: Returns style suggestions based on search term
+      parameters:
+        - name: term
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 2
+          description: Search term
+      responses:
+        '200':
+          description: Style suggestions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    value:
+                      type: string
+                    label:
+                      type: string
+
+  /product-details:
+    get:
+      tags: [Products]
+      summary: Get product details
+      parameters:
+        - name: styleNumber
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: color
+          in: query
+          schema:
+            type: string
+          description: Accepts color, COLOR_NAME, or CATALOG_COLOR
+      responses:
+        '200':
+          description: Product details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductDetail'
+
+  /color-swatches:
+    get:
+      tags: [Products]
+      summary: Get color swatches for style
+      parameters:
+        - name: styleNumber
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Color swatches
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ColorSwatch'
+
+  # Pricing Endpoints
+  /pricing-tiers:
+    get:
+      tags: [Pricing]
+      summary: Get pricing tiers
+      parameters:
+        - name: method
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [DTG, ScreenPrint, Embroidery, EmbroideryShirts]
+      responses:
+        '200':
+          description: Pricing tiers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PricingTier'
+
+  /embroidery-costs:
+    get:
+      tags: [Pricing]
+      summary: Get embroidery costs
+      parameters:
+        - name: itemType
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: stitchCount
+          in: query
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Embroidery cost
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  cost:
+                    type: number
+
+  /base-item-costs:
+    get:
+      tags: [Pricing]
+      summary: Get base item costs by style
+      parameters:
+        - name: styleNumber
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Base costs per size
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: number
+
+  # Order Endpoints
+  /orders:
+    get:
+      tags: [Orders]
+      summary: List orders
+      parameters:
+        - name: orderID
+          in: query
+          schema:
+            type: integer
+        - name: customerID
+          in: query
+          schema:
+            type: integer
+        - name: orderStatus
+          in: query
+          schema:
+            type: string
+        - name: paymentStatus
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of orders
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Order'
+    post:
+      tags: [Orders]
+      summary: Create order
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrderCreate'
+      responses:
+        '201':
+          description: Order created
+
+  /order-dashboard:
+    get:
+      tags: [Orders]
+      summary: Get order dashboard metrics
+      description: |
+        Retrieves pre-calculated order metrics for dashboard displays. 
+        Optimized for UI dashboards with summary statistics, breakdowns by CSR 
+        and order type, and cached for performance.
+      parameters:
+        - name: days
+          in: query
+          schema:
+            type: integer
+            default: 7
+          description: Number of days to look back
+        - name: includeDetails
+          in: query
+          schema:
+            type: boolean
+            default: false
+          description: Include recent orders array
+        - name: compareYoY
+          in: query
+          schema:
+            type: boolean
+            default: false
+          description: Include year-over-year comparison
+      responses:
+        '200':
+          description: Dashboard metrics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderDashboard'
+
+  /order-odbc:
+    get:
+      tags: [Orders]
+      summary: Get order ODBC records
+      parameters:
+        - name: q.where
+          in: query
+          schema:
+            type: string
+          description: SQL-like filter conditions
+        - name: q.orderBy
+          in: query
+          schema:
+            type: string
+          description: Sort order
+        - name: q.limit
+          in: query
+          schema:
+            type: integer
+            maximum: 1000
+            default: 100
+      responses:
+        '200':
+          description: Order ODBC records
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OrderODBC'
+
+  # Art Endpoints
+  /artrequests:
+    get:
+      tags: [Art]
+      summary: List art requests
+      description: |
+        Retrieves art requests with extensive filtering options. 
+        Returns ALL fields from the Caspio ArtRequests table.
+      parameters:
+        - name: pk_id
+          in: query
+          schema:
+            type: integer
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: companyName
+          in: query
+          schema:
+            type: string
+        - name: customerServiceRep
+          in: query
+          schema:
+            type: string
+        - name: priority
+          in: query
+          schema:
+            type: string
+        - name: mockup
+          in: query
+          schema:
+            type: boolean
+        - name: orderBy
+          in: query
+          schema:
+            type: string
+            default: Date_Created DESC
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            maximum: 1000
+            default: 100
+      responses:
+        '200':
+          description: List of art requests
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ArtRequest'
+    post:
+      tags: [Art]
+      summary: Create art request
+      description: Accepts ANY fields that exist in the Caspio ArtRequests table
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ArtRequestCreate'
+      responses:
+        '201':
+          description: Art request created
+
+  /artrequests/{id}:
+    get:
+      tags: [Art]
+      summary: Get art request by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Art request details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArtRequest'
+        '404':
+          description: Art request not found
+    put:
+      tags: [Art]
+      summary: Update art request
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ArtRequestUpdate'
+      responses:
+        '200':
+          description: Art request updated
+    delete:
+      tags: [Art]
+      summary: Delete art request
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Art request deleted
+
+  /art-invoices:
+    get:
+      tags: [Art]
+      summary: List art invoices
+      parameters:
+        - name: invoiceID
+          in: query
+          schema:
+            type: string
+        - name: artRequestID
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: artistName
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of art invoices
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ArtInvoice'
+    post:
+      tags: [Art]
+      summary: Create art invoice
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ArtInvoiceCreate'
+      responses:
+        '201':
+          description: Art invoice created
+
+  # Inventory Endpoints
+  /inventory:
+    get:
+      tags: [Inventory]
+      summary: Get inventory levels
+      parameters:
+        - name: styleNumber
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: color
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Inventory levels
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/InventoryItem'
+
+  /sizes-by-style-color:
+    get:
+      tags: [Inventory]
+      summary: Get available sizes
+      parameters:
+        - name: styleNumber
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: color
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Available sizes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
+  # Production Endpoints
+  /production-schedules:
+    get:
+      tags: [Production]
+      summary: Get production schedules
+      description: Shows availability dates for different decoration methods
+      parameters:
+        - name: q.where
+          in: query
+          schema:
+            type: string
+          description: Filter conditions (e.g., Date>'2021-08-01')
+        - name: q.orderBy
+          in: query
+          schema:
+            type: string
+          description: Sort order (e.g., Date DESC)
+        - name: q.limit
+          in: query
+          schema:
+            type: integer
+            maximum: 1000
+            default: 100
+      responses:
+        '200':
+          description: Production schedules
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProductionSchedule'
+
+  # Transfer Endpoints
+  /transfers/lookup:
+    get:
+      tags: [Transfers]
+      summary: Get transfer price
+      parameters:
+        - name: size
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: quantity
+          in: query
+          required: true
+          schema:
+            type: integer
+        - name: price_type
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Transfer price
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  price:
+                    type: number
+
+  # Misc Endpoints
+  /health:
+    get:
+      tags: [Misc]
+      summary: Health check
+      responses:
+        '200':
+          description: Service health status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: healthy
+                  timestamp:
+                    type: string
+                    format: date-time
+
+  /staff-announcements:
+    get:
+      tags: [Misc]
+      summary: Get staff announcements
+      description: Returns active announcements sorted by priority
+      responses:
+        '200':
+          description: Staff announcements
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Announcement'
+
+components:
+  schemas:
+    CartSession:
+      type: object
+      properties:
+        PK_ID:
+          type: integer
+        SessionID:
+          type: string
+        UserID:
+          type: integer
+        IPAddress:
+          type: string
+        UserAgent:
+          type: string
+        IsActive:
+          type: boolean
+        CreatedAt:
+          type: string
+          format: date-time
+        LastActivity:
+          type: string
+          format: date-time
+
+    CartSessionCreate:
+      type: object
+      required:
+        - SessionID
+      properties:
+        SessionID:
+          type: string
+        UserID:
+          type: integer
+        IPAddress:
+          type: string
+        UserAgent:
+          type: string
+        IsActive:
+          type: boolean
+
+    CartSessionUpdate:
+      type: object
+      properties:
+        SessionID:
+          type: string
+        UserID:
+          type: integer
+        LastActivity:
+          type: string
+        IPAddress:
+          type: string
+        UserAgent:
+          type: string
+        IsActive:
+          type: boolean
+
+    CartItem:
+      type: object
+      properties:
+        PK_ID:
+          type: integer
+        SessionID:
+          type: string
+        ProductID:
+          type: string
+        StyleNumber:
+          type: string
+        Color:
+          type: string
+        PRODUCT_TITLE:
+          type: string
+        ImprintType:
+          type: string
+        CartStatus:
+          type: string
+        OrderID:
+          type: integer
+        imageUrl:
+          type: string
+
+    CartItemCreate:
+      type: object
+      required:
+        - SessionID
+        - ProductID
+        - StyleNumber
+        - Color
+      properties:
+        SessionID:
+          type: string
+        ProductID:
+          type: string
+        StyleNumber:
+          type: string
+        Color:
+          type: string
+        PRODUCT_TITLE:
+          type: string
+        ImprintType:
+          type: string
+        CartStatus:
+          type: string
+        OrderID:
+          type: integer
+        imageUrl:
+          type: string
+
+    CartItemUpdate:
+      type: object
+      properties:
+        SessionID:
+          type: string
+        ProductID:
+          type: string
+        StyleNumber:
+          type: string
+        Color:
+          type: string
+        PRODUCT_TITLE:
+          type: string
+        ImprintType:
+          type: string
+        CartStatus:
+          type: string
+        OrderID:
+          type: integer
+        imageUrl:
+          type: string
+
+    CartItemSize:
+      type: object
+      properties:
+        PK_ID:
+          type: integer
+        CartItemID:
+          type: integer
+        Size:
+          type: string
+        Quantity:
+          type: integer
+        UnitPrice:
+          type: number
+
+    CartItemSizeCreate:
+      type: object
+      required:
+        - CartItemID
+        - Size
+        - Quantity
+      properties:
+        CartItemID:
+          type: integer
+        Size:
+          type: string
+        Quantity:
+          type: integer
+        UnitPrice:
+          type: number
+
+    ProductSearchResponse:
+      type: object
+      properties:
+        products:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProductSearchResult'
+        pagination:
+          type: object
+          properties:
+            page:
+              type: integer
+            limit:
+              type: integer
+            totalProducts:
+              type: integer
+            totalPages:
+              type: integer
+        facets:
+          type: object
+          properties:
+            categories:
+              type: array
+              items:
+                type: object
+                properties:
+                  name:
+                    type: string
+                  count:
+                    type: integer
+            brands:
+              type: array
+              items:
+                type: object
+                properties:
+                  name:
+                    type: string
+                  count:
+                    type: integer
+            colors:
+              type: array
+              items:
+                type: object
+                properties:
+                  name:
+                    type: string
+                  count:
+                    type: integer
+
+    ProductSearchResult:
+      type: object
+      properties:
+        style:
+          type: string
+        title:
+          type: string
+        brand:
+          type: string
+        category:
+          type: string
+        subcategory:
+          type: string
+        description:
+          type: string
+        minPrice:
+          type: number
+        maxPrice:
+          type: number
+        primaryImage:
+          type: string
+        images:
+          type: array
+          items:
+            type: string
+        colors:
+          type: array
+          items:
+            type: string
+        sizes:
+          type: array
+          items:
+            type: string
+        status:
+          type: string
+
+    ProductDetail:
+      type: object
+      properties:
+        STYLE:
+          type: string
+        PRODUCT_TITLE:
+          type: string
+        BRAND:
+          type: string
+        CATEGORY_NAME:
+          type: string
+        SUBCATEGORY_NAME:
+          type: string
+        COLOR_NAME:
+          type: string
+        CATALOG_COLOR:
+          type: string
+        PRODUCT_DESCRIPTION:
+          type: string
+        SIZE_SCALE:
+          type: string
+        PRODUCT_IMAGE_URL:
+          type: string
+        ADDITIONAL_IMAGES:
+          type: array
+          items:
+            type: string
+
+    ColorSwatch:
+      type: object
+      properties:
+        COLOR_NAME:
+          type: string
+        CATALOG_COLOR:
+          type: string
+        COLOR_SWATCH:
+          type: string
+        RGB_VALUE:
+          type: string
+
+    PricingTier:
+      type: object
+      properties:
+        method:
+          type: string
+        minQuantity:
+          type: integer
+        maxQuantity:
+          type: integer
+        price:
+          type: number
+
+    Order:
+      type: object
+      properties:
+        PK_ID:
+          type: integer
+        OrderID:
+          type: integer
+        CustomerID:
+          type: integer
+        OrderNumber:
+          type: string
+        SessionID:
+          type: string
+        TotalAmount:
+          type: number
+        OrderStatus:
+          type: string
+        ImprintType:
+          type: string
+        PaymentMethod:
+          type: string
+        PaymentStatus:
+          type: string
+        ShippingMethod:
+          type: string
+        TrackingNumber:
+          type: string
+        EstimatedDelivery:
+          type: string
+        Notes:
+          type: string
+        InternalNotes:
+          type: string
+        CreatedAt:
+          type: string
+          format: date-time
+        UpdatedAt:
+          type: string
+          format: date-time
+
+    OrderCreate:
+      type: object
+      required:
+        - CustomerID
+      properties:
+        CustomerID:
+          type: integer
+        OrderNumber:
+          type: string
+        SessionID:
+          type: string
+        TotalAmount:
+          type: number
+        OrderStatus:
+          type: string
+        ImprintType:
+          type: string
+        PaymentMethod:
+          type: string
+        PaymentStatus:
+          type: string
+        ShippingMethod:
+          type: string
+        TrackingNumber:
+          type: string
+        EstimatedDelivery:
+          type: string
+        Notes:
+          type: string
+        InternalNotes:
+          type: string
+
+    OrderDashboard:
+      type: object
+      properties:
+        summary:
+          type: object
+          properties:
+            totalOrders:
+              type: integer
+            totalSales:
+              type: number
+            notInvoiced:
+              type: integer
+            notShipped:
+              type: integer
+            avgOrderValue:
+              type: number
+        dateRange:
+          type: object
+          properties:
+            start:
+              type: string
+              format: date-time
+            end:
+              type: string
+              format: date-time
+            mostRecentOrder:
+              type: string
+              format: date
+        breakdown:
+          type: object
+          properties:
+            byCsr:
+              type: array
+              items:
+                type: object
+                properties:
+                  name:
+                    type: string
+                  orders:
+                    type: integer
+                  sales:
+                    type: number
+            byOrderType:
+              type: array
+              items:
+                type: object
+                properties:
+                  type:
+                    type: string
+                  orders:
+                    type: integer
+                  sales:
+                    type: number
+        todayStats:
+          type: object
+          properties:
+            ordersToday:
+              type: integer
+            salesToday:
+              type: number
+            shippedToday:
+              type: integer
+        recentOrders:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderODBC'
+        yoyComparison:
+          type: object
+          properties:
+            currentYearTotal:
+              type: number
+            lastYearTotal:
+              type: number
+            currentYearOrders:
+              type: integer
+            lastYearOrders:
+              type: integer
+            salesGrowthPercent:
+              type: number
+            orderGrowthPercent:
+              type: number
+
+    OrderODBC:
+      type: object
+      properties:
+        PK_ID:
+          type: integer
+        ID_Order:
+          type: integer
+        date_OrderPlaced:
+          type: string
+          format: date
+        date_OrderRequestedToShip:
+          type: string
+          format: date
+        id_Customer:
+          type: integer
+        CompanyName:
+          type: string
+        ContactEmail:
+          type: string
+        ContactFirst:
+          type: string
+        ContactLast:
+          type: string
+        sts_Invoiced:
+          type: integer
+        sts_Shipped:
+          type: integer
+        cur_Subtotal:
+          type: number
+        cnCur_TotalInvoice:
+          type: number
+        ORDER_TYPE:
+          type: string
+        CustomerServiceRep:
+          type: string
+        CustomerPurchaseOrder:
+          type: string
+
+    ArtRequest:
+      type: object
+      properties:
+        PK_ID:
+          type: integer
+        Status:
+          type: string
+        ID_Design:
+          type: integer
+        CompanyName:
+          type: string
+        Due_Date:
+          type: string
+        NOTES:
+          type: string
+        CustomerServiceRep:
+          type: string
+        Priority:
+          type: string
+        Date_Created:
+          type: string
+          format: date-time
+        Date_Updated:
+          type: string
+          format: date-time
+        Mockup:
+          type: boolean
+        Art_Minutes:
+          type: integer
+        Amount_Art_Billed:
+          type: number
+        Invoiced:
+          type: boolean
+        Invoiced_Date:
+          type: string
+        Invoice_Updated_Date:
+          type: string
+        GarmentColor:
+          type: string
+        GarmentStyle:
+          type: string
+        Garment_Placement:
+          type: string
+      additionalProperties: true
+
+    ArtRequestCreate:
+      type: object
+      properties:
+        Status:
+          type: string
+        CompanyName:
+          type: string
+        Due_Date:
+          type: string
+        CustomerServiceRep:
+          type: string
+        Priority:
+          type: string
+        Mockup:
+          type: boolean
+        GarmentStyle:
+          type: string
+        GarmentColor:
+          type: string
+        NOTES:
+          type: string
+      additionalProperties: true
+
+    ArtRequestUpdate:
+      type: object
+      additionalProperties: true
+
+    ArtInvoice:
+      type: object
+      properties:
+        PK_ID:
+          type: integer
+        InvoiceID:
+          type: string
+        ArtRequestID:
+          type: string
+        SessionID:
+          type: string
+        InvoiceDate:
+          type: string
+        DueDate:
+          type: string
+        Status:
+          type: string
+        ArtistName:
+          type: string
+        ArtistEmail:
+          type: string
+        CustomerName:
+          type: string
+        CustomerCompany:
+          type: string
+        CustomerEmail:
+          type: string
+        ProjectName:
+          type: string
+        TotalAmount:
+          type: number
+        PaymentDate:
+          type: string
+        PaymentAmount:
+          type: number
+        BalanceDue:
+          type: number
+        Notes:
+          type: string
+        IsDeleted:
+          type: boolean
+      additionalProperties: true
+
+    ArtInvoiceCreate:
+      type: object
+      required:
+        - InvoiceID
+        - ArtRequestID
+      properties:
+        InvoiceID:
+          type: string
+        ArtRequestID:
+          type: string
+        SessionID:
+          type: string
+        InvoiceDate:
+          type: string
+        DueDate:
+          type: string
+        Status:
+          type: string
+        ArtistName:
+          type: string
+        ArtistEmail:
+          type: string
+        CustomerName:
+          type: string
+        CustomerCompany:
+          type: string
+        CustomerEmail:
+          type: string
+        ProjectName:
+          type: string
+        TotalAmount:
+          type: number
+        Notes:
+          type: string
+      additionalProperties: true
+
+    InventoryItem:
+      type: object
+      properties:
+        STYLE:
+          type: string
+        COLOR_NAME:
+          type: string
+        SIZE:
+          type: string
+        QTY_ON_HAND:
+          type: integer
+        QTY_AVAILABLE:
+          type: integer
+
+    ProductionSchedule:
+      type: object
+      properties:
+        PK_ID:
+          type: integer
+        ID_Log:
+          type: string
+        Date:
+          type: string
+          format: date-time
+        Employee:
+          type: string
+        DTG:
+          type: string
+          format: date
+        Embroidery:
+          type: string
+          format: date
+        Cap_Embroidery:
+          type: string
+          format: date
+        Screenprint:
+          type: string
+          format: date
+        Transfers:
+          type: string
+          format: date
+        Comment_DTG:
+          type: string
+        Comment_Emb:
+          type: string
+        Comment_Cap:
+          type: string
+        Comment_SP:
+          type: string
+        Comment_Transfers:
+          type: string
+        DTG_Sneak_In:
+          type: string
+        Drop_Dead_Big_Order_Status:
+          type: string
+
+    Announcement:
+      type: object
+      properties:
+        PK_ID:
+          type: integer
+        Title:
+          type: string
+        Type:
+          type: string
+        Icon:
+          type: string
+        DateLabel:
+          type: string
+        Content:
+          type: string
+        Priority:
+          type: integer
+        IsActive:
+          type: boolean
+        ExpiryDate:
+          type: string
+        CreatedDate:
+          type: string
+          format: date-time
+        CreatedBy:
+          type: string
+        ModifiedDate:
+          type: string
+          format: date-time
+        ModifiedBy:
+          type: string
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+              message:
+                type: string
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+              message:
+                type: string
+
+    ServerError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+              message:
+                type: string
+              errorId:
+                type: string

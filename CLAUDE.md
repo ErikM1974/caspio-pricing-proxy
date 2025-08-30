@@ -92,6 +92,17 @@ The `memory/` folder contains important project documentation and reference mate
   - Query parameters and filters
   - CRUD operations for all entities
   - Recently added Art Invoices API endpoints
+- **[OpenAPI Specification](memory/API_SPECIFICATION.yaml)** - Complete OpenAPI 3.0 specification for all endpoints
+- **[Developer Guide](memory/DEVELOPER_GUIDE.md)** - Best practices, integration patterns, and troubleshooting
+- **[API Changelog](memory/API_CHANGELOG.md)** - Version history and recent changes
+- **[Quick Reference](memory/API_QUICK_REFERENCE.md)** - Quick endpoint reference with examples
+- **[Endpoint Inventory](memory/API_ENDPOINTS.md)** - Complete list of all 52 endpoints
+
+### SDK Examples
+The `examples/` folder contains ready-to-use code examples:
+- **[JavaScript Examples](examples/javascript/examples.js)** - Node.js/JavaScript SDK examples
+- **[Python Examples](examples/python/examples.py)** - Python SDK examples  
+- **[cURL Examples](examples/curl/examples.sh)** - Command-line examples
 
 ### Key APIs Available:
 - Cart API (sessions, items, sizes)
