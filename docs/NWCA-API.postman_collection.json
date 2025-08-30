@@ -369,7 +369,7 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "{{baseUrl}}/api/dtg/product-bundle?styleNumber={{styleNumber}}&color={{color}}&includeInventory=false",
+							"raw": "{{baseUrl}}/api/dtg/product-bundle?styleNumber={{styleNumber}}&color={{color}}",
 							"host": [
 								"{{baseUrl}}"
 							],
@@ -388,11 +388,6 @@
 									"key": "color",
 									"value": "{{color}}",
 									"description": "Specific color to focus on (optional)"
-								},
-								{
-									"key": "includeInventory",
-									"value": "false",
-									"description": "Include inventory levels (optional, default: false)"
 								}
 							]
 						},

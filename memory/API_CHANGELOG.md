@@ -5,6 +5,27 @@ All notable changes to the Caspio Pricing Proxy API will be documented in this f
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] - 2025-08-30
+
+### Removed
+- **DTG Product Bundle Endpoint** - Removed `includeInventory` parameter
+  - Parameter was causing errors due to invalid field reference (`INVENTORY_LEVEL`)
+  - Inventory functionality not required for DTG pricing calculations
+  - Improves endpoint reliability and consistency
+  - Gracefully handles legacy requests with `includeInventory` parameter (ignored)
+
+### Performance Improvements
+- DTG Product Bundle endpoint now consistently executes exactly 5 parallel API requests
+- Eliminated potential 400 errors from inventory field reference issues
+- More predictable response times
+
+### Technical Details
+- Updated `src/routes/dtg.js` to remove inventory fetching logic
+- Updated Postman collection and documentation
+- No breaking changes - backward compatible
+
+---
+
 ## [1.1.0] - 2025-08-30
 
 ### Added
@@ -13,7 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Combines product details, colors, pricing tiers, DTG costs, size-based pricing, and upcharges
   - ~2-3x faster loading for DTG pricing pages
   - 5-minute server-side cache for optimal performance
-  - Query parameters: `styleNumber` (required), `color` (optional), `includeInventory` (optional)
+  - Query parameters: `styleNumber` (required), `color` (optional)
 
 ### Performance Improvements
 - DTG pricing pages now load significantly faster

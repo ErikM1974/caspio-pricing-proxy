@@ -7,8 +7,8 @@ const { fetchAllCaspioPages } = require('../utils/caspio');
 // GET /api/dtg/product-bundle
 // Optimized endpoint that combines product, pricing, and DTG data in a single request
 router.get('/product-bundle', async (req, res) => {
-  const { styleNumber, color, includeInventory } = req.query;
-  console.log(`GET /api/dtg/product-bundle requested with styleNumber=${styleNumber}, color=${color}, includeInventory=${includeInventory}`);
+  const { styleNumber, color } = req.query;
+  console.log(`GET /api/dtg/product-bundle requested with styleNumber=${styleNumber}, color=${color}`);
 
   if (!styleNumber) {
     return res.status(400).json({ error: 'styleNumber is required' });
@@ -67,16 +67,6 @@ router.get('/product-bundle', async (req, res) => {
       })
     );
 
-    // 6. Optionally fetch inventory levels
-    if (includeInventory === 'true') {
-      fetchPromises.push(
-        fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
-          'q.where': `STYLE='${styleNumber}'`,
-          'q.select': 'COLOR_NAME,SIZE,INVENTORY_LEVEL',
-          'q.limit': 1000
-        })
-      );
-    }
 
     // Execute all fetches in parallel
     const results = await Promise.allSettled(fetchPromises);
@@ -87,7 +77,6 @@ router.get('/product-bundle', async (req, res) => {
     const dtgCosts = results[2].status === 'fulfilled' ? results[2].value : [];
     const sizeData = results[3].status === 'fulfilled' ? results[3].value : [];
     const upchargeData = results[4].status === 'fulfilled' ? results[4].value : [];
-    const inventoryData = includeInventory === 'true' && results[5]?.status === 'fulfilled' ? results[5].value : null;
 
     // Build product section
     const uniqueColors = new Map();
@@ -194,18 +183,6 @@ router.get('/product-bundle', async (req, res) => {
       }
     });
 
-    // Build inventory section if requested
-    let inventory = null;
-    if (includeInventory === 'true' && inventoryData) {
-      inventory = {};
-      inventoryData.forEach(item => {
-        const colorKey = item.COLOR_NAME;
-        if (!inventory[colorKey]) {
-          inventory[colorKey] = {};
-        }
-        inventory[colorKey][item.SIZE] = parseInt(item.INVENTORY_LEVEL) || 0;
-      });
-    }
 
     // Build response
     const response = {
@@ -215,7 +192,6 @@ router.get('/product-bundle', async (req, res) => {
         ...(selectedColorData && { selectedColor: selectedColorData })
       } : null,
       pricing,
-      ...(inventory && { inventory }),
       metadata: {
         cachedAt: new Date().toISOString(),
         ttl: 300, // 5 minutes

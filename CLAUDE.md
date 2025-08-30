@@ -179,6 +179,56 @@ Options:
 - Add business logic?
 - Or just "return everything as-is"? (most common)
 
+### Step 6: Local Testing (MANDATORY)
+**CRITICAL**: Every new endpoint MUST be tested locally on port 3002 before being considered complete.
+
+#### Testing Workflow:
+1. **Start the local server:**
+   ```bash
+   cd /mnt/c/Users/erik/OneDrive\ -\ Northwest\ Custom\ Apparel/2025/caspio-pricing-proxy
+   PORT=3002 node server.js
+   ```
+   Or use the helper script: `node start-test-server.js`
+
+2. **Get your WSL IP for Windows testing:**
+   ```bash
+   hostname -I | awk '{print $1}'
+   ```
+
+3. **Test the new endpoint with curl:**
+   ```bash
+   # Basic test (replace with your endpoint)
+   curl "http://localhost:3002/api/your-new-endpoint"
+   
+   # From Windows (use WSL IP):
+   curl "http://172.20.132.206:3002/api/your-new-endpoint"
+   
+   # Test with parameters:
+   curl "http://localhost:3002/api/your-new-endpoint?param1=value1&param2=value2"
+   ```
+
+4. **Test in Postman (Windows users):**
+   - Use WSL IP address (not localhost): `http://[WSL-IP]:3002/api/your-new-endpoint`
+   - Test different parameter combinations
+   - Verify response format matches expectations
+
+5. **Run endpoint validation:**
+   ```bash
+   node test-endpoints.js
+   ```
+
+#### Success Criteria Checklist:
+- [ ] ✅ Server starts without errors
+- [ ] ✅ Endpoint returns 200 status code
+- [ ] ✅ Response format matches specification
+- [ ] ✅ Parameters work as expected (where, orderBy, limit)
+- [ ] ✅ Error handling works (invalid parameters return 400/500)
+- [ ] ✅ Data matches expected Caspio table structure
+- [ ] ✅ Pagination works correctly (if applicable)
+- [ ] ✅ No console errors or warnings
+
+**IMPORTANT**: Do not proceed with documentation updates or commits until local testing is complete and all criteria are met.
+
 ### Caspio Pagination
 
 **CRITICAL**: Caspio API uses pagination, which means that results may be split across multiple pages. When implementing new endpoints, **ALWAYS** use the `fetchAllCaspioPages` function instead of `makeCaspioRequest` to ensure you get ALL records.
@@ -187,11 +237,12 @@ Failure to use `fetchAllCaspioPages` will result in incomplete data when the res
 
 ### Standard Implementation Pattern
 Most endpoints will follow this pattern:
-1. Add to server.js directly (not modular)
+1. Add to appropriate route module in `src/routes/` (use modular architecture)
 2. Use Caspio API v2 for consistency
 3. Public access (no authentication)
 4. Standard error handling (400 for bad params, 500 for server errors)
 5. **ALWAYS use `fetchAllCaspioPages` for pagination** (never `makeCaspioRequest` for multi-record queries)
+6. **MANDATORY local testing** on port 3002 before completion (see Step 6 above)
 
 ### Example: ORDER_ODBC Endpoint
 ```
