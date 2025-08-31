@@ -415,7 +415,7 @@ router.get('/pricing-bundle', async (req, res) => {
           });
         break;
       case 'DTF':
-        costTableQuery = fetchAllCaspioPages('/tables/transfer_pricing_2025/records')
+        costTableQuery = fetchAllCaspioPages('/tables/DTF_Pricing/records')
           .catch(err => {
             console.error('Failed to fetch DTF costs:', err.message);
             return [];
@@ -423,6 +423,17 @@ router.get('/pricing-bundle', async (req, res) => {
         break;
     }
     baseQueries.push(costTableQuery);
+
+    // For DTF, also fetch Transfer_Freight table
+    if (method === 'DTF') {
+      baseQueries.push(
+        fetchAllCaspioPages('/tables/Transfer_Freight/records')
+          .catch(err => {
+            console.error('Failed to fetch DTF freight costs:', err.message);
+            return [];
+          })
+      );
+    }
 
     // If styleNumber is provided, also fetch size-specific data
     if (styleNumber) {
@@ -466,8 +477,14 @@ router.get('/pricing-bundle', async (req, res) => {
     // Execute all queries in parallel
     const results = await Promise.all(baseQueries);
     
-    // Destructure base results
-    const [tiers, rules, locationsResult, costs] = results;
+    // Destructure base results - handle DTF freight query
+    let tiers, rules, locationsResult, costs, freightData;
+    if (method === 'DTF') {
+      [tiers, rules, locationsResult, costs, freightData] = results;
+    } else {
+      [tiers, rules, locationsResult, costs] = results;
+      freightData = [];
+    }
 
     console.log(`Pricing bundle for ${method}: ${tiers.length} tier(s), ${rules.length} rule(s), ${costs.length} cost record(s), ${locationsResult.length} location(s)`);
 
@@ -507,6 +524,7 @@ router.get('/pricing-bundle', async (req, res) => {
         break;
       case 'DTF':
         response.allDtfCostsR = [];
+        response.freightR = [];
         break;
     }
 
@@ -535,6 +553,7 @@ router.get('/pricing-bundle', async (req, res) => {
         break;
       case 'DTF':
         response.allDtfCostsR = costs || [];
+        response.freightR = freightData || [];
         break;
     }
 
@@ -617,6 +636,7 @@ router.get('/pricing-bundle', async (req, res) => {
           break;
         case 'DTF':
           requiredStructure.allDtfCostsR = [];
+          requiredStructure.freightR = [];
           break;
       }
       
@@ -674,6 +694,7 @@ router.get('/pricing-bundle', async (req, res) => {
         break;
       case 'DTF':
         errorResponse.allDtfCostsR = [];
+        errorResponse.freightR = [];
         break;
     }
     
