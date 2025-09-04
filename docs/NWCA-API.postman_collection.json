@@ -199,7 +199,7 @@
 								{
 									"key": "method",
 									"value": "{{method}}",
-									"description": "Decoration method: DTG, EMB, CAP, ScreenPrint, DTF"
+									"description": "Decoration method: DTG, EMB, CAP, ScreenPrint, DTF, EMB-AL, CAP-AL"
 								}
 							]
 						},
@@ -300,7 +300,7 @@
 								{
 									"key": "method",
 									"value": "{{method}}",
-									"description": "DTG, EMB, CAP, ScreenPrint, DTF"
+									"description": "DTG, EMB, CAP, ScreenPrint, DTF, EMB-AL (Additional Logo), CAP-AL (Cap Additional Logo)"
 								},
 								{
 									"key": "styleNumber",
@@ -310,6 +310,58 @@
 							]
 						},
 						"description": "Get complete pricing package for a decoration method. Includes all tiers, rules, and costs."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Pricing Bundle - EMB Additional Logo",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/pricing-bundle?method=EMB-AL",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"pricing-bundle"
+							],
+							"query": [
+								{
+									"key": "method",
+									"value": "EMB-AL",
+									"description": "Embroidery Additional Logo pricing"
+								}
+							]
+						},
+						"description": "✅ DEPLOYED on Heroku (2025-09-04)\n\nGet embroidery additional logo pricing (beyond primary logo). Returns 4 tiers:\n- 1-23: $12.50\n- 24-47: $11.50\n- 48-71: $9.50\n- 72+: $8.50\n\nUsed for quotes requiring multiple embroidery locations."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Pricing Bundle - CAP Additional Logo",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/pricing-bundle?method=CAP-AL",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"pricing-bundle"
+							],
+							"query": [
+								{
+									"key": "method",
+									"value": "CAP-AL",
+									"description": "Cap Additional Logo pricing"
+								}
+							]
+						},
+						"description": "✅ DEPLOYED on Heroku (2025-09-04)\n\nGet cap additional logo pricing (for additional locations on caps). Returns 4 tiers:\n- 1-23: $6.75\n- 24-47: $5.75\n- 48-71: $5.50\n- 72+: $5.25\n\nUsed for future cap embroidery applications."
 					},
 					"response": []
 				},
