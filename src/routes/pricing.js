@@ -322,7 +322,7 @@ router.get('/pricing-bundle', async (req, res) => {
     return res.status(400).json({ error: 'Decoration method is required' });
   }
 
-  const validMethods = ['DTG', 'EMB', 'CAP', 'ScreenPrint', 'DTF'];
+  const validMethods = ['DTG', 'EMB', 'CAP', 'ScreenPrint', 'DTF', 'EMB-AL', 'CAP-AL'];
   if (!validMethods.includes(method)) {
     return res.status(400).json({ error: `Invalid decoration method. Use one of: ${validMethods.join(', ')}` });
   }
@@ -333,7 +333,9 @@ router.get('/pricing-bundle', async (req, res) => {
     'CAP': 'EmbroideryCaps',
     'DTG': 'DTG',
     'ScreenPrint': 'ScreenPrint',
-    'DTF': 'DTF'
+    'DTF': 'DTF',
+    'EMB-AL': 'EmbroideryShirts',  // Additional Logo uses same tiers as regular embroidery
+    'CAP-AL': 'EmbroideryCaps'      // Cap Additional Logo uses same tiers as regular caps
   };
 
   // Map methods to location types
@@ -342,7 +344,9 @@ router.get('/pricing-bundle', async (req, res) => {
     'EMB': 'EMB',
     'CAP': 'CAP',
     'ScreenPrint': 'Screen',
-    'DTF': 'DTF'
+    'DTF': 'DTF',
+    'EMB-AL': 'EMB',  // Additional Logo uses same locations as embroidery
+    'CAP-AL': 'CAP'   // Cap Additional Logo uses same locations as caps
   };
 
   const dbMethod = methodMapping[method];
@@ -404,6 +408,22 @@ router.get('/pricing-bundle', async (req, res) => {
           'q.where': "ItemType='Cap'"
         }).catch(err => {
           console.error('Failed to fetch cap embroidery costs:', err.message);
+          return [];
+        });
+        break;
+      case 'EMB-AL':
+        costTableQuery = fetchAllCaspioPages('/tables/Embroidery_Costs/records', {
+          'q.where': "ItemType='AL'"
+        }).catch(err => {
+          console.error('Failed to fetch additional logo embroidery costs:', err.message);
+          return [];
+        });
+        break;
+      case 'CAP-AL':
+        costTableQuery = fetchAllCaspioPages('/tables/Embroidery_Costs/records', {
+          'q.where': "ItemType='AL-CAP'"
+        }).catch(err => {
+          console.error('Failed to fetch additional logo cap costs:', err.message);
           return [];
         });
         break;
@@ -517,6 +537,8 @@ router.get('/pricing-bundle', async (req, res) => {
         break;
       case 'EMB':
       case 'CAP':
+      case 'EMB-AL':
+      case 'CAP-AL':
         response.allEmbroideryCostsR = [];
         break;
       case 'ScreenPrint':
@@ -546,6 +568,8 @@ router.get('/pricing-bundle', async (req, res) => {
         break;
       case 'EMB':
       case 'CAP':
+      case 'EMB-AL':
+      case 'CAP-AL':
         response.allEmbroideryCostsR = costs || [];
         break;
       case 'ScreenPrint':
@@ -629,6 +653,8 @@ router.get('/pricing-bundle', async (req, res) => {
           break;
         case 'EMB':
         case 'CAP':
+        case 'EMB-AL':
+        case 'CAP-AL':
           requiredStructure.allEmbroideryCostsR = [];
           break;
         case 'ScreenPrint':
@@ -687,6 +713,8 @@ router.get('/pricing-bundle', async (req, res) => {
         break;
       case 'EMB':
       case 'CAP':
+      case 'EMB-AL':
+      case 'CAP-AL':
         errorResponse.allEmbroideryCostsR = [];
         break;
       case 'ScreenPrint':
