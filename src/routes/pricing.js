@@ -558,6 +558,27 @@ router.get('/pricing-bundle', async (req, res) => {
 
     // Now populate with actual data if available
     response.tiersR = tiers || [];
+
+    // Special handling for CAP and CAP-AL methods: Add missing 1-23 tier
+    if ((method === 'CAP' || method === 'CAP-AL') && response.tiersR.length > 0) {
+      // Check if 1-23 tier is missing
+      const has1to23Tier = response.tiersR.some(tier => tier.TierLabel === '1-23');
+      if (!has1to23Tier) {
+        // Add the missing 1-23 tier at the beginning
+        response.tiersR.unshift({
+          PK_ID: 9,  // Use a consistent ID that matches the pattern
+          TierID: 9,
+          DecorationMethod: 'EmbroideryCaps',
+          TierLabel: '1-23',
+          MinQuantity: 1,
+          MaxQuantity: 23,
+          MarginDenominator: 0.6,
+          TargetMargin: 0,
+          LTM_Fee: 50
+        });
+      }
+    }
+
     response.rulesR = rulesObject || {};
     response.locations = locations || [];
 
