@@ -26,6 +26,112 @@ const collection = JSON.parse(fs.readFileSync(collectionPath, 'utf8'));
 collection.info.name = "NWCA Production API - Complete";
 collection.info.description = "Complete API collection for Northwest Custom Apparel. Includes all production endpoints with enhanced product search, cart management, pricing, orders, and more. Keep this updated when adding new endpoints!";
 
+// Add File Management category if it doesn't exist
+let fileManagementCategory = collection.item.find(cat => cat.name === "📁 File Management");
+if (!fileManagementCategory) {
+  fileManagementCategory = {
+    name: "📁 File Management",
+    description: "File upload and management endpoints for documents and images",
+    item: []
+  };
+  collection.item.push(fileManagementCategory);
+}
+
+// Add file management endpoints
+const fileEndpoints = [
+  {
+    name: "Upload File",
+    request: {
+      method: "POST",
+      header: [],
+      body: {
+        mode: "formdata",
+        formdata: [
+          {
+            key: "file",
+            type: "file",
+            src: "",
+            description: "File to upload (images, PDFs, etc.)"
+          }
+        ]
+      },
+      url: {
+        raw: "{{baseUrl}}/api/files/upload",
+        host: ["{{baseUrl}}"],
+        path: ["api", "files", "upload"]
+      },
+      description: "Upload a file to Caspio Artwork folder. Returns ExternalKey for database storage."
+    }
+  },
+  {
+    name: "Get File Info",
+    request: {
+      method: "GET",
+      header: [],
+      url: {
+        raw: "{{baseUrl}}/api/files/:externalKey/info",
+        host: ["{{baseUrl}}"],
+        path: ["api", "files", ":externalKey", "info"],
+        variable: [
+          {
+            key: "externalKey",
+            value: "",
+            description: "The ExternalKey of the file"
+          }
+        ]
+      },
+      description: "Get metadata about an uploaded file without downloading it"
+    }
+  },
+  {
+    name: "Download File",
+    request: {
+      method: "GET",
+      header: [],
+      url: {
+        raw: "{{baseUrl}}/api/files/:externalKey",
+        host: ["{{baseUrl}}"],
+        path: ["api", "files", ":externalKey"],
+        variable: [
+          {
+            key: "externalKey",
+            value: "",
+            description: "The ExternalKey of the file to download"
+          }
+        ]
+      },
+      description: "Download a file by its ExternalKey"
+    }
+  },
+  {
+    name: "Delete File",
+    request: {
+      method: "DELETE",
+      header: [],
+      url: {
+        raw: "{{baseUrl}}/api/files/:externalKey",
+        host: ["{{baseUrl}}"],
+        path: ["api", "files", ":externalKey"],
+        variable: [
+          {
+            key: "externalKey",
+            value: "",
+            description: "The ExternalKey of the file to delete"
+          }
+        ]
+      },
+      description: "Delete a file from Caspio by its ExternalKey"
+    }
+  }
+];
+
+// Add file endpoints to the category
+fileEndpoints.forEach(endpoint => {
+  if (!fileManagementCategory.item.some(e => e.name === endpoint.name)) {
+    fileManagementCategory.item.push(endpoint);
+  }
+});
+
 // Add missing endpoints to Product Search category
 const productSearchCategory = collection.item.find(cat => cat.name === "🛍️ Product Search");
 if (productSearchCategory) {
