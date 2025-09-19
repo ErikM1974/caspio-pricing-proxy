@@ -50,6 +50,8 @@ tags:
     description: Production schedules and availability
   - name: Transfers
     description: Transfer printing pricing
+  - name: Files
+    description: File upload and management for documents and images
   - name: Misc
     description: Utility endpoints and announcements
 
@@ -862,6 +864,185 @@ paths:
                 properties:
                   price:
                     type: number
+
+  # File Management Endpoints
+  /files/upload:
+    post:
+      tags: [Files]
+      summary: Upload file to Caspio
+      description: |
+        Upload a file to the Caspio Artwork folder for use in quotes, orders, and art requests.
+        Returns an ExternalKey that can be stored in database fields like quote_items.Image_Upload.
+
+        Supports all common image formats (PNG, JPG, GIF, etc.) and documents (PDF, etc.).
+        Files are stored permanently in the Artwork folder (b91133c3-4413-4cb9-8337-444c730754dd).
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: The file to upload
+              required:
+                - file
+      responses:
+        '200':
+          description: File uploaded successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  externalKey:
+                    type: string
+                    description: Unique identifier for the uploaded file
+                    example: "f20aa30e-e2ba-4350-8bd3-335b850da287"
+                  fileName:
+                    type: string
+                    example: "logo.png"
+                  location:
+                    type: string
+                    example: "Artwork folder"
+                  originalName:
+                    type: string
+                    example: "company-logo.png"
+                  size:
+                    type: integer
+                    description: File size in bytes
+                    example: 12345
+                  mimeType:
+                    type: string
+                    example: "image/png"
+        '409':
+          description: File already exists
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    example: "File already exists"
+                  code:
+                    type: string
+                    example: "FILE_EXISTS"
+        '500':
+          description: Server error
+
+  /files/{externalKey}/info:
+    get:
+      tags: [Files]
+      summary: Get file information
+      description: Retrieve metadata about an uploaded file without downloading it
+      parameters:
+        - name: externalKey
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The file's ExternalKey from Caspio
+          example: "f20aa30e-e2ba-4350-8bd3-335b850da287"
+      responses:
+        '200':
+          description: File information retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  Name:
+                    type: string
+                    example: "logo.png"
+                  ExternalKey:
+                    type: string
+                    example: "f20aa30e-e2ba-4350-8bd3-335b850da287"
+                  Size:
+                    type: integer
+                    description: File size in bytes
+                    example: 12345
+                  ContentType:
+                    type: string
+                    example: "image/png"
+                  DateCreated:
+                    type: string
+                    format: date-time
+                    example: "2025-09-19T00:21:28.437"
+                  LastModified:
+                    type: string
+                    format: date-time
+                  downloadUrl:
+                    type: string
+                    example: "/api/files/f20aa30e-e2ba-4350-8bd3-335b850da287"
+        '404':
+          description: File not found
+
+  /files/{externalKey}:
+    get:
+      tags: [Files]
+      summary: Download file
+      description: Download a file from Caspio using its ExternalKey
+      parameters:
+        - name: externalKey
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The file's ExternalKey from Caspio
+          example: "f20aa30e-e2ba-4350-8bd3-335b850da287"
+      responses:
+        '200':
+          description: File content
+          content:
+            '*/*':
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: File not found
+    delete:
+      tags: [Files]
+      summary: Delete file
+      description: Delete a file from Caspio using its ExternalKey
+      parameters:
+        - name: externalKey
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The file's ExternalKey from Caspio
+          example: "f20aa30e-e2ba-4350-8bd3-335b850da287"
+      responses:
+        '200':
+          description: File deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "File deleted successfully"
+                  externalKey:
+                    type: string
+                    example: "f20aa30e-e2ba-4350-8bd3-335b850da287"
+        '404':
+          description: File not found
 
   # Misc Endpoints
   /health:
