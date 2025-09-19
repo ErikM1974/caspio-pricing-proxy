@@ -10,14 +10,16 @@ const config = {
     env: process.env.NODE_ENV || 'development'
   },
   
-  // Caspio configuration - Using v2 API for stability
+  // Caspio configuration - Using v2 API for stability, v3 for Files
   caspio: {
     domain: process.env.CASPIO_ACCOUNT_DOMAIN,
     clientId: process.env.CASPIO_CLIENT_ID,
     clientSecret: process.env.CASPIO_CLIENT_SECRET,
     tokenUrl: `https://${process.env.CASPIO_ACCOUNT_DOMAIN}/oauth/token`,
     apiBaseUrl: `https://${process.env.CASPIO_ACCOUNT_DOMAIN}/rest/v2`, // v2 API for consistency
-    apiVersion: 'v2'
+    apiV3BaseUrl: `https://${process.env.CASPIO_ACCOUNT_DOMAIN}/integrations/rest/v3`, // v3 API for Files
+    apiVersion: 'v2',
+    artworkFolderKey: 'b91133c3-4413-4cb9-8337-444c730754dd' // Artwork folder for file uploads
   },
   
   // Request timeouts

@@ -300,6 +300,11 @@ const dtgRoutes = require('./src/routes/dtg');
 app.use('/api/dtg', dtgRoutes);
 console.log('✓ DTG routes loaded');
 
+// File Upload Routes (Caspio Files API v3)
+const filesRoutes = require('./src/routes/files-simple');
+app.use('/api', filesRoutes);
+console.log('✓ File upload routes loaded');
+
 // --- Enhanced Error Handling Middleware ---
 app.use((err, req, res, next) => {
     const timestamp = new Date().toISOString();
@@ -372,5 +377,5 @@ const server = app.listen(PORT, async () => {
     }
 });
 
-// Export for testing
-module.exports = { app, fetchAllCaspioPages, makeCaspioRequest };
+// Export for testing and route modules
+module.exports = { app, fetchAllCaspioPages, makeCaspioRequest, getCaspioAccessToken };
