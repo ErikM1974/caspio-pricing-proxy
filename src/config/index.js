@@ -17,14 +17,28 @@ const config = {
   
   // Request timeouts
   timeouts: {
-    perRequest: 10000,  // 10 seconds per request
-    totalPagination: 25000  // 25 seconds total for pagination
+    perRequest: 20000,      // 20 seconds per request (increased for large queries)
+    totalPagination: 90000, // 90 seconds total for pagination (allows 4-5 pages)
+    tokenBuffer: 60         // 60 seconds buffer for token refresh
   },
   
   // Pagination defaults
   pagination: {
     defaultLimit: 1000,
     maxPages: 10
+  },
+
+  // CORS settings
+  cors: {
+    origin: '*', // Allow all origins for testing (restrict in production)
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+  },
+
+  // Logging
+  logging: {
+    enabled: true,
+    level: process.env.LOG_LEVEL || 'info'
   }
 };
 

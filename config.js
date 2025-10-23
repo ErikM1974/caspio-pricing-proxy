@@ -24,8 +24,8 @@ const config = {
   
   // Request timeouts
   timeouts: {
-    perRequest: 15000,      // 15 seconds per request
-    totalPagination: 25000, // 25 seconds total for pagination
+    perRequest: 20000,      // 20 seconds per request (increased for large queries)
+    totalPagination: 90000, // 90 seconds total for pagination (allows 4-5 pages)
     tokenBuffer: 60         // 60 seconds buffer for token refresh
   },
   

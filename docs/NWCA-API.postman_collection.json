@@ -818,7 +818,7 @@
 								"all-brands"
 							]
 						},
-						"description": "Get list of all available brands."
+						"description": "Get list of all available brands with logos. Returns brand name, logo URL, and sample product styles. Perfect for building brand showcase pages or brand filter menus."
 					},
 					"response": []
 				},
