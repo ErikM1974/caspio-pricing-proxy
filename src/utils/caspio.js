@@ -139,8 +139,10 @@ async function fetchAllCaspioPages(resourcePath, initialParams = {}, options = {
       let currentUrl = nextPageUrl;
 
       if (pageCount === 1 || !nextPageUrl || !nextPageUrl.includes('@nextpage')) {
+        // For v3 API, use q.pageNumber and q.pageSize for pagination
         if (pageCount > 1) {
-          currentRequestParams['q.skip'] = (pageCount - 1) * (params['q.limit']);
+          currentRequestParams['q.pageNumber'] = pageCount;
+          currentRequestParams['q.pageSize'] = params['q.limit'];
         }
         currentUrl = `${config.caspio.apiBaseUrl}${resourcePath}`;
       } else {
@@ -164,14 +166,21 @@ async function fetchAllCaspioPages(resourcePath, initialParams = {}, options = {
 
       try {
         const response = await axios(requestConfig);
-        
+
         if (response.data && response.data.Result) {
+          const resultsThisPage = response.data.Result.length;
           allResults = allResults.concat(response.data.Result);
-          
+
+          // Enhanced pagination logging
+          console.log(`[Pagination] Page ${pageCount}: Fetched ${resultsThisPage} records`);
+          console.log(`[Pagination] Total collected so far: ${allResults.length}`);
+          console.log(`[Pagination] Has NextPageUrl: ${!!response.data.NextPageUrl}`);
+          console.log(`[Pagination] TotalRecords: ${response.data.TotalRecords || 'N/A'}`);
+
           if (mergedOptions.pageCallback) {
             mergedOptions.pageCallback(response.data.Result, pageCount);
           }
-          
+
           if (mergedOptions.earlyExitCondition && mergedOptions.earlyExitCondition(response.data.Result, allResults)) {
             console.log(`Early exit condition met for ${resourcePath} at page ${pageCount}`);
             morePages = false;
@@ -191,7 +200,17 @@ async function fetchAllCaspioPages(resourcePath, initialParams = {}, options = {
         if (response.data && response.data.NextPageUrl) {
           nextPageUrl = response.data.NextPageUrl;
         } else {
-          morePages = false;
+          // Fallback pagination for Caspio v3 API
+          const resultsThisPage = response.data.Result ? response.data.Result.length : 0;
+          if (resultsThisPage >= params['q.limit']) {
+            console.log(`[Pagination] No NextPageUrl, but got full page (${resultsThisPage} results). Continuing with pageNumber pagination.`);
+            // Continue to next page - pageNumber will be set at top of next loop iteration
+            nextPageUrl = `${config.caspio.apiBaseUrl}${resourcePath}`;
+            morePages = true;
+          } else {
+            console.log(`[Pagination] Got partial page (${resultsThisPage} < ${params['q.limit']}). This was the last page.`);
+            morePages = false;
+          }
         }
 
       } catch (pageError) {
