@@ -2,16 +2,14 @@
 	"info": {
 		"name": "NWCA Production API - Complete",
 		"description": "Complete API collection for Northwest Custom Apparel. Auto-generated from Express routes.",
-		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
-		"_postman_id": "6ece08ff-b668-4081-a062-cb02a2931869"
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
 	},
 	"item": [
 		{
 			"name": "🛍️ Product Search",
-			"description": "Find products, colors, sizes, and check inventory",
 			"item": [
 				{
-					"name": "Style Search",
+					"name": "Get Stylesearch",
 					"request": {
 						"method": "GET",
 						"header": [],
@@ -27,13 +25,13 @@
 							"query": [
 								{
 									"key": "term",
-									"value": "PC54",
+									"value": "",
 									"description": "Search term",
 									"disabled": true
 								}
 							]
 						},
-						"description": "Search products by style number or name. Returns autocomplete suggestions."
+						"description": "GET /api/stylesearch"
 					},
 					"response": []
 				},
@@ -54,7 +52,7 @@
 							"query": [
 								{
 									"key": "styleNumber",
-									"value": "{{styleNumber}}",
+									"value": "",
 									"description": "Product style number",
 									"disabled": true
 								},
@@ -66,7 +64,7 @@
 								}
 							]
 						},
-						"description": "Get complete product information including description, features, and specs."
+						"description": "GET /api/product-details"
 					},
 					"response": []
 				},
@@ -87,18 +85,18 @@
 							"query": [
 								{
 									"key": "styleNumber",
-									"value": "{{styleNumber}}",
+									"value": "",
 									"description": "Product style number",
 									"disabled": true
 								}
 							]
 						},
-						"description": "Get color swatches with hex codes for visual display."
+						"description": "GET /api/color-swatches"
 					},
 					"response": []
 				},
 				{
-					"name": "Get Products by Brand",
+					"name": "Get Products By Brand",
 					"request": {
 						"method": "GET",
 						"header": [],
@@ -114,18 +112,18 @@
 							"query": [
 								{
 									"key": "brand",
-									"value": "Port & Company",
+									"value": "",
 									"description": "Brand name",
 									"disabled": true
 								}
 							]
 						},
-						"description": "Get all products from a specific brand."
+						"description": "GET /api/products-by-brand"
 					},
 					"response": []
 				},
 				{
-					"name": "Get Products by Category",
+					"name": "Get Products By Category",
 					"request": {
 						"method": "GET",
 						"header": [],
@@ -141,13 +139,13 @@
 							"query": [
 								{
 									"key": "category",
-									"value": "T-Shirts",
+									"value": "",
 									"description": "Category name",
 									"disabled": true
 								}
 							]
 						},
-						"description": "Get all products in a category."
+						"description": "GET /api/products-by-category"
 					},
 					"response": []
 				},
@@ -193,7 +191,7 @@
 								"all-brands"
 							]
 						},
-						"description": "Get list of all available brands with logos. Returns brand name, logo URL, and sample product styles. Perfect for building brand showcase pages or brand filter menus."
+						"description": "GET /api/all-brands"
 					},
 					"response": []
 				},
@@ -212,7 +210,7 @@
 								"all-categories"
 							]
 						},
-						"description": "Get list of all product categories."
+						"description": "GET /api/all-categories"
 					},
 					"response": []
 				},
@@ -239,7 +237,7 @@
 								}
 							]
 						},
-						"description": "Get list of all product subcategories."
+						"description": "GET /api/all-subcategories"
 					},
 					"response": []
 				},
@@ -382,7 +380,7 @@
 					"response": []
 				},
 				{
-					"name": "Enhanced Product Search",
+					"name": "Get Products Search",
 					"request": {
 						"method": "GET",
 						"header": [],
@@ -399,7 +397,7 @@
 							"query": [
 								{
 									"key": "q",
-									"value": "polo",
+									"value": "",
 									"description": "q parameter",
 									"disabled": true
 								},
@@ -489,7 +487,7 @@
 								}
 							]
 						},
-						"description": "🆕 Advanced product search with smart grouping by style, faceted filtering, and comprehensive product data. Groups multiple records by STYLE to eliminate duplicates and aggregates colors/sizes. Perfect for catalog search pages."
+						"description": "GET /api/products/search - Enhanced catalog search endpoint"
 					},
 					"response": []
 				},
@@ -510,83 +508,21 @@
 							"query": [
 								{
 									"key": "styleNumber",
-									"value": "{{styleNumber}}",
+									"value": "",
 									"description": "Product style number",
 									"disabled": true
 								}
 							]
 						},
-						"description": "Get all available colors for a style. Used for color picker."
-					},
-					"response": []
-				},
-				{
-					"name": "Check Inventory",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "{{baseUrl}}/api/inventory?styleNumber={{styleNumber}}",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"api",
-								"inventory"
-							],
-							"query": [
-								{
-									"key": "styleNumber",
-									"value": "{{styleNumber}}"
-								}
-							]
-						},
-						"description": "Check real-time inventory levels by size and color."
-					},
-					"response": []
-				},
-				{
-					"name": "Get Sizes by Style & Color",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "{{baseUrl}}/api/sizes-by-style-color?styleNumber={{styleNumber}}&color={{color}}",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"api",
-								"sizes-by-style-color"
-							],
-							"query": [
-								{
-									"key": "styleNumber",
-									"value": "{{styleNumber}}"
-								},
-								{
-									"key": "color",
-									"value": "{{color}}"
-								}
-							]
-						},
-						"description": "Get available sizes for specific style/color combination."
-					},
-					"response": []
-				},
-				{
-					"name": "Get Product Search Index",
-					"request": {
-						"method": "GET",
-						"header": []
+						"description": "GET /api/product-colors"
 					},
 					"response": []
 				}
-			]
+			],
+			"description": "Search and browse products with advanced filtering"
 		},
 		{
 			"name": "💰 Pricing",
-			"description": "Pricing tiers, costs, and rules",
 			"item": [
 				{
 					"name": "Get Pricing Tiers",
@@ -849,11 +785,11 @@
 					},
 					"response": []
 				}
-			]
+			],
+			"description": "Pricing tiers, costs, and rules"
 		},
 		{
 			"name": "💰 Pricing Matrix",
-			"description": "Pricing matrix management",
 			"item": [
 				{
 					"name": "Get Pricing Matrix",
@@ -1040,11 +976,11 @@
 					},
 					"response": []
 				}
-			]
+			],
+			"description": "Pricing matrix management"
 		},
 		{
 			"name": "🛒 Cart Management",
-			"description": "Shopping cart sessions and items",
 			"item": [
 				{
 					"name": "Get Cart Sessions",
@@ -1081,12 +1017,12 @@
 								}
 							]
 						},
-						"description": "Get all cart sessions. Each session represents one customer's cart."
+						"description": "GET /api/cart-sessions"
 					},
 					"response": []
 				},
 				{
-					"name": "Create Cart Session",
+					"name": "Create Cart Sessions",
 					"request": {
 						"method": "POST",
 						"header": [
@@ -1105,7 +1041,7 @@
 								"cart-sessions"
 							]
 						},
-						"description": "Create new cart session for a customer.",
+						"description": "POST /api/cart-sessions",
 						"body": {
 							"mode": "raw",
 							"raw": "{\n  \"SessionID\": 1,\n  \"UserID\": 1,\n  \"IPAddress\": \"value\",\n  \"UserAgent\": \"value\",\n  \"IsActive\": true,\n  \"LastActivity\": \"value\"\n}"
@@ -1253,12 +1189,12 @@
 								}
 							]
 						},
-						"description": "Get all cart items across all sessions."
+						"description": "GET /api/cart-items"
 					},
 					"response": []
 				},
 				{
-					"name": "Add Cart Item",
+					"name": "Create Cart Items",
 					"request": {
 						"method": "POST",
 						"header": [
@@ -1277,7 +1213,7 @@
 								"cart-items"
 							]
 						},
-						"description": "Add product to cart. Requires ProductID and SessionID.",
+						"description": "POST /api/cart-items",
 						"body": {
 							"mode": "raw",
 							"raw": "{\n  \"SessionID\": 1,\n  \"ProductID\": 1,\n  \"StyleNumber\": \"value\",\n  \"Color\": \"value\",\n  \"PRODUCT_TITLE\": \"value\",\n  \"ImprintType\": \"value\",\n  \"CartStatus\": \"Active\",\n  \"OrderID\": 1,\n  \"imageUrl\": \"value\"\n}"
@@ -1401,7 +1337,7 @@
 								}
 							]
 						},
-						"description": "Get size breakdown for cart items (e.g., 10 Small, 15 Medium)."
+						"description": "GET /api/cart-item-sizes"
 					},
 					"response": []
 				},
@@ -1501,11 +1437,11 @@
 					},
 					"response": []
 				}
-			]
+			],
+			"description": "Shopping cart sessions, items, and sizes"
 		},
 		{
 			"name": "📦 Orders",
-			"description": "Order management and tracking",
 			"item": [
 				{
 					"name": "Get Orders",
@@ -1872,11 +1808,11 @@
 					},
 					"response": []
 				}
-			]
+			],
+			"description": "Order management and tracking"
 		},
 		{
 			"name": "💬 Quotes",
-			"description": "Quote analytics, items, and sessions",
 			"item": [
 				{
 					"name": "Get Quote_analytics",
@@ -2272,11 +2208,11 @@
 					},
 					"response": []
 				}
-			]
+			],
+			"description": "Quote analytics, items, and sessions"
 		},
 		{
 			"name": "📊 Inventory",
-			"description": "Inventory levels and availability",
 			"item": [
 				{
 					"name": "Get Inventory",
@@ -2344,14 +2280,14 @@
 					},
 					"response": []
 				}
-			]
+			],
+			"description": "Inventory levels and availability"
 		},
 		{
 			"name": "🎨 Art & Invoicing",
-			"description": "Art request and invoice management system",
 			"item": [
 				{
-					"name": "Get Art Requests",
+					"name": "Get Artrequests",
 					"request": {
 						"method": "GET",
 						"header": [],
@@ -2499,13 +2435,13 @@
 								},
 								{
 									"key": "limit",
-									"value": "10",
+									"value": "",
 									"description": "Maximum results",
 									"disabled": true
 								}
 							]
 						},
-						"description": "Get list of art requests. Filter by status, company, or sales rep."
+						"description": "Get all art requests or filter by query parameters"
 					},
 					"response": []
 				},
@@ -2530,7 +2466,7 @@
 					"response": []
 				},
 				{
-					"name": "Create Art Request",
+					"name": "Create Artrequests",
 					"request": {
 						"method": "POST",
 						"header": [],
@@ -2544,7 +2480,7 @@
 								"artrequests"
 							]
 						},
-						"description": "Create new art request. Accepts any fields from the ArtRequests table."
+						"description": "Create a new art request"
 					},
 					"response": []
 				},
@@ -2715,7 +2651,7 @@
 								}
 							]
 						},
-						"description": "Get list of art invoices. Shows all invoices with status, customer, and balance info."
+						"description": "Get all art invoices or filter by query parameters"
 					},
 					"response": []
 				},
@@ -2740,7 +2676,7 @@
 					"response": []
 				},
 				{
-					"name": "Create Art Invoice",
+					"name": "Create Art Invoices",
 					"request": {
 						"method": "POST",
 						"header": [],
@@ -2754,7 +2690,7 @@
 								"art-invoices"
 							]
 						},
-						"description": "Create a new art invoice. Links to art request and tracks time/billing."
+						"description": "Create a new art invoice"
 					},
 					"response": []
 				},
@@ -3013,72 +2949,15 @@
 						"description": "DELETE /api/design-notes/:id - Delete design note"
 					},
 					"response": []
-				},
-				{
-					"name": "Get DesignNotes",
-					"request": {
-						"method": "GET",
-						"header": []
-					},
-					"response": []
-				},
-				{
-					"name": "Update Art Request",
-					"request": {
-						"method": "PUT",
-						"header": [
-							{
-								"key": "Content-Type",
-								"value": "application/json"
-							}
-						],
-						"url": {
-							"raw": "{{baseUrl}}/api/artrequests/{{id}}",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"api",
-								"artrequests",
-								"{{id}}"
-							]
-						},
-						"description": "Update existing art request. Accepts any fields from the ArtRequests table.",
-						"body": {
-							"mode": "raw",
-							"raw": "{\n  \"Status\": \"Completed\",\n  \"Invoiced\": true,\n  \"Invoiced_Date\": \"2025-01-15\"\n}"
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "Delete Art Request",
-					"request": {
-						"method": "DELETE",
-						"header": [],
-						"url": {
-							"raw": "{{baseUrl}}/api/artrequests/{{id}}",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"api",
-								"artrequests",
-								"{{id}}"
-							]
-						},
-						"description": "Delete art request by ID"
-					},
-					"response": []
 				}
-			]
+			],
+			"description": "Art requests, invoices, and design notes"
 		},
 		{
 			"name": "🎨 Transfers",
-			"description": "Transfer printing pricing and management",
 			"item": [
 				{
-					"name": "Get Transfer Price",
+					"name": "Get Transfers Lookup",
 					"request": {
 						"method": "GET",
 						"header": [],
@@ -3095,30 +2974,30 @@
 							"query": [
 								{
 									"key": "size",
-									"value": "Adult",
+									"value": "",
 									"description": "size parameter",
 									"disabled": true
 								},
 								{
 									"key": "quantity",
-									"value": "10",
+									"value": "",
 									"description": "quantity parameter",
 									"disabled": true
 								},
 								{
 									"key": "price_type",
-									"value": "Regular",
+									"value": "",
 									"description": "price_type parameter",
 									"disabled": true
 								}
 							]
 						},
-						"description": "Lookup transfer price by size and quantity"
+						"description": "GET /api/transfers/lookup - Core pricing endpoint"
 					},
 					"response": []
 				},
 				{
-					"name": "Get Transfer Matrix",
+					"name": "Get Transfers Matrix",
 					"request": {
 						"method": "GET",
 						"header": [],
@@ -3135,7 +3014,7 @@
 							"query": [
 								{
 									"key": "size",
-									"value": "Adult",
+									"value": "",
 									"description": "size parameter",
 									"disabled": true
 								},
@@ -3147,12 +3026,12 @@
 								}
 							]
 						},
-						"description": "Get transfer pricing matrix for a size"
+						"description": "GET /api/transfers/matrix - All quantity tiers for a size"
 					},
 					"response": []
 				},
 				{
-					"name": "Get Transfer Sizes",
+					"name": "Get Transfers Sizes",
 					"request": {
 						"method": "GET",
 						"header": [],
@@ -3167,7 +3046,7 @@
 								"sizes"
 							]
 						},
-						"description": "Get all available transfer sizes"
+						"description": "GET /api/transfers/sizes - Available transfer sizes"
 					},
 					"response": []
 				},
@@ -3354,11 +3233,11 @@
 					},
 					"response": []
 				}
-			]
+			],
+			"description": "Transfer printing pricing"
 		},
 		{
 			"name": "📅 Production",
-			"description": "Production schedules and tracking",
 			"item": [
 				{
 					"name": "Get Production Schedules",
@@ -3399,11 +3278,11 @@
 					},
 					"response": []
 				}
-			]
+			],
+			"description": "Production schedules and tracking"
 		},
 		{
 			"name": "📎 File Management",
-			"description": "File upload, download, and management",
 			"item": [
 				{
 					"name": "Create Files Upload",
@@ -3502,7 +3381,7 @@
 								"upload"
 							]
 						},
-						"description": "POST /api/files/upload Upload a file directly to Caspio Files API Expects multipart/form-data with a 'file' field"
+						"description": "POST /api/files/upload Upload a file from base64 data to Caspio Files API"
 					},
 					"response": []
 				},
@@ -3586,11 +3465,11 @@
 					},
 					"response": []
 				}
-			]
+			],
+			"description": "File upload, download, and management"
 		},
 		{
 			"name": "🖨️ DTG Printing",
-			"description": "Direct-to-garment printing services",
 			"item": [
 				{
 					"name": "Get Product Bundle",
@@ -3625,11 +3504,11 @@
 					},
 					"response": []
 				}
-			]
+			],
+			"description": "Direct-to-garment printing services"
 		},
 		{
 			"name": "🔧 Utilities",
-			"description": "Utility endpoints and helpers",
 			"item": [
 				{
 					"name": "Get Status",
@@ -4013,11 +3892,11 @@
 					},
 					"response": []
 				}
-			]
+			],
+			"description": "Utility endpoints and helpers"
 		},
 		{
 			"name": "📋 General",
-			"description": "",
 			"item": [
 				{
 					"name": "Get Quote_analytics",
@@ -4413,721 +4292,8 @@
 					},
 					"response": []
 				}
-			]
-		},
-		{
-			"name": "💰 Pricing & Costs",
-			"item": [
-				{
-					"name": "Get Pricing Tiers",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "{{baseUrl}}/api/pricing-tiers?method={{method}}",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"api",
-								"pricing-tiers"
-							],
-							"query": [
-								{
-									"key": "method",
-									"value": "{{method}}",
-									"description": "Decoration method: DTG, EMB, CAP, ScreenPrint, DTF, EMB-AL, CAP-AL"
-								}
-							]
-						},
-						"description": "Get quantity pricing tiers for a decoration method. Shows price breaks at different quantities."
-					},
-					"response": []
-				},
-				{
-					"name": "Get Base Item Costs",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "{{baseUrl}}/api/base-item-costs?styleNumber={{styleNumber}}",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"api",
-								"base-item-costs"
-							],
-							"query": [
-								{
-									"key": "styleNumber",
-									"value": "{{styleNumber}}"
-								}
-							]
-						},
-						"description": "Get blank garment cost by size. Returns base price before decoration."
-					},
-					"response": []
-				},
-				{
-					"name": "Get Size Pricing",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "{{baseUrl}}/api/size-pricing?styleNumber={{styleNumber}}",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"api",
-								"size-pricing"
-							],
-							"query": [
-								{
-									"key": "styleNumber",
-									"value": "{{styleNumber}}"
-								}
-							]
-						},
-						"description": "Get comprehensive size pricing including upcharges for extended sizes (2XL, 3XL, etc)."
-					},
-					"response": []
-				},
-				{
-					"name": "Get Max Prices by Style",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "{{baseUrl}}/api/max-prices-by-style?styleNumber={{styleNumber}}",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"api",
-								"max-prices-by-style"
-							],
-							"query": [
-								{
-									"key": "styleNumber",
-									"value": "{{styleNumber}}"
-								}
-							]
-						},
-						"description": "Get highest price per size across all colors. Used for 'Starting at' pricing."
-					},
-					"response": []
-				},
-				{
-					"name": "Get Pricing Bundle",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "{{baseUrl}}/api/pricing-bundle?method={{method}}&styleNumber={{styleNumber}}",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"api",
-								"pricing-bundle"
-							],
-							"query": [
-								{
-									"key": "method",
-									"value": "{{method}}",
-									"description": "DTG, EMB, CAP, ScreenPrint, DTF, EMB-AL (Additional Logo), CAP-AL (Cap Additional Logo)"
-								},
-								{
-									"key": "styleNumber",
-									"value": "{{styleNumber}}",
-									"description": "Optional for size-specific pricing"
-								}
-							]
-						},
-						"description": "Get complete pricing package for a decoration method. Includes all tiers, rules, and costs."
-					},
-					"response": []
-				},
-				{
-					"name": "Get Pricing Bundle - EMB Additional Logo",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "{{baseUrl}}/api/pricing-bundle?method=EMB-AL",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"api",
-								"pricing-bundle"
-							],
-							"query": [
-								{
-									"key": "method",
-									"value": "EMB-AL",
-									"description": "Embroidery Additional Logo pricing"
-								}
-							]
-						},
-						"description": "✅ DEPLOYED on Heroku (2025-09-04)\n\nGet embroidery additional logo pricing (beyond primary logo). Returns 4 tiers:\n- 1-23: $12.50\n- 24-47: $11.50\n- 48-71: $9.50\n- 72+: $8.50\n\nUsed for quotes requiring multiple embroidery locations."
-					},
-					"response": []
-				},
-				{
-					"name": "Get Pricing Bundle - CAP Additional Logo",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "{{baseUrl}}/api/pricing-bundle?method=CAP-AL",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"api",
-								"pricing-bundle"
-							],
-							"query": [
-								{
-									"key": "method",
-									"value": "CAP-AL",
-									"description": "Cap Additional Logo pricing"
-								}
-							]
-						},
-						"description": "✅ DEPLOYED on Heroku (2025-09-04)\n\nGet cap additional logo pricing (for additional locations on caps). Returns 4 tiers:\n- 1-23: $6.75\n- 24-47: $5.75\n- 48-71: $5.50\n- 72+: $5.25\n\nUsed for future cap embroidery applications."
-					},
-					"response": []
-				},
-				{
-					"name": "Get Embroidery Costs",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "{{baseUrl}}/api/embroidery-costs?itemType=Cap&stitchCount=8000",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"api",
-								"embroidery-costs"
-							],
-							"query": [
-								{
-									"key": "itemType",
-									"value": "Cap",
-									"description": "Cap or Standard"
-								},
-								{
-									"key": "stitchCount",
-									"value": "8000",
-									"description": "Number of stitches"
-								}
-							]
-						},
-						"description": "Get embroidery pricing based on stitch count and item type."
-					},
-					"response": []
-				},
-				{
-					"name": "Get DTG Costs",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "{{baseUrl}}/api/dtg-costs",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"api",
-								"dtg-costs"
-							]
-						},
-						"description": "Get all DTG (Direct to Garment) printing costs by location and size."
-					},
-					"response": []
-				},
-				{
-					"name": "Get DTG Product Bundle",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "{{baseUrl}}/api/dtg/product-bundle?styleNumber={{styleNumber}}&color={{color}}",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"api",
-								"dtg",
-								"product-bundle"
-							],
-							"query": [
-								{
-									"key": "styleNumber",
-									"value": "{{styleNumber}}",
-									"description": "Product style number (required)"
-								},
-								{
-									"key": "color",
-									"value": "{{color}}",
-									"description": "Specific color to focus on (optional)"
-								}
-							]
-						},
-						"description": "🚀 OPTIMIZED & TESTED: Get complete DTG bundle data in one request. ✅ DEPLOYED on Heroku and production tested (Aug 30, 2025). Combines product details, colors, pricing tiers, DTG costs, size-based pricing, and upcharges. Reduces 4 API calls to 1. Parameters: styleNumber (required), color (optional). Performance: ~0.5-1 second response, 5-minute cache."
-					},
-					"response": []
-				},
-				{
-					"name": "Get Screen Print Costs",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "{{baseUrl}}/api/screenprint-costs?costType=PrimaryLocation",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"api",
-								"screenprint-costs"
-							],
-							"query": [
-								{
-									"key": "costType",
-									"value": "PrimaryLocation",
-									"description": "PrimaryLocation or AdditionalLocation"
-								}
-							]
-						},
-						"description": "Get screen printing costs by number of colors and location type."
-					},
-					"response": []
-				},
-				{
-					"name": "Get Pricing Rules",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "{{baseUrl}}/api/pricing-rules?styleNumber={{styleNumber}}&method={{method}}",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"api",
-								"pricing-rules"
-							],
-							"query": [
-								{
-									"key": "styleNumber",
-									"value": "{{styleNumber}}"
-								},
-								{
-									"key": "method",
-									"value": "{{method}}"
-								}
-							]
-						},
-						"description": "Get pricing rules and markups for style/method combination."
-					},
-					"response": []
-				}
 			],
-			"description": "Product pricing, decoration costs, and pricing calculations"
-		},
-		{
-			"name": "📊 Pricing Matrix",
-			"item": [
-				{
-					"name": "Get All Pricing Matrices",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "{{baseUrl}}/api/pricing-matrix",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"api",
-								"pricing-matrix"
-							]
-						},
-						"description": "Get all saved pricing configurations. Filter by session, style, color, or method."
-					},
-					"response": []
-				},
-				{
-					"name": "Create Pricing Matrix",
-					"request": {
-						"method": "POST",
-						"header": [
-							{
-								"key": "Content-Type",
-								"value": "application/json"
-							}
-						],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n  \"SessionID\": \"{{sessionId}}\",\n  \"StyleNumber\": \"PC54\",\n  \"Color\": \"Red\",\n  \"EmbellishmentType\": \"DTG\",\n  \"TierStructure\": {\n    \"tiers\": [\n      {\"min\": 24, \"max\": 47, \"label\": \"24-47\"},\n      {\"min\": 48, \"max\": 71, \"label\": \"48-71\"},\n      {\"min\": 72, \"max\": 999, \"label\": \"72+\"}\n    ]\n  },\n  \"PriceMatrix\": {\n    \"24-47\": {\n      \"S\": 15.99,\n      \"M\": 15.99,\n      \"L\": 15.99,\n      \"XL\": 15.99,\n      \"2XL\": 17.99\n    },\n    \"48-71\": {\n      \"S\": 14.99,\n      \"M\": 14.99,\n      \"L\": 14.99,\n      \"XL\": 14.99,\n      \"2XL\": 16.99\n    },\n    \"72+\": {\n      \"S\": 13.99,\n      \"M\": 13.99,\n      \"L\": 13.99,\n      \"XL\": 13.99,\n      \"2XL\": 15.99\n    }\n  }\n}"
-						},
-						"url": {
-							"raw": "{{baseUrl}}/api/pricing-matrix",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"api",
-								"pricing-matrix"
-							]
-						},
-						"description": "Save custom pricing with quantity tiers for a product/decoration combo."
-					},
-					"response": []
-				},
-				{
-					"name": "Lookup Pricing Matrix",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "{{baseUrl}}/api/pricing-matrix/lookup?styleNumber={{styleNumber}}&color={{color}}&embellishmentType={{method}}&sessionID={{sessionId}}",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"api",
-								"pricing-matrix",
-								"lookup"
-							],
-							"query": [
-								{
-									"key": "styleNumber",
-									"value": "{{styleNumber}}"
-								},
-								{
-									"key": "color",
-									"value": "{{color}}"
-								},
-								{
-									"key": "embellishmentType",
-									"value": "{{method}}"
-								},
-								{
-									"key": "sessionID",
-									"value": "{{sessionId}}"
-								}
-							]
-						},
-						"description": "Check if pricing exists for specific product/color/decoration combo."
-					},
-					"response": []
-				}
-			],
-			"description": "Save and retrieve custom pricing configurations"
-		},
-		{
-			"name": "📝 Quote System",
-			"item": [
-				{
-					"name": "Get Quote Sessions",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "{{baseUrl}}/api/quote_sessions",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"api",
-								"quote_sessions"
-							]
-						},
-						"description": "Get all quote sessions. Formal quotes with terms and expiration."
-					},
-					"response": []
-				},
-				{
-					"name": "Get Quote Items",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "{{baseUrl}}/api/quote_items",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"api",
-								"quote_items"
-							]
-						},
-						"description": "Get all quote line items with pricing details."
-					},
-					"response": []
-				},
-				{
-					"name": "Get Quote Analytics",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "{{baseUrl}}/api/quote_analytics",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"api",
-								"quote_analytics"
-							]
-						},
-						"description": "Track quote views, modifications, and conversion metrics."
-					},
-					"response": []
-				}
-			],
-			"description": "Formal quotes with expiration and tracking"
-		},
-		{
-			"name": "📦 Orders & Customers",
-			"item": [
-				{
-					"name": "Get Orders",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "{{baseUrl}}/api/orders",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"api",
-								"orders"
-							]
-						},
-						"description": "Get all orders. Shows production status and tracking info."
-					},
-					"response": []
-				},
-				{
-					"name": "Get Order ODBC Data",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "{{baseUrl}}/api/order-odbc?limit=100",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"api",
-								"order-odbc"
-							],
-							"query": [
-								{
-									"key": "limit",
-									"value": "100"
-								}
-							]
-						},
-						"description": "Get detailed order records from ODBC connection."
-					},
-					"response": []
-				},
-				{
-					"name": "Get Customers",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "{{baseUrl}}/api/customers",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"api",
-								"customers"
-							]
-						},
-						"description": "Get all customer records with contact info."
-					},
-					"response": []
-				}
-			],
-			"description": "Order management and customer records"
-		},
-		{
-			"name": "📈 Dashboard & Reports",
-			"item": [
-				{
-					"name": "Order Dashboard",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "{{baseUrl}}/api/order-dashboard?days=7",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"api",
-								"order-dashboard"
-							],
-							"query": [
-								{
-									"key": "days",
-									"value": "7",
-									"description": "Number of days to look back"
-								},
-								{
-									"key": "includeDetails",
-									"value": "false",
-									"description": "Include order list",
-									"disabled": true
-								}
-							]
-						},
-						"description": "Get order metrics, sales by rep, shipping status. Pre-calculated for performance."
-					},
-					"response": []
-				},
-				{
-					"name": "Staff Announcements",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "{{baseUrl}}/api/staff-announcements",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"api",
-								"staff-announcements"
-							]
-						},
-						"description": "Get current staff announcements and updates."
-					},
-					"response": []
-				},
-				{
-					"name": "Production Schedules",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "{{baseUrl}}/api/production-schedules?limit=10",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"api",
-								"production-schedules"
-							],
-							"query": [
-								{
-									"key": "limit",
-									"value": "10"
-								}
-							]
-						},
-						"description": "Get production availability dates for all decoration methods."
-					},
-					"response": []
-				}
-			],
-			"description": "Business metrics and operational data"
-		},
-		{
-			"name": "⚙️ Utilities",
-			"item": [
-				{
-					"name": "Health Check",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "{{baseUrl}}/api/health",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"api",
-								"health"
-							]
-						},
-						"description": "Check API health, Caspio connection, and system info."
-					},
-					"response": []
-				},
-				{
-					"name": "Get Locations",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "{{baseUrl}}/api/locations",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"api",
-								"locations"
-							]
-						},
-						"description": "Get list of print locations (Front, Back, Left Chest, etc)."
-					},
-					"response": []
-				},
-				{
-					"name": "Get Transfers",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "{{baseUrl}}/api/transfers",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"api",
-								"transfers"
-							]
-						},
-						"description": "Get transfer printing options and pricing."
-					},
-					"response": []
-				},
-				{
-					"name": "Test Sanmar Bulk",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "{{baseUrl}}/api/test-sanmar-bulk",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"api",
-								"test-sanmar-bulk"
-							]
-						},
-						"description": "Test bulk product import from Sanmar."
-					},
-					"response": []
-				}
-			],
-			"description": "System health and miscellaneous endpoints"
+			"description": ""
 		}
 	],
 	"variable": [
@@ -5148,26 +4314,6 @@
 			"value": "example-key",
 			"type": "string",
 			"description": "External file key"
-		},
-		{
-			"key": "styleNumber",
-			"value": "PC54",
-			"type": "string"
-		},
-		{
-			"key": "color",
-			"value": "Red",
-			"type": "string"
-		},
-		{
-			"key": "method",
-			"value": "DTG",
-			"type": "string"
-		},
-		{
-			"key": "sessionId",
-			"value": "test-session-123",
-			"type": "string"
 		}
 	]
 }
