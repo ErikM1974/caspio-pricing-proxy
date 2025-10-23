@@ -1,7 +1,7 @@
 {
 	"info": {
 		"name": "NWCA Production API - Complete",
-		"description": "Complete API collection for Northwest Custom Apparel. Auto-generated from Express routes.",
+		"description": "Complete API collection for Northwest Custom Apparel",
 		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
 		"_postman_id": "6ece08ff-b668-4081-a062-cb02a2931869"
 	},
@@ -586,7 +586,6 @@
 		},
 		{
 			"name": "💰 Pricing",
-			"description": "Pricing tiers, costs, and rules",
 			"item": [
 				{
 					"name": "Get Pricing Tiers",
@@ -849,11 +848,11 @@
 					},
 					"response": []
 				}
-			]
+			],
+			"description": "Pricing tiers, costs, and rules"
 		},
 		{
 			"name": "💰 Pricing Matrix",
-			"description": "Pricing matrix management",
 			"item": [
 				{
 					"name": "Get Pricing Matrix",
@@ -1040,7 +1039,8 @@
 					},
 					"response": []
 				}
-			]
+			],
+			"description": "Pricing matrix management"
 		},
 		{
 			"name": "🛒 Cart Management",
@@ -1505,7 +1505,6 @@
 		},
 		{
 			"name": "📦 Orders",
-			"description": "Order management and tracking",
 			"item": [
 				{
 					"name": "Get Orders",
@@ -1872,11 +1871,11 @@
 					},
 					"response": []
 				}
-			]
+			],
+			"description": "Order management and tracking"
 		},
 		{
 			"name": "💬 Quotes",
-			"description": "Quote analytics, items, and sessions",
 			"item": [
 				{
 					"name": "Get Quote_analytics",
@@ -2272,11 +2271,11 @@
 					},
 					"response": []
 				}
-			]
+			],
+			"description": "Quote analytics, items, and sessions"
 		},
 		{
 			"name": "📊 Inventory",
-			"description": "Inventory levels and availability",
 			"item": [
 				{
 					"name": "Get Inventory",
@@ -2344,7 +2343,8 @@
 					},
 					"response": []
 				}
-			]
+			],
+			"description": "Inventory levels and availability"
 		},
 		{
 			"name": "🎨 Art & Invoicing",
@@ -3358,7 +3358,6 @@
 		},
 		{
 			"name": "📅 Production",
-			"description": "Production schedules and tracking",
 			"item": [
 				{
 					"name": "Get Production Schedules",
@@ -3399,11 +3398,11 @@
 					},
 					"response": []
 				}
-			]
+			],
+			"description": "Production schedules and tracking"
 		},
 		{
 			"name": "📎 File Management",
-			"description": "File upload, download, and management",
 			"item": [
 				{
 					"name": "Create Files Upload",
@@ -3502,7 +3501,7 @@
 								"upload"
 							]
 						},
-						"description": "POST /api/files/upload Upload a file directly to Caspio Files API Expects multipart/form-data with a 'file' field"
+						"description": "POST /api/files/upload Upload a file from base64 data to Caspio Files API"
 					},
 					"response": []
 				},
@@ -3586,11 +3585,11 @@
 					},
 					"response": []
 				}
-			]
+			],
+			"description": "File upload, download, and management"
 		},
 		{
 			"name": "🖨️ DTG Printing",
-			"description": "Direct-to-garment printing services",
 			"item": [
 				{
 					"name": "Get Product Bundle",
@@ -3625,11 +3624,11 @@
 					},
 					"response": []
 				}
-			]
+			],
+			"description": "Direct-to-garment printing services"
 		},
 		{
 			"name": "🔧 Utilities",
-			"description": "Utility endpoints and helpers",
 			"item": [
 				{
 					"name": "Get Status",
@@ -4013,11 +4012,11 @@
 					},
 					"response": []
 				}
-			]
+			],
+			"description": "Utility endpoints and helpers"
 		},
 		{
 			"name": "📋 General",
-			"description": "",
 			"item": [
 				{
 					"name": "Get Quote_analytics",
@@ -4413,7 +4412,8 @@
 					},
 					"response": []
 				}
-			]
+			],
+			"description": ""
 		},
 		{
 			"name": "💰 Pricing & Costs",

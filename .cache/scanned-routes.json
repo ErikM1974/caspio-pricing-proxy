@@ -1,0 +1,2997 @@
+{
+  "scannedAt": "2025-10-23T18:07:05.927Z",
+  "totalEndpoints": 129,
+  "endpoints": [
+    {
+      "method": "GET",
+      "path": "/artrequests",
+      "fullPath": "/api/artrequests",
+      "category": "🎨 Art & Invoicing",
+      "description": "Get all art requests or filter by query parameters",
+      "queryParams": [
+        {
+          "key": "pk_id",
+          "value": "",
+          "description": "pk_id parameter",
+          "disabled": true
+        },
+        {
+          "key": "status",
+          "value": "",
+          "description": "Status filter",
+          "disabled": true
+        },
+        {
+          "key": "id_design",
+          "value": "",
+          "description": "id_design parameter",
+          "disabled": true
+        },
+        {
+          "key": "companyName",
+          "value": "",
+          "description": "companyName parameter",
+          "disabled": true
+        },
+        {
+          "key": "customerServiceRep",
+          "value": "",
+          "description": "customerServiceRep parameter",
+          "disabled": true
+        },
+        {
+          "key": "priority",
+          "value": "",
+          "description": "priority parameter",
+          "disabled": true
+        },
+        {
+          "key": "mockup",
+          "value": "",
+          "description": "mockup parameter",
+          "disabled": true
+        },
+        {
+          "key": "orderType",
+          "value": "",
+          "description": "orderType parameter",
+          "disabled": true
+        },
+        {
+          "key": "customerType",
+          "value": "",
+          "description": "customerType parameter",
+          "disabled": true
+        },
+        {
+          "key": "happyStatus",
+          "value": "",
+          "description": "happyStatus parameter",
+          "disabled": true
+        },
+        {
+          "key": "salesRep",
+          "value": "",
+          "description": "salesRep parameter",
+          "disabled": true
+        },
+        {
+          "key": "id_customer",
+          "value": "",
+          "description": "id_customer parameter",
+          "disabled": true
+        },
+        {
+          "key": "id_contact",
+          "value": "",
+          "description": "id_contact parameter",
+          "disabled": true
+        },
+        {
+          "key": "dateCreatedFrom",
+          "value": "",
+          "description": "dateCreatedFrom parameter",
+          "disabled": true
+        },
+        {
+          "key": "dateCreatedTo",
+          "value": "",
+          "description": "dateCreatedTo parameter",
+          "disabled": true
+        },
+        {
+          "key": "dueDateFrom",
+          "value": "",
+          "description": "dueDateFrom parameter",
+          "disabled": true
+        },
+        {
+          "key": "dueDateTo",
+          "value": "",
+          "description": "dueDateTo parameter",
+          "disabled": true
+        },
+        {
+          "key": "select",
+          "value": "",
+          "description": "select parameter",
+          "disabled": true
+        },
+        {
+          "key": "orderBy",
+          "value": "",
+          "description": "orderBy parameter",
+          "disabled": true
+        },
+        {
+          "key": "groupBy",
+          "value": "",
+          "description": "groupBy parameter",
+          "disabled": true
+        },
+        {
+          "key": "pageNumber",
+          "value": "",
+          "description": "pageNumber parameter",
+          "disabled": true
+        },
+        {
+          "key": "pageSize",
+          "value": "",
+          "description": "pageSize parameter",
+          "disabled": true
+        },
+        {
+          "key": "limit",
+          "value": "",
+          "description": "Maximum results",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "art.js",
+      "lineNumber": 13
+    },
+    {
+      "method": "GET",
+      "path": "/artrequests/:id",
+      "fullPath": "/api/artrequests/:id",
+      "category": "🎨 Art & Invoicing",
+      "description": "Get a specific art request by ID",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "art.js",
+      "lineNumber": 126
+    },
+    {
+      "method": "POST",
+      "path": "/artrequests",
+      "fullPath": "/api/artrequests",
+      "category": "🎨 Art & Invoicing",
+      "description": "Create a new art request",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "art.js",
+      "lineNumber": 150
+    },
+    {
+      "method": "PUT",
+      "path": "/artrequests/:id",
+      "fullPath": "/api/artrequests/:id",
+      "category": "🎨 Art & Invoicing",
+      "description": "Update an art request by ID",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "art.js",
+      "lineNumber": 188
+    },
+    {
+      "method": "DELETE",
+      "path": "/artrequests/:id",
+      "fullPath": "/api/artrequests/:id",
+      "category": "🎨 Art & Invoicing",
+      "description": "Delete an art request by ID",
+      "queryParams": [
+        {
+          "key": "invoiceID",
+          "value": "",
+          "description": "invoiceID parameter",
+          "disabled": true
+        },
+        {
+          "key": "artRequestID",
+          "value": "",
+          "description": "artRequestID parameter",
+          "disabled": true
+        },
+        {
+          "key": "sessionID",
+          "value": "",
+          "description": "sessionID parameter",
+          "disabled": true
+        },
+        {
+          "key": "status",
+          "value": "",
+          "description": "Status filter",
+          "disabled": true
+        },
+        {
+          "key": "artistName",
+          "value": "",
+          "description": "artistName parameter",
+          "disabled": true
+        },
+        {
+          "key": "customerName",
+          "value": "",
+          "description": "customerName parameter",
+          "disabled": true
+        },
+        {
+          "key": "customerCompany",
+          "value": "",
+          "description": "customerCompany parameter",
+          "disabled": true
+        },
+        {
+          "key": "projectName",
+          "value": "",
+          "description": "projectName parameter",
+          "disabled": true
+        },
+        {
+          "key": "isDeleted",
+          "value": "",
+          "description": "isDeleted parameter",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "art.js",
+      "lineNumber": 229
+    },
+    {
+      "method": "GET",
+      "path": "/art-invoices",
+      "fullPath": "/api/art-invoices",
+      "category": "🎨 Art & Invoicing",
+      "description": "Get all art invoices or filter by query parameters",
+      "queryParams": [
+        {
+          "key": "invoiceID",
+          "value": "",
+          "description": "invoiceID parameter",
+          "disabled": true
+        },
+        {
+          "key": "artRequestID",
+          "value": "",
+          "description": "artRequestID parameter",
+          "disabled": true
+        },
+        {
+          "key": "sessionID",
+          "value": "",
+          "description": "sessionID parameter",
+          "disabled": true
+        },
+        {
+          "key": "status",
+          "value": "",
+          "description": "Status filter",
+          "disabled": true
+        },
+        {
+          "key": "artistName",
+          "value": "",
+          "description": "artistName parameter",
+          "disabled": true
+        },
+        {
+          "key": "customerName",
+          "value": "",
+          "description": "customerName parameter",
+          "disabled": true
+        },
+        {
+          "key": "customerCompany",
+          "value": "",
+          "description": "customerCompany parameter",
+          "disabled": true
+        },
+        {
+          "key": "projectName",
+          "value": "",
+          "description": "projectName parameter",
+          "disabled": true
+        },
+        {
+          "key": "isDeleted",
+          "value": "",
+          "description": "isDeleted parameter",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "art.js",
+      "lineNumber": 269
+    },
+    {
+      "method": "GET",
+      "path": "/art-invoices/:id",
+      "fullPath": "/api/art-invoices/:id",
+      "category": "🎨 Art & Invoicing",
+      "description": "Get a specific art invoice by ID",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "art.js",
+      "lineNumber": 332
+    },
+    {
+      "method": "POST",
+      "path": "/art-invoices",
+      "fullPath": "/api/art-invoices",
+      "category": "🎨 Art & Invoicing",
+      "description": "Create a new art invoice",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "art.js",
+      "lineNumber": 356
+    },
+    {
+      "method": "PUT",
+      "path": "/art-invoices/:id",
+      "fullPath": "/api/art-invoices/:id",
+      "category": "🎨 Art & Invoicing",
+      "description": "Update an art invoice by ID",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "art.js",
+      "lineNumber": 402
+    },
+    {
+      "method": "DELETE",
+      "path": "/art-invoices/:id",
+      "fullPath": "/api/art-invoices/:id",
+      "category": "🎨 Art & Invoicing",
+      "description": "Delete an art invoice by ID",
+      "queryParams": [
+        {
+          "key": "id_design",
+          "value": "",
+          "description": "id_design parameter",
+          "disabled": true
+        },
+        {
+          "key": "note_type",
+          "value": "",
+          "description": "note_type parameter",
+          "disabled": true
+        },
+        {
+          "key": "note_by",
+          "value": "",
+          "description": "note_by parameter",
+          "disabled": true
+        },
+        {
+          "key": "parent_note_id",
+          "value": "",
+          "description": "parent_note_id parameter",
+          "disabled": true
+        },
+        {
+          "key": "date_from",
+          "value": "",
+          "description": "date_from parameter",
+          "disabled": true
+        },
+        {
+          "key": "date_to",
+          "value": "",
+          "description": "date_to parameter",
+          "disabled": true
+        },
+        {
+          "key": "orderBy",
+          "value": "",
+          "description": "orderBy parameter",
+          "disabled": true
+        },
+        {
+          "key": "limit",
+          "value": "",
+          "description": "Maximum results",
+          "disabled": false
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "art.js",
+      "lineNumber": 443
+    },
+    {
+      "method": "GET",
+      "path": "/design-notes",
+      "fullPath": "/api/design-notes",
+      "category": "🎨 Art & Invoicing",
+      "description": "GET /api/design-notes - List all design notes with filtering",
+      "queryParams": [
+        {
+          "key": "id_design",
+          "value": "",
+          "description": "id_design parameter",
+          "disabled": true
+        },
+        {
+          "key": "note_type",
+          "value": "",
+          "description": "note_type parameter",
+          "disabled": true
+        },
+        {
+          "key": "note_by",
+          "value": "",
+          "description": "note_by parameter",
+          "disabled": true
+        },
+        {
+          "key": "parent_note_id",
+          "value": "",
+          "description": "parent_note_id parameter",
+          "disabled": true
+        },
+        {
+          "key": "date_from",
+          "value": "",
+          "description": "date_from parameter",
+          "disabled": true
+        },
+        {
+          "key": "date_to",
+          "value": "",
+          "description": "date_to parameter",
+          "disabled": true
+        },
+        {
+          "key": "orderBy",
+          "value": "",
+          "description": "orderBy parameter",
+          "disabled": true
+        },
+        {
+          "key": "limit",
+          "value": "",
+          "description": "Maximum results",
+          "disabled": false
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "art.js",
+      "lineNumber": 483
+    },
+    {
+      "method": "GET",
+      "path": "/design-notes/:id",
+      "fullPath": "/api/design-notes/:id",
+      "category": "🎨 Art & Invoicing",
+      "description": "GET /api/design-notes/:id - Get single design note by Note_ID",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "art.js",
+      "lineNumber": 537
+    },
+    {
+      "method": "POST",
+      "path": "/design-notes",
+      "fullPath": "/api/design-notes",
+      "category": "🎨 Art & Invoicing",
+      "description": "POST /api/design-notes - Create new design note",
+      "queryParams": [],
+      "requestBody": {
+        "mode": "raw",
+        "raw": "{\n  \"Note_By\": \"value\",\n  \"Parent_Note_ID\": 1,\n  \"Note_Type\": \"value\",\n  \"Note_Text\": \"value\"\n}"
+      },
+      "sourceFile": "art.js",
+      "lineNumber": 567
+    },
+    {
+      "method": "PUT",
+      "path": "/design-notes/:id",
+      "fullPath": "/api/design-notes/:id",
+      "category": "🎨 Art & Invoicing",
+      "description": "PUT /api/design-notes/:id - Update existing design note",
+      "queryParams": [],
+      "requestBody": {
+        "mode": "raw",
+        "raw": "{\n  \"Note_Type\": \"value\",\n  \"Note_Text\": \"value\"\n}"
+      },
+      "sourceFile": "art.js",
+      "lineNumber": 635
+    },
+    {
+      "method": "DELETE",
+      "path": "/design-notes/:id",
+      "fullPath": "/api/design-notes/:id",
+      "category": "🎨 Art & Invoicing",
+      "description": "DELETE /api/design-notes/:id - Delete design note",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "art.js",
+      "lineNumber": 696
+    },
+    {
+      "method": "GET",
+      "path": "/cart-sessions",
+      "fullPath": "/api/cart-sessions",
+      "category": "🛒 Cart Management",
+      "description": "GET /api/cart-sessions",
+      "queryParams": [
+        {
+          "key": "sessionID",
+          "value": "",
+          "description": "sessionID parameter",
+          "disabled": true
+        },
+        {
+          "key": "userID",
+          "value": "",
+          "description": "userID parameter",
+          "disabled": true
+        },
+        {
+          "key": "isActive",
+          "value": "",
+          "description": "isActive parameter",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "cart.js",
+      "lineNumber": 10
+    },
+    {
+      "method": "POST",
+      "path": "/cart-sessions",
+      "fullPath": "/api/cart-sessions",
+      "category": "🛒 Cart Management",
+      "description": "POST /api/cart-sessions",
+      "queryParams": [],
+      "requestBody": {
+        "mode": "raw",
+        "raw": "{\n  \"SessionID\": 1,\n  \"UserID\": 1,\n  \"IPAddress\": \"value\",\n  \"UserAgent\": \"value\",\n  \"IsActive\": true,\n  \"LastActivity\": \"value\"\n}"
+      },
+      "sourceFile": "cart.js",
+      "lineNumber": 55
+    },
+    {
+      "method": "PUT",
+      "path": "/cart-sessions/:id",
+      "fullPath": "/api/cart-sessions/:id",
+      "category": "🛒 Cart Management",
+      "description": "PUT /api/cart-sessions/:id",
+      "queryParams": [],
+      "requestBody": {
+        "mode": "raw",
+        "raw": "{\n  \"SessionID\": 1,\n  \"UserID\": 1,\n  \"LastActivity\": \"value\",\n  \"IPAddress\": \"value\",\n  \"UserAgent\": \"value\",\n  \"IsActive\": true\n}"
+      },
+      "sourceFile": "cart.js",
+      "lineNumber": 105
+    },
+    {
+      "method": "DELETE",
+      "path": "/cart-sessions/:id",
+      "fullPath": "/api/cart-sessions/:id",
+      "category": "🛒 Cart Management",
+      "description": "DELETE /api/cart-sessions/:id",
+      "queryParams": [
+        {
+          "key": "sessionID",
+          "value": "",
+          "description": "sessionID parameter",
+          "disabled": true
+        },
+        {
+          "key": "productID",
+          "value": "",
+          "description": "productID parameter",
+          "disabled": true
+        },
+        {
+          "key": "styleNumber",
+          "value": "",
+          "description": "Product style number",
+          "disabled": true
+        },
+        {
+          "key": "color",
+          "value": "",
+          "description": "Product color",
+          "disabled": true
+        },
+        {
+          "key": "cartStatus",
+          "value": "",
+          "description": "cartStatus parameter",
+          "disabled": true
+        },
+        {
+          "key": "orderID",
+          "value": "",
+          "description": "orderID parameter",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "cart.js",
+      "lineNumber": 152
+    },
+    {
+      "method": "GET",
+      "path": "/cart-items",
+      "fullPath": "/api/cart-items",
+      "category": "🛒 Cart Management",
+      "description": "GET /api/cart-items",
+      "queryParams": [
+        {
+          "key": "sessionID",
+          "value": "",
+          "description": "sessionID parameter",
+          "disabled": true
+        },
+        {
+          "key": "productID",
+          "value": "",
+          "description": "productID parameter",
+          "disabled": true
+        },
+        {
+          "key": "styleNumber",
+          "value": "",
+          "description": "Product style number",
+          "disabled": true
+        },
+        {
+          "key": "color",
+          "value": "",
+          "description": "Product color",
+          "disabled": true
+        },
+        {
+          "key": "cartStatus",
+          "value": "",
+          "description": "cartStatus parameter",
+          "disabled": true
+        },
+        {
+          "key": "orderID",
+          "value": "",
+          "description": "orderID parameter",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "cart.js",
+      "lineNumber": 188
+    },
+    {
+      "method": "POST",
+      "path": "/cart-items",
+      "fullPath": "/api/cart-items",
+      "category": "🛒 Cart Management",
+      "description": "POST /api/cart-items",
+      "queryParams": [],
+      "requestBody": {
+        "mode": "raw",
+        "raw": "{\n  \"SessionID\": 1,\n  \"ProductID\": 1,\n  \"StyleNumber\": \"value\",\n  \"Color\": \"value\",\n  \"PRODUCT_TITLE\": \"value\",\n  \"ImprintType\": \"value\",\n  \"CartStatus\": \"Active\",\n  \"OrderID\": 1,\n  \"imageUrl\": \"value\"\n}"
+      },
+      "sourceFile": "cart.js",
+      "lineNumber": 236
+    },
+    {
+      "method": "PUT",
+      "path": "/cart-items/:id",
+      "fullPath": "/api/cart-items/:id",
+      "category": "🛒 Cart Management",
+      "description": "PUT /api/cart-items/:id",
+      "queryParams": [],
+      "requestBody": {
+        "mode": "raw",
+        "raw": "{\n  \"SessionID\": 1,\n  \"ProductID\": 1,\n  \"StyleNumber\": \"value\",\n  \"Color\": \"value\",\n  \"PRODUCT_TITLE\": \"value\",\n  \"ImprintType\": \"value\",\n  \"CartStatus\": \"Active\",\n  \"OrderID\": 1,\n  \"imageUrl\": \"value\"\n}"
+      },
+      "sourceFile": "cart.js",
+      "lineNumber": 340
+    },
+    {
+      "method": "DELETE",
+      "path": "/cart-items/:id",
+      "fullPath": "/api/cart-items/:id",
+      "category": "🛒 Cart Management",
+      "description": "DELETE /api/cart-items/:id",
+      "queryParams": [
+        {
+          "key": "cartItemID",
+          "value": "",
+          "description": "cartItemID parameter",
+          "disabled": true
+        },
+        {
+          "key": "CartItemID",
+          "value": "",
+          "description": "CartItemID parameter",
+          "disabled": false
+        },
+        {
+          "key": "cartitemid",
+          "value": "",
+          "description": "cartitemid parameter",
+          "disabled": false
+        },
+        {
+          "key": "size",
+          "value": "",
+          "description": "size parameter",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "cart.js",
+      "lineNumber": 404
+    },
+    {
+      "method": "GET",
+      "path": "/cart-item-sizes",
+      "fullPath": "/api/cart-item-sizes",
+      "category": "🛒 Cart Management",
+      "description": "GET /api/cart-item-sizes",
+      "queryParams": [
+        {
+          "key": "cartItemID",
+          "value": "",
+          "description": "cartItemID parameter",
+          "disabled": true
+        },
+        {
+          "key": "CartItemID",
+          "value": "",
+          "description": "CartItemID parameter",
+          "disabled": false
+        },
+        {
+          "key": "cartitemid",
+          "value": "",
+          "description": "cartitemid parameter",
+          "disabled": false
+        },
+        {
+          "key": "size",
+          "value": "",
+          "description": "size parameter",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "cart.js",
+      "lineNumber": 439
+    },
+    {
+      "method": "POST",
+      "path": "/cart-item-sizes",
+      "fullPath": "/api/cart-item-sizes",
+      "category": "🛒 Cart Management",
+      "description": "POST /api/cart-item-sizes",
+      "queryParams": [],
+      "requestBody": {
+        "mode": "raw",
+        "raw": "{\n  \"CartItemID\": 1,\n  \"Size\": \"value\",\n  \"Quantity\": 1,\n  \"UnitPrice\": 10.99\n}"
+      },
+      "sourceFile": "cart.js",
+      "lineNumber": 477
+    },
+    {
+      "method": "PUT",
+      "path": "/cart-item-sizes/:id",
+      "fullPath": "/api/cart-item-sizes/:id",
+      "category": "🛒 Cart Management",
+      "description": "PUT /api/cart-item-sizes/:id",
+      "queryParams": [],
+      "requestBody": {
+        "mode": "raw",
+        "raw": "{\n  \"CartItemID\": 1,\n  \"Size\": \"value\",\n  \"Quantity\": 1,\n  \"UnitPrice\": 10.99\n}"
+      },
+      "sourceFile": "cart.js",
+      "lineNumber": 540
+    },
+    {
+      "method": "DELETE",
+      "path": "/cart-item-sizes/:id",
+      "fullPath": "/api/cart-item-sizes/:id",
+      "category": "🛒 Cart Management",
+      "description": "DELETE /api/cart-item-sizes/:id",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "cart.js",
+      "lineNumber": 582
+    },
+    {
+      "method": "GET",
+      "path": "/cart-integration.js",
+      "fullPath": "/api/cart-integration.js",
+      "category": "🛒 Cart Management",
+      "description": "GET /api/cart-integration.js - Serve cart integration JavaScript",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "cart.js",
+      "lineNumber": 616
+    },
+    {
+      "method": "GET",
+      "path": "/product-bundle",
+      "fullPath": "/api/product-bundle",
+      "category": "🖨️ DTG Printing",
+      "description": "Optimized endpoint that combines product, pricing, and DTG data in a single request",
+      "queryParams": [
+        {
+          "key": "styleNumber",
+          "value": "",
+          "description": "Product style number",
+          "disabled": true
+        },
+        {
+          "key": "color",
+          "value": "",
+          "description": "Product color",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "dtg.js",
+      "lineNumber": 9
+    },
+    {
+      "method": "POST",
+      "path": "/files/upload",
+      "fullPath": "/api/files/upload",
+      "category": "📎 File Management",
+      "description": "POST /api/files/upload Upload a file directly to Caspio Files API Expects multipart/form-data with a 'file' field",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "files-simple.js",
+      "lineNumber": 70
+    },
+    {
+      "method": "GET",
+      "path": "/files/:externalKey",
+      "fullPath": "/api/files/:externalKey",
+      "category": "📎 File Management",
+      "description": "GET /api/files/:externalKey Retrieve a file from Caspio by its ExternalKey",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "files-simple.js",
+      "lineNumber": 159
+    },
+    {
+      "method": "GET",
+      "path": "/files/:externalKey/info",
+      "fullPath": "/api/files/:externalKey/info",
+      "category": "📎 File Management",
+      "description": "GET /api/files/:externalKey/info Get file metadata without downloading the file",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "files-simple.js",
+      "lineNumber": 210
+    },
+    {
+      "method": "DELETE",
+      "path": "/files/:externalKey",
+      "fullPath": "/api/files/:externalKey",
+      "category": "📎 File Management",
+      "description": "DELETE /api/files/:externalKey Delete a file from Caspio",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "files-simple.js",
+      "lineNumber": 255
+    },
+    {
+      "method": "POST",
+      "path": "/files/upload",
+      "fullPath": "/api/files/upload",
+      "category": "📎 File Management",
+      "description": "POST /api/files/upload Upload a file from base64 data to Caspio Files API",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "files.js",
+      "lineNumber": 179
+    },
+    {
+      "method": "GET",
+      "path": "/files/:externalKey",
+      "fullPath": "/api/files/:externalKey",
+      "category": "📎 File Management",
+      "description": "GET /api/files/:externalKey Retrieve a file from Caspio by its ExternalKey",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "files.js",
+      "lineNumber": 278
+    },
+    {
+      "method": "GET",
+      "path": "/files/:externalKey/info",
+      "fullPath": "/api/files/:externalKey/info",
+      "category": "📎 File Management",
+      "description": "GET /api/files/:externalKey/info Get file metadata without downloading the file",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "files.js",
+      "lineNumber": 333
+    },
+    {
+      "method": "DELETE",
+      "path": "/files/:externalKey",
+      "fullPath": "/api/files/:externalKey",
+      "category": "📎 File Management",
+      "description": "DELETE /api/files/:externalKey Delete a file from Caspio",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "files.js",
+      "lineNumber": 372
+    },
+    {
+      "method": "POST",
+      "path": "/quote-items-with-file",
+      "fullPath": "/api/quote-items-with-file",
+      "category": "📎 File Management",
+      "description": "POST /api/quote-items-with-file Create a quote item with optional file upload If ImageUpload field contains base64 data, uploads file first",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "files.js",
+      "lineNumber": 409
+    },
+    {
+      "method": "GET",
+      "path": "/inventory",
+      "fullPath": "/api/inventory",
+      "category": "📊 Inventory",
+      "description": "GET /api/inventory",
+      "queryParams": [
+        {
+          "key": "styleNumber",
+          "value": "",
+          "description": "Product style number",
+          "disabled": true
+        },
+        {
+          "key": "color",
+          "value": "",
+          "description": "Product color",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "inventory.js",
+      "lineNumber": 8
+    },
+    {
+      "method": "GET",
+      "path": "/sizes-by-style-color",
+      "fullPath": "/api/sizes-by-style-color",
+      "category": "📊 Inventory",
+      "description": "GET /api/sizes-by-style-color",
+      "queryParams": [
+        {
+          "key": "styleNumber",
+          "value": "",
+          "description": "Product style number",
+          "disabled": true
+        },
+        {
+          "key": "color",
+          "value": "",
+          "description": "Product color",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "inventory.js",
+      "lineNumber": 35
+    },
+    {
+      "method": "GET",
+      "path": "/status",
+      "fullPath": "/api/status",
+      "category": "🔧 Utilities",
+      "description": "GET /status",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "misc.js",
+      "lineNumber": 10
+    },
+    {
+      "method": "GET",
+      "path": "/test",
+      "fullPath": "/api/test",
+      "category": "🔧 Utilities",
+      "description": "GET /test",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "misc.js",
+      "lineNumber": 16
+    },
+    {
+      "method": "GET",
+      "path": "/health",
+      "fullPath": "/api/health",
+      "category": "🔧 Utilities",
+      "description": "GET /api/health - Health check endpoint with comprehensive info",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "misc.js",
+      "lineNumber": 22
+    },
+    {
+      "method": "GET",
+      "path": "/cart-integration.js",
+      "fullPath": "/api/cart-integration.js",
+      "category": "🔧 Utilities",
+      "description": "GET /api/cart-integration.js",
+      "queryParams": [
+        {
+          "key": "category",
+          "value": "",
+          "description": "Category name",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "misc.js",
+      "lineNumber": 68
+    },
+    {
+      "method": "GET",
+      "path": "/subcategories-by-category",
+      "fullPath": "/api/subcategories-by-category",
+      "category": "🔧 Utilities",
+      "description": "GET /api/subcategories-by-category",
+      "queryParams": [
+        {
+          "key": "category",
+          "value": "",
+          "description": "Category name",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "misc.js",
+      "lineNumber": 84
+    },
+    {
+      "method": "GET",
+      "path": "/products-by-category-subcategory",
+      "fullPath": "/api/products-by-category-subcategory",
+      "category": "🔧 Utilities",
+      "description": "GET /api/products-by-category-subcategory",
+      "queryParams": [
+        {
+          "key": "category",
+          "value": "",
+          "description": "Category name",
+          "disabled": true
+        },
+        {
+          "key": "subcategory",
+          "value": "",
+          "description": "subcategory parameter",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "misc.js",
+      "lineNumber": 112
+    },
+    {
+      "method": "GET",
+      "path": "/related-products",
+      "fullPath": "/api/related-products",
+      "category": "🔧 Utilities",
+      "description": "GET /api/related-products",
+      "queryParams": [
+        {
+          "key": "styleNumber",
+          "value": "",
+          "description": "Product style number",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "misc.js",
+      "lineNumber": 141
+    },
+    {
+      "method": "GET",
+      "path": "/filter-products",
+      "fullPath": "/api/filter-products",
+      "category": "🔧 Utilities",
+      "description": "GET /api/filter-products",
+      "queryParams": [
+        {
+          "key": "category",
+          "value": "",
+          "description": "Category name",
+          "disabled": true
+        },
+        {
+          "key": "subcategory",
+          "value": "",
+          "description": "subcategory parameter",
+          "disabled": true
+        },
+        {
+          "key": "color",
+          "value": "",
+          "description": "Product color",
+          "disabled": true
+        },
+        {
+          "key": "brand",
+          "value": "",
+          "description": "Brand name",
+          "disabled": true
+        },
+        {
+          "key": "minPrice",
+          "value": "",
+          "description": "minPrice parameter",
+          "disabled": true
+        },
+        {
+          "key": "maxPrice",
+          "value": "",
+          "description": "maxPrice parameter",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "misc.js",
+      "lineNumber": 187
+    },
+    {
+      "method": "GET",
+      "path": "/quick-view",
+      "fullPath": "/api/quick-view",
+      "category": "🔧 Utilities",
+      "description": "GET /api/quick-view",
+      "queryParams": [
+        {
+          "key": "styleNumber",
+          "value": "",
+          "description": "Product style number",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "misc.js",
+      "lineNumber": 263
+    },
+    {
+      "method": "GET",
+      "path": "/compare-products",
+      "fullPath": "/api/compare-products",
+      "category": "🔧 Utilities",
+      "description": "GET /api/compare-products",
+      "queryParams": [
+        {
+          "key": "styles",
+          "value": "",
+          "description": "styles parameter",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "misc.js",
+      "lineNumber": 317
+    },
+    {
+      "method": "GET",
+      "path": "/recommendations",
+      "fullPath": "/api/recommendations",
+      "category": "🔧 Utilities",
+      "description": "GET /api/recommendations",
+      "queryParams": [
+        {
+          "key": "styleNumber",
+          "value": "",
+          "description": "Product style number",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "misc.js",
+      "lineNumber": 359
+    },
+    {
+      "method": "GET",
+      "path": "/test-sanmar-bulk",
+      "fullPath": "/api/test-sanmar-bulk",
+      "category": "🔧 Utilities",
+      "description": "GET /api/test-sanmar-bulk",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "misc.js",
+      "lineNumber": 443
+    },
+    {
+      "method": "GET",
+      "path": "/staff-announcements",
+      "fullPath": "/api/staff-announcements",
+      "category": "🔧 Utilities",
+      "description": "GET /api/staff-announcements",
+      "queryParams": [
+        {
+          "key": "type",
+          "value": "",
+          "description": "type parameter",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "misc.js",
+      "lineNumber": 464
+    },
+    {
+      "method": "GET",
+      "path": "/locations",
+      "fullPath": "/api/locations",
+      "category": "🔧 Utilities",
+      "description": "GET /api/locations",
+      "queryParams": [
+        {
+          "key": "type",
+          "value": "",
+          "description": "type parameter",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "misc.js",
+      "lineNumber": 484
+    },
+    {
+      "method": "GET",
+      "path": "/orders",
+      "fullPath": "/api/orders",
+      "category": "📦 Orders",
+      "description": "GET /api/orders",
+      "queryParams": [
+        {
+          "key": "orderID",
+          "value": "",
+          "description": "orderID parameter",
+          "disabled": true
+        },
+        {
+          "key": "customerID",
+          "value": "",
+          "description": "customerID parameter",
+          "disabled": true
+        },
+        {
+          "key": "orderStatus",
+          "value": "",
+          "description": "orderStatus parameter",
+          "disabled": true
+        },
+        {
+          "key": "paymentStatus",
+          "value": "",
+          "description": "paymentStatus parameter",
+          "disabled": true
+        },
+        {
+          "key": "imprintType",
+          "value": "",
+          "description": "imprintType parameter",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "orders.js",
+      "lineNumber": 11
+    },
+    {
+      "method": "POST",
+      "path": "/orders",
+      "fullPath": "/api/orders",
+      "category": "📦 Orders",
+      "description": "POST /api/orders",
+      "queryParams": [],
+      "requestBody": {
+        "mode": "raw",
+        "raw": "{\n  \"OrderNumber\": \"value\",\n  \"SessionID\": 1,\n  \"TotalAmount\": \"value\",\n  \"OrderStatus\": \"Active\",\n  \"ImprintType\": \"value\",\n  \"PaymentMethod\": \"value\",\n  \"PaymentStatus\": \"Active\",\n  \"ShippingMethod\": \"value\",\n  \"TrackingNumber\": \"value\",\n  \"EstimatedDelivery\": \"value\",\n  \"Notes\": \"Description here\",\n  \"InternalNotes\": \"Description here\"\n}"
+      },
+      "sourceFile": "orders.js",
+      "lineNumber": 48
+    },
+    {
+      "method": "PUT",
+      "path": "/orders/:id",
+      "fullPath": "/api/orders/:id",
+      "category": "📦 Orders",
+      "description": "PUT /api/orders/:id",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "orders.js",
+      "lineNumber": 84
+    },
+    {
+      "method": "DELETE",
+      "path": "/orders/:id",
+      "fullPath": "/api/orders/:id",
+      "category": "📦 Orders",
+      "description": "DELETE /api/orders/:id",
+      "queryParams": [
+        {
+          "key": "name",
+          "value": "",
+          "description": "name parameter",
+          "disabled": true
+        },
+        {
+          "key": "email",
+          "value": "",
+          "description": "email parameter",
+          "disabled": true
+        },
+        {
+          "key": "company",
+          "value": "",
+          "description": "company parameter",
+          "disabled": true
+        },
+        {
+          "key": "customerID",
+          "value": "",
+          "description": "customerID parameter",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "orders.js",
+      "lineNumber": 120
+    },
+    {
+      "method": "GET",
+      "path": "/customers",
+      "fullPath": "/api/customers",
+      "category": "📦 Orders",
+      "description": "GET /api/customers",
+      "queryParams": [
+        {
+          "key": "name",
+          "value": "",
+          "description": "name parameter",
+          "disabled": true
+        },
+        {
+          "key": "email",
+          "value": "",
+          "description": "email parameter",
+          "disabled": true
+        },
+        {
+          "key": "company",
+          "value": "",
+          "description": "company parameter",
+          "disabled": true
+        },
+        {
+          "key": "customerID",
+          "value": "",
+          "description": "customerID parameter",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "orders.js",
+      "lineNumber": 138
+    },
+    {
+      "method": "POST",
+      "path": "/customers",
+      "fullPath": "/api/customers",
+      "category": "📦 Orders",
+      "description": "POST /api/customers",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "orders.js",
+      "lineNumber": 172
+    },
+    {
+      "method": "PUT",
+      "path": "/customers/:id",
+      "fullPath": "/api/customers/:id",
+      "category": "📦 Orders",
+      "description": "PUT /api/customers/:id",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "orders.js",
+      "lineNumber": 200
+    },
+    {
+      "method": "DELETE",
+      "path": "/customers/:id",
+      "fullPath": "/api/customers/:id",
+      "category": "📦 Orders",
+      "description": "DELETE /api/customers/:id",
+      "queryParams": [
+        {
+          "key": "q.where",
+          "value": "",
+          "description": "Filter records using SQL-like WHERE clause",
+          "disabled": true
+        },
+        {
+          "key": "q.orderBy",
+          "value": "",
+          "description": "Sort order (e.g., \"Field ASC\" or \"Field DESC\")",
+          "disabled": true
+        },
+        {
+          "key": "q.limit",
+          "value": "",
+          "description": "Maximum number of records to return (1-1000)",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "orders.js",
+      "lineNumber": 227
+    },
+    {
+      "method": "GET",
+      "path": "/order-odbc",
+      "fullPath": "/api/order-odbc",
+      "category": "📦 Orders",
+      "description": "GET /api/order-odbc",
+      "queryParams": [
+        {
+          "key": "q.where",
+          "value": "",
+          "description": "Filter records using SQL-like WHERE clause",
+          "disabled": true
+        },
+        {
+          "key": "q.orderBy",
+          "value": "",
+          "description": "Sort order (e.g., \"Field ASC\" or \"Field DESC\")",
+          "disabled": true
+        },
+        {
+          "key": "q.limit",
+          "value": "",
+          "description": "Maximum number of records to return (1-1000)",
+          "disabled": true
+        },
+        {
+          "key": "days",
+          "value": "",
+          "description": "Number of days",
+          "disabled": true
+        },
+        {
+          "key": "includeDetails",
+          "value": "",
+          "description": "Include detailed information",
+          "disabled": true
+        },
+        {
+          "key": "compareYoY",
+          "value": "",
+          "description": "Include year-over-year comparison",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "orders.js",
+      "lineNumber": 245
+    },
+    {
+      "method": "GET",
+      "path": "/order-dashboard",
+      "fullPath": "/api/order-dashboard",
+      "category": "📦 Orders",
+      "description": "GET /api/order-dashboard",
+      "queryParams": [
+        {
+          "key": "days",
+          "value": "",
+          "description": "Number of days",
+          "disabled": true
+        },
+        {
+          "key": "includeDetails",
+          "value": "",
+          "description": "Include detailed information",
+          "disabled": true
+        },
+        {
+          "key": "compareYoY",
+          "value": "",
+          "description": "Include year-over-year comparison",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "orders.js",
+      "lineNumber": 288
+    },
+    {
+      "method": "GET",
+      "path": "/pricing-matrix",
+      "fullPath": "/api/pricing-matrix",
+      "category": "💰 Pricing Matrix",
+      "description": "GET /api/pricing-matrix",
+      "queryParams": [
+        {
+          "key": "styleNumber",
+          "value": "",
+          "description": "Product style number",
+          "disabled": true
+        },
+        {
+          "key": "color",
+          "value": "",
+          "description": "Product color",
+          "disabled": true
+        },
+        {
+          "key": "embellishmentType",
+          "value": "",
+          "description": "embellishmentType parameter",
+          "disabled": true
+        },
+        {
+          "key": "sessionID",
+          "value": "",
+          "description": "sessionID parameter",
+          "disabled": true
+        },
+        {
+          "key": "pricingMatrixID",
+          "value": "",
+          "description": "pricingMatrixID parameter",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "pricing-matrix.js",
+      "lineNumber": 8
+    },
+    {
+      "method": "GET",
+      "path": "/pricing-matrix/lookup",
+      "fullPath": "/api/pricing-matrix/lookup",
+      "category": "💰 Pricing Matrix",
+      "description": "GET /api/pricing-matrix/lookup",
+      "queryParams": [
+        {
+          "key": "styleNumber",
+          "value": "",
+          "description": "Product style number",
+          "disabled": true
+        },
+        {
+          "key": "color",
+          "value": "",
+          "description": "Product color",
+          "disabled": true
+        },
+        {
+          "key": "embellishmentType",
+          "value": "",
+          "description": "embellishmentType parameter",
+          "disabled": true
+        },
+        {
+          "key": "sessionID",
+          "value": "",
+          "description": "sessionID parameter",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "pricing-matrix.js",
+      "lineNumber": 45
+    },
+    {
+      "method": "GET",
+      "path": "/pricing-matrix/:id",
+      "fullPath": "/api/pricing-matrix/:id",
+      "category": "💰 Pricing Matrix",
+      "description": "GET /api/pricing-matrix/:id",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "pricing-matrix.js",
+      "lineNumber": 82
+    },
+    {
+      "method": "POST",
+      "path": "/pricing-matrix",
+      "fullPath": "/api/pricing-matrix",
+      "category": "💰 Pricing Matrix",
+      "description": "POST /api/pricing-matrix",
+      "queryParams": [],
+      "requestBody": {
+        "mode": "raw",
+        "raw": "{\n  \"TierStructure\": \"value\",\n  \"SizeGroups\": \"value\",\n  \"PriceMatrix\": 10.99\n}"
+      },
+      "sourceFile": "pricing-matrix.js",
+      "lineNumber": 104
+    },
+    {
+      "method": "PUT",
+      "path": "/pricing-matrix/:id",
+      "fullPath": "/api/pricing-matrix/:id",
+      "category": "💰 Pricing Matrix",
+      "description": "PUT /api/pricing-matrix/:id",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "pricing-matrix.js",
+      "lineNumber": 136
+    },
+    {
+      "method": "DELETE",
+      "path": "/pricing-matrix/:id",
+      "fullPath": "/api/pricing-matrix/:id",
+      "category": "💰 Pricing Matrix",
+      "description": "DELETE /api/pricing-matrix/:id",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "pricing-matrix.js",
+      "lineNumber": 171
+    },
+    {
+      "method": "GET",
+      "path": "/pricing-tiers",
+      "fullPath": "/api/pricing-tiers",
+      "category": "💰 Pricing",
+      "description": "GET /api/pricing-tiers",
+      "queryParams": [
+        {
+          "key": "method",
+          "value": "",
+          "description": "method parameter",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "pricing.js",
+      "lineNumber": 8
+    },
+    {
+      "method": "GET",
+      "path": "/embroidery-costs",
+      "fullPath": "/api/embroidery-costs",
+      "category": "💰 Pricing",
+      "description": "GET /api/embroidery-costs",
+      "queryParams": [
+        {
+          "key": "itemType",
+          "value": "",
+          "description": "itemType parameter",
+          "disabled": true
+        },
+        {
+          "key": "stitchCount",
+          "value": "",
+          "description": "stitchCount parameter",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "pricing.js",
+      "lineNumber": 42
+    },
+    {
+      "method": "GET",
+      "path": "/dtg-costs",
+      "fullPath": "/api/dtg-costs",
+      "category": "💰 Pricing",
+      "description": "GET /api/dtg-costs",
+      "queryParams": [
+        {
+          "key": "costType",
+          "value": "",
+          "description": "costType parameter",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "pricing.js",
+      "lineNumber": 64
+    },
+    {
+      "method": "GET",
+      "path": "/screenprint-costs",
+      "fullPath": "/api/screenprint-costs",
+      "category": "💰 Pricing",
+      "description": "GET /api/screenprint-costs",
+      "queryParams": [
+        {
+          "key": "costType",
+          "value": "",
+          "description": "costType parameter",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "pricing.js",
+      "lineNumber": 78
+    },
+    {
+      "method": "GET",
+      "path": "/pricing-rules",
+      "fullPath": "/api/pricing-rules",
+      "category": "💰 Pricing",
+      "description": "GET /api/pricing-rules",
+      "queryParams": [
+        {
+          "key": "method",
+          "value": "",
+          "description": "method parameter",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "pricing.js",
+      "lineNumber": 99
+    },
+    {
+      "method": "GET",
+      "path": "/base-item-costs",
+      "fullPath": "/api/base-item-costs",
+      "category": "💰 Pricing",
+      "description": "GET /api/base-item-costs",
+      "queryParams": [
+        {
+          "key": "styleNumber",
+          "value": "",
+          "description": "Product style number",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "pricing.js",
+      "lineNumber": 121
+    },
+    {
+      "method": "GET",
+      "path": "/size-pricing",
+      "fullPath": "/api/size-pricing",
+      "category": "💰 Pricing",
+      "description": "GET /api/size-pricing",
+      "queryParams": [
+        {
+          "key": "styleNumber",
+          "value": "",
+          "description": "Product style number",
+          "disabled": true
+        },
+        {
+          "key": "color",
+          "value": "",
+          "description": "Product color",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "pricing.js",
+      "lineNumber": 160
+    },
+    {
+      "method": "GET",
+      "path": "/max-prices-by-style",
+      "fullPath": "/api/max-prices-by-style",
+      "category": "💰 Pricing",
+      "description": "GET /api/max-prices-by-style",
+      "queryParams": [
+        {
+          "key": "styleNumber",
+          "value": "",
+          "description": "Product style number",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "pricing.js",
+      "lineNumber": 232
+    },
+    {
+      "method": "GET",
+      "path": "/pricing-bundle",
+      "fullPath": "/api/pricing-bundle",
+      "category": "💰 Pricing",
+      "description": "GET /api/pricing-bundle",
+      "queryParams": [
+        {
+          "key": "method",
+          "value": "",
+          "description": "method parameter",
+          "disabled": true
+        },
+        {
+          "key": "styleNumber",
+          "value": "",
+          "description": "Product style number",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "pricing.js",
+      "lineNumber": 317
+    },
+    {
+      "method": "GET",
+      "path": "/production-schedules",
+      "fullPath": "/api/production-schedules",
+      "category": "📅 Production",
+      "description": "Example: /api/production-schedules?q.orderBy=Date DESC&q.limit=50",
+      "queryParams": [
+        {
+          "key": "q.where",
+          "value": "",
+          "description": "Filter records using SQL-like WHERE clause",
+          "disabled": true
+        },
+        {
+          "key": "q.orderBy",
+          "value": "",
+          "description": "Sort order (e.g., \"Field ASC\" or \"Field DESC\")",
+          "disabled": true
+        },
+        {
+          "key": "q.limit",
+          "value": "",
+          "description": "Maximum number of records to return (1-1000)",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "production-schedules.js",
+      "lineNumber": 10
+    },
+    {
+      "method": "GET",
+      "path": "/stylesearch",
+      "fullPath": "/api/stylesearch",
+      "category": "🛍️ Product Search",
+      "description": "GET /api/stylesearch",
+      "queryParams": [
+        {
+          "key": "term",
+          "value": "",
+          "description": "Search term",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "products.js",
+      "lineNumber": 9
+    },
+    {
+      "method": "GET",
+      "path": "/product-details",
+      "fullPath": "/api/product-details",
+      "category": "🛍️ Product Search",
+      "description": "GET /api/product-details",
+      "queryParams": [
+        {
+          "key": "styleNumber",
+          "value": "",
+          "description": "Product style number",
+          "disabled": true
+        },
+        {
+          "key": "color",
+          "value": "",
+          "description": "Product color",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "products.js",
+      "lineNumber": 39
+    },
+    {
+      "method": "GET",
+      "path": "/color-swatches",
+      "fullPath": "/api/color-swatches",
+      "category": "🛍️ Product Search",
+      "description": "GET /api/color-swatches",
+      "queryParams": [
+        {
+          "key": "styleNumber",
+          "value": "",
+          "description": "Product style number",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "products.js",
+      "lineNumber": 84
+    },
+    {
+      "method": "GET",
+      "path": "/products-by-brand",
+      "fullPath": "/api/products-by-brand",
+      "category": "🛍️ Product Search",
+      "description": "GET /api/products-by-brand",
+      "queryParams": [
+        {
+          "key": "brand",
+          "value": "",
+          "description": "Brand name",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "products.js",
+      "lineNumber": 114
+    },
+    {
+      "method": "GET",
+      "path": "/products-by-category",
+      "fullPath": "/api/products-by-category",
+      "category": "🛍️ Product Search",
+      "description": "GET /api/products-by-category",
+      "queryParams": [
+        {
+          "key": "category",
+          "value": "",
+          "description": "Category name",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "products.js",
+      "lineNumber": 144
+    },
+    {
+      "method": "GET",
+      "path": "/products-by-subcategory",
+      "fullPath": "/api/products-by-subcategory",
+      "category": "🛍️ Product Search",
+      "description": "GET /api/products-by-subcategory",
+      "queryParams": [
+        {
+          "key": "subcategory",
+          "value": "",
+          "description": "subcategory parameter",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "products.js",
+      "lineNumber": 173
+    },
+    {
+      "method": "GET",
+      "path": "/all-brands",
+      "fullPath": "/api/all-brands",
+      "category": "🛍️ Product Search",
+      "description": "GET /api/all-brands",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "products.js",
+      "lineNumber": 203
+    },
+    {
+      "method": "GET",
+      "path": "/all-categories",
+      "fullPath": "/api/all-categories",
+      "category": "🛍️ Product Search",
+      "description": "GET /api/all-categories",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "products.js",
+      "lineNumber": 240
+    },
+    {
+      "method": "GET",
+      "path": "/all-subcategories",
+      "fullPath": "/api/all-subcategories",
+      "category": "🛍️ Product Search",
+      "description": "GET /api/all-subcategories",
+      "queryParams": [
+        {
+          "key": "q",
+          "value": "",
+          "description": "q parameter",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "products.js",
+      "lineNumber": 262
+    },
+    {
+      "method": "GET",
+      "path": "/search",
+      "fullPath": "/api/search",
+      "category": "🛍️ Product Search",
+      "description": "GET /api/search",
+      "queryParams": [
+        {
+          "key": "q",
+          "value": "",
+          "description": "q parameter",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "products.js",
+      "lineNumber": 284
+    },
+    {
+      "method": "GET",
+      "path": "/featured-products",
+      "fullPath": "/api/featured-products",
+      "category": "🛍️ Product Search",
+      "description": "GET /api/featured-products",
+      "queryParams": [
+        {
+          "key": "q",
+          "value": "",
+          "description": "q parameter",
+          "disabled": true
+        },
+        {
+          "key": "// Search query\r\n      category",
+          "value": "",
+          "description": "// Search query\r\n      category parameter",
+          "disabled": false
+        },
+        {
+          "key": "// Filter by category (can be array)\r\n      subcategory",
+          "value": "",
+          "description": "// Filter by category (can be array)\r\n      subcategory parameter",
+          "disabled": false
+        },
+        {
+          "key": "// Filter by subcategory (can be array)\r\n      brand",
+          "value": "",
+          "description": "// Filter by subcategory (can be array)\r\n      brand parameter",
+          "disabled": false
+        },
+        {
+          "key": "// Filter by brand (can be array)\r\n      color",
+          "value": "",
+          "description": "// Filter by brand (can be array)\r\n      color parameter",
+          "disabled": false
+        },
+        {
+          "key": "// Filter by color (can be array)\r\n      size",
+          "value": "",
+          "description": "// Filter by color (can be array)\r\n      size parameter",
+          "disabled": false
+        },
+        {
+          "key": "// Filter by size (can be array)\r\n      minPrice",
+          "value": "",
+          "description": "// Filter by size (can be array)\r\n      minPrice parameter",
+          "disabled": false
+        },
+        {
+          "key": "// Minimum price filter\r\n      maxPrice",
+          "value": "",
+          "description": "// Minimum price filter\r\n      maxPrice parameter",
+          "disabled": false
+        },
+        {
+          "key": "// Maximum price filter\r\n      status = 'Active'",
+          "value": "",
+          "description": "// Maximum price filter\r\n      status = 'Active' parameter",
+          "disabled": false
+        },
+        {
+          "key": "// Product status filter (default to Active)\r\n      isTopSeller",
+          "value": "",
+          "description": "// Product status filter (default to Active)\r\n      isTopSeller parameter",
+          "disabled": false
+        },
+        {
+          "key": "// Filter for top sellers only\r\n      sort = 'name_asc'",
+          "value": "",
+          "description": "// Filter for top sellers only\r\n      sort = 'name_asc' parameter",
+          "disabled": false
+        },
+        {
+          "key": "// Sort order (default to name ascending)\r\n      page = 1",
+          "value": "",
+          "description": "// Sort order (default to name ascending)\r\n      page = 1 parameter",
+          "disabled": false
+        },
+        {
+          "key": "// Page number (default: 1)\r\n      limit = 24",
+          "value": "",
+          "description": "// Page number (default: 1)\r\n      limit = 24 parameter",
+          "disabled": false
+        },
+        {
+          "key": "// Results per page (default: 24",
+          "value": "",
+          "description": "// Results per page (default: 24 parameter",
+          "disabled": false
+        },
+        {
+          "key": "max: 100)\r\n      includeFacets = false // Include aggregation counts",
+          "value": "",
+          "description": "max: 100)\r\n      includeFacets = false // Include aggregation counts parameter",
+          "disabled": false
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "products.js",
+      "lineNumber": 316
+    },
+    {
+      "method": "GET",
+      "path": "/products/search",
+      "fullPath": "/api/products/search",
+      "category": "🛍️ Product Search",
+      "description": "GET /api/products/search - Enhanced catalog search endpoint",
+      "queryParams": [
+        {
+          "key": "q",
+          "value": "",
+          "description": "q parameter",
+          "disabled": true
+        },
+        {
+          "key": "// Search query\r\n      category",
+          "value": "",
+          "description": "// Search query\r\n      category parameter",
+          "disabled": false
+        },
+        {
+          "key": "// Filter by category (can be array)\r\n      subcategory",
+          "value": "",
+          "description": "// Filter by category (can be array)\r\n      subcategory parameter",
+          "disabled": false
+        },
+        {
+          "key": "// Filter by subcategory (can be array)\r\n      brand",
+          "value": "",
+          "description": "// Filter by subcategory (can be array)\r\n      brand parameter",
+          "disabled": false
+        },
+        {
+          "key": "// Filter by brand (can be array)\r\n      color",
+          "value": "",
+          "description": "// Filter by brand (can be array)\r\n      color parameter",
+          "disabled": false
+        },
+        {
+          "key": "// Filter by color (can be array)\r\n      size",
+          "value": "",
+          "description": "// Filter by color (can be array)\r\n      size parameter",
+          "disabled": false
+        },
+        {
+          "key": "// Filter by size (can be array)\r\n      minPrice",
+          "value": "",
+          "description": "// Filter by size (can be array)\r\n      minPrice parameter",
+          "disabled": false
+        },
+        {
+          "key": "// Minimum price filter\r\n      maxPrice",
+          "value": "",
+          "description": "// Minimum price filter\r\n      maxPrice parameter",
+          "disabled": false
+        },
+        {
+          "key": "// Maximum price filter\r\n      status = 'Active'",
+          "value": "",
+          "description": "// Maximum price filter\r\n      status = 'Active' parameter",
+          "disabled": false
+        },
+        {
+          "key": "// Product status filter (default to Active)\r\n      isTopSeller",
+          "value": "",
+          "description": "// Product status filter (default to Active)\r\n      isTopSeller parameter",
+          "disabled": false
+        },
+        {
+          "key": "// Filter for top sellers only\r\n      sort = 'name_asc'",
+          "value": "",
+          "description": "// Filter for top sellers only\r\n      sort = 'name_asc' parameter",
+          "disabled": false
+        },
+        {
+          "key": "// Sort order (default to name ascending)\r\n      page = 1",
+          "value": "",
+          "description": "// Sort order (default to name ascending)\r\n      page = 1 parameter",
+          "disabled": false
+        },
+        {
+          "key": "// Page number (default: 1)\r\n      limit = 24",
+          "value": "",
+          "description": "// Page number (default: 1)\r\n      limit = 24 parameter",
+          "disabled": false
+        },
+        {
+          "key": "// Results per page (default: 24",
+          "value": "",
+          "description": "// Results per page (default: 24 parameter",
+          "disabled": false
+        },
+        {
+          "key": "max: 100)\r\n      includeFacets = false // Include aggregation counts",
+          "value": "",
+          "description": "max: 100)\r\n      includeFacets = false // Include aggregation counts parameter",
+          "disabled": false
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "products.js",
+      "lineNumber": 341
+    },
+    {
+      "method": "GET",
+      "path": "/product-colors",
+      "fullPath": "/api/product-colors",
+      "category": "🛍️ Product Search",
+      "description": "GET /api/product-colors",
+      "queryParams": [
+        {
+          "key": "styleNumber",
+          "value": "",
+          "description": "Product style number",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "products.js",
+      "lineNumber": 768
+    },
+    {
+      "method": "GET",
+      "path": "/quote_analytics",
+      "fullPath": "/api/quote_analytics",
+      "category": "📋 General",
+      "description": "GET /api/quote_analytics",
+      "queryParams": [
+        {
+          "key": "sessionID",
+          "value": "",
+          "description": "sessionID parameter",
+          "disabled": true
+        },
+        {
+          "key": "quoteID",
+          "value": "",
+          "description": "quoteID parameter",
+          "disabled": true
+        },
+        {
+          "key": "eventType",
+          "value": "",
+          "description": "eventType parameter",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "quotes-debug.js",
+      "lineNumber": 9
+    },
+    {
+      "method": "GET",
+      "path": "/quote_analytics/:id",
+      "fullPath": "/api/quote_analytics/:id",
+      "category": "📋 General",
+      "description": "GET /api/quote_analytics/:id",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "quotes-debug.js",
+      "lineNumber": 40
+    },
+    {
+      "method": "POST",
+      "path": "/quote_analytics",
+      "fullPath": "/api/quote_analytics",
+      "category": "📋 General",
+      "description": "POST /api/quote_analytics",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "quotes-debug.js",
+      "lineNumber": 62
+    },
+    {
+      "method": "PUT",
+      "path": "/quote_analytics/:id",
+      "fullPath": "/api/quote_analytics/:id",
+      "category": "📋 General",
+      "description": "PUT /api/quote_analytics/:id",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "quotes-debug.js",
+      "lineNumber": 87
+    },
+    {
+      "method": "DELETE",
+      "path": "/quote_analytics/:id",
+      "fullPath": "/api/quote_analytics/:id",
+      "category": "📋 General",
+      "description": "DELETE /api/quote_analytics/:id",
+      "queryParams": [
+        {
+          "key": "quoteID",
+          "value": "",
+          "description": "quoteID parameter",
+          "disabled": true
+        },
+        {
+          "key": "styleNumber",
+          "value": "",
+          "description": "Product style number",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "quotes-debug.js",
+      "lineNumber": 114
+    },
+    {
+      "method": "GET",
+      "path": "/quote_items",
+      "fullPath": "/api/quote_items",
+      "category": "📋 General",
+      "description": "GET /api/quote_items",
+      "queryParams": [
+        {
+          "key": "quoteID",
+          "value": "",
+          "description": "quoteID parameter",
+          "disabled": true
+        },
+        {
+          "key": "styleNumber",
+          "value": "",
+          "description": "Product style number",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "quotes-debug.js",
+      "lineNumber": 133
+    },
+    {
+      "method": "GET",
+      "path": "/quote_items/:id",
+      "fullPath": "/api/quote_items/:id",
+      "category": "📋 General",
+      "description": "GET /api/quote_items/:id",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "quotes-debug.js",
+      "lineNumber": 161
+    },
+    {
+      "method": "POST",
+      "path": "/quote_items",
+      "fullPath": "/api/quote_items",
+      "category": "📋 General",
+      "description": "POST /api/quote_items - ENHANCED WITH DEBUGGING",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "quotes-debug.js",
+      "lineNumber": 183
+    },
+    {
+      "method": "PUT",
+      "path": "/quote_items/:id",
+      "fullPath": "/api/quote_items/:id",
+      "category": "📋 General",
+      "description": "PUT /api/quote_items/:id",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "quotes-debug.js",
+      "lineNumber": 229
+    },
+    {
+      "method": "DELETE",
+      "path": "/quote_items/:id",
+      "fullPath": "/api/quote_items/:id",
+      "category": "📋 General",
+      "description": "DELETE /api/quote_items/:id",
+      "queryParams": [
+        {
+          "key": "quoteID",
+          "value": "",
+          "description": "quoteID parameter",
+          "disabled": true
+        },
+        {
+          "key": "sessionID",
+          "value": "",
+          "description": "sessionID parameter",
+          "disabled": true
+        },
+        {
+          "key": "customerEmail",
+          "value": "",
+          "description": "customerEmail parameter",
+          "disabled": true
+        },
+        {
+          "key": "status",
+          "value": "",
+          "description": "Status filter",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "quotes-debug.js",
+      "lineNumber": 256
+    },
+    {
+      "method": "GET",
+      "path": "/quote_sessions",
+      "fullPath": "/api/quote_sessions",
+      "category": "📋 General",
+      "description": "GET /api/quote_sessions",
+      "queryParams": [
+        {
+          "key": "quoteID",
+          "value": "",
+          "description": "quoteID parameter",
+          "disabled": true
+        },
+        {
+          "key": "sessionID",
+          "value": "",
+          "description": "sessionID parameter",
+          "disabled": true
+        },
+        {
+          "key": "customerEmail",
+          "value": "",
+          "description": "customerEmail parameter",
+          "disabled": true
+        },
+        {
+          "key": "status",
+          "value": "",
+          "description": "Status filter",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "quotes-debug.js",
+      "lineNumber": 275
+    },
+    {
+      "method": "GET",
+      "path": "/quote_sessions/:id",
+      "fullPath": "/api/quote_sessions/:id",
+      "category": "📋 General",
+      "description": "GET /api/quote_sessions/:id",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "quotes-debug.js",
+      "lineNumber": 309
+    },
+    {
+      "method": "POST",
+      "path": "/quote_sessions",
+      "fullPath": "/api/quote_sessions",
+      "category": "📋 General",
+      "description": "POST /api/quote_sessions",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "quotes-debug.js",
+      "lineNumber": 331
+    },
+    {
+      "method": "PUT",
+      "path": "/quote_sessions/:id",
+      "fullPath": "/api/quote_sessions/:id",
+      "category": "📋 General",
+      "description": "PUT /api/quote_sessions/:id",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "quotes-debug.js",
+      "lineNumber": 356
+    },
+    {
+      "method": "DELETE",
+      "path": "/quote_sessions/:id",
+      "fullPath": "/api/quote_sessions/:id",
+      "category": "📋 General",
+      "description": "DELETE /api/quote_sessions/:id",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "quotes-debug.js",
+      "lineNumber": 383
+    },
+    {
+      "method": "GET",
+      "path": "/quote_analytics",
+      "fullPath": "/api/quote_analytics",
+      "category": "💬 Quotes",
+      "description": "GET /api/quote_analytics",
+      "queryParams": [
+        {
+          "key": "sessionID",
+          "value": "",
+          "description": "sessionID parameter",
+          "disabled": true
+        },
+        {
+          "key": "quoteID",
+          "value": "",
+          "description": "quoteID parameter",
+          "disabled": true
+        },
+        {
+          "key": "eventType",
+          "value": "",
+          "description": "eventType parameter",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "quotes.js",
+      "lineNumber": 9
+    },
+    {
+      "method": "GET",
+      "path": "/quote_analytics/:id",
+      "fullPath": "/api/quote_analytics/:id",
+      "category": "💬 Quotes",
+      "description": "GET /api/quote_analytics/:id",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "quotes.js",
+      "lineNumber": 40
+    },
+    {
+      "method": "POST",
+      "path": "/quote_analytics",
+      "fullPath": "/api/quote_analytics",
+      "category": "💬 Quotes",
+      "description": "POST /api/quote_analytics",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "quotes.js",
+      "lineNumber": 62
+    },
+    {
+      "method": "PUT",
+      "path": "/quote_analytics/:id",
+      "fullPath": "/api/quote_analytics/:id",
+      "category": "💬 Quotes",
+      "description": "PUT /api/quote_analytics/:id",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "quotes.js",
+      "lineNumber": 87
+    },
+    {
+      "method": "DELETE",
+      "path": "/quote_analytics/:id",
+      "fullPath": "/api/quote_analytics/:id",
+      "category": "💬 Quotes",
+      "description": "DELETE /api/quote_analytics/:id",
+      "queryParams": [
+        {
+          "key": "quoteID",
+          "value": "",
+          "description": "quoteID parameter",
+          "disabled": true
+        },
+        {
+          "key": "styleNumber",
+          "value": "",
+          "description": "Product style number",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "quotes.js",
+      "lineNumber": 114
+    },
+    {
+      "method": "GET",
+      "path": "/quote_items",
+      "fullPath": "/api/quote_items",
+      "category": "💬 Quotes",
+      "description": "GET /api/quote_items",
+      "queryParams": [
+        {
+          "key": "quoteID",
+          "value": "",
+          "description": "quoteID parameter",
+          "disabled": true
+        },
+        {
+          "key": "styleNumber",
+          "value": "",
+          "description": "Product style number",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "quotes.js",
+      "lineNumber": 133
+    },
+    {
+      "method": "GET",
+      "path": "/quote_items/:id",
+      "fullPath": "/api/quote_items/:id",
+      "category": "💬 Quotes",
+      "description": "GET /api/quote_items/:id",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "quotes.js",
+      "lineNumber": 161
+    },
+    {
+      "method": "POST",
+      "path": "/quote_items",
+      "fullPath": "/api/quote_items",
+      "category": "💬 Quotes",
+      "description": "POST /api/quote_items - ENHANCED WITH DEBUGGING",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "quotes.js",
+      "lineNumber": 183
+    },
+    {
+      "method": "PUT",
+      "path": "/quote_items/:id",
+      "fullPath": "/api/quote_items/:id",
+      "category": "💬 Quotes",
+      "description": "PUT /api/quote_items/:id",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "quotes.js",
+      "lineNumber": 229
+    },
+    {
+      "method": "DELETE",
+      "path": "/quote_items/:id",
+      "fullPath": "/api/quote_items/:id",
+      "category": "💬 Quotes",
+      "description": "DELETE /api/quote_items/:id",
+      "queryParams": [
+        {
+          "key": "quoteID",
+          "value": "",
+          "description": "quoteID parameter",
+          "disabled": true
+        },
+        {
+          "key": "sessionID",
+          "value": "",
+          "description": "sessionID parameter",
+          "disabled": true
+        },
+        {
+          "key": "customerEmail",
+          "value": "",
+          "description": "customerEmail parameter",
+          "disabled": true
+        },
+        {
+          "key": "status",
+          "value": "",
+          "description": "Status filter",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "quotes.js",
+      "lineNumber": 256
+    },
+    {
+      "method": "GET",
+      "path": "/quote_sessions",
+      "fullPath": "/api/quote_sessions",
+      "category": "💬 Quotes",
+      "description": "GET /api/quote_sessions",
+      "queryParams": [
+        {
+          "key": "quoteID",
+          "value": "",
+          "description": "quoteID parameter",
+          "disabled": true
+        },
+        {
+          "key": "sessionID",
+          "value": "",
+          "description": "sessionID parameter",
+          "disabled": true
+        },
+        {
+          "key": "customerEmail",
+          "value": "",
+          "description": "customerEmail parameter",
+          "disabled": true
+        },
+        {
+          "key": "status",
+          "value": "",
+          "description": "Status filter",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "quotes.js",
+      "lineNumber": 275
+    },
+    {
+      "method": "GET",
+      "path": "/quote_sessions/:id",
+      "fullPath": "/api/quote_sessions/:id",
+      "category": "💬 Quotes",
+      "description": "GET /api/quote_sessions/:id",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "quotes.js",
+      "lineNumber": 309
+    },
+    {
+      "method": "POST",
+      "path": "/quote_sessions",
+      "fullPath": "/api/quote_sessions",
+      "category": "💬 Quotes",
+      "description": "POST /api/quote_sessions",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "quotes.js",
+      "lineNumber": 331
+    },
+    {
+      "method": "PUT",
+      "path": "/quote_sessions/:id",
+      "fullPath": "/api/quote_sessions/:id",
+      "category": "💬 Quotes",
+      "description": "PUT /api/quote_sessions/:id",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "quotes.js",
+      "lineNumber": 356
+    },
+    {
+      "method": "DELETE",
+      "path": "/quote_sessions/:id",
+      "fullPath": "/api/quote_sessions/:id",
+      "category": "💬 Quotes",
+      "description": "DELETE /api/quote_sessions/:id",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "quotes.js",
+      "lineNumber": 383
+    },
+    {
+      "method": "GET",
+      "path": "/transfers/lookup",
+      "fullPath": "/api/transfers/lookup",
+      "category": "🎨 Transfers",
+      "description": "GET /api/transfers/lookup - Core pricing endpoint",
+      "queryParams": [
+        {
+          "key": "size",
+          "value": "",
+          "description": "size parameter",
+          "disabled": true
+        },
+        {
+          "key": "quantity",
+          "value": "",
+          "description": "quantity parameter",
+          "disabled": true
+        },
+        {
+          "key": "price_type",
+          "value": "",
+          "description": "price_type parameter",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "transfers.js",
+      "lineNumber": 8
+    },
+    {
+      "method": "GET",
+      "path": "/transfers/matrix",
+      "fullPath": "/api/transfers/matrix",
+      "category": "🎨 Transfers",
+      "description": "GET /api/transfers/matrix - All quantity tiers for a size",
+      "queryParams": [
+        {
+          "key": "size",
+          "value": "",
+          "description": "size parameter",
+          "disabled": true
+        },
+        {
+          "key": "price_type",
+          "value": "",
+          "description": "price_type parameter",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "transfers.js",
+      "lineNumber": 47
+    },
+    {
+      "method": "GET",
+      "path": "/transfers/sizes",
+      "fullPath": "/api/transfers/sizes",
+      "category": "🎨 Transfers",
+      "description": "GET /api/transfers/sizes - Available transfer sizes",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "transfers.js",
+      "lineNumber": 76
+    },
+    {
+      "method": "GET",
+      "path": "/transfers/price-types",
+      "fullPath": "/api/transfers/price-types",
+      "category": "🎨 Transfers",
+      "description": "GET /api/transfers/price-types - Available price types",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "transfers.js",
+      "lineNumber": 95
+    },
+    {
+      "method": "GET",
+      "path": "/transfers/quantity-ranges",
+      "fullPath": "/api/transfers/quantity-ranges",
+      "category": "🎨 Transfers",
+      "description": "GET /api/transfers/quantity-ranges - Available quantity ranges",
+      "queryParams": [
+        {
+          "key": "id",
+          "value": "",
+          "description": "Record ID",
+          "disabled": true
+        },
+        {
+          "key": "product_type",
+          "value": "",
+          "description": "product_type parameter",
+          "disabled": true
+        },
+        {
+          "key": "size",
+          "value": "",
+          "description": "size parameter",
+          "disabled": true
+        },
+        {
+          "key": "price_type",
+          "value": "",
+          "description": "price_type parameter",
+          "disabled": true
+        },
+        {
+          "key": "quantity_range",
+          "value": "",
+          "description": "quantity_range parameter",
+          "disabled": true
+        },
+        {
+          "key": "min_quantity",
+          "value": "",
+          "description": "min_quantity parameter",
+          "disabled": true
+        },
+        {
+          "key": "max_quantity",
+          "value": "",
+          "description": "max_quantity parameter",
+          "disabled": true
+        },
+        {
+          "key": "active",
+          "value": "",
+          "description": "active parameter",
+          "disabled": true
+        },
+        {
+          "key": "currency",
+          "value": "",
+          "description": "currency parameter",
+          "disabled": true
+        },
+        {
+          "key": "orderby",
+          "value": "",
+          "description": "orderby parameter",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "transfers.js",
+      "lineNumber": 114
+    },
+    {
+      "method": "GET",
+      "path": "/transfers",
+      "fullPath": "/api/transfers",
+      "category": "🎨 Transfers",
+      "description": "GET /api/transfers - General query endpoint",
+      "queryParams": [
+        {
+          "key": "id",
+          "value": "",
+          "description": "Record ID",
+          "disabled": true
+        },
+        {
+          "key": "product_type",
+          "value": "",
+          "description": "product_type parameter",
+          "disabled": true
+        },
+        {
+          "key": "size",
+          "value": "",
+          "description": "size parameter",
+          "disabled": true
+        },
+        {
+          "key": "price_type",
+          "value": "",
+          "description": "price_type parameter",
+          "disabled": true
+        },
+        {
+          "key": "quantity_range",
+          "value": "",
+          "description": "quantity_range parameter",
+          "disabled": true
+        },
+        {
+          "key": "min_quantity",
+          "value": "",
+          "description": "min_quantity parameter",
+          "disabled": true
+        },
+        {
+          "key": "max_quantity",
+          "value": "",
+          "description": "max_quantity parameter",
+          "disabled": true
+        },
+        {
+          "key": "active",
+          "value": "",
+          "description": "active parameter",
+          "disabled": true
+        },
+        {
+          "key": "currency",
+          "value": "",
+          "description": "currency parameter",
+          "disabled": true
+        },
+        {
+          "key": "orderby",
+          "value": "",
+          "description": "orderby parameter",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "transfers.js",
+      "lineNumber": 143
+    }
+  ]
+}
