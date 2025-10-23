@@ -205,23 +205,27 @@ router.get('/all-brands', async (req, res) => {
 
   try {
     const records = await fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
-      'q.select': 'BRAND_NAME, STYLE',
-      'q.groupBy': 'BRAND_NAME, STYLE'
+      'q.select': 'BRAND_NAME, BRAND_LOGO_IMAGE, STYLE',
+      'q.groupBy': 'BRAND_NAME, BRAND_LOGO_IMAGE, STYLE'
     });
 
     const brandMap = new Map();
     records.forEach(record => {
       if (record.BRAND_NAME && record.STYLE) {
         if (!brandMap.has(record.BRAND_NAME)) {
-          brandMap.set(record.BRAND_NAME, []);
+          brandMap.set(record.BRAND_NAME, {
+            logo: record.BRAND_LOGO_IMAGE || '',
+            styles: []
+          });
         }
-        brandMap.get(record.BRAND_NAME).push(record.STYLE);
+        brandMap.get(record.BRAND_NAME).styles.push(record.STYLE);
       }
     });
 
-    const brands = Array.from(brandMap.entries()).map(([brand, styles]) => ({
+    const brands = Array.from(brandMap.entries()).map(([brand, data]) => ({
       brand: brand,
-      sampleStyles: styles.slice(0, 3)
+      logo: data.logo,
+      sampleStyles: data.styles.slice(0, 3)
     }));
 
     console.log(`All brands: ${brands.length} brand(s) found`);
@@ -457,12 +461,13 @@ router.get('/products/search', async (req, res) => {
     const pageSize = Math.min(100, Math.max(1, parseInt(limit) || 24));
     const skip = (pageNum - 1) * pageSize;
 
-    console.log(`Executing search with WHERE: ${whereClause}, ORDER BY: ${orderBy}`);
+    console.log(`Executing search with WHERE: ${whereClause}, will sort after grouping by: ${orderBy}`);
 
-    // Fetch all matching records (we'll aggregate them by style)
+    // Fetch all matching records WITHOUT ordering at Caspio level
+    // This ensures we get diverse styles across pagination, not just alphabetically similar titles
     const allRecords = await fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
-      'q.where': whereClause,
-      'q.orderBy': orderBy
+      'q.where': whereClause
+      // NOTE: No q.orderBy here - we'll sort AFTER grouping by style
     });
 
     console.log(`Found ${allRecords.length} total records before grouping`);
@@ -590,6 +595,28 @@ router.get('/products/search', async (req, res) => {
     }));
 
     console.log(`Grouped into ${products.length} unique products`);
+
+    // Sort products based on the requested sort parameter
+    products.sort((a, b) => {
+      switch (sort) {
+        case 'name_asc':
+          return (a.productName || '').localeCompare(b.productName || '');
+        case 'name_desc':
+          return (b.productName || '').localeCompare(a.productName || '');
+        case 'price_asc':
+          return (a.pricing?.current || 0) - (b.pricing?.current || 0);
+        case 'price_desc':
+          return (b.pricing?.current || 0) - (a.pricing?.current || 0);
+        case 'style':
+          return (a.styleNumber || '').localeCompare(b.styleNumber || '');
+        case 'newest':
+          // For newest, we'd need to track Date_Updated in the product object
+          // For now, maintain existing order
+          return 0;
+        default:
+          return (a.productName || '').localeCompare(b.productName || '');
+      }
+    });
 
     // Get total count before pagination
     const totalProducts = products.length;
