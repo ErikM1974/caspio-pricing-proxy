@@ -32,7 +32,7 @@ const config = {
   // Pagination defaults
   pagination: {
     defaultLimit: 1000,
-    maxPages: 10
+    maxPages: 20  // Increased to handle brands with many products (e.g., Port & Company has 114 styles)
   },
   
   // CORS settings
