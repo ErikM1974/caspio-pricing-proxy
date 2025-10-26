@@ -4479,7 +4479,7 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"username\": \"your-email@example.com\",\n  \"password\": \"your-password\"\n}"
+							"raw": "{\n  \"username\": \"Erik@nwcustomapparel.com\",\n  \"password\": \"%L[qT4h2\"\n}"
 						},
 						"url": {
 							"raw": "https://manageordersapi.com/v1/manageorders/signin",
