@@ -1,0 +1,895 @@
+swagger: "2.0"
+info:
+  description: |
+    The ManageOrders API gives authenticated users read-only access to ManageOrders data.
+
+    Users can access Order, Line Item, Payment, Tracking, and Inventory Levels data through this API.
+
+    **Contact ShopWorks to sign up:** support@shopworx.com
+
+    **Full Documentation:** See ManageOrders API Guide PDF for complete implementation details.
+  version: "1.0.0"
+  title: ManageOrders API
+  contact:
+    email: support@shopworx.com
+host: manageordersapi.com
+basePath: /v1
+tags:
+- name: Authentication
+- name: Orders
+- name: Line Items
+- name: Payments
+- name: Tracking
+- name: Inventory Levels
+schemes:
+- https
+
+paths:
+  /manageorders/signin:
+    post:
+      tags:
+      - Authentication
+      summary: "Sign-In User"
+      description: "You must use this API to authenticate. Once authenticated, use the id_token as your Authorization Header for all other requests."
+      operationId: "sign-in"
+      consumes:
+      - application/json
+      produces:
+      - application/json
+      parameters:
+      - in: body
+        name: Body
+        description: Username and Password. You must contact ShopWorks at support@shopworx.com to sign up.
+        required: true
+        schema:
+          $ref: '#/definitions/SignIn'
+      responses:
+        200:
+          description: 200 Successful
+      security:
+      - cognito-auth: []
+
+  /manageorders/orders:
+    get:
+      tags:
+      - Orders
+      summary: "Retrieves a list of Orders for a date range."
+      description: ""
+      operationId: "findOrdersByDate"
+      produces:
+      - application/json
+      parameters:
+      - name: Authorization
+        in: header
+        description: id_token in the Sign-In API response.
+        required: true
+        type: string
+      - name: id_Customer
+        in: query
+        description: Customer Number for the Order.
+        required: false
+        type: number
+      - name: date_RequestedToShip_start
+        in: query
+        description: Requested To Ship Start Date.
+        format: YYYY-MM-DD
+        required: false
+        type: string
+      - name: date_RequestedToShip_end
+        in: query
+        description: Requested To Ship End Date.
+        format: YYYY-MM-DD
+        required: false
+        type: string
+      - name: date_Produced_start
+        in: query
+        description: Produced Start Date.
+        format: YYYY-MM-DD
+        required: false
+        type: string
+      - name: date_Produced_end
+        in: query
+        description: Produced End Date.
+        format: YYYY-MM-DD
+        required: false
+        type: string
+      - name: date_Shipped_start
+        in: query
+        description: Shipped Start Date.
+        format: YYYY-MM-DD
+        required: false
+        type: string
+      - name: date_Shipped_end
+        in: query
+        description: Shipped End Date.
+        format: YYYY-MM-DD
+        required: false
+        type: string
+      - name: date_Ordered_start
+        in: query
+        description: Ordered Start Date.
+        format: YYYY-MM-DD
+        required: false
+        type: string
+      - name: date_Ordered_end
+        in: query
+        description: Ordered End Date.
+        format: YYYY-MM-DD
+        required: false
+        type: string
+      - name: date_Invoiced_start
+        in: query
+        description: Invoiced Date Start.
+        format: YYYY-MM-DD
+        required: false
+        type: string
+      - name: date_Invoiced_end
+        in: query
+        description: Invoiced Date End.
+        format: YYYY-MM-DD
+        required: false
+        type: string
+      responses:
+        200:
+          description: 200 Successful
+          schema:
+            $ref: '#/definitions/OrdersResult'
+        500:
+          description: 500 Internal Server Error
+          schema:
+            $ref: '#/definitions/InternalServerError'
+        403:
+          description: 403 Forbidden
+          schema:
+            $ref: '#/definitions/ForbiddenError'
+      security:
+      - cognito-auth: []
+
+  /manageorders/orders/{order_no}:
+    get:
+      tags:
+      - Orders
+      summary: "Retrieves a specific Order."
+      description: ""
+      operationId: "findOrderByOrderNo"
+      produces:
+      - application/json
+      parameters:
+      - name: Authorization
+        in: header
+        description: id_token in the Sign-In API response.
+        required: true
+        type: string
+      - name: order_no
+        in: path
+        description: Order Number
+        required: true
+        type: string
+      responses:
+        200:
+          description: 200 Successful
+          schema:
+            $ref: '#/definitions/OrdersResult'
+        500:
+          description: 500 Internal Server Error
+          schema:
+            $ref: '#/definitions/InternalServerError'
+        403:
+          description: 403 Forbidden
+          schema:
+            $ref: '#/definitions/ForbiddenError'
+      security:
+      - cognito-auth: []
+
+  /manageorders/getorderno/{ext_order_id}:
+    get:
+      tags:
+      - Orders
+      summary: "Retrieves the Order Number that matches the provided External Order ID."
+      description: ""
+      operationId: "findOrderNoByExternalOrderID"
+      produces:
+      - application/json
+      parameters:
+      - name: Authorization
+        in: header
+        description: id_token in the Sign-In API response.
+        required: true
+        type: string
+      - name: ext_order_id
+        in: path
+        description: External Order ID
+        required: true
+        type: string
+      responses:
+        200:
+          description: 200 Successful
+          schema:
+            $ref: '#/definitions/GetOrderNoResult'
+        500:
+          description: 500 Internal Server Error
+          schema:
+            $ref: '#/definitions/InternalServerError'
+        403:
+          description: 403 Forbidden
+          schema:
+            $ref: '#/definitions/ForbiddenError'
+      security:
+      - cognito-auth: []
+
+  /manageorders/lineitems/{order_no}:
+    get:
+      tags:
+      - Line Items
+      summary: "Retrieves a list of Line Items for a specific Order."
+      description: ""
+      operationId: "findLineItemsByOrderNo"
+      produces:
+      - application/json
+      parameters:
+      - name: Authorization
+        in: header
+        description: id_token in the Sign-In API response.
+        required: true
+        type: string
+      - name: order_no
+        in: path
+        description: Order Number
+        required: true
+        type: string
+      responses:
+        200:
+          description: 200 Successful
+          schema:
+            $ref: '#/definitions/LineItemsResult'
+        500:
+          description: 500 Internal Server Error
+          schema:
+            $ref: '#/definitions/InternalServerError'
+        403:
+          description: 403 Forbidden
+          schema:
+            $ref: '#/definitions/ForbiddenError'
+      security:
+      - cognito-auth: []
+
+  /manageorders/payments:
+    get:
+      tags:
+      - Payments
+      summary: "Retrieves a list of Web and OnSite Payments for a date range."
+      description: ""
+      operationId: "findPaymentsByDate_PaymentApplied"
+      produces:
+      - application/json
+      parameters:
+      - name: Authorization
+        in: header
+        description: id_token in the Sign-In API response.
+        required: true
+        type: string
+      - name: date_PaymentApplied_start
+        in: query
+        description: Applied Start Date.
+        format: YYYY-MM-DD
+        required: false
+        type: string
+      - name: date_PaymentApplied_end
+        in: query
+        description: Applied End Date.
+        format: YYYY-MM-DD
+        required: false
+        type: string
+      responses:
+        200:
+          description: 200 Successful
+          schema:
+            $ref: '#/definitions/PaymentsResult'
+        500:
+          description: 500 Internal Server Error
+          schema:
+            $ref: '#/definitions/InternalServerError'
+        403:
+          description: 403 Forbidden
+          schema:
+            $ref: '#/definitions/ForbiddenError'
+      security:
+      - cognito-auth: []
+
+  /manageorders/payments/{order_no}:
+    get:
+      tags:
+      - Payments
+      summary: "Retrieves a list of Payments for a specific Order."
+      description: ""
+      operationId: "findPaymentByOrderNo"
+      produces:
+      - application/json
+      parameters:
+      - name: Authorization
+        in: header
+        description: id_token in the Sign-In API response.
+        required: true
+        type: string
+      - name: order_no
+        in: path
+        description: Order Number
+        required: true
+        type: string
+      responses:
+        200:
+          description: 200 Successful
+          schema:
+            $ref: '#/definitions/PaymentsResult'
+        500:
+          description: 500 Internal Server Error
+          schema:
+            $ref: '#/definitions/InternalServerError'
+        403:
+          description: 403 Forbidden
+          schema:
+            $ref: '#/definitions/ForbiddenError'
+      security:
+      - cognito-auth: []
+
+  /manageorders/tracking:
+    get:
+      tags:
+      - Tracking
+      summary: "Retrieves a list of Tracking Numbers for a date range."
+      description: ""
+      operationId: "findTrackingByDates"
+      produces:
+      - application/json
+      parameters:
+      - name: Authorization
+        in: header
+        description: id_token in the Sign-In API response.
+        required: true
+        type: string
+      - name: date_Imported_start
+        in: query
+        description: Imported Start Date.
+        format: YYYY-MM-DD
+        required: false
+        type: string
+      - name: date_Imported_end
+        in: query
+        description: Imported End Date.
+        format: YYYY-MM-DD
+        required: false
+        type: string
+      - name: date_Creation_start
+        in: query
+        description: Creation Start Date.
+        format: YYYY-MM-DD
+        required: false
+        type: string
+      - name: date_Creation_end
+        in: query
+        description: Creation End Date.
+        format: YYYY-MM-DD
+        required: false
+        type: string
+      responses:
+        200:
+          description: 200 Successful
+          schema:
+            $ref: '#/definitions/TrackingResult'
+        500:
+          description: 500 Internal Server Error
+          schema:
+            $ref: '#/definitions/InternalServerError'
+        403:
+          description: 403 Forbidden
+          schema:
+            $ref: '#/definitions/ForbiddenError'
+      security:
+      - cognito-auth: []
+
+  /manageorders/tracking/{order_no}:
+    get:
+      tags:
+      - Tracking
+      summary: "Retrieves a list of Tracking Numbers for a specific Order."
+      description: ""
+      operationId: "findTrackingByOrderNo"
+      produces:
+      - application/json
+      parameters:
+      - name: Authorization
+        in: header
+        description: id_token in the Sign-In API response.
+        required: true
+        type: string
+      - name: order_no
+        in: path
+        description: Order Number
+        required: true
+        type: string
+      responses:
+        200:
+          description: 200 Successful
+          schema:
+            $ref: '#/definitions/PaymentsResult'
+        500:
+          description: 500 Internal Server Error
+          schema:
+            $ref: '#/definitions/InternalServerError'
+        403:
+          description: 403 Forbidden
+          schema:
+            $ref: '#/definitions/ForbiddenError'
+      security:
+      - cognito-auth: []
+
+  /manageorders/inventorylevels:
+    get:
+      tags:
+      - Inventory Levels
+      summary: "Retrieves a list of Inventory Levels."
+      description: ""
+      operationId: "findInventoryLevelsByCriteria"
+      produces:
+      - application/json
+      parameters:
+      - name: Authorization
+        in: header
+        description: id_token in the Sign-In API response.
+        required: true
+        type: string
+      - name: date_Modification_start
+        in: query
+        description: Modification Start Date.
+        format: YYYY-MM-DD
+        required: false
+        type: string
+      - name: date_Modification_end
+        in: query
+        description: Modification End Date.
+        format: YYYY-MM-DD
+        required: false
+        type: string
+      - name: PartNumber
+        in: query
+        description: Inventory Level Part Number.
+        required: false
+        type: string
+      - name: ColorRange
+        in: query
+        description: Inventory Level Color Range.
+        required: false
+        type: string
+      - name: Color
+        in: query
+        description: Inventory Level Color.
+        required: false
+        type: string
+      - name: GLAccount
+        in: query
+        description: Inventory Level GL Account.
+        required: false
+        type: string
+      - name: SKU
+        in: query
+        description: Inventory Level SKU.
+        required: false
+        type: string
+      - name: PreprintGroup
+        in: query
+        description: Inventory Level PreprintGroup.
+        required: false
+        type: string
+      - name: ProductType
+        in: query
+        description: Inventory Level ProductType.
+        required: false
+        type: string
+      - name: FindCode
+        in: query
+        description: Inventory Level FindCode.
+        required: false
+        type: string
+      - name: id_Vendor
+        in: query
+        description: Inventory Level id_Vendor.
+        required: false
+        type: number
+      - name: VendorName
+        in: query
+        description: Inventory Level VendorName.
+        required: false
+        type: string
+      responses:
+        200:
+          description: 200 Successful
+          schema:
+            $ref: '#/definitions/InventoryLevelsResult'
+        500:
+          description: 500 Internal Server Error
+          schema:
+            $ref: '#/definitions/InternalServerError'
+        403:
+          description: 403 Forbidden
+          schema:
+            $ref: '#/definitions/ForbiddenError'
+      security:
+      - cognito-auth: []
+
+securityDefinitions:
+  cognito-auth:
+    type: apiKey
+    name: Authorization
+    in: header
+    x-amazon-apigateway-authtype: cognito_user_pools
+
+definitions:
+  SignIn:
+    type: object
+    properties:
+      username:
+        type: string
+      password:
+        type: string
+
+  Orders:
+    type: object
+    properties:
+      date_Invoiced:
+        type: string
+      date_Ordered:
+        type: string
+      date_RequestedToShip:
+        type: string
+      date_Shipped:
+        type: string
+      date_Produced:
+        type: string
+      id_Order:
+        type: integer
+        format: int64
+      id_OrderType:
+        type: number
+        format: double
+      id_Customer:
+        type: integer
+        format: int64
+      CustomerName:
+        type: string
+      ContactFirstName:
+        type: string
+      ContactLastName:
+        type: string
+      ContactEmail:
+        type: string
+      ContactFax:
+        type: string
+      ContactPhone:
+        type: string
+      ContactTitle:
+        type: string
+      ContactDepartment:
+        type: string
+      id_CustomerInternal:
+        type: integer
+        format: int64
+      sts_SizingType:
+        type: integer
+        format: int64
+      sts_Invoiced:
+        type: string
+      sts_Paid:
+        type: string
+      sts_Produced:
+        type: string
+      sts_Purchased:
+        type: string
+      sts_Received:
+        type: string
+      sts_ReceivedSub:
+        type: integer
+        format: int64
+      sts_PurchasedSub:
+        type: integer
+        format: int64
+      sts_Shipped:
+        type: integer
+        format: int64
+      sts_ArtDone:
+        type: integer
+        format: int64
+      id_URL:
+        type: string
+      TotalProductQuantity:
+        type: integer
+        format: int64
+      cur_Balance:
+        type: number
+        format: double
+      cur_SalesTaxTotal:
+        type: number
+        format: double
+      cur_TotalInvoice:
+        type: number
+        format: double
+      cur_Adjustment:
+        type: number
+        format: double
+      cur_Payments:
+        type: number
+        format: double
+      cur_Shipping:
+        type: number
+        format: double
+      cur_SubTotal:
+        type: number
+        format: double
+      TermsDays:
+        type: integer
+        format: int64
+      TermsName:
+        type: string
+      CustomerServiceRep:
+        type: string
+      DesignName:
+        type: string
+      id_Design:
+        type: number
+        format: double
+      CustomerPurchaseOrder:
+        type: string
+
+  OrdersResult:
+    type: object
+    properties:
+      result:
+        type: array
+        items:
+           $ref: "#/definitions/Orders"
+
+  GetOrderNo:
+    type: object
+    properties:
+      id_Order:
+        type: number
+
+  GetOrderNoResult:
+    type: object
+    properties:
+      result:
+        type: array
+        items:
+           $ref: "#/definitions/GetOrderNo"
+
+  LineItems:
+    type: object
+    properties:
+      id_Order:
+        type: integer
+        format: int64
+      LineQuantity:
+        type: integer
+        format: int64
+      LineUnitPrice:
+        type: number
+        format: double
+      Name:
+        type: string
+      SortOrder:
+        type: integer
+        format: int64
+      Size01:
+        type: string
+      Size02:
+        type: string
+      Size03:
+        type: string
+      Size04:
+        type: string
+      Size05:
+        type: string
+      Size06:
+        type: string
+      Custom01:
+        type: string
+      Custom02:
+        type: string
+      Custom03:
+        type: string
+      Custom04:
+        type: string
+      Custom05:
+        type: string
+      InvoiceNotes:
+        type: string
+      PartColor:
+        type: string
+      PartDescription:
+        type: string
+      PartNumber:
+        type: string
+
+  LineItemsResult:
+    type: object
+    properties:
+      result:
+        type: array
+        items:
+          $ref: "#/definitions/LineItems"
+
+  OnSitePayments:
+    type: object
+    properties:
+      id_Order:
+        type: integer
+        format: int64
+      Amount:
+        type: number
+        format: double
+      PaymentType:
+        type: string
+      date_PaymentApplied:
+        type: string
+      PaymentNumber:
+        type: string
+      id_SubPayment:
+        type: integer
+        format: int64
+
+  WebPayments:
+    type: object
+    properties:
+      id_Order:
+        type: integer
+        format: int64
+      FirstName:
+        type: string
+      LastName:
+        type: string
+      BillingCompany:
+        type: string
+      BillingAddress:
+        type: string
+      BillingCity:
+        type: string
+      BillingState:
+        type: string
+      BillingZip:
+        type: string
+      BillingCountry:
+        type: string
+      sts_Approved:
+        type: integer
+        format: int64
+      PaymentNumber:
+        type: string
+      Amount:
+        type: number
+        format: double
+      id_SubPayment:
+        type: integer
+        format: int64
+      date_PaymentApplied:
+        type: string
+
+  PaymentsResult:
+    type: object
+    properties:
+      result:
+        type: array
+        items:
+          allOf:
+            - $ref: '#/definitions/WebPayments'
+            - $ref: '#/definitions/OnSitePayments'
+
+  Tracking:
+    type: object
+    properties:
+      id_Order:
+        type: integer
+        format: int64
+      TrackingNumber:
+        type: string
+      AddressCompany:
+        type: string
+      Address1:
+        type: string
+      Address2:
+        type: string
+      AddressCity:
+        type: string
+      AddressState:
+        type: string
+      AddressZip:
+        type: string
+      AddressCountry:
+        type: string
+      date_Creation:
+        type: string
+      date_Imported:
+        type: string
+      Weight:
+        type: string
+      Cost:
+        type: string
+      Type:
+        type: string
+
+  TrackingResult:
+    type: object
+    properties:
+      result:
+        type: array
+        items:
+          allOf:
+            - $ref: '#/definitions/Tracking'
+
+  InventoryLevels:
+    type: object
+    properties:
+      id_InventoryLevel:
+        type: integer
+        format: int64
+      PartNumber:
+        type: string
+      ColorRange:
+        type: string
+      Color:
+        type: string
+      PartDescription:
+        type: string
+      Size01:
+        type: number
+      Size02:
+        type: number
+      Size03:
+        type: number
+      Size04:
+        type: number
+      Size05:
+        type: number
+      Size06:
+        type: number
+      UnitCost:
+        type: number
+      TotalCost:
+        type: number
+      GLAccount:
+        type: string
+      SKU:
+        type: string
+      PreprintGroup:
+        type: string
+      ProductType:
+        type: string
+      FindCode:
+        type: string
+      id_Vendor:
+        type: number
+      VendorName:
+        type: string
+
+  InventoryLevelsResult:
+    type: object
+    properties:
+      result:
+        type: array
+        items:
+          allOf:
+            - $ref: '#/definitions/InventoryLevels'
+
+  InternalServerError:
+    type: object
+    properties:
+      result:
+        type: string
+
+  ForbiddenError:
+    type: object
+    properties:
+      result:
+        type: string
+
+externalDocs:
+  description: Find out more about this and other ShopWorks Products.
+  url: https://www.shopworx.com/onsite-business-management-software/

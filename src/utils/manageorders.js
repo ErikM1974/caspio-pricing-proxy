@@ -60,12 +60,12 @@ async function authenticateManageOrders() {
 
 /**
  * Fetches orders from ManageOrders API within a date range.
- * @param {string} startDate - Start date in YYYY-MM-DD format
- * @param {string} endDate - End date in YYYY-MM-DD format
+ * Supports multiple date filter types.
+ * @param {Object} params - Query parameters for filtering orders
  * @returns {Promise<Array>} - Array of order objects
  */
-async function fetchOrders(startDate, endDate) {
-  console.log(`Fetching ManageOrders orders from ${startDate} to ${endDate}...`);
+async function fetchOrders(params = {}) {
+  console.log('Fetching ManageOrders orders with params:', params);
 
   try {
     const token = await authenticateManageOrders();
@@ -73,10 +73,7 @@ async function fetchOrders(startDate, endDate) {
     const response = await axios.get(
       `${config.manageOrders.baseUrl}/manageorders/orders`,
       {
-        params: {
-          date_Ordered_start: startDate,
-          date_Ordered_end: endDate
-        },
+        params: params, // Pass all params through
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -100,6 +97,250 @@ async function fetchOrders(startDate, endDate) {
       throw new Error(`Failed to fetch ManageOrders orders: ${error.response.status}`);
     }
     throw new Error("Could not fetch orders from ManageOrders API");
+  }
+}
+
+/**
+ * Fetches a specific order by order number.
+ * @param {string} orderNo - Order number
+ * @returns {Promise<Array>} - Array with single order object or empty array
+ */
+async function fetchOrderByNumber(orderNo) {
+  console.log(`Fetching ManageOrders order #${orderNo}...`);
+
+  try {
+    const token = await authenticateManageOrders();
+
+    const response = await axios.get(
+      `${config.manageOrders.baseUrl}/manageorders/orders/${orderNo}`,
+      {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: 10000
+      }
+    );
+
+    if (response.data && response.data.result) {
+      console.log(`Fetched order #${orderNo} successfully`);
+      return response.data.result;
+    } else {
+      console.warn(`Order #${orderNo} not found or invalid response`);
+      return [];
+    }
+  } catch (error) {
+    console.error(`Error fetching order #${orderNo}:`, error.message);
+    // Return empty array for not found (don't throw error)
+    if (error.response && error.response.status === 404) {
+      return [];
+    }
+    throw new Error(`Failed to fetch order: ${error.response?.status || 'unknown error'}`);
+  }
+}
+
+/**
+ * Fetches order number by external order ID.
+ * @param {string} extOrderId - External order ID
+ * @returns {Promise<Array>} - Array with order number mapping or empty array
+ */
+async function fetchOrderNoByExternalId(extOrderId) {
+  console.log(`Fetching order number for external ID: ${extOrderId}...`);
+
+  try {
+    const token = await authenticateManageOrders();
+
+    const response = await axios.get(
+      `${config.manageOrders.baseUrl}/manageorders/getorderno/${extOrderId}`,
+      {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: 10000
+      }
+    );
+
+    if (response.data && response.data.result) {
+      console.log(`Found order number for external ID ${extOrderId}`);
+      return response.data.result;
+    } else {
+      console.warn(`External ID ${extOrderId} not found`);
+      return [];
+    }
+  } catch (error) {
+    console.error(`Error fetching order by external ID:`, error.message);
+    if (error.response && error.response.status === 404) {
+      return [];
+    }
+    throw new Error(`Failed to fetch order number: ${error.response?.status || 'unknown error'}`);
+  }
+}
+
+/**
+ * Fetches line items for a specific order.
+ * @param {string} orderNo - Order number
+ * @returns {Promise<Array>} - Array of line item objects
+ */
+async function fetchLineItems(orderNo) {
+  console.log(`Fetching line items for order #${orderNo}...`);
+
+  try {
+    const token = await authenticateManageOrders();
+
+    const response = await axios.get(
+      `${config.manageOrders.baseUrl}/manageorders/lineitems/${orderNo}`,
+      {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: 10000
+      }
+    );
+
+    if (response.data && response.data.result) {
+      console.log(`Fetched ${response.data.result.length} line items for order #${orderNo}`);
+      return response.data.result;
+    } else {
+      console.warn(`No line items found for order #${orderNo}`);
+      return [];
+    }
+  } catch (error) {
+    console.error(`Error fetching line items for order #${orderNo}:`, error.message);
+    if (error.response && error.response.status === 404) {
+      return [];
+    }
+    throw new Error(`Failed to fetch line items: ${error.response?.status || 'unknown error'}`);
+  }
+}
+
+/**
+ * Fetches payments by date range or for a specific order.
+ * @param {Object} params - Query parameters (date range) or order number
+ * @returns {Promise<Array>} - Array of payment objects
+ */
+async function fetchPayments(params) {
+  const isOrderLookup = typeof params === 'string';
+  const logMsg = isOrderLookup
+    ? `Fetching payments for order #${params}...`
+    : `Fetching payments with params:`;
+
+  console.log(logMsg, isOrderLookup ? '' : params);
+
+  try {
+    const token = await authenticateManageOrders();
+
+    const url = isOrderLookup
+      ? `${config.manageOrders.baseUrl}/manageorders/payments/${params}`
+      : `${config.manageOrders.baseUrl}/manageorders/payments`;
+
+    const response = await axios.get(url, {
+      params: isOrderLookup ? {} : params,
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      timeout: 30000
+    });
+
+    if (response.data && response.data.result) {
+      console.log(`Fetched ${response.data.result.length} payments`);
+      return response.data.result;
+    } else {
+      console.warn('No payments found');
+      return [];
+    }
+  } catch (error) {
+    console.error('Error fetching payments:', error.message);
+    if (error.response && error.response.status === 404) {
+      return [];
+    }
+    throw new Error(`Failed to fetch payments: ${error.response?.status || 'unknown error'}`);
+  }
+}
+
+/**
+ * Fetches tracking information by date range or for a specific order.
+ * @param {Object} params - Query parameters (date range) or order number
+ * @returns {Promise<Array>} - Array of tracking objects
+ */
+async function fetchTracking(params) {
+  const isOrderLookup = typeof params === 'string';
+  const logMsg = isOrderLookup
+    ? `Fetching tracking for order #${params}...`
+    : `Fetching tracking with params:`;
+
+  console.log(logMsg, isOrderLookup ? '' : params);
+
+  try {
+    const token = await authenticateManageOrders();
+
+    const url = isOrderLookup
+      ? `${config.manageOrders.baseUrl}/manageorders/tracking/${params}`
+      : `${config.manageOrders.baseUrl}/manageorders/tracking`;
+
+    const response = await axios.get(url, {
+      params: isOrderLookup ? {} : params,
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      timeout: 30000
+    });
+
+    if (response.data && response.data.result) {
+      console.log(`Fetched ${response.data.result.length} tracking records`);
+      return response.data.result;
+    } else {
+      console.warn('No tracking information found');
+      return [];
+    }
+  } catch (error) {
+    console.error('Error fetching tracking:', error.message);
+    if (error.response && error.response.status === 404) {
+      return [];
+    }
+    throw new Error(`Failed to fetch tracking: ${error.response?.status || 'unknown error'}`);
+  }
+}
+
+/**
+ * Fetches inventory levels with optional filters.
+ * @param {Object} params - Query parameters for filtering inventory
+ * @returns {Promise<Array>} - Array of inventory level objects
+ */
+async function fetchInventoryLevels(params = {}) {
+  console.log('Fetching inventory levels with params:', params);
+
+  try {
+    const token = await authenticateManageOrders();
+
+    const response = await axios.get(
+      `${config.manageOrders.baseUrl}/manageorders/inventorylevels`,
+      {
+        params: params,
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: 30000
+      }
+    );
+
+    if (response.data && response.data.result) {
+      console.log(`Fetched ${response.data.result.length} inventory records`);
+      return response.data.result;
+    } else {
+      console.warn('No inventory levels found');
+      return [];
+    }
+  } catch (error) {
+    console.error('Error fetching inventory levels:', error.message);
+    if (error.response && error.response.status === 404) {
+      return [];
+    }
+    throw new Error(`Failed to fetch inventory levels: ${error.response?.status || 'unknown error'}`);
   }
 }
 
@@ -195,6 +436,12 @@ function getTodayDate() {
 module.exports = {
   authenticateManageOrders,
   fetchOrders,
+  fetchOrderByNumber,
+  fetchOrderNoByExternalId,
+  fetchLineItems,
+  fetchPayments,
+  fetchTracking,
+  fetchInventoryLevels,
   deduplicateCustomers,
   cleanPhoneNumber,
   getDateDaysAgo,

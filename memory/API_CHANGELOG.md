@@ -5,6 +5,47 @@ All notable changes to the Caspio Pricing Proxy API will be documented in this f
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2025-10-26
+
+### Added
+- **ManageOrders Customer Data Integration** - Secure server-side proxy to ShopWorks ManageOrders API
+  - New endpoint: `GET /api/manageorders/customers` - Fetch unique customers from last 60 days of orders
+  - New endpoint: `GET /api/manageorders/cache-info` - Debug endpoint for cache status
+  - Two-level caching system:
+    - Token cache (1 hour) - Reuses ManageOrders authentication token
+    - Customer cache (1 day) - Stores deduplicated customer list
+  - Rate limiting: 10 requests per minute (configurable)
+  - Automatic customer deduplication by `id_Customer`
+  - Phone number cleaning (removes "W ", "C" prefixes)
+  - Comprehensive documentation in [MANAGEORDERS_INTEGRATION.md](./MANAGEORDERS_INTEGRATION.md)
+  - Complete API specification in [MANAGEORDERS_API_SPEC.yaml](./MANAGEORDERS_API_SPEC.yaml)
+
+### Performance Metrics
+- 60-day order lookback: ~2.3 seconds (912 orders → 389 unique customers)
+- Cached response time: < 100ms
+- Token reuse prevents repeated authentication calls
+- Customer cache reduces API calls by 99%+
+
+### Security Features
+- Environment-based credential storage (never exposed to browsers)
+- Server-side authentication proxy
+- Rate limiting to prevent abuse
+- Error responses never expose credentials
+- Heroku proxy-aware rate limiting (`trustProxy: true`)
+
+### Technical Details
+- New utility module: `src/utils/manageorders.js`
+- New route module: `src/routes/manageorders.js`
+- Dependencies: `express-rate-limit` (rate limiting)
+- Successfully tested in production with 389 customers from 912 orders
+
+### Future Expansion
+- ManageOrders API provides endpoints for Orders, Line Items, Payments, Tracking, and Inventory
+- See API specification for complete list of available endpoints
+- PUSH API available for order submission (not yet implemented)
+
+---
+
 ## [1.1.1] - 2025-08-30
 
 ### Removed
