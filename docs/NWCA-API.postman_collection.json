@@ -4464,6 +4464,90 @@
 			]
 		},
 		{
+			"name": "📊 ManageOrders API",
+			"description": "ShopWorks ManageOrders integration - Customer data from OnSite ERP",
+			"item": [
+				{
+					"name": "Sign In (Get Token)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"your-email@example.com\",\n  \"password\": \"your-password\"\n}"
+						},
+						"url": {
+							"raw": "https://manageordersapi.com/v1/manageorders/signin",
+							"protocol": "https",
+							"host": [
+								"manageordersapi",
+								"com"
+							],
+							"path": [
+								"v1",
+								"manageorders",
+								"signin"
+							]
+						},
+						"description": "**Direct ManageOrders API Call** - Authenticate and get JWT token\n\nThis is a direct call to the ManageOrders API (not proxied). Use this to get a token for testing.\n\n**Request:**\n```json\n{\n  \"username\": \"your-email@example.com\",\n  \"password\": \"your-password\"\n}\n```\n\n**Response:**\n```json\n{\n  \"id_token\": \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...\",\n  \"expires_in\": 3600\n}\n```\n\n**Note:** Our proxy handles authentication automatically - you don't need to call this for normal usage."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Customers (Last 60 Days)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/manageorders/customers?refresh=false",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"manageorders",
+								"customers"
+							],
+							"query": [
+								{
+									"key": "refresh",
+									"value": "false",
+									"description": "Force cache refresh (true/false)"
+								}
+							]
+						},
+						"description": "**Get Unique Customers from Last 60 Days of Orders**\n\nFetches and deduplicates customers based on orders placed in the last 60 days.\n\n**Features:**\n- ✅ Automatic deduplication by customer ID\n- ✅ Phone number cleaning (removes 'W ' and 'C ' prefixes)\n- ✅ Sorted alphabetically by customer name\n- ✅ 24-hour cache (configurable)\n- ✅ Rate limited (10 requests/minute)\n\n**Query Parameters:**\n- `refresh` (boolean, optional): Force cache refresh. Default: false\n\n**Response:**\n```json\n{\n  \"customers\": [\n    {\n      \"id_Customer\": 12279,\n      \"CustomerName\": \"Washington State Housing Finance Commission\",\n      \"ContactFirstName\": \"Tera\",\n      \"ContactLastName\": \"Ahlborn\",\n      \"ContactEmail\": \"Tera.Ahlborn@wshfc.org\",\n      \"ContactPhone\": \"206-287-4470\",\n      \"ContactDepartment\": \"Marketing\",\n      \"CustomerServiceRep\": \"Nika Lao\",\n      \"lastOrderDate\": \"2025-10-01T00:00:00.000Z\"\n    }\n  ],\n  \"cached\": true,\n  \"cacheDate\": \"2025-10-26\",\n  \"count\": 389\n}\n```\n\n**Performance:**\n- Initial load: ~2.3s (912 orders → 389 customers)\n- Cached response: <100ms\n- Cache duration: 24 hours"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Cache Info",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/manageorders/cache-info",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"manageorders",
+								"cache-info"
+							]
+						},
+						"description": "**Debug Endpoint - Cache Status**\n\nReturns detailed information about the customer cache state.\n\n**Response:**\n```json\n{\n  \"cacheExists\": true,\n  \"cacheValid\": true,\n  \"cacheTimestamp\": \"2025-10-26T15:50:18.000Z\",\n  \"cacheAgeMs\": 300000,\n  \"cacheAgeMinutes\": 5,\n  \"cacheDurationMs\": 86400000,\n  \"customerCount\": 389\n}\n```\n\n**Use this to:**\n- Check if cache is working\n- See when cache was last refreshed\n- Determine when cache will expire\n- Debug caching issues"
+					},
+					"response": []
+				}
+			]
+		},
+		{
 			"name": "💰 Pricing & Costs",
 			"item": [
 				{
