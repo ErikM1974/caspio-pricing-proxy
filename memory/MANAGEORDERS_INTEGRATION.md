@@ -2,7 +2,7 @@
 
 **Last Updated:** 2025-10-26
 **Status:** Production Ready
-**Version:** 1.0.0
+**Version:** 1.1.0
 
 ## Table of Contents
 - [Overview](#overview)
@@ -92,6 +92,127 @@ Debug endpoint showing cache status.
 }
 ```
 
+#### 3. GET /api/manageorders/orders
+
+Query orders by date range with multiple filter options.
+
+**Query Parameters:**
+- `date_Ordered_start` / `date_Ordered_end` - Order placement date range
+- `date_Invoiced_start` / `date_Invoiced_end` - Invoice date range
+- `date_RequestedToShip_start` / `date_RequestedToShip_end` - Requested ship date
+- `date_Produced_start` / `date_Produced_end` - Production date range
+- `date_Shipped_start` / `date_Shipped_end` - Ship date range
+- `id_Customer` - Filter by specific customer
+- `refresh` (boolean) - Force cache refresh
+
+**Cache:** 1 hour
+**Usage:**
+```bash
+# Get October orders
+curl "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/manageorders/orders?date_Ordered_start=2025-10-01&date_Ordered_end=2025-10-31"
+```
+
+#### 4. GET /api/manageorders/orders/:order_no
+
+Get specific order details by order number.
+
+**Cache:** 24 hours (historical data)
+**Usage:**
+```bash
+curl https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/manageorders/orders/138145
+```
+
+#### 5. GET /api/manageorders/getorderno/:ext_order_id
+
+Map external order ID to ManageOrders order number.
+
+**Cache:** 24 hours
+**Usage:** Useful for integrations with other systems (Shopify, WooCommerce, etc.)
+
+#### 6. GET /api/manageorders/lineitems/:order_no
+
+Get line items (products, quantities, pricing) for a specific order.
+
+**Cache:** 24 hours
+**Usage:**
+```bash
+curl https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/manageorders/lineitems/138145
+```
+
+**Response:** Array of line items with Size01-06 quantities, custom fields, pricing
+
+#### 7. GET /api/manageorders/payments
+
+Query payments by date range.
+
+**Query Parameters:**
+- `date_PaymentApplied_start` / `date_PaymentApplied_end` - Payment date range
+- `refresh` (boolean) - Force cache refresh
+
+**Cache:** 1 hour
+**Returns:** Both OnSite and Web payments
+
+#### 8. GET /api/manageorders/payments/:order_no
+
+Get payments for a specific order.
+
+**Cache:** 24 hours
+**Usage:**
+```bash
+curl https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/manageorders/payments/138146
+```
+
+#### 9. GET /api/manageorders/tracking
+
+Query tracking information by date range.
+
+**Query Parameters:**
+- `date_Creation_start` / `date_Creation_end` - Tracking created date
+- `date_Imported_start` / `date_Imported_end` - Tracking import date
+- `refresh` (boolean) - Force cache refresh
+
+**Cache:** 15 minutes (updates frequently during shipping)
+
+#### 10. GET /api/manageorders/tracking/:order_no
+
+Get tracking information for a specific order.
+
+**Cache:** 15 minutes
+**Usage:**
+```bash
+curl https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/manageorders/tracking/138152
+```
+
+**Response:** Tracking numbers, carrier info, addresses, weight, cost
+
+#### 11. GET /api/manageorders/inventorylevels ⭐ CRITICAL FOR WEBSTORE
+
+Get real-time inventory levels with filters.
+
+**Query Parameters:**
+- `PartNumber` - Product part number (e.g., "PC54")
+- `ColorRange` - Color range filter
+- `Color` - Specific color
+- `SKU` - SKU filter
+- `VendorName` - Filter by vendor (e.g., "SANMAR")
+- `date_Modification_start` / `date_Modification_end` - Last modified date
+- `refresh` (boolean) - Force cache refresh
+
+**Cache:** 5 minutes (real-time stock critical)
+**Usage:**
+```bash
+# Check PC54 inventory
+curl "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/manageorders/inventorylevels?PartNumber=PC54"
+```
+
+**Response:** Size01-06 quantities, costs, vendor info for each color variant
+
+**Use Cases:**
+- Show "In Stock" / "Out of Stock" on product pages
+- Real-time availability checks during checkout
+- Low inventory alerts
+- Size availability matrix
+
 ---
 
 ## Architecture
@@ -110,17 +231,36 @@ ShopWorks OnSite (local/cloud)
 
 ### Caching Strategy
 
-**Two-Level Cache:**
+**Multi-Level Cache:**
 
 1. **Token Cache (1 hour)**
    - Stores `id_token` from ManageOrders authentication
    - Prevents repeated auth requests
    - Cleared on server restart
 
-2. **Customer Cache (1 day)**
-   - Stores deduplicated customer list
-   - Parameter: `?refresh=true` forces refresh
-   - Cleared on server restart
+2. **Inventory Cache (5 minutes)** ⭐
+   - Real-time stock availability
+   - Critical for preventing overselling
+   - Fastest refresh for accurate inventory
+
+3. **Tracking Cache (15 minutes)**
+   - Shipment status updates frequently
+   - Balances freshness with API efficiency
+
+4. **Query Caches (1 hour)**
+   - Orders by date range
+   - Payments by date range
+   - Intraday data changes
+   - Parameter-aware (different params = different cache)
+
+5. **Historical Data Caches (24 hours)**
+   - Orders by ID
+   - Line items
+   - Payments by order
+   - Customers
+   - Rarely changes after creation
+
+**All caches support `?refresh=true` to force refresh**
 
 ### Customer Deduplication Logic
 
@@ -558,6 +698,20 @@ async function getCustomerByName(name) {
 ---
 
 ## Changelog
+
+### v1.1.0 - 2025-10-26
+- ✅ **9 NEW ENDPOINTS ADDED** - Complete ManageOrders API integration
+- ✅ Orders: Query by date range, get by ID, external ID lookup
+- ✅ Line Items: Full order details with quantities and pricing
+- ✅ Payments: Query and order-specific payment information
+- ✅ Tracking: Real-time shipment tracking (15min cache)
+- ✅ **Inventory: Real-time stock levels** ⭐ CRITICAL FOR WEBSTORE
+- ✅ Smart caching strategy (5min to 24hr based on data type)
+- ✅ Rate limiting increased to 30 req/min
+- ✅ Parameter-aware caching for query endpoints
+- ✅ Empty arrays for "not found" (200 status, not 404)
+- ✅ All endpoints tested and deployed to Heroku
+- ✅ Postman collection auto-updated (177 total endpoints)
 
 ### v1.0.0 - 2025-10-26
 - ✅ Initial implementation
