@@ -1,5 +1,6 @@
 ## Memories
 
+- **ManageOrders Integration** - Customer data API proxy with caching ([Full Documentation](memory/MANAGEORDERS_INTEGRATION.md))
 - Art_Request Invoice
 
 ## Local Development Setup
@@ -231,3 +232,40 @@ GET /api/order-dashboard?days=30&includeDetails=true
 # Get dashboard with year-over-year comparison
 GET /api/order-dashboard?compareYoY=true
 ```
+
+### ManageOrders Customer Data API
+
+See **[ManageOrders Integration Guide](memory/MANAGEORDERS_INTEGRATION.md)** for complete documentation.
+
+**Currently Implemented:**
+- `/api/manageorders/customers` - Get unique customers from last 60 days
+- `/api/manageorders/cache-info` - Cache status (debug)
+
+**Features:**
+- 1-hour token cache, 1-day customer cache
+- Rate limiting: 10 requests/minute
+- Automatic customer deduplication
+- Phone number cleaning (removes "W ", "C" prefixes)
+- Environment-based credentials (server-side only, never exposed)
+
+**Live Endpoint:**
+```bash
+# Production URL
+https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/manageorders/customers
+
+# Force cache refresh
+https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/manageorders/customers?refresh=true
+```
+
+**Future Endpoints Available:**
+See [ManageOrders API Specification](memory/MANAGEORDERS_API_SPEC.yaml) for full API including:
+- Orders (by date range, order number, external ID)
+- Line Items (by order number)
+- Payments (web and on-site)
+- Tracking (shipment tracking numbers)
+- Inventory Levels (stock quantities)
+
+**Documentation:**
+- [Integration Guide](memory/MANAGEORDERS_INTEGRATION.md) - Complete implementation guide
+- [API Specification](memory/MANAGEORDERS_API_SPEC.yaml) - Swagger/OpenAPI spec
+- [API Changelog](memory/API_CHANGELOG.md) - Version 1.2.0 details
