@@ -4053,7 +4053,7 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "{{baseUrl}}/api/manageorders/cache-info",
+							"raw": "{{baseUrl}}/api/manageorders/cache-info?refresh=",
 							"host": [
 								"{{baseUrl}}"
 							],
@@ -4061,9 +4061,274 @@
 								"api",
 								"manageorders",
 								"cache-info"
+							],
+							"query": [
+								{
+									"key": "refresh",
+									"value": "",
+									"description": "refresh parameter",
+									"disabled": false
+								}
 							]
 						},
 						"description": "GET /api/manageorders/cache-info  Returns information about the current cache state (for debugging)."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Manageorders Orders",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/manageorders/orders?refresh=",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"manageorders",
+								"orders"
+							],
+							"query": [
+								{
+									"key": "refresh",
+									"value": "",
+									"description": "refresh parameter",
+									"disabled": false
+								}
+							]
+						},
+						"description": "GET /api/manageorders/orders  Fetches orders by date range with multiple date filter options. Supports: date_Ordered, date_Invoiced, date_RequestedToShip, date_Produced, date_Shipped"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Manageorders Orders",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/manageorders/orders/:order_no?refresh=",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"manageorders",
+								"orders",
+								":order_no"
+							],
+							"query": [
+								{
+									"key": "refresh",
+									"value": "",
+									"description": "refresh parameter",
+									"disabled": false
+								}
+							]
+						},
+						"description": "GET /api/manageorders/orders/:order_no  Fetches a specific order by order number."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Manageorders Getorderno",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/manageorders/getorderno/:ext_order_id?refresh=",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"manageorders",
+								"getorderno",
+								":ext_order_id"
+							],
+							"query": [
+								{
+									"key": "refresh",
+									"value": "",
+									"description": "refresh parameter",
+									"disabled": false
+								}
+							]
+						},
+						"description": "GET /api/manageorders/getorderno/:ext_order_id  Gets the ManageOrders order number from an external order ID."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Manageorders Lineitems",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/manageorders/lineitems/:order_no?refresh=",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"manageorders",
+								"lineitems",
+								":order_no"
+							],
+							"query": [
+								{
+									"key": "refresh",
+									"value": "",
+									"description": "refresh parameter",
+									"disabled": false
+								}
+							]
+						},
+						"description": "GET /api/manageorders/lineitems/:order_no  Fetches line items for a specific order."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Manageorders Payments",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/manageorders/payments?refresh=",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"manageorders",
+								"payments"
+							],
+							"query": [
+								{
+									"key": "refresh",
+									"value": "",
+									"description": "refresh parameter",
+									"disabled": false
+								}
+							]
+						},
+						"description": "GET /api/manageorders/payments  Fetches payments by date range."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Manageorders Payments",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/manageorders/payments/:order_no?refresh=",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"manageorders",
+								"payments",
+								":order_no"
+							],
+							"query": [
+								{
+									"key": "refresh",
+									"value": "",
+									"description": "refresh parameter",
+									"disabled": false
+								}
+							]
+						},
+						"description": "GET /api/manageorders/payments/:order_no  Fetches payments for a specific order."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Manageorders Tracking",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/manageorders/tracking?refresh=",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"manageorders",
+								"tracking"
+							],
+							"query": [
+								{
+									"key": "refresh",
+									"value": "",
+									"description": "refresh parameter",
+									"disabled": false
+								}
+							]
+						},
+						"description": "GET /api/manageorders/tracking  Fetches tracking information by date range."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Manageorders Tracking",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/manageorders/tracking/:order_no?refresh=",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"manageorders",
+								"tracking",
+								":order_no"
+							],
+							"query": [
+								{
+									"key": "refresh",
+									"value": "",
+									"description": "refresh parameter",
+									"disabled": false
+								}
+							]
+						},
+						"description": "GET /api/manageorders/tracking/:order_no  Fetches tracking information for a specific order."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Manageorders Inventorylevels",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/manageorders/inventorylevels?refresh=",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"manageorders",
+								"inventorylevels"
+							],
+							"query": [
+								{
+									"key": "refresh",
+									"value": "",
+									"description": "refresh parameter",
+									"disabled": false
+								}
+							]
+						},
+						"description": "GET /api/manageorders/inventorylevels  Fetches inventory levels with optional filters. Supports: PartNumber, ColorRange, Color, SKU, VendorName, etc."
 					},
 					"response": []
 				},
@@ -5280,6 +5545,16 @@
 			"value": "example-key",
 			"type": "string",
 			"description": "External file key"
+		},
+		{
+			"key": "order_no",
+			"value": "value",
+			"type": "string"
+		},
+		{
+			"key": "ext_order_id",
+			"value": "value",
+			"type": "string"
 		},
 		{
 			"key": "styleNumber",

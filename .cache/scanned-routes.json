@@ -1,6 +1,6 @@
 {
-  "scannedAt": "2025-10-26T16:44:30.779Z",
-  "totalEndpoints": 131,
+  "scannedAt": "2025-10-26T21:48:56.777Z",
+  "totalEndpoints": 140,
   "endpoints": [
     {
       "method": "GET",
@@ -1011,7 +1011,7 @@
       ],
       "requestBody": null,
       "sourceFile": "manageorders.js",
-      "lineNumber": 33
+      "lineNumber": 39
     },
     {
       "method": "GET",
@@ -1019,10 +1019,179 @@
       "fullPath": "/api/manageorders/cache-info",
       "category": "📋 General",
       "description": "GET /api/manageorders/cache-info  Returns information about the current cache state (for debugging).",
-      "queryParams": [],
+      "queryParams": [
+        {
+          "key": "refresh",
+          "value": "",
+          "description": "refresh parameter",
+          "disabled": false
+        }
+      ],
       "requestBody": null,
       "sourceFile": "manageorders.js",
-      "lineNumber": 111
+      "lineNumber": 120
+    },
+    {
+      "method": "GET",
+      "path": "/manageorders/orders",
+      "fullPath": "/api/manageorders/orders",
+      "category": "📋 General",
+      "description": "GET /api/manageorders/orders  Fetches orders by date range with multiple date filter options. Supports: date_Ordered, date_Invoiced, date_RequestedToShip, date_Produced, date_Shipped",
+      "queryParams": [
+        {
+          "key": "refresh",
+          "value": "",
+          "description": "refresh parameter",
+          "disabled": false
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "manageorders.js",
+      "lineNumber": 152
+    },
+    {
+      "method": "GET",
+      "path": "/manageorders/orders/:order_no",
+      "fullPath": "/api/manageorders/orders/:order_no",
+      "category": "📋 General",
+      "description": "GET /api/manageorders/orders/:order_no  Fetches a specific order by order number.",
+      "queryParams": [
+        {
+          "key": "refresh",
+          "value": "",
+          "description": "refresh parameter",
+          "disabled": false
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "manageorders.js",
+      "lineNumber": 205
+    },
+    {
+      "method": "GET",
+      "path": "/manageorders/getorderno/:ext_order_id",
+      "fullPath": "/api/manageorders/getorderno/:ext_order_id",
+      "category": "📋 General",
+      "description": "GET /api/manageorders/getorderno/:ext_order_id  Gets the ManageOrders order number from an external order ID.",
+      "queryParams": [
+        {
+          "key": "refresh",
+          "value": "",
+          "description": "refresh parameter",
+          "disabled": false
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "manageorders.js",
+      "lineNumber": 254
+    },
+    {
+      "method": "GET",
+      "path": "/manageorders/lineitems/:order_no",
+      "fullPath": "/api/manageorders/lineitems/:order_no",
+      "category": "📋 General",
+      "description": "GET /api/manageorders/lineitems/:order_no  Fetches line items for a specific order.",
+      "queryParams": [
+        {
+          "key": "refresh",
+          "value": "",
+          "description": "refresh parameter",
+          "disabled": false
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "manageorders.js",
+      "lineNumber": 287
+    },
+    {
+      "method": "GET",
+      "path": "/manageorders/payments",
+      "fullPath": "/api/manageorders/payments",
+      "category": "📋 General",
+      "description": "GET /api/manageorders/payments  Fetches payments by date range.",
+      "queryParams": [
+        {
+          "key": "refresh",
+          "value": "",
+          "description": "refresh parameter",
+          "disabled": false
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "manageorders.js",
+      "lineNumber": 342
+    },
+    {
+      "method": "GET",
+      "path": "/manageorders/payments/:order_no",
+      "fullPath": "/api/manageorders/payments/:order_no",
+      "category": "📋 General",
+      "description": "GET /api/manageorders/payments/:order_no  Fetches payments for a specific order.",
+      "queryParams": [
+        {
+          "key": "refresh",
+          "value": "",
+          "description": "refresh parameter",
+          "disabled": false
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "manageorders.js",
+      "lineNumber": 391
+    },
+    {
+      "method": "GET",
+      "path": "/manageorders/tracking",
+      "fullPath": "/api/manageorders/tracking",
+      "category": "📋 General",
+      "description": "GET /api/manageorders/tracking  Fetches tracking information by date range.",
+      "queryParams": [
+        {
+          "key": "refresh",
+          "value": "",
+          "description": "refresh parameter",
+          "disabled": false
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "manageorders.js",
+      "lineNumber": 448
+    },
+    {
+      "method": "GET",
+      "path": "/manageorders/tracking/:order_no",
+      "fullPath": "/api/manageorders/tracking/:order_no",
+      "category": "📋 General",
+      "description": "GET /api/manageorders/tracking/:order_no  Fetches tracking information for a specific order.",
+      "queryParams": [
+        {
+          "key": "refresh",
+          "value": "",
+          "description": "refresh parameter",
+          "disabled": false
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "manageorders.js",
+      "lineNumber": 497
+    },
+    {
+      "method": "GET",
+      "path": "/manageorders/inventorylevels",
+      "fullPath": "/api/manageorders/inventorylevels",
+      "category": "📋 General",
+      "description": "GET /api/manageorders/inventorylevels  Fetches inventory levels with optional filters. Supports: PartNumber, ColorRange, Color, SKU, VendorName, etc.",
+      "queryParams": [
+        {
+          "key": "refresh",
+          "value": "",
+          "description": "refresh parameter",
+          "disabled": false
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "manageorders.js",
+      "lineNumber": 555
     },
     {
       "method": "GET",
