@@ -309,7 +309,7 @@ console.log('✓ File upload routes loaded');
 // ManageOrders Routes (with rate limiting)
 const manageOrdersLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
-  max: 10, // Max 10 requests per minute
+  max: 30, // Max 30 requests per minute (increased from 10 due to caching)
   message: {
     error: 'Too many requests to ManageOrders endpoints',
     retryAfter: '60 seconds'
@@ -321,7 +321,7 @@ const manageOrdersLimiter = rateLimit({
 });
 const manageOrdersRoutes = require('./src/routes/manageorders');
 app.use('/api', manageOrdersLimiter, manageOrdersRoutes);
-console.log('✓ ManageOrders routes loaded (rate limited: 10 req/min)');
+console.log('✓ ManageOrders routes loaded (rate limited: 30 req/min)');
 
 // --- Enhanced Error Handling Middleware ---
 app.use((err, req, res, next) => {
