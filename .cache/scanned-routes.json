@@ -1,6 +1,6 @@
 {
-  "scannedAt": "2025-10-23T18:07:05.927Z",
-  "totalEndpoints": 129,
+  "scannedAt": "2025-10-26T15:55:13.233Z",
+  "totalEndpoints": 131,
   "endpoints": [
     {
       "method": "GET",
@@ -994,6 +994,35 @@
       "requestBody": null,
       "sourceFile": "inventory.js",
       "lineNumber": 35
+    },
+    {
+      "method": "GET",
+      "path": "/manageorders/customers",
+      "fullPath": "/api/manageorders/customers",
+      "category": "📋 General",
+      "description": "GET /api/manageorders/customers  Fetches unique customers from ManageOrders based on orders from the last 60 days.  Query Parameters: - refresh (boolean): Force refresh of cached data (default: false)  Response: { \"customers\": [...], \"cached\": true/false, \"cacheDate\": \"2025-10-26\", \"count\": 383 }",
+      "queryParams": [
+        {
+          "key": "refresh",
+          "value": "",
+          "description": "refresh parameter",
+          "disabled": false
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "manageorders.js",
+      "lineNumber": 33
+    },
+    {
+      "method": "GET",
+      "path": "/manageorders/cache-info",
+      "fullPath": "/api/manageorders/cache-info",
+      "category": "📋 General",
+      "description": "GET /api/manageorders/cache-info  Returns information about the current cache state (for debugging).",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "manageorders.js",
+      "lineNumber": 111
     },
     {
       "method": "GET",
