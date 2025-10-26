@@ -315,7 +315,9 @@ const manageOrdersLimiter = rateLimit({
     retryAfter: '60 seconds'
   },
   standardHeaders: true,
-  legacyHeaders: false
+  legacyHeaders: false,
+  // Trust Heroku's proxy
+  trustProxy: true
 });
 const manageOrdersRoutes = require('./src/routes/manageorders');
 app.use('/api', manageOrdersLimiter, manageOrdersRoutes);
