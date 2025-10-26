@@ -2,6 +2,7 @@
 
 const express = require('express');
 const axios = require('axios');
+const rateLimit = require('express-rate-limit');
 const config = require('./config'); // Use unified configuration
 
 const app = express();
@@ -304,6 +305,21 @@ console.log('✓ DTG routes loaded');
 const filesRoutes = require('./src/routes/files-simple');
 app.use('/api', filesRoutes);
 console.log('✓ File upload routes loaded');
+
+// ManageOrders Routes (with rate limiting)
+const manageOrdersLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 10, // Max 10 requests per minute
+  message: {
+    error: 'Too many requests to ManageOrders endpoints',
+    retryAfter: '60 seconds'
+  },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+const manageOrdersRoutes = require('./src/routes/manageorders');
+app.use('/api', manageOrdersLimiter, manageOrdersRoutes);
+console.log('✓ ManageOrders routes loaded (rate limited: 10 req/min)');
 
 // --- Enhanced Error Handling Middleware ---
 app.use((err, req, res, next) => {

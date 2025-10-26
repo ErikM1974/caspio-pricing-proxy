@@ -46,6 +46,16 @@ const config = {
   logging: {
     enabled: true,
     level: process.env.LOG_LEVEL || 'info'
+  },
+
+  // ManageOrders API configuration
+  manageOrders: {
+    baseUrl: 'https://manageordersapi.com/v1',
+    username: process.env.MANAGEORDERS_USERNAME,
+    password: process.env.MANAGEORDERS_PASSWORD,
+    tokenCacheDuration: 3600000, // 1 hour in milliseconds
+    customerCacheDuration: 86400000, // 1 day in milliseconds
+    defaultDaysBack: 60 // Default to 60 days of orders
   }
 };
 

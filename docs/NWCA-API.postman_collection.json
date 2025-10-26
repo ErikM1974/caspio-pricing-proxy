@@ -4020,6 +4020,54 @@
 			"description": "",
 			"item": [
 				{
+					"name": "Get Manageorders Customers",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/manageorders/customers?refresh=",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"manageorders",
+								"customers"
+							],
+							"query": [
+								{
+									"key": "refresh",
+									"value": "",
+									"description": "refresh parameter",
+									"disabled": false
+								}
+							]
+						},
+						"description": "GET /api/manageorders/customers  Fetches unique customers from ManageOrders based on orders from the last 60 days.  Query Parameters: - refresh (boolean): Force refresh of cached data (default: false)  Response: { \"customers\": [...], \"cached\": true/false, \"cacheDate\": \"2025-10-26\", \"count\": 383 }"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Manageorders Cache Info",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/manageorders/cache-info",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"manageorders",
+								"cache-info"
+							]
+						},
+						"description": "GET /api/manageorders/cache-info  Returns information about the current cache state (for debugging)."
+					},
+					"response": []
+				},
+				{
 					"name": "Get Quote_analytics",
 					"request": {
 						"method": "GET",
