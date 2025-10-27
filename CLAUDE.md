@@ -1,6 +1,7 @@
 ## Memories
 
 - **ManageOrders Integration** - Customer data API proxy with caching ([Full Documentation](memory/MANAGEORDERS_INTEGRATION.md))
+- **ManageOrders PUSH API** - Send orders TO OnSite ERP with auto-import ([Full Documentation](memory/MANAGEORDERS_PUSH_INTEGRATION.md))
 - Art_Request Invoice
 
 ## Local Development Setup
@@ -233,39 +234,147 @@ GET /api/order-dashboard?days=30&includeDetails=true
 GET /api/order-dashboard?compareYoY=true
 ```
 
-### ManageOrders Customer Data API
+### ManageOrders API - Complete ERP Integration ⭐
 
-See **[ManageOrders Integration Guide](memory/MANAGEORDERS_INTEGRATION.md)** for complete documentation.
+**Version 1.3.0** - See **[ManageOrders Integration Guide](memory/MANAGEORDERS_INTEGRATION.md)** for complete documentation.
 
-**Currently Implemented:**
-- `/api/manageorders/customers` - Get unique customers from last 60 days
+**11 Endpoints Now Available** (v1.3.0 - Added 9 new endpoints):
+
+**Customers (2 endpoints):**
+- `/api/manageorders/customers` - Unique customers from last 60 days (24hr cache)
 - `/api/manageorders/cache-info` - Cache status (debug)
 
-**Features:**
-- 1-hour token cache, 1-day customer cache
-- Rate limiting: 10 requests/minute
-- Automatic customer deduplication
-- Phone number cleaning (removes "W ", "C" prefixes)
-- Environment-based credentials (server-side only, never exposed)
+**Orders (3 endpoints):**
+- `/api/manageorders/orders` - Query by date range (1hr cache)
+- `/api/manageorders/orders/:order_no` - Get specific order (24hr cache)
+- `/api/manageorders/getorderno/:ext_order_id` - Map external IDs (24hr cache)
 
-**Live Endpoint:**
+**Line Items (1 endpoint):**
+- `/api/manageorders/lineitems/:order_no` - Full order details (24hr cache)
+
+**Payments (2 endpoints):**
+- `/api/manageorders/payments` - Query by date range (1hr cache)
+- `/api/manageorders/payments/:order_no` - Get order payments (24hr cache)
+
+**Tracking (2 endpoints):**
+- `/api/manageorders/tracking` - Query by date range (15min cache)
+- `/api/manageorders/tracking/:order_no` - Get order tracking (15min cache)
+
+**Inventory (1 endpoint):** ⭐ CRITICAL FOR WEBSTORE
+- `/api/manageorders/inventorylevels` - Real-time stock levels (5min cache)
+
+**Key Features:**
+- Smart multi-level caching (5min to 24hr based on data type)
+- Rate limiting: 30 requests/minute
+- Empty arrays for "not found" (200 status, not 404)
+- All endpoints support `?refresh=true` for cache bypass
+- Parameter-aware caching (different params = different cache)
+- Environment-based credentials (server-side only)
+
+**Critical Endpoints for Webstore:**
+1. **Inventory Levels** - Real-time stock availability
+2. **Order Lookup** - Customer self-service order tracking
+3. **Tracking** - Shipment status and carrier info
+4. **Line Items** - Order details and product information
+
+**Live Endpoints (Production):**
 ```bash
-# Production URL
-https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/manageorders/customers
+# Base URL
+BASE_URL="https://caspio-pricing-proxy-ab30a049961a.herokuapp.com"
 
-# Force cache refresh
-https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/manageorders/customers?refresh=true
+# Inventory - Check stock for PC54
+$BASE_URL/api/manageorders/inventorylevels?PartNumber=PC54
+
+# Orders - Get October orders
+$BASE_URL/api/manageorders/orders?date_Ordered_start=2025-10-01&date_Ordered_end=2025-10-31
+
+# Order Details - Get specific order
+$BASE_URL/api/manageorders/orders/138145
+
+# Line Items - Get order products
+$BASE_URL/api/manageorders/lineitems/138145
+
+# Tracking - Get shipment status
+$BASE_URL/api/manageorders/tracking/138152
+
+# Customers - Get customer list
+$BASE_URL/api/manageorders/customers
 ```
 
-**Future Endpoints Available:**
-See [ManageOrders API Specification](memory/MANAGEORDERS_API_SPEC.yaml) for full API including:
-- Orders (by date range, order number, external ID)
-- Line Items (by order number)
-- Payments (web and on-site)
-- Tracking (shipment tracking numbers)
-- Inventory Levels (stock quantities)
+**Documentation:**
+- [Integration Guide](memory/MANAGEORDERS_INTEGRATION.md) - All 11 endpoints with examples
+- [API Specification](memory/MANAGEORDERS_API_SPEC.yaml) - Complete Swagger spec
+- [API Changelog](memory/API_CHANGELOG.md) - Version 1.3.0 details
+
+### ManageOrders PUSH API - Send Orders TO OnSite ⭐ NEW
+
+**Version 1.0.1** - See **[ManageOrders PUSH Integration Guide](memory/MANAGEORDERS_PUSH_INTEGRATION.md)** for complete documentation.
+
+**Purpose:** Send orders FROM our webstore/applications directly TO ShopWorks OnSite for production
+
+**3 Endpoints Available:**
+
+1. **Create Order** - `POST /api/manageorders/orders/create`
+   - Push new orders to OnSite ERP
+   - Auto-imported hourly into OnSite Order Entry
+   - Automatic date formatting (YYYY-MM-DD → MM/DD/YYYY)
+   - Size translation (L → LG in OnSite)
+   - Test order support (adds "TEST-" prefix)
+
+2. **Verify Order** - `GET /api/manageorders/orders/verify/:extOrderId`
+   - Confirm order was received by ManageOrders
+   - Check upload status
+
+3. **Test Auth** - `POST /api/manageorders/auth/test`
+   - Verify credentials and connectivity
+   - Test before pushing live orders
+
+**Key Features:**
+- ✅ **Automatic Date Conversion** - YYYY-MM-DD → MM/DD/YYYY (v1.0.1 fix)
+- ✅ **Size Translation** - Webstore sizes → OnSite size columns
+- ✅ **Customer Tracking** - All orders → Customer #2791, actual customer in Contact fields
+- ✅ **Hourly Auto-Import** - Orders appear in OnSite within 1 hour
+- ✅ **Design Support** - Upload thumbnails via ImageURL
+- ✅ **Payment Integration** - Send payment status/details
+- ✅ **Full Validation** - Clear error messages for invalid data
+
+**Quick Example:**
+```bash
+# Push a test order
+curl -X POST https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/manageorders/orders/create \
+  -H "Content-Type: application/json" \
+  -d '{
+    "orderNumber": "001",
+    "isTest": true,
+    "orderDate": "2025-10-27",
+    "customer": {
+      "firstName": "John",
+      "lastName": "Doe",
+      "email": "john@example.com"
+    },
+    "lineItems": [{
+      "partNumber": "PC54",
+      "color": "Red",
+      "size": "L",
+      "quantity": 12,
+      "price": 8.50
+    }],
+    "shipping": {
+      "address1": "123 Main St",
+      "city": "Seattle",
+      "state": "WA",
+      "zip": "98101"
+    }
+  }'
+```
+
+**Important Notes:**
+- **Dates:** Send in YYYY-MM-DD format (automatically converted to MM/DD/YYYY)
+- **ExtOrderID:** Generated as `NWCA-{orderNumber}` or `NWCA-TEST-{orderNumber}` for test orders
+- **Customer:** All orders assigned to Customer #2791, actual customer info in Contact fields
+- **OnSite Import:** Orders auto-imported hourly (check "Last Server Import" in OnSite)
 
 **Documentation:**
-- [Integration Guide](memory/MANAGEORDERS_INTEGRATION.md) - Complete implementation guide
-- [API Specification](memory/MANAGEORDERS_API_SPEC.yaml) - Swagger/OpenAPI spec
-- [API Changelog](memory/API_CHANGELOG.md) - Version 1.2.0 details
+- [PUSH API Integration Guide](memory/MANAGEORDERS_PUSH_INTEGRATION.md) - Complete docs with examples
+- [Test Scenarios](examples/push-api/test-scenarios.md) - 10 test cases
+- [Example Orders](examples/push-api/) - minimal-order.json, complete-order.json

@@ -1,0 +1,112 @@
+{
+  "orderNumber": "12345",
+  "orderDate": "2025-10-27",
+  "requestedShipDate": "2025-11-01",
+  "dropDeadDate": "2025-11-05",
+  "purchaseOrderNumber": "PO-2025-001",
+  "salesRep": "Jane Smith",
+  "customer": {
+    "firstName": "John",
+    "lastName": "Doe",
+    "email": "john.doe@example.com",
+    "phone": "360-555-1234",
+    "company": "ABC Company"
+  },
+  "shipping": {
+    "company": "ABC Company",
+    "address1": "123 Main Street",
+    "address2": "Suite 100",
+    "city": "Seattle",
+    "state": "WA",
+    "zip": "98101",
+    "country": "USA",
+    "method": "UPS Ground"
+  },
+  "lineItems": [
+    {
+      "partNumber": "PC54",
+      "description": "Port & Company Core Cotton Tee",
+      "color": "Red",
+      "size": "L",
+      "quantity": 24,
+      "price": 8.50,
+      "notes": "Left chest logo",
+      "workOrderNotes": "Use red thread for logo"
+    },
+    {
+      "partNumber": "PC54",
+      "description": "Port & Company Core Cotton Tee",
+      "color": "Navy",
+      "size": "XL",
+      "quantity": 12,
+      "price": 8.50
+    },
+    {
+      "partNumber": "PC54",
+      "description": "Port & Company Core Cotton Tee",
+      "color": "Red",
+      "size": "2XL",
+      "quantity": 6,
+      "price": 9.50
+    },
+    {
+      "partNumber": "PC54",
+      "description": "Port & Company Core Cotton Tee - Player #12",
+      "color": "Red",
+      "size": "M",
+      "quantity": 1,
+      "price": 8.50,
+      "playerName": {
+        "first": "Mike",
+        "last": "Johnson"
+      },
+      "notes": "Player #12 - back number"
+    }
+  ],
+  "designs": [
+    {
+      "name": "Team Logo",
+      "externalId": "DESIGN-001",
+      "imageUrl": "https://example.com/designs/team-logo.jpg",
+      "locations": [
+        {
+          "location": "Left Chest",
+          "colors": "2",
+          "notes": "3 inch logo, red and white"
+        },
+        {
+          "location": "Full Back",
+          "colors": "3",
+          "notes": "12 inch design"
+        }
+      ]
+    }
+  ],
+  "payments": [
+    {
+      "date": "2025-10-27",
+      "amount": 255.00,
+      "status": "success",
+      "gateway": "Stripe",
+      "authCode": "ch_1234567890abcdef",
+      "accountNumber": "****4242",
+      "cardCompany": "Visa",
+      "responseCode": "approved",
+      "feeProcessing": 7.65
+    }
+  ],
+  "notes": [
+    {
+      "type": "Notes On Order",
+      "text": "Customer requested rush production for tournament next week"
+    },
+    {
+      "type": "Notes To Production",
+      "text": "Use premium red thread for logo. Customer is VIP - ensure quality."
+    },
+    {
+      "type": "Notes To Shipping",
+      "text": "Ship via UPS Ground - signature required"
+    }
+  ]
+}

@@ -4020,6 +4020,87 @@
 			"description": "",
 			"item": [
 				{
+					"name": "Create Orders Create",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/orders/create",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"orders",
+								"create"
+							]
+						},
+						"description": "Create a new create record"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Orders Verify",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/orders/verify/:extOrderId",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"orders",
+								"verify",
+								":extOrderId"
+							]
+						},
+						"description": "GET /api/manageorders/orders/verify/:extOrderId  Verify that an order was received by ManageOrders  Parameters: extOrderId - External order ID (e.g., \"NWCA-12345\")  Response: { \"success\": true, \"found\": true, \"extOrderId\": \"NWCA-12345\", \"uploadedAt\": \"2025-10-27\", \"orderData\": {...} }"
+					},
+					"response": []
+				},
+				{
+					"name": "Create Auth Test",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/test",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"test"
+							]
+						},
+						"description": "POST /api/manageorders/auth/test  Test authentication with ManageOrders PUSH API  Response: { \"success\": true, \"message\": \"Authentication successful\", \"tokenExpires\": \"2025-10-27T11:30:00Z\" }"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Push Health",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/push/health",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"push",
+								"health"
+							]
+						},
+						"description": "GET /api/manageorders/push/health  Health check endpoint for PUSH API functionality"
+					},
+					"response": []
+				},
+				{
 					"name": "Get Manageorders Customers",
 					"request": {
 						"method": "GET",
@@ -4764,6 +4845,21 @@
 					"response": []
 				},
 				{
+					"name": "📖 API Quick Reference",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "",
+							"host": [
+								""
+							]
+						},
+						"description": "# ManageOrders API Quick Reference\n\n## 📅 Date Formats\n\nAll date parameters accept these formats:\n- **ISO Date:** `2025-10-01` (recommended)\n- **ISO DateTime:** `2025-10-01T00:00:00`\n- **ISO with Timezone:** `2025-10-01T00:00:00-07:00`\n\n### Example Date Ranges:\n```\nToday's orders:\ndate_Ordered_start=2025-10-26&date_Ordered_end=2025-10-26\n\nLast 7 days:\ndate_Ordered_start=2025-10-19&date_Ordered_end=2025-10-26\n\nCurrent month:\ndate_Ordered_start=2025-10-01&date_Ordered_end=2025-10-31\n```\n\n---\n\n## 🔍 Available Date Fields\n\n### Orders Endpoint\n- `date_Ordered` - When customer placed order\n- `date_Invoiced` - When order was invoiced\n- `date_Shipped` - When order was shipped\n- `date_Produced` - When order was produced\n- `date_RequestedToShip` - Requested ship date\n\n### Payments Endpoint\n- `date_PaymentApplied` - When payment was applied\n\n### Tracking Endpoint\n- `date_Creation` - When tracking was created\n- `date_Imported` - When tracking was imported\n\n**Usage:** Add `_start` and `_end` suffix for ranges\n- Example: `date_Invoiced_start=2025-10-01&date_Invoiced_end=2025-10-31`\n\n---\n\n## 🎯 Common Query Patterns\n\n### Get Recent Orders\n```\nGET /api/manageorders/orders?date_Invoiced_start=2025-10-01&date_Invoiced_end=2025-10-26\n```\n\n### Check Product Inventory\n```\nGET /api/manageorders/inventorylevels?PartNumber=PC54\n```\n\n### Get Order Details\n```\nGET /api/manageorders/orders/138145\n```\n\n### Get Order Line Items\n```\nGET /api/manageorders/lineitems/138145\n```\n\n### Get Order Tracking\n```\nGET /api/manageorders/tracking/138152\n```\n\n### Force Cache Refresh\n```\nAdd ?refresh=true to any endpoint\nExample: /api/manageorders/customers?refresh=true\n```\n\n---\n\n## 📦 Inventory Filters\n\n`GET /api/manageorders/inventorylevels` supports:\n- `PartNumber` - Product part number (e.g., \"PC54\")\n- `Color` - Specific color name\n- `ColorRange` - Color range filter\n- `SKU` - Product SKU\n- `VendorName` - Vendor (e.g., \"SANMAR\")\n- `date_Modification_start/end` - Recently updated inventory\n\n**Example:** `?PartNumber=PC54&VendorName=SANMAR`\n\n---\n\n## ⚡ Cache Durations\n\n| Endpoint | Cache | Why |\n|----------|-------|-----|\n| Inventory | 5 min | Real-time stock critical |\n| Tracking | 15 min | Updates during shipping |\n| Orders (queries) | 1 hour | Intraday changes |\n| Orders (by ID) | 24 hours | Historical data |\n| Line Items | 24 hours | Historical data |\n| Payments | 1 hour (queries), 24 hours (by ID) | Same as orders |\n| Customers | 24 hours | Changes slowly |\n\n---\n\n## 📝 Response Format\n\nAll endpoints return:\n```json\n{\n  \"result\": [...],     // Array of results (empty array if not found)\n  \"count\": 5,          // Number of results\n  \"cached\": true       // Whether response was cached\n}\n```\n\n**Not Found:** Returns empty array with 200 status (not 404)\n```json\n{\n  \"result\": [],\n  \"count\": 0,\n  \"cached\": false\n}\n```\n\n---\n\n## 🔑 Real Test Data\n\n**Order Numbers:**\n- 138145 - Order with line items\n- 138146 - Order with payment\n- 138152 - Order with tracking\n\n**Part Numbers:**\n- PC54 - Port & Company Core Cotton Tee\n- PC61 - Port & Company Essential Tee\n\n**Date Range:**\n- 2025-10-01 to 2025-10-26 (Current month)\n\n---\n\n## 🎨 Size Fields\n\nLine items and inventory use Size01-06:\n- Size01 = XS\n- Size02 = S\n- Size03 = M\n- Size04 = L\n- Size05 = XL\n- Size06 = 2XL\n\n(Note: Actual size meanings may vary by product)\n\n---\n\n## 🚀 Getting Started\n\n1. **Check Inventory:** Start with `/api/manageorders/inventorylevels?PartNumber=PC54`\n2. **Get Recent Orders:** Try `/api/manageorders/orders?date_Invoiced_start=2025-10-01&date_Invoiced_end=2025-10-26`\n3. **Look Up Order:** Use a real order number like `/api/manageorders/orders/138145`\n4. **Get Line Items:** `/api/manageorders/lineitems/138145`\n5. **Check Tracking:** `/api/manageorders/tracking/138152`\n\n**All examples in this collection use real data and will work immediately!**"
+					},
+					"response": []
+				},
+				{
 					"name": "Get Customers (Last 60 Days)",
 					"request": {
 						"method": "GET",
@@ -4786,7 +4882,7 @@
 								}
 							]
 						},
-						"description": "**Get Unique Customers from Last 60 Days of Orders**\n\nFetches and deduplicates customers based on orders placed in the last 60 days.\n\n**Features:**\n- ✅ Automatic deduplication by customer ID\n- ✅ Phone number cleaning (removes 'W ' and 'C ' prefixes)\n- ✅ Sorted alphabetically by customer name\n- ✅ 24-hour cache (configurable)\n- ✅ Rate limited (10 requests/minute)\n\n**Query Parameters:**\n- `refresh` (boolean, optional): Force cache refresh. Default: false\n\n**Response:**\n```json\n{\n  \"customers\": [\n    {\n      \"id_Customer\": 12279,\n      \"CustomerName\": \"Washington State Housing Finance Commission\",\n      \"ContactFirstName\": \"Tera\",\n      \"ContactLastName\": \"Ahlborn\",\n      \"ContactEmail\": \"Tera.Ahlborn@wshfc.org\",\n      \"ContactPhone\": \"206-287-4470\",\n      \"ContactDepartment\": \"Marketing\",\n      \"CustomerServiceRep\": \"Nika Lao\",\n      \"lastOrderDate\": \"2025-10-01T00:00:00.000Z\"\n    }\n  ],\n  \"cached\": true,\n  \"cacheDate\": \"2025-10-26\",\n  \"count\": 389\n}\n```\n\n**Performance:**\n- Initial load: ~2.3s (912 orders → 389 customers)\n- Cached response: <100ms\n- Cache duration: 24 hours"
+						"description": "**Get Unique Customers from Last 60 Days of Orders**\n\nFetches and deduplicates customers based on orders placed in the last 60 days.\n\n**Features:**\n- ✅ Automatic deduplication by customer ID\n- ✅ Phone number cleaning (removes 'W ' and 'C ' prefixes)\n- ✅ Sorted alphabetically by customer name\n- ✅ 24-hour cache\n- ✅ Rate limited (30 requests/minute)\n\n**Query Parameters:**\n- `refresh` (boolean, optional): Force cache refresh. Default: false\n\n**Example Usage:**\n```\n# Get customers (uses cache)\nGET /api/manageorders/customers\n\n# Force refresh\nGET /api/manageorders/customers?refresh=true\n```\n\n**Response:**\n```json\n{\n  \"customers\": [\n    {\n      \"id_Customer\": 12279,\n      \"CustomerName\": \"Washington State Housing Finance Commission\",\n      \"ContactFirstName\": \"Tera\",\n      \"ContactLastName\": \"Ahlborn\",\n      \"ContactEmail\": \"Tera.Ahlborn@wshfc.org\",\n      \"ContactPhone\": \"206-287-4470\",\n      \"CustomerServiceRep\": \"Nika Lao\",\n      \"lastOrderDate\": \"2025-10-01T00:00:00.000Z\"\n    }\n  ],\n  \"cached\": true,\n  \"cacheDate\": \"2025-10-26\",\n  \"count\": 389\n}\n```\n\n**Performance:**\n- Initial load: ~2.3s (912 orders → 389 customers)\n- Cached response: <100ms"
 					},
 					"response": []
 				},
@@ -4804,9 +4900,356 @@
 								"api",
 								"manageorders",
 								"cache-info"
+							],
+							"query": []
+						},
+						"description": "**Debug Endpoint - Cache Status**\n\nReturns detailed information about the customer cache state.\n\n**Use Cases:**\n- Check if cache is working\n- See when cache was last refreshed\n- Determine when cache will expire\n- Debug caching issues\n\n**Response:**\n```json\n{\n  \"cacheExists\": true,\n  \"cacheValid\": true,\n  \"cacheTimestamp\": \"2025-10-26T15:50:18.000Z\",\n  \"cacheAgeMs\": 300000,\n  \"cacheAgeMinutes\": 5,\n  \"cacheDurationMs\": 86400000,\n  \"customerCount\": 389\n}\n```"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Orders (by Date Range)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/manageorders/orders?refresh=",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"manageorders",
+								"orders"
+							],
+							"query": [
+								{
+									"key": "refresh",
+									"value": "",
+									"description": "Force cache refresh (true/false)",
+									"disabled": true
+								},
+								{
+									"key": "date_Invoiced_start",
+									"value": "2025-10-01",
+									"description": "Start date (YYYY-MM-DD)",
+									"disabled": false
+								},
+								{
+									"key": "date_Invoiced_end",
+									"value": "2025-10-26",
+									"description": "End date (YYYY-MM-DD)",
+									"disabled": false
+								}
 							]
 						},
-						"description": "**Debug Endpoint - Cache Status**\n\nReturns detailed information about the customer cache state.\n\n**Response:**\n```json\n{\n  \"cacheExists\": true,\n  \"cacheValid\": true,\n  \"cacheTimestamp\": \"2025-10-26T15:50:18.000Z\",\n  \"cacheAgeMs\": 300000,\n  \"cacheAgeMinutes\": 5,\n  \"cacheDurationMs\": 86400000,\n  \"customerCount\": 389\n}\n```\n\n**Use this to:**\n- Check if cache is working\n- See when cache was last refreshed\n- Determine when cache will expire\n- Debug caching issues"
+						"description": "**Query Orders by Date Range** ⏰ Cache: 1 hour\n\nFetch orders using multiple date filter options.\n\n**Available Date Fields:**\n- `date_Ordered` - When customer placed order\n- `date_Invoiced` - When order was invoiced ⭐ (most common)\n- `date_Shipped` - When order was shipped\n- `date_Produced` - When order was produced\n- `date_RequestedToShip` - Requested ship date\n\n**Date Format:** `YYYY-MM-DD` or `YYYY-MM-DDTHH:MM:SS`\n\n**Query Parameters:**\n- `date_[Field]_start` - Start of date range\n- `date_[Field]_end` - End of date range\n- `id_Customer` - Filter by specific customer ID\n- `refresh` (boolean) - Force cache refresh\n\n**Example Queries:**\n```\n# Get orders invoiced in October\n?date_Invoiced_start=2025-10-01&date_Invoiced_end=2025-10-31\n\n# Get orders shipped last week\n?date_Shipped_start=2025-10-19&date_Shipped_end=2025-10-26\n\n# Get orders for specific customer\n?date_Ordered_start=2025-10-01&date_Ordered_end=2025-10-26&id_Customer=12279\n```\n\n**Response:**\n```json\n{\n  \"result\": [\n    {\n      \"id_Order\": 138145,\n      \"id_Customer\": 12279,\n      \"CustomerName\": \"ABC Company\",\n      \"date_Ordered\": \"2025-10-15T00:00:00.000Z\",\n      \"date_Invoiced\": \"2025-10-16T00:00:00.000Z\",\n      \"cur_TotalInvoice\": 1250.00,\n      \"sts_Shipped\": true\n      // ... more fields\n    }\n  ],\n  \"count\": 24,\n  \"cached\": false\n}\n```\n\n**Performance:** ~2 seconds for 24 orders, <100ms when cached"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Order (by Order Number)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/manageorders/orders/138145?refresh=",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"manageorders",
+								"orders",
+								"138145"
+							],
+							"query": [
+								{
+									"key": "refresh",
+									"value": "",
+									"description": "Force cache refresh (true/false)",
+									"disabled": true
+								}
+							],
+							"variable": [
+								{
+									"key": "order_no",
+									"value": "138145",
+									"description": "Example order_no"
+								}
+							]
+						},
+						"description": "**Get Specific Order Details** ⏰ Cache: 24 hours\n\nFetch complete information for a single order by order number.\n\n**URL Parameter:**\n- `:order_no` - ManageOrders order number (e.g., 138145)\n\n**Use Cases:**\n- Order status page\n- \"Track My Order\" feature\n- Customer self-service portal\n- Order lookup\n\n**Example:**\n```\nGET /api/manageorders/orders/138145\n```\n\n**Response:**\n```json\n{\n  \"result\": [\n    {\n      \"id_Order\": 138145,\n      \"id_Customer\": 12279,\n      \"CustomerName\": \"ABC Company\",\n      \"ContactEmail\": \"customer@example.com\",\n      \"date_Ordered\": \"2025-10-15T00:00:00.000Z\",\n      \"date_Invoiced\": \"2025-10-16T00:00:00.000Z\",\n      \"date_Shipped\": \"2025-10-18T00:00:00.000Z\",\n      \"cur_TotalInvoice\": 1250.00,\n      \"cur_Balance\": 0.00,\n      \"sts_Shipped\": true,\n      \"CustomerServiceRep\": \"Nika Lao\"\n      // ... more fields\n    }\n  ],\n  \"count\": 1,\n  \"cached\": true\n}\n```\n\n**Note:** Returns array with single order, or empty array if not found\n\n**Performance:** <1 second, <100ms when cached"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Order Number (by External ID)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/manageorders/getorderno/SHOP-12345?refresh=",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"manageorders",
+								"getorderno",
+								"SHOP-12345"
+							],
+							"query": [
+								{
+									"key": "refresh",
+									"value": "",
+									"description": "Force cache refresh (true/false)",
+									"disabled": true
+								}
+							],
+							"variable": [
+								{
+									"key": "ext_order_id",
+									"value": "SHOP-12345",
+									"description": "Example ext_order_id"
+								}
+							]
+						},
+						"description": "**Map External Order ID to ManageOrders Order Number** ⏰ Cache: 24 hours\n\nConverts external system order IDs (Shopify, WooCommerce, etc.) to ManageOrders order numbers.\n\n**URL Parameter:**\n- `:ext_order_id` - External order ID from your system\n\n**Use Cases:**\n- Integration with e-commerce platforms\n- Order synchronization\n- Cross-system order lookup\n- API integrations\n\n**Example:**\n```\nGET /api/manageorders/getorderno/SHOP-12345\n```\n\n**Response:**\n```json\n{\n  \"result\": [\n    {\n      \"id_Order\": 138145,\n      \"ext_OrderId\": \"SHOP-12345\"\n    }\n  ],\n  \"count\": 1,\n  \"cached\": true\n}\n```\n\n**Workflow:**\n1. Customer places order on your webstore (gets external ID)\n2. Order syncs to ManageOrders (gets ManageOrders order number)\n3. Use this endpoint to map external ID → ManageOrders order number\n4. Use that number with other endpoints\n\n**Note:** Returns empty array if external ID not found"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Line Items (for Order)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/manageorders/lineitems/138145?refresh=",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"manageorders",
+								"lineitems",
+								"138145"
+							],
+							"query": [
+								{
+									"key": "refresh",
+									"value": "",
+									"description": "Force cache refresh (true/false)",
+									"disabled": true
+								}
+							],
+							"variable": [
+								{
+									"key": "order_no",
+									"value": "138145",
+									"description": "Example order_no"
+								}
+							]
+						},
+						"description": "**Get Order Line Items (Products, Quantities, Pricing)** ⏰ Cache: 24 hours\n\nFetch detailed line items for a specific order, including products, sizes, and pricing.\n\n**URL Parameter:**\n- `:order_no` - ManageOrders order number\n\n**Use Cases:**\n- Display order contents\n- Show product breakdown\n- Size distribution\n- Pricing details\n- Custom fields (decoration info)\n\n**Example:**\n```\nGET /api/manageorders/lineitems/138145\n```\n\n**Response:**\n```json\n{\n  \"result\": [\n    {\n      \"id_OrderLine\": 234567,\n      \"id_Order\": 138145,\n      \"PartNumber\": \"PC54\",\n      \"PartDescription\": \"Port & Company Core Cotton Tee\",\n      \"PartColor\": \"Jet Black\",\n      \"Size01\": 0,   // XS quantity\n      \"Size02\": 2,   // S quantity\n      \"Size03\": 5,   // M quantity\n      \"Size04\": 8,   // L quantity\n      \"Size05\": 3,   // XL quantity\n      \"Size06\": 0,   // 2XL quantity\n      \"LineQuantity\": 18,\n      \"LineUnitPrice\": 12.50,\n      \"LinePrice\": 225.00,\n      \"Custom01\": \"Left Chest Logo\",\n      \"Custom02\": \"3x3 inches\",\n      \"Custom03\": \"Thread color: White\"\n      // ... more fields\n    }\n  ],\n  \"count\": 2,\n  \"cached\": true\n}\n```\n\n**Size Fields:**\n- Size01 through Size06 represent different sizes (typically XS through 2XL)\n- Actual size labels may vary by product\n- Total quantity = Sum of all size fields\n\n**Performance:** <1 second, <100ms when cached"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Payments (by Date Range)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/manageorders/payments?refresh=",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"manageorders",
+								"payments"
+							],
+							"query": [
+								{
+									"key": "refresh",
+									"value": "",
+									"description": "Force cache refresh (true/false)",
+									"disabled": true
+								},
+								{
+									"key": "date_PaymentApplied_start",
+									"value": "2025-10-01",
+									"description": "Start date (YYYY-MM-DD)",
+									"disabled": false
+								},
+								{
+									"key": "date_PaymentApplied_end",
+									"value": "2025-10-26",
+									"description": "End date (YYYY-MM-DD)",
+									"disabled": false
+								}
+							]
+						},
+						"description": "**Query Payments by Date Range** ⏰ Cache: 1 hour\n\nFetch payment transactions for a date range.\n\n**Query Parameters:**\n- `date_PaymentApplied_start` - Start date (YYYY-MM-DD)\n- `date_PaymentApplied_end` - End date (YYYY-MM-DD)\n- `refresh` (boolean) - Force cache refresh\n\n**Use Cases:**\n- Payment reports\n- Cash flow analysis\n- Accounting reconciliation\n- Payment history\n\n**Example:**\n```\n# Get October payments\nGET /api/manageorders/payments?date_PaymentApplied_start=2025-10-01&date_PaymentApplied_end=2025-10-31\n```\n\n**Response:**\n```json\n{\n  \"result\": [\n    {\n      \"id_Payment\": 56789,\n      \"id_Order\": 138146,\n      \"PaymentAmount\": 500.00,\n      \"PaymentMethod\": \"Credit Card\",\n      \"date_PaymentApplied\": \"2025-10-16T14:30:00.000Z\",\n      \"PaymentSource\": \"Web\"\n      // ... more fields\n    }\n  ],\n  \"count\": 15,\n  \"cached\": false\n}\n```\n\n**Payment Sources:**\n- \"Web\" - Online payments\n- \"OnSite\" - Payments entered in OnSite system"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Payments (for Order)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/manageorders/payments/138146?refresh=",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"manageorders",
+								"payments",
+								"138146"
+							],
+							"query": [
+								{
+									"key": "refresh",
+									"value": "",
+									"description": "Force cache refresh (true/false)",
+									"disabled": true
+								}
+							],
+							"variable": [
+								{
+									"key": "order_no",
+									"value": "138146",
+									"description": "Example order_no"
+								}
+							]
+						},
+						"description": "**Get Payments for Specific Order** ⏰ Cache: 24 hours\n\nFetch all payment transactions for a single order.\n\n**URL Parameter:**\n- `:order_no` - ManageOrders order number\n\n**Use Cases:**\n- Order payment history\n- Payment verification\n- Balance calculation\n- Invoice reconciliation\n\n**Example:**\n```\nGET /api/manageorders/payments/138146\n```\n\n**Response:**\n```json\n{\n  \"result\": [\n    {\n      \"id_Payment\": 56789,\n      \"id_Order\": 138146,\n      \"PaymentAmount\": 500.00,\n      \"PaymentMethod\": \"Credit Card\",\n      \"date_PaymentApplied\": \"2025-10-16T14:30:00.000Z\",\n      \"PaymentSource\": \"Web\",\n      \"PaymentNotes\": \"Stripe payment\"\n    }\n  ],\n  \"count\": 1,\n  \"cached\": true\n}\n```\n\n**Note:** An order may have multiple payments if paid in installments\n\n**Calculate Balance:**\n```javascript\nconst totalPaid = payments.reduce((sum, p) => sum + p.PaymentAmount, 0);\nconst balance = order.cur_TotalInvoice - totalPaid;\n```"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Tracking (by Date Range)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/manageorders/tracking?refresh=",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"manageorders",
+								"tracking"
+							],
+							"query": [
+								{
+									"key": "refresh",
+									"value": "",
+									"description": "Force cache refresh (true/false)",
+									"disabled": true
+								},
+								{
+									"key": "date_Creation_start",
+									"value": "2025-10-01",
+									"description": "Start date (YYYY-MM-DD)",
+									"disabled": false
+								},
+								{
+									"key": "date_Creation_end",
+									"value": "2025-10-26",
+									"description": "End date (YYYY-MM-DD)",
+									"disabled": false
+								}
+							]
+						},
+						"description": "**Query Tracking Information by Date Range** ⏰ Cache: 15 minutes\n\nFetch shipment tracking for a date range.\n\n**Available Date Fields:**\n- `date_Creation` - When tracking was created\n- `date_Imported` - When tracking was imported from carrier\n\n**Query Parameters:**\n- `date_[Field]_start` - Start date (YYYY-MM-DD)\n- `date_[Field]_end` - End date (YYYY-MM-DD)\n- `refresh` (boolean) - Force cache refresh\n\n**Use Cases:**\n- Recent shipments report\n- Shipping activity dashboard\n- Carrier performance analysis\n\n**Example:**\n```\n# Get tracking created in last week\nGET /api/manageorders/tracking?date_Creation_start=2025-10-19&date_Creation_end=2025-10-26\n```\n\n**Response:**\n```json\n{\n  \"result\": [\n    {\n      \"id_Tracking\": 12345,\n      \"id_Order\": 138152,\n      \"TrackingNumber\": \"1Z999AA10123456784\",\n      \"Type\": \"UPS\",\n      \"date_Creation\": \"2025-10-18T10:00:00.000Z\",\n      \"AddressCity\": \"Seattle\",\n      \"AddressState\": \"WA\",\n      \"Weight\": 5.2,\n      \"FreightCost\": 12.50\n    }\n  ],\n  \"count\": 8,\n  \"cached\": false\n}\n```\n\n**Cache:** 15 minutes (updates frequently during shipping day)"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Tracking (for Order)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/manageorders/tracking/138152?refresh=",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"manageorders",
+								"tracking",
+								"138152"
+							],
+							"query": [
+								{
+									"key": "refresh",
+									"value": "",
+									"description": "Force cache refresh (true/false)",
+									"disabled": true
+								}
+							],
+							"variable": [
+								{
+									"key": "order_no",
+									"value": "138152",
+									"description": "Example order_no"
+								}
+							]
+						},
+						"description": "**Get Tracking for Specific Order** ⏰ Cache: 15 minutes\n\nFetch shipment tracking information for a single order.\n\n**URL Parameter:**\n- `:order_no` - ManageOrders order number\n\n**Use Cases:**\n- \"Track My Order\" page\n- Shipping confirmation emails\n- Customer self-service\n- Order status updates\n\n**Example:**\n```\nGET /api/manageorders/tracking/138152\n```\n\n**Response:**\n```json\n{\n  \"result\": [\n    {\n      \"id_Tracking\": 12345,\n      \"id_Order\": 138152,\n      \"TrackingNumber\": \"1Z999AA10123456784\",\n      \"Type\": \"UPS\",\n      \"date_Creation\": \"2025-10-18T10:00:00.000Z\",\n      \"AddressName\": \"John Smith\",\n      \"AddressCompany\": \"ABC Corp\",\n      \"AddressLine1\": \"123 Main St\",\n      \"AddressLine2\": \"Suite 100\",\n      \"AddressCity\": \"Seattle\",\n      \"AddressState\": \"WA\",\n      \"AddressZip\": \"98101\",\n      \"Weight\": 5.2,\n      \"FreightCost\": 12.50\n    }\n  ],\n  \"count\": 1,\n  \"cached\": false\n}\n```\n\n**Note:** An order may have multiple tracking numbers if shipped in multiple packages\n\n**Common Carriers:**\n- \"UPS\" - UPS tracking\n- \"FEDEX\" - FedEx tracking\n- \"USPS\" - USPS tracking\n\n**Build Tracking URL:**\n```javascript\nconst trackingUrls = {\n  'UPS': (num) => `https://wwwapps.ups.com/tracking/tracking.cgi?tracknum=${num}`,\n  'FEDEX': (num) => `https://www.fedex.com/fedextrack/?tracknumbers=${num}`,\n  'USPS': (num) => `https://tools.usps.com/go/TrackConfirmAction?tLabels=${num}`\n};\n```\n\n**Cache:** 15 minutes (frequent updates during shipping)"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Inventory Levels",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/manageorders/inventorylevels?refresh=",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"manageorders",
+								"inventorylevels"
+							],
+							"query": [
+								{
+									"key": "refresh",
+									"value": "",
+									"description": "Force cache refresh (true/false)",
+									"disabled": true
+								},
+								{
+									"key": "PartNumber",
+									"value": "PC54",
+									"description": "Product part number (e.g., PC54, PC61)",
+									"disabled": false
+								},
+								{
+									"key": "VendorName",
+									"value": "",
+									"description": "Vendor name (e.g., SANMAR)",
+									"disabled": true
+								},
+								{
+									"key": "Color",
+									"value": "",
+									"description": "Specific color name",
+									"disabled": true
+								}
+							]
+						},
+						"description": "**Get Real-Time Inventory Levels** ⏰ Cache: 5 minutes ⭐ CRITICAL FOR WEBSTORE\n\nFetch current inventory quantities with Size01-06 breakdown.\n\n**Available Filters:**\n- `PartNumber` - Product part number (e.g., \"PC54\")\n- `Color` - Specific color name\n- `ColorRange` - Color range filter\n- `SKU` - Product SKU\n- `VendorName` - Vendor (e.g., \"SANMAR\")\n- `date_Modification_start/end` - Recently updated inventory\n- `refresh` (boolean) - Force cache refresh\n\n**Use Cases:** 🌟\n- Show \"In Stock\" / \"Out of Stock\" on product pages\n- Real-time availability before adding to cart\n- Prevent overselling\n- Display size availability matrix\n- Inventory reports\n\n**Example Queries:**\n```\n# Check stock for specific product\nGET /api/manageorders/inventorylevels?PartNumber=PC54\n\n# Get all SANMAR products\nGET /api/manageorders/inventorylevels?VendorName=SANMAR\n\n# Filter by color\nGET /api/manageorders/inventorylevels?PartNumber=PC54&Color=Jet Black\n```\n\n**Response:**\n```json\n{\n  \"result\": [\n    {\n      \"id_Part\": 12345,\n      \"PartNumber\": \"PC54\",\n      \"PartDescription\": \"Port & Company Core Cotton Tee\",\n      \"Color\": \"Jet Black\",\n      \"SKU\": \"PC54-BLK\",\n      \"VendorName\": \"SANMAR\",\n      \"Size01\": 4,    // XS quantity\n      \"Size02\": 10,   // S quantity\n      \"Size03\": 11,   // M quantity\n      \"Size04\": 79,   // L quantity\n      \"Size05\": 0,    // XL quantity (OUT OF STOCK)\n      \"Size06\": 0,    // 2XL quantity (OUT OF STOCK)\n      \"date_Modification\": \"2025-10-26T08:30:00.000Z\"\n    },\n    // ... more color variants\n  ],\n  \"count\": 5,\n  \"cached\": false\n}\n```\n\n**Size Fields:**\n- Size01 through Size06 represent different sizes\n- Typically: XS, S, M, L, XL, 2XL\n- Actual size labels may vary by product\n- 0 = Out of stock for that size\n\n**Check Stock Example:**\n```javascript\n// Check if any sizes are in stock\nconst totalStock = item.Size01 + item.Size02 + item.Size03 +\n                   item.Size04 + item.Size05 + item.Size06;\n\nif (totalStock > 0) {\n  console.log('In Stock');\n} else {\n  console.log('Out of Stock');\n}\n\n// Check specific size\nconst largeQty = item.Size04; // L size\nif (largeQty >= requestedQty) {\n  console.log('Size L available');\n}\n```\n\n**Performance:** ~1 second for 5 color variants, <100ms when cached\n\n**Cache:** Only 5 minutes for near-real-time accuracy!"
 					},
 					"response": []
 				}
@@ -5525,6 +5968,106 @@
 				}
 			],
 			"description": "System health and miscellaneous endpoints"
+		},
+		{
+			"name": "📤 ManageOrders PUSH API",
+			"description": "Send orders TO ShopWorks OnSite via ManageOrders PUSH API. See memory/MANAGEORDERS_PUSH_INTEGRATION.md for full documentation.",
+			"item": [
+				{
+					"name": "Health Check",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/manageorders/push/health",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"manageorders",
+								"push",
+								"health"
+							]
+						},
+						"description": "**Health Check for PUSH API**\n\nVerifies that the ManageOrders PUSH API endpoints are available.\n\n**Response:**\n```json\n{\n  \"status\": \"healthy\",\n  \"service\": \"ManageOrders PUSH API\",\n  \"timestamp\": \"2025-10-27T10:30:00.000Z\",\n  \"endpoints\": {\n    \"createOrder\": \"POST /api/manageorders/orders/create\",\n    \"verifyOrder\": \"GET /api/manageorders/orders/verify/:extOrderId\",\n    \"testAuth\": \"POST /api/manageorders/auth/test\"\n  }\n}\n```"
+					},
+					"response": []
+				},
+				{
+					"name": "Test Authentication",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/manageorders/auth/test",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"manageorders",
+								"auth",
+								"test"
+							]
+						},
+						"description": "**Test ManageOrders PUSH API Credentials**\n\nVerifies that environment variables are set correctly and can authenticate with ManageOrders.\n\n**Response (Success):**\n```json\n{\n  \"success\": true,\n  \"message\": \"Authentication successful\",\n  \"tokenExpires\": \"2025-10-27T11:30:00.000Z\",\n  \"tokenLength\": 1042\n}\n```\n\n**Response (Failure):**\n```json\n{\n  \"success\": false,\n  \"message\": \"Authentication failed\",\n  \"error\": \"Authentication failed: 401 - Invalid credentials\"\n}\n```"
+					},
+					"response": []
+				},
+				{
+					"name": "Create Order",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"orderNumber\": \"001\",\n  \"isTest\": true,\n  \"orderDate\": \"2025-10-27\",\n  \"customer\": {\n    \"firstName\": \"Test\",\n    \"lastName\": \"Customer\",\n    \"email\": \"test@example.com\",\n    \"phone\": \"360-555-1234\"\n  },\n  \"lineItems\": [\n    {\n      \"partNumber\": \"PC54\",\n      \"description\": \"Port & Company Core Cotton Tee\",\n      \"color\": \"Red\",\n      \"size\": \"L\",\n      \"quantity\": 12,\n      \"price\": 8.50\n    }\n  ],\n  \"shipping\": {\n    \"address1\": \"123 Test St\",\n    \"city\": \"Seattle\",\n    \"state\": \"WA\",\n    \"zip\": \"98101\",\n    \"country\": \"USA\"\n  }\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/manageorders/orders/create",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"manageorders",
+								"orders",
+								"create"
+							]
+						},
+						"description": "**Create Order in ManageOrders/OnSite**\n\nPushes a new order to ManageOrders PUSH API, which will be auto-imported into OnSite within 1 hour.\n\n**Key Features:**\n- ✅ Automatic date formatting (YYYY-MM-DD → MM/DD/YYYY)\n- ✅ Size translation (L → LG in OnSite)\n- ✅ Test order support (adds \"TEST-\" prefix)\n- ✅ All orders go to Customer #2791\n- ✅ Actual customer info stored in Contact fields\n\n**Required Fields:**\n- `orderNumber` (string) - Unique order number\n- `customer.firstName` (string)\n- `customer.lastName` (string)\n- `lineItems` (array) - At least one line item required\n- `lineItems[].partNumber` (string)\n- `lineItems[].quantity` (number)\n\n**Optional Fields:**\n- `isTest` (boolean) - Adds \"TEST-\" prefix to ExtOrderID\n- `orderDate` (string, YYYY-MM-DD) - Defaults to today\n- `requestedShipDate` (string, YYYY-MM-DD)\n- `dropDeadDate` (string, YYYY-MM-DD)\n- `shipping` (object) - Full shipping address\n- `designs` (array) - Design/artwork info\n- `payments` (array) - Payment details\n- `notes` (array) - Order notes\n\n**Response (Success):**\n```json\n{\n  \"success\": true,\n  \"extOrderId\": \"NWCA-TEST-001\",\n  \"message\": \"Order successfully pushed to ManageOrders\",\n  \"timestamp\": \"2025-10-27T10:30:00.000Z\",\n  \"onsiteImportExpected\": \"2025-10-27T11:30:00.000Z\",\n  \"details\": {\n    \"result\": \"ExtOrderID 'NWCA-TEST-001' has been uploaded.\"\n  }\n}\n```\n\n**Response (Validation Error):**\n```json\n{\n  \"success\": false,\n  \"error\": \"orderNumber is required\",\n  \"message\": \"Failed to push order to ManageOrders\",\n  \"timestamp\": \"2025-10-27T10:30:00.000Z\"\n}\n```\n\n**Date Format Note:**\nDates must be in YYYY-MM-DD format in the request. They are automatically converted to MM/DD/YYYY for OnSite.\n\n**Full Documentation:** `memory/MANAGEORDERS_PUSH_INTEGRATION.md`"
+					},
+					"response": []
+				},
+				{
+					"name": "Verify Order",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/manageorders/orders/verify/NWCA-TEST-001",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"manageorders",
+								"orders",
+								"verify",
+								"NWCA-TEST-001"
+							]
+						},
+						"description": "**Verify Order Was Received by ManageOrders**\n\nChecks if an order was successfully uploaded to ManageOrders.\n\n**URL Parameter:**\n- `:extOrderId` - External order ID (e.g., \"NWCA-TEST-001\")\n\n**Response (Found):**\n```json\n{\n  \"success\": true,\n  \"found\": true,\n  \"extOrderId\": \"NWCA-TEST-001\",\n  \"uploadedAt\": \"2025-10-27\",\n  \"orderData\": {\n    \"ExtOrderID\": \"NWCA-TEST-001\",\n    \"ContactNameFirst\": \"Test\",\n    \"ContactNameLast\": \"Customer\",\n    \"date_OrderPlaced\": \"10/27/2025\"\n  }\n}\n```\n\n**Response (Not Found):**\n```json\n{\n  \"success\": true,\n  \"found\": false,\n  \"extOrderId\": \"NWCA-TEST-001\",\n  \"message\": \"Order not found in ManageOrders. It may still be processing or was uploaded on a different date.\"\n}\n```\n\n**Note:** Orders may not be immediately queryable via the order-pull API. A \"not found\" response doesn't necessarily mean the order push failed - check the create order response for confirmation."
+					},
+					"response": []
+				}
+			]
 		}
 	],
 	"variable": [
@@ -5545,6 +6088,11 @@
 			"value": "example-key",
 			"type": "string",
 			"description": "External file key"
+		},
+		{
+			"key": "extOrderId",
+			"value": "value",
+			"type": "string"
 		},
 		{
 			"key": "order_no",

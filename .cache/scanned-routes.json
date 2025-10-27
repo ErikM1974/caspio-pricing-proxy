@@ -1,6 +1,6 @@
 {
-  "scannedAt": "2025-10-26T21:48:56.777Z",
-  "totalEndpoints": 140,
+  "scannedAt": "2025-10-27T03:53:30.558Z",
+  "totalEndpoints": 144,
   "endpoints": [
     {
       "method": "GET",
@@ -994,6 +994,50 @@
       "requestBody": null,
       "sourceFile": "inventory.js",
       "lineNumber": 35
+    },
+    {
+      "method": "POST",
+      "path": "/orders/create",
+      "fullPath": "/api/orders/create",
+      "category": "📋 General",
+      "description": "",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "manageorders-push.js",
+      "lineNumber": 62
+    },
+    {
+      "method": "GET",
+      "path": "/orders/verify/:extOrderId",
+      "fullPath": "/api/orders/verify/:extOrderId",
+      "category": "📋 General",
+      "description": "GET /api/manageorders/orders/verify/:extOrderId  Verify that an order was received by ManageOrders  Parameters: extOrderId - External order ID (e.g., \"NWCA-12345\")  Response: { \"success\": true, \"found\": true, \"extOrderId\": \"NWCA-12345\", \"uploadedAt\": \"2025-10-27\", \"orderData\": {...} }",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "manageorders-push.js",
+      "lineNumber": 124
+    },
+    {
+      "method": "POST",
+      "path": "/auth/test",
+      "fullPath": "/api/auth/test",
+      "category": "📋 General",
+      "description": "POST /api/manageorders/auth/test  Test authentication with ManageOrders PUSH API  Response: { \"success\": true, \"message\": \"Authentication successful\", \"tokenExpires\": \"2025-10-27T11:30:00Z\" }",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "manageorders-push.js",
+      "lineNumber": 166
+    },
+    {
+      "method": "GET",
+      "path": "/push/health",
+      "fullPath": "/api/push/health",
+      "category": "📋 General",
+      "description": "GET /api/manageorders/push/health  Health check endpoint for PUSH API functionality",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "manageorders-push.js",
+      "lineNumber": 195
     },
     {
       "method": "GET",

@@ -323,6 +323,11 @@ const manageOrdersRoutes = require('./src/routes/manageorders');
 app.use('/api', manageOrdersLimiter, manageOrdersRoutes);
 console.log('✓ ManageOrders routes loaded (rate limited: 30 req/min)');
 
+// ManageOrders PUSH API routes (for sending orders TO OnSite)
+const manageOrdersPushRoutes = require('./src/routes/manageorders-push');
+app.use('/api/manageorders', manageOrdersPushRoutes);
+console.log('✓ ManageOrders PUSH routes loaded');
+
 // --- Enhanced Error Handling Middleware ---
 app.use((err, req, res, next) => {
     const timestamp = new Date().toISOString();
