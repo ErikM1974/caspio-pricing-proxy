@@ -1,0 +1,28 @@
+{
+  "orderNumber": "001",
+  "isTest": true,
+  "orderDate": "2025-10-27",
+  "customer": {
+    "firstName": "Test",
+    "lastName": "Customer",
+    "email": "test@example.com",
+    "phone": "360-555-1234"
+  },
+  "lineItems": [
+    {
+      "partNumber": "TEST-PART",
+      "description": "Test Product",
+      "color": "Red",
+      "size": "M",
+      "quantity": 1,
+      "price": 10.00
+    }
+  ],
+  "shipping": {
+    "address1": "123 Test St",
+    "city": "Seattle",
+    "state": "WA",
+    "zip": "98101",
+    "country": "USA"
+  }
+}

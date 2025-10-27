@@ -5887,6 +5887,106 @@
 				}
 			],
 			"description": "System health and miscellaneous endpoints"
+		},
+		{
+			"name": "📤 ManageOrders PUSH API",
+			"description": "Send orders TO ShopWorks OnSite via ManageOrders PUSH API. See memory/MANAGEORDERS_PUSH_INTEGRATION.md for full documentation.",
+			"item": [
+				{
+					"name": "Health Check",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/manageorders/push/health",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"manageorders",
+								"push",
+								"health"
+							]
+						},
+						"description": "**Health Check for PUSH API**\n\nVerifies that the ManageOrders PUSH API endpoints are available.\n\n**Response:**\n```json\n{\n  \"status\": \"healthy\",\n  \"service\": \"ManageOrders PUSH API\",\n  \"timestamp\": \"2025-10-27T10:30:00.000Z\",\n  \"endpoints\": {\n    \"createOrder\": \"POST /api/manageorders/orders/create\",\n    \"verifyOrder\": \"GET /api/manageorders/orders/verify/:extOrderId\",\n    \"testAuth\": \"POST /api/manageorders/auth/test\"\n  }\n}\n```"
+					},
+					"response": []
+				},
+				{
+					"name": "Test Authentication",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/manageorders/auth/test",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"manageorders",
+								"auth",
+								"test"
+							]
+						},
+						"description": "**Test ManageOrders PUSH API Credentials**\n\nVerifies that environment variables are set correctly and can authenticate with ManageOrders.\n\n**Response (Success):**\n```json\n{\n  \"success\": true,\n  \"message\": \"Authentication successful\",\n  \"tokenExpires\": \"2025-10-27T11:30:00.000Z\",\n  \"tokenLength\": 1042\n}\n```\n\n**Response (Failure):**\n```json\n{\n  \"success\": false,\n  \"message\": \"Authentication failed\",\n  \"error\": \"Authentication failed: 401 - Invalid credentials\"\n}\n```"
+					},
+					"response": []
+				},
+				{
+					"name": "Create Order",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"orderNumber\": \"001\",\n  \"isTest\": true,\n  \"orderDate\": \"2025-10-27\",\n  \"customer\": {\n    \"firstName\": \"Test\",\n    \"lastName\": \"Customer\",\n    \"email\": \"test@example.com\",\n    \"phone\": \"360-555-1234\"\n  },\n  \"lineItems\": [\n    {\n      \"partNumber\": \"PC54\",\n      \"description\": \"Port & Company Core Cotton Tee\",\n      \"color\": \"Red\",\n      \"size\": \"L\",\n      \"quantity\": 12,\n      \"price\": 8.50\n    }\n  ],\n  \"shipping\": {\n    \"address1\": \"123 Test St\",\n    \"city\": \"Seattle\",\n    \"state\": \"WA\",\n    \"zip\": \"98101\",\n    \"country\": \"USA\"\n  }\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/manageorders/orders/create",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"manageorders",
+								"orders",
+								"create"
+							]
+						},
+						"description": "**Create Order in ManageOrders/OnSite**\n\nPushes a new order to ManageOrders PUSH API, which will be auto-imported into OnSite within 1 hour.\n\n**Key Features:**\n- ✅ Automatic date formatting (YYYY-MM-DD → MM/DD/YYYY)\n- ✅ Size translation (L → LG in OnSite)\n- ✅ Test order support (adds \"TEST-\" prefix)\n- ✅ All orders go to Customer #2791\n- ✅ Actual customer info stored in Contact fields\n\n**Required Fields:**\n- `orderNumber` (string) - Unique order number\n- `customer.firstName` (string)\n- `customer.lastName` (string)\n- `lineItems` (array) - At least one line item required\n- `lineItems[].partNumber` (string)\n- `lineItems[].quantity` (number)\n\n**Optional Fields:**\n- `isTest` (boolean) - Adds \"TEST-\" prefix to ExtOrderID\n- `orderDate` (string, YYYY-MM-DD) - Defaults to today\n- `requestedShipDate` (string, YYYY-MM-DD)\n- `dropDeadDate` (string, YYYY-MM-DD)\n- `shipping` (object) - Full shipping address\n- `designs` (array) - Design/artwork info\n- `payments` (array) - Payment details\n- `notes` (array) - Order notes\n\n**Response (Success):**\n```json\n{\n  \"success\": true,\n  \"extOrderId\": \"NWCA-TEST-001\",\n  \"message\": \"Order successfully pushed to ManageOrders\",\n  \"timestamp\": \"2025-10-27T10:30:00.000Z\",\n  \"onsiteImportExpected\": \"2025-10-27T11:30:00.000Z\",\n  \"details\": {\n    \"result\": \"ExtOrderID 'NWCA-TEST-001' has been uploaded.\"\n  }\n}\n```\n\n**Response (Validation Error):**\n```json\n{\n  \"success\": false,\n  \"error\": \"orderNumber is required\",\n  \"message\": \"Failed to push order to ManageOrders\",\n  \"timestamp\": \"2025-10-27T10:30:00.000Z\"\n}\n```\n\n**Date Format Note:**\nDates must be in YYYY-MM-DD format in the request. They are automatically converted to MM/DD/YYYY for OnSite.\n\n**Full Documentation:** `memory/MANAGEORDERS_PUSH_INTEGRATION.md`"
+					},
+					"response": []
+				},
+				{
+					"name": "Verify Order",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/manageorders/orders/verify/NWCA-TEST-001",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"manageorders",
+								"orders",
+								"verify",
+								"NWCA-TEST-001"
+							]
+						},
+						"description": "**Verify Order Was Received by ManageOrders**\n\nChecks if an order was successfully uploaded to ManageOrders.\n\n**URL Parameter:**\n- `:extOrderId` - External order ID (e.g., \"NWCA-TEST-001\")\n\n**Response (Found):**\n```json\n{\n  \"success\": true,\n  \"found\": true,\n  \"extOrderId\": \"NWCA-TEST-001\",\n  \"uploadedAt\": \"2025-10-27\",\n  \"orderData\": {\n    \"ExtOrderID\": \"NWCA-TEST-001\",\n    \"ContactNameFirst\": \"Test\",\n    \"ContactNameLast\": \"Customer\",\n    \"date_OrderPlaced\": \"10/27/2025\"\n  }\n}\n```\n\n**Response (Not Found):**\n```json\n{\n  \"success\": true,\n  \"found\": false,\n  \"extOrderId\": \"NWCA-TEST-001\",\n  \"message\": \"Order not found in ManageOrders. It may still be processing or was uploaded on a different date.\"\n}\n```\n\n**Note:** Orders may not be immediately queryable via the order-pull API. A \"not found\" response doesn't necessarily mean the order push failed - check the create order response for confirmation."
+					},
+					"response": []
+				}
+			]
 		}
 	],
 	"variable": [
