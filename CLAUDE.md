@@ -2,6 +2,7 @@
 
 - **ManageOrders Integration** - Customer data API proxy with caching ([Full Documentation](memory/MANAGEORDERS_INTEGRATION.md))
 - **ManageOrders PUSH API** - Send orders TO OnSite ERP with auto-import ([Full Documentation](memory/MANAGEORDERS_PUSH_INTEGRATION.md))
+- **Online Store Developer Guide** - Complete guide for building webstore integration ([Developer Guide](memory/ONLINE_STORE_DEVELOPER_GUIDE.md))
 - Art_Request Invoice
 
 ## Local Development Setup
@@ -376,5 +377,17 @@ curl -X POST https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/manageo
 
 **Documentation:**
 - [PUSH API Integration Guide](memory/MANAGEORDERS_PUSH_INTEGRATION.md) - Complete docs with examples
+- [Online Store Developer Guide](memory/ONLINE_STORE_DEVELOPER_GUIDE.md) - **⭐ Complete guide for building webstore integration**
 - [Test Scenarios](examples/push-api/test-scenarios.md) - 10 test cases
 - [Example Orders](examples/push-api/) - minimal-order.json, complete-order.json
+
+**For Developers Building an Online Store:**
+See the **[Online Store Developer Guide](memory/ONLINE_STORE_DEVELOPER_GUIDE.md)** - a complete, step-by-step guide with:
+- Quick start examples
+- Complete API reference
+- Field-by-field documentation
+- Code examples in JavaScript, Python, PHP
+- Size translation guide
+- Testing workflow
+- Production checklist
+- Troubleshooting guide
