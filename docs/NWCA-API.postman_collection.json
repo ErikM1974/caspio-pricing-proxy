@@ -4020,6 +4020,87 @@
 			"description": "",
 			"item": [
 				{
+					"name": "Create Orders Create",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/orders/create",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"orders",
+								"create"
+							]
+						},
+						"description": "Create a new create record"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Orders Verify",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/orders/verify/:extOrderId",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"orders",
+								"verify",
+								":extOrderId"
+							]
+						},
+						"description": "GET /api/manageorders/orders/verify/:extOrderId  Verify that an order was received by ManageOrders  Parameters: extOrderId - External order ID (e.g., \"NWCA-12345\")  Response: { \"success\": true, \"found\": true, \"extOrderId\": \"NWCA-12345\", \"uploadedAt\": \"2025-10-27\", \"orderData\": {...} }"
+					},
+					"response": []
+				},
+				{
+					"name": "Create Auth Test",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/test",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"test"
+							]
+						},
+						"description": "POST /api/manageorders/auth/test  Test authentication with ManageOrders PUSH API  Response: { \"success\": true, \"message\": \"Authentication successful\", \"tokenExpires\": \"2025-10-27T11:30:00Z\" }"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Push Health",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/push/health",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"push",
+								"health"
+							]
+						},
+						"description": "GET /api/manageorders/push/health  Health check endpoint for PUSH API functionality"
+					},
+					"response": []
+				},
+				{
 					"name": "Get Manageorders Customers",
 					"request": {
 						"method": "GET",
@@ -6007,6 +6088,11 @@
 			"value": "example-key",
 			"type": "string",
 			"description": "External file key"
+		},
+		{
+			"key": "extOrderId",
+			"value": "value",
+			"type": "string"
 		},
 		{
 			"key": "order_no",
