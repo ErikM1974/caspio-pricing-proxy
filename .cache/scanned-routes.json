@@ -1,6 +1,6 @@
 {
-  "scannedAt": "2025-10-27T03:53:30.558Z",
-  "totalEndpoints": 144,
+  "scannedAt": "2025-10-28T19:27:07.258Z",
+  "totalEndpoints": 147,
   "endpoints": [
     {
       "method": "GET",
@@ -2494,6 +2494,58 @@
       "requestBody": null,
       "sourceFile": "products.js",
       "lineNumber": 768
+    },
+    {
+      "method": "GET",
+      "path": "/products/new",
+      "fullPath": "/api/products/new",
+      "category": "🛍️ Product Search",
+      "description": "GET /api/products/new Returns products marked as new (IsNew=1) Supports filtering by category, brand, and limit Cached for 5 minutes to reduce API calls  Query params: - limit: Maximum number of results (default: 20, max: 100) - category: Filter by category name - brand: Filter by brand name",
+      "queryParams": [
+        {
+          "key": "limit = 20",
+          "value": "",
+          "description": "limit = 20 parameter",
+          "disabled": false
+        },
+        {
+          "key": "category",
+          "value": "",
+          "description": "Category name",
+          "disabled": true
+        },
+        {
+          "key": "brand",
+          "value": "",
+          "description": "Brand name",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "products.js",
+      "lineNumber": 823
+    },
+    {
+      "method": "POST",
+      "path": "/admin/products/add-isnew-field",
+      "fullPath": "/api/admin/products/add-isnew-field",
+      "category": "🛍️ Product Search",
+      "description": "POST /api/admin/products/add-isnew-field Creates the IsNew boolean field in the products table This endpoint is idempotent - if field already exists, returns success",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "products.js",
+      "lineNumber": 896
+    },
+    {
+      "method": "POST",
+      "path": "/admin/products/mark-as-new",
+      "fullPath": "/api/admin/products/mark-as-new",
+      "category": "🛍️ Product Search",
+      "description": "POST /api/admin/products/mark-as-new Batch updates products to set IsNew=true based on style numbers  Request body: { \"styles\": [\"EB120\", \"EB121\", \"EB122\", ...] }  Response: { \"success\": true, \"recordsAffected\": 150, \"styles\": [\"EB120\", \"EB121\", ...], \"styleCount\": 15 }",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "products.js",
+      "lineNumber": 957
     },
     {
       "method": "GET",

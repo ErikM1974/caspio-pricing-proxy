@@ -517,6 +517,88 @@
 						"description": "GET /api/product-colors"
 					},
 					"response": []
+				},
+				{
+					"name": "Get Products New",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/products/new?limit = 20=",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"products",
+								"new"
+							],
+							"query": [
+								{
+									"key": "limit = 20",
+									"value": "",
+									"description": "limit = 20 parameter",
+									"disabled": false
+								},
+								{
+									"key": "category",
+									"value": "",
+									"description": "Category name",
+									"disabled": true
+								},
+								{
+									"key": "brand",
+									"value": "",
+									"description": "Brand name",
+									"disabled": true
+								}
+							]
+						},
+						"description": "GET /api/products/new Returns products marked as new (IsNew=1) Supports filtering by category, brand, and limit Cached for 5 minutes to reduce API calls  Query params: - limit: Maximum number of results (default: 20, max: 100) - category: Filter by category name - brand: Filter by brand name"
+					},
+					"response": []
+				},
+				{
+					"name": "Create Admin Products Add Isnew Field",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/admin/products/add-isnew-field",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"admin",
+								"products",
+								"add-isnew-field"
+							]
+						},
+						"description": "POST /api/admin/products/add-isnew-field Creates the IsNew boolean field in the products table This endpoint is idempotent - if field already exists, returns success"
+					},
+					"response": []
+				},
+				{
+					"name": "Create Admin Products Mark As New",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/admin/products/mark-as-new",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"admin",
+								"products",
+								"mark-as-new"
+							]
+						},
+						"description": "POST /api/admin/products/mark-as-new Batch updates products to set IsNew=true based on style numbers  Request body: { \"styles\": [\"EB120\", \"EB121\", \"EB122\", ...] }  Response: { \"success\": true, \"recordsAffected\": 150, \"styles\": [\"EB120\", \"EB121\", ...], \"styleCount\": 15 }"
+					},
+					"response": []
 				}
 			],
 			"description": "Search and browse products with advanced filtering"
