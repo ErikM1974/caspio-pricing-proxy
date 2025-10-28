@@ -970,7 +970,30 @@ router.post('/admin/products/mark-as-new', async (req, res) => {
     const stylesList = styles.map(style => `'${style}'`).join(', ');
     const whereClause = `STYLE IN (${stylesList})`;
 
-    // Update all records matching the styles
+    // Check which styles actually exist in the database
+    const existingRecords = await fetchAllCaspioPages(
+      '/tables/Sanmar_Bulk_251816_Feb2024/records',
+      {
+        'q.where': whereClause,
+        'q.select': 'STYLE'
+      }
+    );
+
+    // Get unique styles that exist
+    const uniqueExistingStyles = [...new Set(existingRecords.map(r => r.STYLE))];
+    const stylesNotFound = styles.filter(s => !uniqueExistingStyles.includes(s));
+
+    // If no styles found, return early
+    if (uniqueExistingStyles.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'None of the provided styles were found in the database',
+        stylesNotFound: styles,
+        styleCount: styles.length
+      });
+    }
+
+    // Update all records matching the found styles
     // Note: PUT requests update ALL matching records automatically (no pagination needed)
     // Each style can have 20-50 color/size combinations
     const result = await makeCaspioRequest(
@@ -982,12 +1005,20 @@ router.post('/admin/products/mark-as-new', async (req, res) => {
       { IsNew: true }
     );
 
+    // Build success message
+    let message = `Successfully marked ${uniqueExistingStyles.length} style(s) as new`;
+    if (stylesNotFound.length > 0) {
+      message += ` (${stylesNotFound.length} style(s) not found in database)`;
+    }
+
     return res.status(200).json({
       success: true,
-      message: `Successfully marked ${result.RecordsAffected} records as new`,
-      recordsAffected: result.RecordsAffected,
-      styles: styles,
-      styleCount: styles.length
+      message: message,
+      stylesFound: uniqueExistingStyles,
+      stylesNotFound: stylesNotFound,
+      styleCount: styles.length,
+      foundCount: uniqueExistingStyles.length,
+      notFoundCount: stylesNotFound.length
     });
 
   } catch (error) {
@@ -1031,8 +1062,7 @@ router.post('/admin/products/clear-isnew', async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: `Successfully cleared IsNew from ${result.RecordsAffected} records`,
-      recordsAffected: result.RecordsAffected
+      message: `Successfully cleared IsNew field from all products`
     });
   } catch (error) {
     console.error('Error clearing IsNew field:', error.response?.data || error.message);
