@@ -524,6 +524,102 @@ complete_workflow() {
 # Run the complete workflow
 complete_workflow
 
+# ============================================
+# 9. NEW PRODUCTS MANAGEMENT EXAMPLES
+# ============================================
+
+echo -e "\n${GREEN}9. NEW PRODUCTS MANAGEMENT EXAMPLES${NC}"
+echo -e "${YELLOW}-----------------------------------${NC}\n"
+
+# 9a. Add IsNew field (one-time setup, idempotent)
+echo -e "${YELLOW}9a. Add IsNew field (one-time setup)${NC}"
+curl -X POST "${API_BASE_URL}/admin/products/add-isnew-field" \
+  -H "Content-Type: application/json" \
+  -w "\nStatus: %{http_code}\n" \
+  -s | jq .
+
+echo -e "\n${YELLOW}Press Enter to continue...${NC}"
+read
+
+# 9b. Mark products as new (batch update)
+echo -e "${YELLOW}9b. Mark products as new (batch update)${NC}"
+echo "Marking 15 featured products as new..."
+curl -X POST "${API_BASE_URL}/admin/products/mark-as-new" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "styles": [
+      "EB120",
+      "EB121",
+      "EB122",
+      "EB123",
+      "EB124",
+      "EB125",
+      "EB130",
+      "EB131",
+      "OG734",
+      "OG735",
+      "PC54",
+      "PC55",
+      "LPC54",
+      "ST350",
+      "LST350"
+    ]
+  }' \
+  -w "\nStatus: %{http_code}\n" \
+  -s | jq .
+
+echo -e "\n${YELLOW}Press Enter to continue...${NC}"
+read
+
+# 9c. Query new products (public endpoint)
+echo -e "${YELLOW}9c. Query new products (default - 20 products)${NC}"
+curl -s "${API_BASE_URL}/products/new" | jq '.count, .cached'
+
+echo -e "\n${YELLOW}Press Enter to continue...${NC}"
+read
+
+# 9d. Query new products with limit
+echo -e "${YELLOW}9d. Query new products with limit=5${NC}"
+curl -s "${API_BASE_URL}/products/new?limit=5" | jq '{count: .count, cached: .cached, firstProduct: .products[0].STYLE}'
+
+echo -e "\n${YELLOW}Press Enter to continue...${NC}"
+read
+
+# 9e. Query new products by category
+echo -e "${YELLOW}9e. Query new products by category (Sweatshirts/Fleece)${NC}"
+curl -s "${API_BASE_URL}/products/new?category=Sweatshirts%2FFleece&limit=3" | jq '{count: .count, products: [.products[].PRODUCT_TITLE]}'
+
+echo -e "\n${YELLOW}Press Enter to continue...${NC}"
+read
+
+# 9f. Query new products by brand
+echo -e "${YELLOW}9f. Query new products by brand (Eddie Bauer)${NC}"
+curl -s "${API_BASE_URL}/products/new?brand=Eddie%20Bauer&limit=5" | jq '{count: .count, products: [.products[] | {style: .STYLE, title: .PRODUCT_TITLE, brand: .BRAND_NAME}]}'
+
+echo -e "\n${YELLOW}Press Enter to continue...${NC}"
+read
+
+# 9g. Test caching behavior
+echo -e "${YELLOW}9g. Test caching (first request - cache miss)${NC}"
+curl -s "${API_BASE_URL}/products/new?limit=3" | jq '{count: .count, cached: .cached}'
+
+echo -e "\n${YELLOW}Wait 2 seconds and query again (cache hit expected)...${NC}"
+sleep 2
+curl -s "${API_BASE_URL}/products/new?limit=3" | jq '{count: .count, cached: .cached}'
+
+echo -e "\n${GREEN}New Products Management examples completed!${NC}"
+echo -e "${BLUE}========================================${NC}"
+echo -e "${BLUE}Quick Reference:${NC}"
+echo -e "${BLUE}========================================${NC}"
+echo -e "Public Endpoint:"
+echo -e "  GET ${API_BASE_URL}/products/new?limit=10"
+echo -e "\nAdmin Endpoints:"
+echo -e "  POST ${API_BASE_URL}/admin/products/add-isnew-field"
+echo -e "  POST ${API_BASE_URL}/admin/products/mark-as-new"
+echo -e "\nDocumentation:"
+echo -e "  memory/NEW_PRODUCTS_API.md"
+echo -e "${BLUE}========================================${NC}"
+
 echo -e "\n${BLUE}========================================${NC}"
 echo -e "${BLUE}All examples completed successfully!${NC}"
 echo -e "${BLUE}========================================${NC}"
