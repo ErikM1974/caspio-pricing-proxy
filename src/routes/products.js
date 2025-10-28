@@ -1075,4 +1075,288 @@ router.post('/admin/products/clear-isnew', async (req, res) => {
   }
 });
 
+// ============================================================
+// IsTopSeller Management Endpoints
+// ============================================================
+
+/**
+ * POST /api/admin/products/add-istopseller-field
+ * Creates the IsTopSeller field in the Sanmar product table
+ *
+ * This is a one-time setup endpoint that creates a YES/NO (boolean) field.
+ * It's idempotent - safe to call multiple times.
+ *
+ * Response: { success, message, fieldName, alreadyExists? }
+ */
+router.post('/admin/products/add-istopseller-field', async (req, res) => {
+  try {
+    const fieldDefinition = {
+      Name: 'IsTopSeller',
+      Type: 'YES/NO'
+    };
+
+    const result = await makeCaspioRequest(
+      'post',
+      `/tables/Sanmar_Bulk_251816_Feb2024/fields`,
+      {},
+      fieldDefinition
+    );
+
+    return res.status(201).json({
+      success: true,
+      message: 'IsTopSeller field created successfully',
+      fieldName: 'IsTopSeller'
+    });
+
+  } catch (error) {
+    // Handle "field already exists" gracefully
+    // Check if error message contains ObjectExists
+    const errorMessage = error.message || '';
+    const errorString = JSON.stringify(error);
+
+    if (errorMessage.includes('ObjectExists') || errorString.includes('ObjectExists')) {
+      return res.status(200).json({
+        success: true,
+        message: 'IsTopSeller field already exists',
+        fieldName: 'IsTopSeller',
+        alreadyExists: true
+      });
+    }
+
+    console.error('Error creating IsTopSeller field:', error.response?.data || error.message);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to create IsTopSeller field',
+      error: error.message
+    });
+  }
+});
+
+/**
+ * POST /api/admin/products/mark-as-topseller
+ * Batch updates products to set IsTopSeller=true based on style numbers
+ *
+ * Request body:
+ * {
+ *   "styles": ["PC54", "ST350", "EB120", ...]
+ * }
+ *
+ * Response:
+ * {
+ *   "success": true,
+ *   "message": "Successfully marked 5 style(s) as top sellers (2 style(s) not found in database)",
+ *   "stylesFound": ["PC54", "ST350", "EB120"],
+ *   "stylesNotFound": ["INVALID1", "INVALID2"],
+ *   "styleCount": 5,
+ *   "foundCount": 3,
+ *   "notFoundCount": 2
+ * }
+ *
+ * Note: Each style number will mark ALL color/size variants of that style.
+ * For example, "PC54" might update 50+ records (one per color/size combination).
+ */
+router.post('/admin/products/mark-as-topseller', async (req, res) => {
+  try {
+    const { styles } = req.body;
+
+    // Validate input
+    if (!styles || !Array.isArray(styles) || styles.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'styles array is required and must not be empty'
+      });
+    }
+
+    // Build WHERE clause: STYLE IN ('PC54', 'ST350', ...)
+    const stylesList = styles.map(style => `'${style}'`).join(', ');
+    const whereClause = `STYLE IN (${stylesList})`;
+
+    // Check which styles actually exist in the database
+    const existingRecords = await fetchAllCaspioPages(
+      '/tables/Sanmar_Bulk_251816_Feb2024/records',
+      {
+        'q.where': whereClause,
+        'q.select': 'STYLE'
+      }
+    );
+
+    // Get unique styles that exist
+    const uniqueExistingStyles = [...new Set(existingRecords.map(r => r.STYLE))];
+    const stylesNotFound = styles.filter(s => !uniqueExistingStyles.includes(s));
+
+    // If no styles found, return early
+    if (uniqueExistingStyles.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'None of the provided styles were found in the database',
+        stylesNotFound: styles,
+        styleCount: styles.length
+      });
+    }
+
+    // Update all records matching the found styles
+    // Note: PUT requests update ALL matching records automatically (no pagination needed)
+    // Each style can have 20-50 color/size combinations
+    const result = await makeCaspioRequest(
+      'put',
+      `/tables/Sanmar_Bulk_251816_Feb2024/records`,
+      {
+        'q.where': whereClause
+      },
+      { IsTopSeller: true }
+    );
+
+    // Build success message
+    let message = `Successfully marked ${uniqueExistingStyles.length} style(s) as top sellers`;
+    if (stylesNotFound.length > 0) {
+      message += ` (${stylesNotFound.length} style(s) not found in database)`;
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: message,
+      stylesFound: uniqueExistingStyles,
+      stylesNotFound: stylesNotFound,
+      styleCount: styles.length,
+      foundCount: uniqueExistingStyles.length,
+      notFoundCount: stylesNotFound.length
+    });
+
+  } catch (error) {
+    console.error('Error marking products as top sellers:', error.response?.data || error.message);
+
+    // Handle no records found
+    if (error.response && error.response.status === 404) {
+      return res.status(404).json({
+        success: false,
+        message: 'No products found matching the provided style numbers'
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to mark products as top sellers',
+      error: error.response?.data?.Message || error.message
+    });
+  }
+});
+
+/**
+ * POST /api/admin/products/clear-istopseller
+ * Clear IsTopSeller field from all products (set to false)
+ *
+ * Purpose: Reset the IsTopSeller field when you want to start fresh
+ *
+ * Response: { success, message }
+ */
+router.post('/admin/products/clear-istopseller', async (req, res) => {
+  try {
+    // Update ALL records where IsTopSeller=1 to set IsTopSeller=false
+    const result = await makeCaspioRequest(
+      'put',
+      `/tables/Sanmar_Bulk_251816_Feb2024/records`,
+      {
+        'q.where': 'IsTopSeller=1'
+      },
+      { IsTopSeller: false }
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: `Successfully cleared IsTopSeller field from all products`
+    });
+  } catch (error) {
+    console.error('Error clearing IsTopSeller field:', error.response?.data || error.message);
+
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to clear IsTopSeller field',
+      error: error.response?.data?.Message || error.message
+    });
+  }
+});
+
+/**
+ * GET /api/products/topsellers
+ * Returns products marked as IsTopSeller=true
+ *
+ * Query parameters:
+ * - limit: Number of products to return (default: 20, max: 100)
+ * - category: Filter by category (e.g., "T-Shirts")
+ * - brand: Filter by brand name (e.g., "Port & Company")
+ *
+ * Response includes parameter-aware caching (5-minute TTL)
+ */
+
+// Cache for top seller products (5 minutes)
+const topSellersCache = {
+  data: null,
+  timestamp: 0,
+  params: null
+};
+
+router.get('/products/topsellers', async (req, res) => {
+  try {
+    const { limit = 20, category, brand } = req.query;
+
+    // Validate limit
+    const parsedLimit = Math.min(parseInt(limit) || 20, 100);
+
+    // Build cache key from parameters
+    const cacheKey = JSON.stringify({ limit: parsedLimit, category, brand });
+
+    // Check cache (5-minute TTL)
+    const now = Date.now();
+    const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+    if (topSellersCache.data &&
+        topSellersCache.params === cacheKey &&
+        (now - topSellersCache.timestamp) < CACHE_DURATION) {
+      return res.json({
+        products: topSellersCache.data,
+        count: topSellersCache.data.length,
+        cached: true
+      });
+    }
+
+    // Build WHERE clause
+    let whereConditions = ['IsTopSeller=1'];
+    if (category) {
+      whereConditions.push(`CATEGORY='${category}'`);
+    }
+    if (brand) {
+      whereConditions.push(`BRAND_NAME='${brand}'`);
+    }
+    const whereClause = whereConditions.join(' AND ');
+
+    // Fetch top seller products with pagination
+    const records = await fetchAllCaspioPages(
+      '/tables/Sanmar_Bulk_251816_Feb2024/records',
+      {
+        'q.where': whereClause,
+        'q.limit': parsedLimit,
+        'q.orderBy': 'Date_Updated DESC'
+      }
+    );
+
+    // Update cache
+    topSellersCache.data = records;
+    topSellersCache.timestamp = now;
+    topSellersCache.params = cacheKey;
+
+    return res.json({
+      products: records,
+      count: records.length,
+      cached: false
+    });
+
+  } catch (error) {
+    console.error('Error fetching top seller products:', error.response?.data || error.message);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch top seller products',
+      error: error.message
+    });
+  }
+});
+
 module.exports = router;
