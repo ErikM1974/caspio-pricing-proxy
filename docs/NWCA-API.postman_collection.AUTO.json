@@ -620,6 +620,109 @@
 						"description": "POST /api/admin/products/clear-isnew Clear IsNew field from all products (set to false)  Purpose: Reset the IsNew field when too many products were incorrectly marked  Response: { success, message, recordsAffected }"
 					},
 					"response": []
+				},
+				{
+					"name": "Create Admin Products Add Istopseller Field",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/admin/products/add-istopseller-field",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"admin",
+								"products",
+								"add-istopseller-field"
+							]
+						},
+						"description": "POST /api/admin/products/add-istopseller-field Creates the IsTopSeller field in the Sanmar product table  This is a one-time setup endpoint that creates a YES/NO (boolean) field. It's idempotent - safe to call multiple times.  Response: { success, message, fieldName, alreadyExists? }"
+					},
+					"response": []
+				},
+				{
+					"name": "Create Admin Products Mark As Topseller",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/admin/products/mark-as-topseller",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"admin",
+								"products",
+								"mark-as-topseller"
+							]
+						},
+						"description": "Create a new mark-as-topseller record"
+					},
+					"response": []
+				},
+				{
+					"name": "Create Admin Products Clear Istopseller",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/admin/products/clear-istopseller",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"admin",
+								"products",
+								"clear-istopseller"
+							]
+						},
+						"description": "POST /api/admin/products/clear-istopseller Clear IsTopSeller field from all products (set to false)  Purpose: Reset the IsTopSeller field when you want to start fresh  Response: { success, message }"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Products Topsellers",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/products/topsellers?limit = 20=",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"products",
+								"topsellers"
+							],
+							"query": [
+								{
+									"key": "limit = 20",
+									"value": "",
+									"description": "limit = 20 parameter",
+									"disabled": false
+								},
+								{
+									"key": "category",
+									"value": "",
+									"description": "Category name",
+									"disabled": true
+								},
+								{
+									"key": "brand",
+									"value": "",
+									"description": "Brand name",
+									"disabled": true
+								}
+							]
+						},
+						"description": "GET /api/products/topsellers Returns products marked as IsTopSeller=true  Query parameters: - limit: Number of products to return (default: 20, max: 100) - category: Filter by category (e.g., \"T-Shirts\") - brand: Filter by brand name (e.g., \"Port & Company\")  Response includes parameter-aware caching (5-minute TTL)"
+					},
+					"response": []
 				}
 			],
 			"description": "Search and browse products with advanced filtering"

@@ -1,6 +1,6 @@
 {
-  "scannedAt": "2025-10-28T20:51:40.597Z",
-  "totalEndpoints": 148,
+  "scannedAt": "2025-10-28T21:41:08.504Z",
+  "totalEndpoints": 152,
   "endpoints": [
     {
       "method": "GET",
@@ -2557,6 +2557,69 @@
       "requestBody": null,
       "sourceFile": "products.js",
       "lineNumber": 1051
+    },
+    {
+      "method": "POST",
+      "path": "/admin/products/add-istopseller-field",
+      "fullPath": "/api/admin/products/add-istopseller-field",
+      "category": "🛍️ Product Search",
+      "description": "POST /api/admin/products/add-istopseller-field Creates the IsTopSeller field in the Sanmar product table  This is a one-time setup endpoint that creates a YES/NO (boolean) field. It's idempotent - safe to call multiple times.  Response: { success, message, fieldName, alreadyExists? }",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "products.js",
+      "lineNumber": 1091
+    },
+    {
+      "method": "POST",
+      "path": "/admin/products/mark-as-topseller",
+      "fullPath": "/api/admin/products/mark-as-topseller",
+      "category": "🛍️ Product Search",
+      "description": "",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "products.js",
+      "lineNumber": 1158
+    },
+    {
+      "method": "POST",
+      "path": "/admin/products/clear-istopseller",
+      "fullPath": "/api/admin/products/clear-istopseller",
+      "category": "🛍️ Product Search",
+      "description": "POST /api/admin/products/clear-istopseller Clear IsTopSeller field from all products (set to false)  Purpose: Reset the IsTopSeller field when you want to start fresh  Response: { success, message }",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "products.js",
+      "lineNumber": 1252
+    },
+    {
+      "method": "GET",
+      "path": "/products/topsellers",
+      "fullPath": "/api/products/topsellers",
+      "category": "🛍️ Product Search",
+      "description": "GET /api/products/topsellers Returns products marked as IsTopSeller=true  Query parameters: - limit: Number of products to return (default: 20, max: 100) - category: Filter by category (e.g., \"T-Shirts\") - brand: Filter by brand name (e.g., \"Port & Company\")  Response includes parameter-aware caching (5-minute TTL)",
+      "queryParams": [
+        {
+          "key": "limit = 20",
+          "value": "",
+          "description": "limit = 20 parameter",
+          "disabled": false
+        },
+        {
+          "key": "category",
+          "value": "",
+          "description": "Category name",
+          "disabled": true
+        },
+        {
+          "key": "brand",
+          "value": "",
+          "description": "Brand name",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "products.js",
+      "lineNumber": 1298
     },
     {
       "method": "GET",
