@@ -1,6 +1,6 @@
 {
-  "scannedAt": "2025-10-28T20:15:33.623Z",
-  "totalEndpoints": 147,
+  "scannedAt": "2025-10-28T20:29:33.629Z",
+  "totalEndpoints": 148,
   "endpoints": [
     {
       "method": "GET",
@@ -2546,6 +2546,17 @@
       "requestBody": null,
       "sourceFile": "products.js",
       "lineNumber": 957
+    },
+    {
+      "method": "POST",
+      "path": "/admin/products/clear-isnew",
+      "fullPath": "/api/admin/products/clear-isnew",
+      "category": "🛍️ Product Search",
+      "description": "POST /api/admin/products/clear-isnew Clear IsNew field from all products (set to false)  Purpose: Reset the IsNew field when too many products were incorrectly marked  Response: { success, message, recordsAffected }",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "products.js",
+      "lineNumber": 1020
     },
     {
       "method": "GET",

@@ -603,6 +603,27 @@
 					"response": []
 				},
 				{
+					"name": "Create Admin Products Clear Isnew",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/admin/products/clear-isnew",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"admin",
+								"products",
+								"clear-isnew"
+							]
+						},
+						"description": "POST /api/admin/products/clear-isnew Clear IsNew field from all products (set to false)  Purpose: Reset the IsNew field when too many products were incorrectly marked  Response: { success, message, recordsAffected }"
+					},
+					"response": []
+				},
+				{
 					"name": "Check Inventory",
 					"request": {
 						"method": "GET",
