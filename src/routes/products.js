@@ -971,10 +971,15 @@ router.post('/admin/products/mark-as-new', async (req, res) => {
     const whereClause = `STYLE IN (${stylesList})`;
 
     // Update all records matching the styles
+    // Note: Using pageSize=1000 to handle products with many variants
+    // Each style can have 20-50 color/size combinations
     const result = await makeCaspioRequest(
       'put',
       `/tables/Sanmar_Bulk_251816_Feb2024/records`,
-      { 'q.where': whereClause },
+      {
+        'q.where': whereClause,
+        'q.pageSize': '1000'  // Ensure we get all variants
+      },
       { IsNew: true }
     );
 
