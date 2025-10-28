@@ -521,6 +521,88 @@
 					"response": []
 				},
 				{
+					"name": "Get Products New",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/products/new?limit = 20=",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"products",
+								"new"
+							],
+							"query": [
+								{
+									"key": "limit = 20",
+									"value": "",
+									"description": "limit = 20 parameter",
+									"disabled": false
+								},
+								{
+									"key": "category",
+									"value": "Sweatshirts/Fleece",
+									"description": "Category name",
+									"disabled": true
+								},
+								{
+									"key": "brand",
+									"value": "Eddie Bauer",
+									"description": "Brand name",
+									"disabled": true
+								}
+							]
+						},
+						"description": "**Returns products marked as new (IsNew=1)**\n\nSupports filtering by category, brand, and limit. Results are cached for 5 minutes to reduce API calls.\n\n**Query Parameters:**\n- `limit` - Maximum number of results (default: 20, max: 100)\n- `category` - Filter by category name\n- `brand` - Filter by brand name\n\n**Examples:**\n- Get 20 newest products: `?limit=20`\n- Get new sweatshirts: `?category=Sweatshirts/Fleece`\n- Get new Eddie Bauer products: `?brand=Eddie Bauer`\n- Get 5 new OGIO polos: `?limit=5&brand=OGIO&category=Polos`\n\n**Response:**\n```json\n{\n  \"products\": [...],\n  \"count\": 20,\n  \"cached\": false\n}\n```"
+					},
+					"response": []
+				},
+				{
+					"name": "Create Admin Products Add Isnew Field",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/admin/products/add-isnew-field",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"admin",
+								"products",
+								"add-isnew-field"
+							]
+						},
+						"description": "**Creates the IsNew boolean field in the products table**\n\nThis endpoint is idempotent - if field already exists, returns success message without error.\n\n**Request Body:**\nNo body needed.\n\n**Response (Success - Field Created):**\n```json\n{\n  \"success\": true,\n  \"message\": \"IsNew field created successfully\",\n  \"fieldName\": \"IsNew\"\n}\n```\n\n**Response (Success - Field Already Exists):**\n```json\n{\n  \"success\": true,\n  \"message\": \"IsNew field already exists\",\n  \"fieldName\": \"IsNew\",\n  \"alreadyExists\": true\n}\n```\n\n**Use Case:**\nRun this endpoint once to initialize the IsNew field in the Sanmar products table before marking products as new."
+					},
+					"response": []
+				},
+				{
+					"name": "Create Admin Products Mark As New",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/admin/products/mark-as-new",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"admin",
+								"products",
+								"mark-as-new"
+							]
+						},
+						"description": "**Batch updates products to set IsNew=true**\n\nUpdates ALL variants (colors, sizes) for each style number provided. One style can have dozens of records (one per color+size combination).\n\n**Request Body:**\n```json\n{\n  \"styles\": [\"EB120\", \"EB121\", \"EB122\", ...]\n}\n```\n\n**Response (Success):**\n```json\n{\n  \"success\": true,\n  \"message\": \"Successfully marked 150 records as new\",\n  \"recordsAffected\": 150,\n  \"styles\": [\"EB120\", \"EB121\", ...],\n  \"styleCount\": 15\n}\n```\n\n**Example Body (15 Featured Products):**\nThe body in this request contains 15 style numbers that will be marked as new:\n- Eddie Bauer Fleece Collection (EB120-EB131)\n- OGIO Polos (OG734-OG735)\n- Port & Company Core Tees (PC54, PC55, LPC54)\n- Sport-Tek Performance Tees (ST350, LST350)\n\n**Notes:**\n- Each style may have 10-30 variants (different colors/sizes)\n- Total records affected = style count × variants per style\n- Use this to feature new arrivals or seasonal favorites"
+					},
+					"response": []
+				},
+				{
 					"name": "Check Inventory",
 					"request": {
 						"method": "GET",

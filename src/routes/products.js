@@ -801,4 +801,208 @@ router.get('/product-colors', async (req, res) => {
   }
 });
 
+// Simple cache for new products (5 minute TTL)
+let newProductsCache = {
+  data: null,
+  timestamp: null,
+  params: null
+};
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
+/**
+ * GET /api/products/new
+ * Returns products marked as new (IsNew=1)
+ * Supports filtering by category, brand, and limit
+ * Cached for 5 minutes to reduce API calls
+ *
+ * Query params:
+ * - limit: Maximum number of results (default: 20, max: 100)
+ * - category: Filter by category name
+ * - brand: Filter by brand name
+ */
+router.get('/products/new', async (req, res) => {
+  const { limit = 20, category, brand } = req.query;
+  console.log(`GET /api/products/new requested with limit=${limit}, category=${category}, brand=${brand}`);
+
+  try {
+    // Validate limit
+    const parsedLimit = Math.min(parseInt(limit) || 20, 100);
+
+    // Build cache key from parameters
+    const cacheKey = JSON.stringify({ limit: parsedLimit, category, brand });
+
+    // Check cache
+    const now = Date.now();
+    if (newProductsCache.data &&
+        newProductsCache.params === cacheKey &&
+        newProductsCache.timestamp &&
+        (now - newProductsCache.timestamp) < CACHE_DURATION) {
+      console.log('Returning cached new products data');
+      return res.json({
+        products: newProductsCache.data,
+        count: newProductsCache.data.length,
+        cached: true
+      });
+    }
+
+    // Build WHERE clause
+    let whereConditions = ['IsNew=1'];
+
+    if (category) {
+      whereConditions.push(`CATEGORY='${category}'`);
+    }
+
+    if (brand) {
+      whereConditions.push(`BRAND_NAME='${brand}'`);
+    }
+
+    const whereClause = whereConditions.join(' AND ');
+
+    // Fetch new products
+    const records = await fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
+      'q.where': whereClause,
+      'q.limit': parsedLimit,
+      'q.orderBy': 'Date_Updated DESC'
+    });
+
+    // Update cache
+    newProductsCache = {
+      data: records,
+      timestamp: now,
+      params: cacheKey
+    };
+
+    console.log(`Found ${records.length} new product(s)`);
+    res.json({
+      products: records,
+      count: records.length,
+      cached: false
+    });
+
+  } catch (error) {
+    console.error('Error fetching new products:', error.message);
+    res.status(500).json({
+      error: 'Failed to fetch new products',
+      details: error.message
+    });
+  }
+});
+
+/**
+ * POST /api/admin/products/add-isnew-field
+ * Creates the IsNew boolean field in the products table
+ * This endpoint is idempotent - if field already exists, returns success
+ */
+router.post('/admin/products/add-isnew-field', async (req, res) => {
+  try {
+    const fieldDefinition = {
+      Name: 'IsNew',
+      Type: 'YES/NO'
+    };
+
+    const result = await makeCaspioRequest(
+      'post',
+      `/tables/Sanmar_Bulk_251816_Feb2024/fields`,
+      {},
+      fieldDefinition
+    );
+
+    return res.status(201).json({
+      success: true,
+      message: 'IsNew field created successfully',
+      fieldName: 'IsNew'
+    });
+
+  } catch (error) {
+    // Handle "field already exists" gracefully
+    if (error.response && error.response.status === 400) {
+      const errorData = error.response.data;
+
+      if (errorData.Code === 'ObjectExists') {
+        return res.status(200).json({
+          success: true,
+          message: 'IsNew field already exists',
+          fieldName: 'IsNew',
+          alreadyExists: true
+        });
+      }
+    }
+
+    console.error('Error creating IsNew field:', error.response?.data || error.message);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to create IsNew field',
+      error: error.response?.data?.Message || error.message
+    });
+  }
+});
+
+/**
+ * POST /api/admin/products/mark-as-new
+ * Batch updates products to set IsNew=true based on style numbers
+ *
+ * Request body:
+ * {
+ *   "styles": ["EB120", "EB121", "EB122", ...]
+ * }
+ *
+ * Response:
+ * {
+ *   "success": true,
+ *   "recordsAffected": 150,
+ *   "styles": ["EB120", "EB121", ...],
+ *   "styleCount": 15
+ * }
+ */
+router.post('/admin/products/mark-as-new', async (req, res) => {
+  try {
+    const { styles } = req.body;
+
+    // Validate input
+    if (!styles || !Array.isArray(styles) || styles.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'styles array is required and must not be empty'
+      });
+    }
+
+    // Build WHERE clause: STYLE IN ('EB120', 'EB121', ...)
+    const stylesList = styles.map(style => `'${style}'`).join(', ');
+    const whereClause = `STYLE IN (${stylesList})`;
+
+    // Update all records matching the styles
+    const result = await makeCaspioRequest(
+      'put',
+      `/tables/Sanmar_Bulk_251816_Feb2024/records`,
+      { 'q.where': whereClause },
+      { IsNew: true }
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: `Successfully marked ${result.RecordsAffected} records as new`,
+      recordsAffected: result.RecordsAffected,
+      styles: styles,
+      styleCount: styles.length
+    });
+
+  } catch (error) {
+    console.error('Error marking products as new:', error.response?.data || error.message);
+
+    // Handle no records found
+    if (error.response && error.response.status === 404) {
+      return res.status(404).json({
+        success: false,
+        message: 'No products found matching the provided style numbers'
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to mark products as new',
+      error: error.response?.data?.Message || error.message
+    });
+  }
+});
+
 module.exports = router;
