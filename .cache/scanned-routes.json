@@ -1,5 +1,5 @@
 {
-  "scannedAt": "2025-10-28T20:29:33.629Z",
+  "scannedAt": "2025-10-28T20:51:40.597Z",
   "totalEndpoints": 148,
   "endpoints": [
     {
@@ -2556,7 +2556,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "products.js",
-      "lineNumber": 1020
+      "lineNumber": 1051
     },
     {
       "method": "GET",
