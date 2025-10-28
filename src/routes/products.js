@@ -915,24 +915,24 @@ router.post('/admin/products/add-isnew-field', async (req, res) => {
 
   } catch (error) {
     // Handle "field already exists" gracefully
-    if (error.response && error.response.status === 400) {
-      const errorData = error.response.data;
+    // Check if error message contains ObjectExists
+    const errorMessage = error.message || '';
+    const errorString = JSON.stringify(error);
 
-      if (errorData.Code === 'ObjectExists') {
-        return res.status(200).json({
-          success: true,
-          message: 'IsNew field already exists',
-          fieldName: 'IsNew',
-          alreadyExists: true
-        });
-      }
+    if (errorMessage.includes('ObjectExists') || errorString.includes('ObjectExists')) {
+      return res.status(200).json({
+        success: true,
+        message: 'IsNew field already exists',
+        fieldName: 'IsNew',
+        alreadyExists: true
+      });
     }
 
     console.error('Error creating IsNew field:', error.response?.data || error.message);
     return res.status(500).json({
       success: false,
       message: 'Failed to create IsNew field',
-      error: error.response?.data?.Message || error.message
+      error: error.message
     });
   }
 });
@@ -971,10 +971,14 @@ router.post('/admin/products/mark-as-new', async (req, res) => {
     const whereClause = `STYLE IN (${stylesList})`;
 
     // Update all records matching the styles
+    // Note: PUT requests update ALL matching records automatically (no pagination needed)
+    // Each style can have 20-50 color/size combinations
     const result = await makeCaspioRequest(
       'put',
       `/tables/Sanmar_Bulk_251816_Feb2024/records`,
-      { 'q.where': whereClause },
+      {
+        'q.where': whereClause
+      },
       { IsNew: true }
     );
 
@@ -1000,6 +1004,42 @@ router.post('/admin/products/mark-as-new', async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'Failed to mark products as new',
+      error: error.response?.data?.Message || error.message
+    });
+  }
+});
+
+/**
+ * POST /api/admin/products/clear-isnew
+ * Clear IsNew field from all products (set to false)
+ *
+ * Purpose: Reset the IsNew field when too many products were incorrectly marked
+ *
+ * Response: { success, message, recordsAffected }
+ */
+router.post('/admin/products/clear-isnew', async (req, res) => {
+  try {
+    // Update ALL records where IsNew=1 to set IsNew=false
+    const result = await makeCaspioRequest(
+      'put',
+      `/tables/Sanmar_Bulk_251816_Feb2024/records`,
+      {
+        'q.where': 'IsNew=1'
+      },
+      { IsNew: false }
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: `Successfully cleared IsNew from ${result.RecordsAffected} records`,
+      recordsAffected: result.RecordsAffected
+    });
+  } catch (error) {
+    console.error('Error clearing IsNew field:', error.response?.data || error.message);
+
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to clear IsNew field',
       error: error.response?.data?.Message || error.message
     });
   }

@@ -3,6 +3,7 @@
 - **ManageOrders Integration** - Customer data API proxy with caching ([Full Documentation](memory/MANAGEORDERS_INTEGRATION.md))
 - **ManageOrders PUSH API** - Send orders TO OnSite ERP with auto-import ([Full Documentation](memory/MANAGEORDERS_PUSH_INTEGRATION.md))
 - **Online Store Developer Guide** - Complete guide for building webstore integration ([Developer Guide](memory/ONLINE_STORE_DEVELOPER_GUIDE.md))
+- **New Products Management API** - Mark and query featured/new products dynamically ([Full Documentation](memory/NEW_PRODUCTS_API.md))
 - Art_Request Invoice
 
 ## Local Development Setup
@@ -200,6 +201,40 @@ Result: Standard endpoint returning filtered, sorted order records
 ```
 
 ## Recent Additions
+
+### New Products Management API (v1.4.0) ⭐ NEW
+
+Three endpoints for managing and displaying featured/"new" products:
+
+**Public Endpoint:**
+- `GET /api/products/new` - Query products marked as new with filtering (category, brand, limit)
+
+**Admin Endpoints:**
+- `POST /api/admin/products/add-isnew-field` - Create IsNew field (one-time setup, idempotent)
+- `POST /api/admin/products/mark-as-new` - Batch mark products as new by style number
+
+**Key Features:**
+- **5-minute caching** on query endpoint for optimal performance
+- **Batch processing** - Update multiple products (all color/size variants) at once
+- **Flexible filtering** - Filter by category, brand, or limit
+- **Idempotent operations** - Safe to run field creation multiple times
+
+**Quick Start:**
+```bash
+# 1. Create IsNew field (one-time)
+POST /api/admin/products/add-isnew-field
+
+# 2. Mark products as new
+POST /api/admin/products/mark-as-new
+{"styles": ["EB120", "PC54", "ST350"]}
+
+# 3. Query new products
+GET /api/products/new?limit=10
+```
+
+**Documentation:** See [NEW_PRODUCTS_API.md](memory/NEW_PRODUCTS_API.md) for complete docs.
+
+---
 
 ### Order Dashboard API (`/api/order-dashboard`)
 A specialized endpoint for UI dashboards that provides pre-calculated metrics:

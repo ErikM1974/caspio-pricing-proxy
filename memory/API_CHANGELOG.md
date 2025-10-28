@@ -5,6 +5,44 @@ All notable changes to the Caspio Pricing Proxy API will be documented in this f
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2025-10-28
+
+### Added - New Products Management API
+
+- **3 NEW ENDPOINTS** - Mark and query featured/"new" products dynamically
+
+**Public Endpoint:**
+  - `GET /api/products/new` - Query products marked as new with filtering (category, brand, limit)
+
+**Admin Endpoints:**
+  - `POST /api/admin/products/add-isnew-field` - Create IsNew boolean field (idempotent, one-time setup)
+  - `POST /api/admin/products/mark-as-new` - Batch mark products as new by style number
+
+### Features
+- **Smart Caching:** 5-minute cache on query endpoint reduces API load
+- **Idempotent Operations:** Field creation safe to run multiple times
+- **Batch Processing:** Update multiple products (all color/size variants) in single request
+- **Flexible Filtering:** Filter by category, brand, or limit results
+- **Admin vs Public:** Clear separation between management and display endpoints
+
+### Use Cases
+- **Website:** Display "New Arrivals" or "Featured Products" section
+- **Merchandising:** Dynamically feature seasonal items or promotions
+- **Marketing:** Highlight new catalog additions without code changes
+- **Product Management:** Quick batch updates for multiple styles
+
+### Implementation Details
+- IsNew field type: `YES/NO` (Caspio boolean)
+- Query syntax: Set as `true` in request body, query as `=1` in WHERE clause
+- Updates all variants: Single style update affects all colors/sizes
+- Performance: Parameter-aware caching, optimized batch operations
+
+### Documentation
+- Complete API documentation: [NEW_PRODUCTS_API.md](NEW_PRODUCTS_API.md)
+- Implementation spec: [NEW_PRODUCTS_ENDPOINT_SPEC.md](NEW_PRODUCTS_ENDPOINT_SPEC.md)
+- Postman collection: Updated with examples and sample data
+- Test script: `test-new-products-endpoints.js`
+
 ## [1.3.0] - 2025-10-26
 
 ### Added - Complete ManageOrders API Integration ⭐

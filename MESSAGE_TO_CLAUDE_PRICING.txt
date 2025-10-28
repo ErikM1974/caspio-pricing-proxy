@@ -1,0 +1,206 @@
+================================================================================
+MESSAGE TO CLAUDE PRICING: NEW PRODUCTS MANAGEMENT API
+================================================================================
+
+Date: 2025-10-28
+From: Caspio Pricing Proxy
+To: Claude Pricing Instance
+Subject: 3 New Endpoints for Managing Featured/New Products (v1.4.0)
+
+================================================================================
+OVERVIEW
+================================================================================
+
+You now have 3 new endpoints for managing and displaying "new" or featured
+products dynamically. No database schema changes needed - just API calls!
+
+================================================================================
+QUICK START - 3 SIMPLE STEPS
+================================================================================
+
+STEP 1: Create IsNew Field (One-Time Setup)
+-------------------------------------------
+POST https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/admin/products/add-isnew-field
+
+Headers:
+  Content-Type: application/json
+
+Body: (none needed)
+
+Expected Response:
+  {"success": true, "message": "IsNew field created successfully"}
+
+Note: This is idempotent - safe to run multiple times. If field exists, you'll
+get a success message anyway.
+
+STEP 2: Mark Products as New (Batch Update)
+-------------------------------------------
+POST https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/admin/products/mark-as-new
+
+Headers:
+  Content-Type: application/json
+
+Body:
+  {
+    "styles": ["EB120", "EB121", "PC54", "ST350", "OG734"]
+  }
+
+Expected Response:
+  {
+    "success": true,
+    "message": "Successfully marked 120 records as new",
+    "recordsAffected": 120,
+    "styles": ["EB120", "EB121", "PC54", "ST350", "OG734"],
+    "styleCount": 5
+  }
+
+Important: Updates ALL variants (colors + sizes) for each style.
+One style = 10-30 records typically.
+
+STEP 3: Query New Products (Public Endpoint)
+-------------------------------------------
+GET https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/products/new?limit=10
+
+Query Parameters (all optional):
+  - limit: Max results (1-100, default 20)
+  - category: Filter by category (e.g., "Sweatshirts/Fleece")
+  - brand: Filter by brand (e.g., "Eddie Bauer")
+
+Expected Response:
+  {
+    "products": [ ... array of product objects ... ],
+    "count": 10,
+    "cached": false
+  }
+
+Caching: Results cached for 5 minutes. First request cached=false,
+subsequent requests (within 5 min) cached=true.
+
+================================================================================
+EXAMPLES
+================================================================================
+
+Example 1: Get 20 newest products (default)
+  GET /api/products/new
+
+Example 2: Get 10 new Eddie Bauer products
+  GET /api/products/new?limit=10&brand=Eddie%20Bauer
+
+Example 3: Get new sweatshirts/fleece
+  GET /api/products/new?category=Sweatshirts%2FFleece
+
+Example 4: Mark 15 featured products
+  POST /api/admin/products/mark-as-new
+  Body: {
+    "styles": [
+      "EB120", "EB121", "EB122", "EB123", "EB124", "EB125",
+      "EB130", "EB131", "OG734", "OG735", "PC54", "PC55",
+      "LPC54", "ST350", "LST350"
+    ]
+  }
+
+================================================================================
+JAVASCRIPT EXAMPLE
+================================================================================
+
+// Query new products
+const response = await fetch(
+  'https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/products/new?limit=12'
+);
+const data = await response.json();
+
+console.log(`Found ${data.count} new products (cached: ${data.cached})`);
+data.products.forEach(product => {
+  console.log(`${product.STYLE} - ${product.PRODUCT_TITLE} - $${product.PIECE_PRICE}`);
+});
+
+// Mark products as new (admin)
+await fetch(
+  'https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/admin/products/mark-as-new',
+  {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      styles: ['EB120', 'PC54', 'ST350']
+    })
+  }
+);
+
+================================================================================
+IMPORTANT NOTES
+================================================================================
+
+1. CACHING: Query endpoint (GET) cached for 5 minutes. Admin endpoints (POST)
+   have no caching.
+
+2. BATCH UPDATES: Marking a style as "new" updates ALL color/size variants.
+   recordsAffected shows total records, styleCount shows unique styles.
+
+3. IDEMPOTENT: Field creation endpoint safe to run multiple times.
+
+4. BOOLEAN SYNTAX:
+   - Setting value: Use JavaScript boolean: {IsNew: true}
+   - Querying: Caspio SQL syntax: IsNew=1
+
+5. FILTERING: Query endpoint supports category, brand, and limit parameters.
+
+================================================================================
+USE CASES
+================================================================================
+
+- Display "New Arrivals" section on website homepage
+- Feature seasonal collections (winter, summer, etc.)
+- Highlight promotional items
+- Rotate featured products monthly/quarterly
+- Show category-specific new items (new sweatshirts, new polos, etc.)
+
+================================================================================
+COMPLETE DOCUMENTATION
+================================================================================
+
+For detailed documentation with all parameters, error handling, examples,
+and troubleshooting, see:
+
+  memory/NEW_PRODUCTS_API.md
+
+Also available:
+  - memory/API_CHANGELOG.md (v1.4.0 section)
+  - CLAUDE.md (Recent Additions section)
+  - Postman Collection (Product Search folder)
+
+================================================================================
+TESTING CHECKLIST
+================================================================================
+
+[ ] Step 1: Create IsNew field (POST /api/admin/products/add-isnew-field)
+[ ] Step 2: Mark 2-3 test products (POST /api/admin/products/mark-as-new)
+[ ] Step 3: Query new products (GET /api/products/new?limit=5)
+[ ] Step 4: Verify caching (query twice, check cached field)
+[ ] Step 5: Test filtering (?category= and ?brand= parameters)
+
+================================================================================
+SUMMARY
+================================================================================
+
+3 Simple Steps:
+  1. Create field (once): POST /api/admin/products/add-isnew-field
+  2. Mark products: POST /api/admin/products/mark-as-new + styles array
+  3. Query: GET /api/products/new?limit=10
+
+Key Benefits:
+  ✓ No database changes needed
+  ✓ 5-minute caching for performance
+  ✓ Batch updates for efficiency  
+  ✓ Flexible filtering options
+  ✓ Safe, idempotent operations
+
+Production Base URL:
+  https://caspio-pricing-proxy-ab30a049961a.herokuapp.com
+
+All 3 endpoints are LIVE and TESTED!
+
+Questions? Check memory/NEW_PRODUCTS_API.md for complete documentation.
+
+================================================================================
+END OF MESSAGE
+================================================================================

@@ -599,6 +599,27 @@
 						"description": "POST /api/admin/products/mark-as-new Batch updates products to set IsNew=true based on style numbers  Request body: { \"styles\": [\"EB120\", \"EB121\", \"EB122\", ...] }  Response: { \"success\": true, \"recordsAffected\": 150, \"styles\": [\"EB120\", \"EB121\", ...], \"styleCount\": 15 }"
 					},
 					"response": []
+				},
+				{
+					"name": "Create Admin Products Clear Isnew",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/admin/products/clear-isnew",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"admin",
+								"products",
+								"clear-isnew"
+							]
+						},
+						"description": "POST /api/admin/products/clear-isnew Clear IsNew field from all products (set to false)  Purpose: Reset the IsNew field when too many products were incorrectly marked  Response: { success, message, recordsAffected }"
+					},
+					"response": []
 				}
 			],
 			"description": "Search and browse products with advanced filtering"
