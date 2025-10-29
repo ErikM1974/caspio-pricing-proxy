@@ -1,7 +1,7 @@
 # ManageOrders PUSH API Integration
 
-**Version:** 1.0.1
-**Last Updated:** October 27, 2025
+**Version:** 1.1.0
+**Last Updated:** October 29, 2025
 **Purpose:** Send orders FROM our system TO ShopWorks OnSite via ManageOrders PUSH API
 
 ---
@@ -27,6 +27,11 @@ Customer Order → NWCA Website → Caspio Pricing Proxy → ManageOrders PUSH A
 
 - ✅ **Automatic Size Translation** - "Large" → "L" → OnSite "LG" column
 - ✅ **Customer Tracking** - All orders → Customer #2791, actual customer in Contact fields
+- ✅ **Billing Address Support** - Separate billing and shipping addresses (NEW v1.1.0)
+- ✅ **Full Customer Object** - 29 fields including tax info, custom fields, business data (NEW v1.1.0)
+- ✅ **Multiple File Upload** - Unlimited artwork and document files (NEW v1.1.0)
+- ✅ **Smart File Routing** - Artwork → Designs, All Files → Attachments (NEW v1.1.0)
+- ✅ **Extended File Types** - AI, PSD, EPS, PDF, JPG, PNG, DOCX, ZIP, and more (NEW v1.1.0)
 - ✅ **Design Support** - Upload design thumbnails via ImageURL
 - ✅ **Payment Integration** - Send payment status and details
 - ✅ **Shipping Integration** - Full shipping address support
@@ -120,19 +125,48 @@ Local: http://localhost:3002
     "lastName": "Doe",
     "email": "john@example.com",
     "phone": "360-555-1234",
-    "company": "ABC Company"
+    "company": "ABC Company",
+    "website": "https://abccompany.com",
+    "taxExempt": "Y",
+    "taxExemptNumber": "EX-12345"
   },
 
-  "shipping": {
+  "billing": {
     "company": "ABC Company",
     "address1": "123 Main St",
-    "address2": "Suite 100",
+    "address2": "Suite 400",
     "city": "Seattle",
     "state": "WA",
     "zip": "98101",
+    "country": "USA"
+  },
+
+  "shipping": {
+    "company": "ABC Company - Warehouse",
+    "address1": "456 Oak Ave",
+    "address2": "Building B",
+    "city": "Tacoma",
+    "state": "WA",
+    "zip": "98402",
     "country": "USA",
     "method": "UPS Ground"
   },
+
+  "files": [
+    {
+      "fileName": "company-logo.ai",
+      "fileData": "data:application/illustrator;base64,JVBERi0xLjUK...",
+      "category": "artwork",
+      "decorationLocation": "Left Chest",
+      "description": "Vector logo for embroidery"
+    },
+    {
+      "fileName": "purchase-order.pdf",
+      "fileData": "data:application/pdf;base64,JVBERi0xLjQK...",
+      "category": "document",
+      "description": "Customer PO #2025-001"
+    }
+  ],
 
   "lineItems": [
     {
@@ -724,7 +758,336 @@ Then configure in OnSite Size Translation Table.
 
 ---
 
+---
+
+## Billing Address Support (NEW v1.1.0)
+
+### Overview
+
+The API now supports separate billing and shipping addresses. Billing address fields are sent to the ManageOrders `Customer` object and appear in ShopWorks OnSite's Customer billing information.
+
+### Billing Address Fields
+
+| Field | Type | Description | Example |
+|-------|------|-------------|---------|
+| `billing.company` | string | Billing company name | "ABC Company" |
+| `billing.address1` | string | Billing address line 1 | "123 Main St" |
+| `billing.address2` | string | Billing address line 2 | "Suite 400" |
+| `billing.city` | string | Billing city | "Seattle" |
+| `billing.state` | string | Billing state (2-letter code) | "WA" |
+| `billing.zip` | string | Billing ZIP code | "98101" |
+| `billing.country` | string | Billing country | "USA" |
+
+### Usage
+
+**Same Billing and Shipping:**
+```json
+{
+  "billing": {
+    "company": "ABC Company",
+    "address1": "123 Main St",
+    "city": "Seattle",
+    "state": "WA",
+    "zip": "98101"
+  },
+  "shipping": {
+    "company": "ABC Company",
+    "address1": "123 Main St",
+    "city": "Seattle",
+    "state": "WA",
+    "zip": "98101"
+  }
+}
+```
+
+**Different Billing and Shipping:**
+```json
+{
+  "billing": {
+    "company": "ABC Company HQ",
+    "address1": "123 Main St",
+    "city": "Seattle",
+    "state": "WA",
+    "zip": "98101"
+  },
+  "shipping": {
+    "company": "ABC Company Warehouse",
+    "address1": "456 Oak Ave",
+    "city": "Tacoma",
+    "state": "WA",
+    "zip": "98402"
+  }
+}
+```
+
+### In ShopWorks OnSite
+
+Billing address appears in:
+- **Customer Block** → Billing Address fields
+- Available for invoicing and accounting purposes
+
+---
+
+## File Upload Support (NEW v1.1.0)
+
+### Overview
+
+Upload unlimited files (artwork, documents, purchase orders, etc.) with each order. Files are automatically uploaded to Caspio and included in the ManageOrders order payload.
+
+### Supported File Types
+
+| Category | File Types | MIME Types |
+|----------|------------|------------|
+| **Images** | PNG, JPG, GIF, SVG, WebP | image/png, image/jpeg, image/gif, image/svg+xml, image/webp |
+| **Documents** | PDF | application/pdf |
+| **Design Files** | AI, PSD, EPS, INDD | application/illustrator, application/postscript, image/vnd.adobe.photoshop, image/x-eps |
+| **Vector Files** | SVG, CDR | image/svg+xml, application/vnd.corel-draw |
+| **Office Docs** | DOCX, XLSX, DOC, XLS | application/vnd.openxmlformats-officedocument.* |
+| **Compressed** | ZIP, RAR | application/zip, application/x-rar-compressed |
+
+**Max File Size:** 20MB per file
+**File Limit:** Unlimited files per order
+
+### File Categories
+
+Files are routed to different locations in ShopWorks OnSite based on category:
+
+| Category | Destination | Purpose | OnSite Display |
+|----------|-------------|---------|----------------|
+| `artwork` | Designs.Locations.ImageURL + Attachments | Production artwork | Designs section (production team) |
+| `document` | Attachments only | Order documents | Attachments section (all departments) |
+
+### File Upload Flow
+
+```
+1. Frontend: User uploads file → FileReader converts to base64
+2. Frontend: Sends base64 in order payload (files array)
+3. Proxy: Uploads to Caspio Files API → Gets externalKey
+4. Proxy: Builds URL: https://caspio-pricing-proxy.../api/files/{externalKey}
+5. Proxy: Adds to ManageOrders payload:
+   - Artwork files → Designs.Locations.ImageURL
+   - All files → Attachments array
+6. ManageOrders: Receives order with file URLs
+7. OnSite: Imports order with clickable file links
+```
+
+### Usage Examples
+
+**Upload Artwork File:**
+```json
+{
+  "files": [
+    {
+      "fileName": "team-logo.ai",
+      "fileData": "data:application/illustrator;base64,JVBERi0xLjUK...",
+      "category": "artwork",
+      "decorationLocation": "Left Chest",
+      "description": "Vector logo for embroidery"
+    }
+  ]
+}
+```
+
+**Upload Document File:**
+```json
+{
+  "files": [
+    {
+      "fileName": "purchase-order.pdf",
+      "fileData": "data:application/pdf;base64,JVBERi0xLjQK...",
+      "category": "document",
+      "description": "Customer PO #2025-001"
+    }
+  ]
+}
+```
+
+**Upload Multiple Files:**
+```json
+{
+  "files": [
+    {
+      "fileName": "logo.ai",
+      "fileData": "data:application/illustrator;base64,...",
+      "category": "artwork",
+      "decorationLocation": "Left Chest",
+      "description": "Logo file"
+    },
+    {
+      "fileName": "back-design.pdf",
+      "fileData": "data:application/pdf;base64,...",
+      "category": "artwork",
+      "decorationLocation": "Full Back",
+      "description": "Back print design"
+    },
+    {
+      "fileName": "po-12345.pdf",
+      "fileData": "data:application/pdf;base64,...",
+      "category": "document",
+      "description": "Purchase order"
+    },
+    {
+      "fileName": "proof-approval.jpg",
+      "fileData": "data:image/jpeg;base64,...",
+      "category": "document",
+      "description": "Approved proof"
+    }
+  ]
+}
+```
+
+### Converting Files to Base64 (JavaScript)
+
+```javascript
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+// Usage:
+const fileInput = document.getElementById('logoInput');
+const file = fileInput.files[0];
+const base64Data = await fileToBase64(file);
+
+// Send in order
+const order = {
+  orderNumber: "12345",
+  files: [{
+    fileName: file.name,
+    fileData: base64Data,
+    category: "artwork",
+    description: "Company logo"
+  }],
+  // ... rest of order
+};
+```
+
+### File Storage
+
+- **Location:** Caspio Artwork folder
+- **Folder Key:** `b91133c3-4413-4cb9-8337-444c730754dd`
+- **Access:** Files accessible via proxy URL for security
+- **URL Format:** `https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/files/{externalKey}`
+
+### In ShopWorks OnSite
+
+**Artwork Files:**
+- Appear in **Designs** section
+- Linked to specific decoration locations
+- Production team sees them when creating screens/digitizing
+
+**All Files:**
+- Appear in **Attachments** section
+- Accessible to all departments (sales, production, shipping, accounting)
+- Clickable URLs to view/download
+
+---
+
+## Customer Object Reference (NEW v1.1.0)
+
+### Overview
+
+The API now sends a complete `Customer` object with 29 fields to ManageOrders, providing comprehensive customer information beyond basic contact fields.
+
+### Customer Object Fields
+
+| Field | Type | Description | Example |
+|-------|------|-------------|---------|
+| **Billing Address (7 fields)** ||||
+| `BillingCompany` | string | Billing company name | "ABC Company" |
+| `BillingAddress01` | string | Billing address line 1 | "123 Main St" |
+| `BillingAddress02` | string | Billing address line 2 | "Suite 400" |
+| `BillingCity` | string | Billing city | "Seattle" |
+| `BillingState` | string | Billing state | "WA" |
+| `BillingZip` | string | Billing ZIP code | "98101" |
+| `BillingCountry` | string | Billing country | "USA" |
+| **Company Info (3 fields)** ||||
+| `CompanyName` | string | Company name | "ABC Company" |
+| `MainEmail` | string | Company main email | "info@abccompany.com" |
+| `WebSite` | string | Company website | "https://abccompany.com" |
+| **Tax Info (2 fields)** ||||
+| `TaxExempt` | string | Tax exempt status (Y/N) | "Y" |
+| `TaxExemptNumber` | string | Tax exemption number | "EX-12345" |
+| **Business Classification (3 fields)** ||||
+| `CustomerSource` | string | Customer source | "Website", "Trade Show", "Referral" |
+| `CustomerType` | string | Customer type | "Corporate", "Retail", "Wholesale" |
+| `SalesGroup` | string | Sales group | "Northwest", "Enterprise" |
+| **Notes (2 fields)** ||||
+| `InvoiceNotes` | string | Invoice notes | "Net 30 terms approved" |
+| `CustomerReminderInvoiceNotes` | string | Invoice reminder notes | "Send reminder 7 days before due" |
+| **Custom Fields (10 fields)** ||||
+| `CustomField01` - `CustomField06` | string | Custom text fields | Any custom data |
+| `CustomDateField01` - `CustomDateField04` | string | Custom date fields | "2025-12-31" |
+
+### Usage
+
+```json
+{
+  "customer": {
+    "firstName": "John",
+    "lastName": "Doe",
+    "email": "john@example.com",
+    "phone": "360-555-1234",
+    "company": "ABC Company",
+    "website": "https://abccompany.com",
+    "taxExempt": "Y",
+    "taxExemptNumber": "EX-12345",
+    "source": "Website",
+    "type": "Corporate",
+    "salesGroup": "Northwest",
+    "invoiceNotes": "Net 30 terms approved",
+    "customFields": {
+      "CustomField01": "VIP Customer",
+      "CustomField02": "Preferred Shipping: UPS"
+    }
+  },
+  "billing": {
+    "company": "ABC Company",
+    "address1": "123 Main St",
+    "city": "Seattle",
+    "state": "WA",
+    "zip": "98101"
+  }
+}
+```
+
+---
+
 ## Changelog
+
+### Version 1.1.0 (October 29, 2025)
+- ✨ **BILLING ADDRESS SUPPORT**: Separate billing and shipping addresses
+  - Added 7 billing address fields to Customer object
+  - Billing address appears in OnSite Customer billing information
+  - Fallback to customer.company if billing.company not provided
+- ✨ **MULTIPLE FILE UPLOAD SUPPORT**: Upload unlimited files per order
+  - Artwork files → Designs.Locations.ImageURL (production team)
+  - All files → Attachments array (all departments)
+  - Automatic upload to Caspio Files API v3
+  - File URLs: `https://caspio-pricing-proxy.../api/files/{externalKey}`
+- ✨ **EXTENDED FILE TYPES**: Support for 20+ file types
+  - Design files: AI, PSD, EPS, INDD
+  - Office docs: DOCX, XLSX, DOC, XLS
+  - Images: PNG, JPG, GIF, SVG, WebP
+  - Compressed: ZIP, RAR
+  - Max size: 20MB per file
+- ✨ **FULL CUSTOMER OBJECT**: 29 customer fields
+  - Company info (website, main email)
+  - Tax information (exempt status, tax ID)
+  - Business classification (source, type, sales group)
+  - Custom fields (6 text + 4 date fields)
+  - Invoice notes and reminders
+- ✨ **ADDITIONAL ORDER FIELDS**: Status and financial fields
+  - Status: id_SalesStatus, id_ReceivingStatus, id_ShippingStatus
+  - Financial: TaxTotal, TotalDiscounts
+  - Discount: DiscountPartNumber, DiscountPartDescription
+- ✅ All new features fully backward compatible
+- ✅ Updated documentation with comprehensive examples
+- ✅ Updated complete-order.json example
 
 ### Version 1.0.1 (October 27, 2025)
 - 🐛 **DATE FORMAT FIX**: All dates now converted to MM/DD/YYYY format

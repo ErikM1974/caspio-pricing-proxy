@@ -10,18 +10,54 @@
     "lastName": "Doe",
     "email": "john.doe@example.com",
     "phone": "360-555-1234",
-    "company": "ABC Company"
+    "company": "ABC Company",
+    "website": "https://abccompany.com",
+    "taxExempt": "Y",
+    "taxExemptNumber": "EX-12345",
+    "source": "Website",
+    "type": "Corporate"
   },
-  "shipping": {
+  "billing": {
     "company": "ABC Company",
     "address1": "123 Main Street",
-    "address2": "Suite 100",
+    "address2": "Suite 400",
     "city": "Seattle",
     "state": "WA",
     "zip": "98101",
+    "country": "USA"
+  },
+  "shipping": {
+    "company": "ABC Company - Warehouse",
+    "address1": "456 Oak Avenue",
+    "address2": "Building B",
+    "city": "Tacoma",
+    "state": "WA",
+    "zip": "98402",
     "country": "USA",
     "method": "UPS Ground"
   },
+  "files": [
+    {
+      "fileName": "company-logo.ai",
+      "fileData": "data:application/illustrator;base64,JVBERi0xLjUKJeLjz9MKMSAwIG9iago8PC9UeXBlL0NhdGFsb2cvUGFnZXMgMiAwIFIvTGFuZyhwdC1CUikgL1N0cnVjdFRyZWVSb290IDE1IDAgUi9NYXJrSW5mbzw8L01hcmtlZCB0cnVlPj4vTWV0YWRhdGEgNjUgMCBSL1ZpZXdlclByZWZlcmVuY2VzIDY2IDAgUj4+CmVuZG9iago...",
+      "category": "artwork",
+      "decorationLocation": "Left Chest",
+      "description": "Vector logo for embroidery"
+    },
+    {
+      "fileName": "back-design.pdf",
+      "fileData": "data:application/pdf;base64,JVBERi0xLjQKJaqrrK0KMSAwIG9iago8PC9UeXBlL0NhdGFsb2cvUGFnZXMgMiAwIFIvTGFuZyhwdC1CUikgL1N0cnVjdFRyZWVSb290IDE1IDAgUi9NYXJrSW5mbzw8L01hcmtlZCB0cnVlPj4vTWV0YWRhdGEgNjUgMCBSL1ZpZXdlclByZWZlcmVuY2VzIDY2IDAgUj4+CmVuZG9iago...",
+      "category": "artwork",
+      "decorationLocation": "Full Back",
+      "description": "Screen print artwork"
+    },
+    {
+      "fileName": "purchase-order.pdf",
+      "fileData": "data:application/pdf;base64,JVBERi0xLjQKJcfsfw0KMSAwIG9iago8PC9UeXBlL0NhdGFsb2cvUGFnZXMgMiAwIFIvTGFuZyhwdC1CUikgL1N0cnVjdFRyZWVSb290IDE1IDAgUi9NYXJrSW5mbzw8L01hcmtlZCB0cnVlPj4vTWV0YWRhdGEgNjUgMCBSL1ZpZXdlclByZWZlcmVuY2VzIDY2IDAgUj4+CmVuZG9iago...",
+      "category": "document",
+      "description": "Customer PO #2025-001"
+    }
+  ],
   "lineItems": [
     {
       "partNumber": "PC54",
