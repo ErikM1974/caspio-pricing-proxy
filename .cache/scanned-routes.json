@@ -1,5 +1,5 @@
 {
-  "scannedAt": "2025-10-28T21:41:08.504Z",
+  "scannedAt": "2025-10-29T21:42:19.223Z",
   "totalEndpoints": 152,
   "endpoints": [
     {
@@ -901,7 +901,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "files.js",
-      "lineNumber": 179
+      "lineNumber": 206
     },
     {
       "method": "GET",
@@ -912,7 +912,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "files.js",
-      "lineNumber": 278
+      "lineNumber": 305
     },
     {
       "method": "GET",
@@ -923,7 +923,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "files.js",
-      "lineNumber": 333
+      "lineNumber": 360
     },
     {
       "method": "DELETE",
@@ -934,7 +934,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "files.js",
-      "lineNumber": 372
+      "lineNumber": 399
     },
     {
       "method": "POST",
@@ -945,7 +945,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "files.js",
-      "lineNumber": 409
+      "lineNumber": 436
     },
     {
       "method": "GET",
