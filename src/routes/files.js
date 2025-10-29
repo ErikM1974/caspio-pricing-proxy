@@ -12,12 +12,39 @@ const config = require('../../config');
 // Configuration
 const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
 const ALLOWED_TYPES = [
+    // Images
     'image/png',
     'image/jpeg',
     'image/jpg',
     'image/gif',
     'image/svg+xml',
-    'application/pdf'
+    'image/webp',
+
+    // Documents
+    'application/pdf',
+
+    // Design Files
+    'application/postscript',        // AI (Adobe Illustrator)
+    'application/illustrator',       // AI alternate
+    'image/vnd.adobe.photoshop',    // PSD (Photoshop)
+    'application/x-photoshop',       // PSD alternate
+    'image/x-eps',                   // EPS files
+    'application/eps',               // EPS alternate
+    'application/x-indesign',        // INDD (InDesign)
+
+    // Vector Files
+    'application/vnd.corel-draw',   // CDR (CorelDRAW)
+
+    // Office Documents
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // DOCX
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',      // XLSX
+    'application/msword',            // DOC
+    'application/vnd.ms-excel',      // XLS
+
+    // Compressed Files
+    'application/zip',
+    'application/x-rar-compressed',
+    'application/x-zip-compressed'
 ];
 
 // Get Caspio v3 API URL
