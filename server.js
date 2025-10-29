@@ -20,7 +20,7 @@ let caspioAccessToken = null;
 let tokenExpiryTime = 0;
 
 // --- Middleware ---
-app.use(express.json()); // Parse JSON bodies (for potential future POST requests)
+app.use(express.json({ limit: '10mb' })); // Parse JSON bodies with 10MB limit (for file uploads)
 app.use(express.static('.')); // Serve static files from the current directory
 
 // CORS Middleware - Using config settings

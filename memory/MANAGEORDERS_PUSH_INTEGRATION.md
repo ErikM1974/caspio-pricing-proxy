@@ -568,6 +568,366 @@ curl https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/manageorders/or
 
 ---
 
+## Sample Orders
+
+Sample orders use the same endpoint and structure as regular webstore orders, with a few key differences for tracking and handling.
+
+### Overview
+
+**Purpose:** Free sample requests from Top Sellers Showcase or other promotional pages
+
+**Key Characteristics:**
+- No payment required (free samples)
+- Order number format: `SAMPLE-MMDD-sequence`
+- Tracked as pennies ($0.01 per item) for inventory
+- Separate billing and shipping addresses supported (NEW v1.1.0)
+
+### Sample Order Structure
+
+```json
+{
+  "orderNumber": "SAMPLE-1029-1",
+  "orderDate": "2025-10-29",
+  "isTest": false,
+
+  "customer": {
+    "firstName": "Mike",
+    "lastName": "Test",
+    "email": "erik@go2shirt.com",
+    "phone": "555-5555",
+    "company": "Test Company LLC"
+  },
+
+  "billing": {
+    "company": "Test Company LLC",
+    "address1": "123 Billing St",
+    "address2": "Suite 400",
+    "city": "Seattle",
+    "state": "WA",
+    "zip": "98101",
+    "country": "USA"
+  },
+
+  "shipping": {
+    "company": "Test Company Warehouse",
+    "address1": "456 Shipping Ave",
+    "address2": "Building B",
+    "city": "Tacoma",
+    "state": "WA",
+    "zip": "98402",
+    "country": "USA",
+    "method": "UPS Ground"
+  },
+
+  "lineItems": [
+    {
+      "partNumber": "PC54",
+      "description": "Port & Company Core Cotton Tee",
+      "color": "Forest",
+      "size": "OSFA",
+      "quantity": 1,
+      "price": 0.01
+    },
+    {
+      "partNumber": "NE100",
+      "description": "North End Fleece Jacket",
+      "color": "Black",
+      "size": "OSFA",
+      "quantity": 1,
+      "price": 0.01
+    }
+  ],
+
+  "notes": [
+    {
+      "type": "Notes On Order",
+      "text": "FREE SAMPLE - Top Sellers Showcase - Test Company LLC"
+    }
+  ],
+
+  "salesRep": "erik@nwcustomapparel.com",
+  "terms": "FREE SAMPLE"
+}
+```
+
+### Field Differences from Regular Orders
+
+| Field | Regular Orders | Sample Orders |
+|-------|---------------|---------------|
+| **Order Number** | Customer's PO or generated ID | `SAMPLE-MMDD-sequence` |
+| **Line Item Price** | Actual product price | $0.01 (penny for tracking) |
+| **Payment** | Payment array with details | Omitted (no payment for free samples) |
+| **Billing Address** | Optional (may match shipping) | Required (for company records) |
+| **Shipping Address** | Required | Required (can be same as billing) |
+| **Notes** | General notes | Include "FREE SAMPLE" designation |
+| **Terms** | Customer terms (Net 30, etc.) | "FREE SAMPLE" |
+
+### Separate Billing & Shipping (NEW v1.1.0)
+
+Sample orders can now have separate billing and shipping addresses:
+
+**Scenario 1: Same Address**
+- User checks "Ship to the same address" checkbox
+- Shipping address is automatically copied from billing
+- Both addresses sent to API (identical values)
+
+**Scenario 2: Different Addresses**
+- User unchecks checkbox
+- Separate shipping address form appears
+- Different addresses sent to API
+- Common for:
+  - Company headquarters (billing) vs warehouse (shipping)
+  - Home office (billing) vs retail location (shipping)
+
+### Sample Order ExtOrderID Format
+
+**Frontend Generates:**
+```
+SAMPLE-1029-1
+```
+
+**Proxy Adds NWCA Prefix:**
+```
+NWCA-SAMPLE-1029-1
+```
+
+**In OnSite:**
+- ExtOrderID: `NWCA-SAMPLE-1029-1`
+- CustomerPurchaseOrder: `SAMPLE-1029-1`
+
+### Sample Request Form Integration
+
+**Frontend Implementation** (Pricing Index File 2025):
+```javascript
+// pages/sample-cart.html
+// Form collects:
+// - Contact: firstName, lastName, email, phone, company
+// - Billing: address1, address2, city, state, zip
+// - Shipping: address1, address2, city, state, zip (or copied from billing)
+// - Sales rep selection
+// - Additional notes
+
+// shared_components/js/sample-order-service.js
+// Transforms form data into ManageOrders format
+// Sends to proxy endpoint
+```
+
+**Field Mapping (Frontend → Proxy → ManageOrders):**
+
+| Frontend Field | Proxy Field | ManageOrders Field | Block |
+|----------------|-------------|-------------------|-------|
+| `firstName` | `customer.firstName` | `ContactNameFirst` | Order |
+| `lastName` | `customer.lastName` | `ContactNameLast` | Order |
+| `email` | `customer.email` | `ContactEmail` | Order |
+| `phone` | `customer.phone` | `ContactPhone` | Order |
+| `company` | `customer.company` | `Customer.CompanyName` | Customer |
+| `salesRep` | `salesRep` | `CustomerServiceRep` | Order |
+| `billing_address1` | `billing.address1` | `Customer.BillingAddress01` | Customer |
+| `billing_address2` | `billing.address2` | `Customer.BillingAddress02` | Customer |
+| `billing_city` | `billing.city` | `Customer.BillingCity` | Customer |
+| `billing_state` | `billing.state` | `Customer.BillingState` | Customer |
+| `billing_zip` | `billing.zip` | `Customer.BillingZip` | Customer |
+| `shipping_address1` | `shipping.address1` | `ShippingAddresses[0].ShipAddress01` | Shipping |
+| `shipping_address2` | `shipping.address2` | `ShippingAddresses[0].ShipAddress02` | Shipping |
+| `shipping_city` | `shipping.city` | `ShippingAddresses[0].ShipCity` | Shipping |
+| `shipping_state` | `shipping.state` | `ShippingAddresses[0].ShipState` | Shipping |
+| `shipping_zip` | `shipping.zip` | `ShippingAddresses[0].ShipZip` | Shipping |
+
+### Sample Order Notes Best Practices
+
+**Include in Order Notes:**
+1. **Designation:** "FREE SAMPLE" (for production identification)
+2. **Source:** Which page/feature generated the request
+3. **Company:** Company name for tracking
+4. **Customer Details:** Repeat key contact info for easy reference
+
+**Example:**
+```json
+{
+  "type": "Notes On Order",
+  "text": "FREE SAMPLE - Top Sellers Showcase - ABC Company\n\nCustomer: John Smith\nEmail: john@abc.com\nPhone: 360-555-1234\nSales Rep: erik@nwcustomapparel.com"
+}
+```
+
+### Testing Sample Orders
+
+**Quick Test:**
+```bash
+curl -X POST https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/manageorders/orders/create \
+  -H "Content-Type: application/json" \
+  -d '{
+    "orderNumber": "SAMPLE-1029-TEST",
+    "orderDate": "2025-10-29",
+    "isTest": true,
+    "customer": {
+      "firstName": "Test",
+      "lastName": "Sample",
+      "email": "test@example.com",
+      "phone": "555-5555",
+      "company": "Test Company"
+    },
+    "billing": {
+      "company": "Test Company HQ",
+      "address1": "123 Billing St",
+      "city": "Seattle",
+      "state": "WA",
+      "zip": "98101"
+    },
+    "shipping": {
+      "company": "Test Company Warehouse",
+      "address1": "456 Shipping Ave",
+      "city": "Tacoma",
+      "state": "WA",
+      "zip": "98402"
+    },
+    "lineItems": [
+      {
+        "partNumber": "PC54",
+        "description": "Sample Tee",
+        "color": "Red",
+        "size": "L",
+        "quantity": 1,
+        "price": 0.01
+      }
+    ],
+    "notes": [
+      {
+        "type": "Notes On Order",
+        "text": "FREE SAMPLE TEST - Billing/Shipping Separation"
+      }
+    ]
+  }'
+```
+
+**Expected Response:**
+```json
+{
+  "success": true,
+  "extOrderId": "NWCA-TEST-SAMPLE-1029-TEST",
+  "message": "Order successfully pushed to ManageOrders",
+  "onsiteImportExpected": "2025-10-29T11:00:00.000Z"
+}
+```
+
+### OnSite Verification for Sample Orders
+
+**After Hourly Import:**
+
+1. **Search for Order:** `NWCA-SAMPLE-1029-1`
+
+2. **Verify Customer Block:**
+   - Customer #2791 (all web orders)
+   - Contact fields: Test User, test@example.com, 555-5555
+   - **Billing address:**
+     - BillingCompany: Test Company LLC
+     - BillingAddress01: 123 Billing St
+     - BillingAddress02: Suite 400
+     - BillingCity: Seattle
+     - BillingState: WA
+     - BillingZip: 98101
+
+3. **Verify Shipping Block:**
+   - **If same address:**
+     - ShipAddress01: 123 Billing St (same as billing)
+   - **If different address:**
+     - ShipAddress01: 456 Shipping Ave
+     - ShipCity: Tacoma
+     - ShipState: WA
+     - ShipZip: 98402
+
+4. **Verify Line Items:**
+   - Products: PC54, NE100, etc.
+   - Quantities: 1 each
+   - Prices: $0.01 each
+   - Sizes: OSFA (one size fits all for samples)
+
+5. **Verify Notes:**
+   - Should include "FREE SAMPLE" designation
+   - Should include company name
+   - Should include customer contact info
+
+### Common Sample Order Issues
+
+**Issue: Billing and shipping addresses are swapped**
+
+**Solution:**
+- Verify proxy version is v1.1.0 or later
+- Check that Customer block receives `BillingAddress*` fields
+- Check that ShippingAddresses array receives `ShipAddress*` fields
+
+**Issue: Sample order shows as regular order in OnSite**
+
+**Solution:**
+- Ensure order number starts with `SAMPLE-`
+- Verify notes include "FREE SAMPLE" designation
+- Check line item prices are $0.01
+
+**Issue: Order missing billing address in OnSite**
+
+**Solution:**
+- Verify `billing` object is sent in request payload
+- Check proxy logs for Customer block population
+- Confirm Customer block includes BillingAddress* fields
+
+### Sample Order Enhancements (Future)
+
+**Phase 1: Line Item Custom Fields**
+```javascript
+lineItems: [{
+  partNumber: "PC54",
+  // ... other fields ...
+  customFields: {
+    CustomField01: "FREE SAMPLE",
+    CustomField02: "Top Sellers Showcase",
+    CustomField03: "2025-10-29"
+  }
+}]
+```
+
+**Phase 2: Multiple Note Types**
+```javascript
+notes: [
+  {
+    type: "Notes On Order",
+    text: "FREE SAMPLE - Top Sellers Showcase"
+  },
+  {
+    type: "Notes To Shipping",
+    text: "Sample order - No signature required"
+  },
+  {
+    type: "Notes To Production",
+    text: "Standard production schedule - Mark as FREE SAMPLE"
+  }
+]
+```
+
+**Phase 3: Design Block Integration**
+```javascript
+designs: [{
+  name: "Sample Logo",
+  imageUrl: "https://...",
+  locations: [{
+    location: "Left Chest",
+    notes: "Standard placement for samples"
+  }]
+}]
+```
+
+### Complete Testing Guide
+
+For comprehensive sample order testing procedures, see:
+**[Sample Order Testing Guide](../../../Pricing%20Index%20File%202025/memory/SAMPLE_ORDER_TESTING_GUIDE.md)**
+
+Includes:
+- Step-by-step test scenarios
+- Expected console logs
+- OnSite verification procedures
+- Troubleshooting guide
+- Test results template
+
+---
+
 ## Troubleshooting
 
 ### Issue: "Authentication failed"
