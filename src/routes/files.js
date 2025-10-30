@@ -251,6 +251,9 @@ router.post('/files/upload', async (req, res) => {
                 tempFilePath: tempFilePath
             });
 
+            // Log FormData headers to verify multipart/form-data format
+            console.log('[File Upload] FormData headers:', formData.getHeaders());
+
             const response = await makeCaspioV3Request('post', uploadPath, formData, true);
 
             // Log successful response
