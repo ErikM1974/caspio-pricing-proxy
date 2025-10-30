@@ -3587,7 +3587,7 @@
 								"upload"
 							]
 						},
-						"description": "POST /api/files/upload Upload a file from base64 data to Caspio Files API"
+						"description": "POST /api/files/upload Upload a file from base64 data to Caspio Files API Now uses shared upload service for consistency"
 					},
 					"response": []
 				},
