@@ -115,6 +115,10 @@ const SIZE_MAPPING = {
   'ONE SIZE': 'OSFA',
   'One Size Fits All': 'OSFA',
   'ONE SIZE FITS ALL': 'OSFA',
+
+  // Flex-fit cap sizes (from OnSite Size Translation Table)
+  'S/M': 'S/M',       // OnSite modifier: _S/M (e.g., C865 → C865_S/M)
+  'L/XL': 'L/XL',     // OnSite modifier: _L/XL (e.g., C865 → C865_L/XL)
 };
 
 /**
