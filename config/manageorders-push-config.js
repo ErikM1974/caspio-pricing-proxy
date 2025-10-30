@@ -126,6 +126,40 @@ const SIZE_MAPPING = {
   '2XLT': '2XLT',     // 2XL Tall - OnSite modifier: _2XLT
   '3XLT': '3XLT',     // 3XL Tall - OnSite modifier: _3XLT
   '4XLT': '4XLT',     // 4XL Tall - OnSite modifier: _4XLT
+  'ST': 'ST',         // Small Tall
+  'MT': 'MT',         // Medium Tall
+  'XST': 'XST',       // Extra Small Tall
+
+  // Youth sizes (common in SanMar catalog - youth tees, hoodies)
+  'YXS': 'YXS',       // Youth Extra Small
+  'YS': 'YS',         // Youth Small
+  'YM': 'YM',         // Youth Medium
+  'YL': 'YL',         // Youth Large
+  'YXL': 'YXL',       // Youth Extra Large
+
+  // Toddler sizes (kids apparel)
+  '2T': '2T',         // 2 Toddler
+  '3T': '3T',         // 3 Toddler
+  '4T': '4T',         // 4 Toddler
+  '5T': '5T',         // 5 Toddler
+  '6T': '6T',         // 6 Toddler
+  '5/6T': '5/6T',     // Combined 5/6 Toddler
+
+  // Extended large sizes (big & tall apparel)
+  '7XL': '7XL',       // 7XL
+  '8XL': '8XL',       // 8XL
+  '9XL': '9XL',       // 9XL
+  '10XL': '10XL',     // 10XL
+
+  // Extra small sizes
+  'XXS': 'XXS',       // Extra Extra Small
+  '2XS': '2XS',       // 2XS (numeric variation)
+
+  // Additional flex-fit cap sizes
+  'XS/S': 'XS/S',     // Extra Small / Small flex-fit
+  'M/L': 'M/L',       // Medium / Large flex-fit
+  'X/2X': 'X/2X',     // XL / 2XL flex-fit
+  'S/XL': 'S/XL',     // Small / XL flex-fit (unusual but in catalog)
 };
 
 /**
