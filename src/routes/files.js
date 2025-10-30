@@ -136,6 +136,9 @@ function createFormDataFromBase64(base64Data, fileName) {
     // Remove data URL prefix
     const base64String = base64Data.replace(/^data:[^;]+;base64,/, '');
 
+    // Extract MIME type from original data
+    const mimeType = extractMimeType(base64Data);
+
     // Convert to Buffer
     const buffer = Buffer.from(base64String, 'base64');
 
@@ -146,9 +149,12 @@ function createFormDataFromBase64(base64Data, fileName) {
     // Write buffer to temp file
     fs.writeFileSync(tempFilePath, buffer);
 
-    // Create FormData with file stream
+    // Create FormData with file stream and explicit content type
     const formData = new FormData();
-    formData.append('Files', fs.createReadStream(tempFilePath), fileName);
+    formData.append('Files', fs.createReadStream(tempFilePath), {
+        filename: fileName,
+        contentType: mimeType
+    });
 
     return { formData, tempFilePath };
 }
