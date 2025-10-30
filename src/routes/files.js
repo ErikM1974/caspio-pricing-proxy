@@ -9,6 +9,9 @@ const path = require('path');
 const os = require('os');
 const config = require('../../config');
 
+// Import shared upload service
+const { uploadFileToCaspio, validateFile, extractMimeType } = require('../../lib/file-upload-service');
+
 // Configuration
 const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
 const ALLOWED_TYPES = [
@@ -92,185 +95,52 @@ async function getCaspioAccessToken() {
 }
 
 // --- Helper Functions ---
-
-/**
- * Validates file type and size from base64 data
- */
-function validateFile(base64Data, fileName) {
-    // Extract MIME type from data URL
-    const mimeMatch = base64Data.match(/^data:([^;]+);base64,/);
-    if (!mimeMatch) {
-        throw new Error('Invalid base64 format. Must be a data URL');
-    }
-
-    const mimeType = mimeMatch[1];
-    if (!ALLOWED_TYPES.includes(mimeType)) {
-        throw new Error(`File type ${mimeType} not allowed. Allowed types: ${ALLOWED_TYPES.join(', ')}`);
-    }
-
-    // Estimate file size from base64 length
-    const base64Length = base64Data.length - mimeMatch[0].length;
-    const sizeApprox = base64Length * 0.75;
-
-    if (sizeApprox > MAX_FILE_SIZE) {
-        const sizeMB = (sizeApprox / (1024 * 1024)).toFixed(2);
-        throw new Error(`File too large (${sizeMB}MB). Maximum size is 20MB`);
-    }
-
-    return { mimeType, sizeApprox };
-}
-
-/**
- * Extracts MIME type from base64 data URL
- */
-function extractMimeType(base64Data) {
-    const match = base64Data.match(/^data:([^;]+);base64,/);
-    return match ? match[1] : 'application/octet-stream';
-}
-
-/**
- * Creates FormData from base64 data using temp file approach
- * Returns formData and temp file path for cleanup
- */
-function createFormDataFromBase64(base64Data, fileName) {
-    // Remove data URL prefix
-    const base64String = base64Data.replace(/^data:[^;]+;base64,/, '');
-
-    // Convert to Buffer
-    const buffer = Buffer.from(base64String, 'base64');
-
-    // Create temp file
-    const tempDir = os.tmpdir();
-    const tempFilePath = path.join(tempDir, `upload_${Date.now()}_${fileName}`);
-
-    // Write buffer to temp file
-    fs.writeFileSync(tempFilePath, buffer);
-
-    // Create FormData with file stream
-    const formData = new FormData();
-    formData.append('Files', fs.createReadStream(tempFilePath), fileName);
-
-    return { formData, tempFilePath };
-}
-
-/**
- * Makes a request to Caspio v3 API
- */
-async function makeCaspioV3Request(method, resourcePath, data = null, isFormData = false) {
-    const token = await getCaspioAccessToken();
-    const url = `${caspioV3BaseUrl}${resourcePath}`;
-
-    console.log(`Making Caspio v3 Request: ${method.toUpperCase()} ${url}`);
-
-    const axiosConfig = {
-        method,
-        url,
-        headers: {
-            'Authorization': `Bearer ${token}`
-        },
-        maxBodyLength: Infinity,
-        maxContentLength: Infinity,
-        timeout: 30000 // 30 seconds for file operations
-    };
-
-    if (isFormData && data) {
-        // For FormData, let axios handle the Content-Type header with boundary
-        axiosConfig.data = data;
-        // Important: merge FormData headers which include the boundary
-        Object.assign(axiosConfig.headers, data.getHeaders());
-    } else if (data) {
-        axiosConfig.headers['Content-Type'] = 'application/json';
-        axiosConfig.data = data;
-    }
-
-    try {
-        const response = await axios(axiosConfig);
-        return response.data;
-    } catch (error) {
-        console.error(`Caspio v3 API Error:`, error.response?.data || error.message);
-        if (error.response?.status === 415) {
-            console.error('415 Error - Headers sent:', JSON.stringify(axiosConfig.headers, null, 2));
-            console.error('415 Error - Data type:', typeof axiosConfig.data);
-            console.error('415 Error - Is FormData?:', axiosConfig.data instanceof FormData);
-        }
-        throw error;
-    }
-}
+// Note: validateFile, extractMimeType, and createFormDataFromBase64 are now imported from file-upload-service
+// Token management kept local to avoid circular dependencies
 
 // --- API Endpoints ---
 
 /**
  * POST /api/files/upload
  * Upload a file from base64 data to Caspio Files API
+ * Now uses shared upload service for consistency
  */
 router.post('/files/upload', async (req, res) => {
     try {
         const { fileName, fileData, description } = req.body;
 
-        // Validate required fields
-        if (!fileName || !fileData) {
-            return res.status(400).json({
+        // Use shared service for upload
+        const result = await uploadFileToCaspio(fileName, fileData, description);
+
+        res.json(result);
+
+    } catch (error) {
+        console.error('[File Upload Route] Error in upload endpoint:', {
+            message: error.message,
+            stack: error.stack,
+            code: error.code
+        });
+
+        // Handle specific errors
+        if (error.message.includes('too large')) {
+            res.status(413).json({
                 success: false,
-                error: 'Missing required fields: fileName and fileData',
+                error: error.message,
+                code: 'FILE_TOO_LARGE'
+            });
+        } else if (error.message.includes('Invalid file type') || error.message.includes('not allowed')) {
+            res.status(400).json({
+                success: false,
+                error: error.message,
+                code: 'INVALID_FILE_TYPE'
+            });
+        } else if (error.message.includes('Missing required fields')) {
+            res.status(400).json({
+                success: false,
+                error: error.message,
                 code: 'MISSING_FIELDS'
             });
-        }
-
-        // Validate file
-        let fileInfo;
-        try {
-            fileInfo = validateFile(fileData, fileName);
-        } catch (validationError) {
-            return res.status(400).json({
-                success: false,
-                error: validationError.message,
-                code: validationError.message.includes('too large') ? 'FILE_TOO_LARGE' : 'INVALID_FILE_TYPE'
-            });
-        }
-
-        // Create FormData with temp file
-        const { formData, tempFilePath } = createFormDataFromBase64(fileData, fileName);
-
-        try {
-            // Upload to Caspio with Artwork folder
-            const uploadPath = `/files${artworkFolderKey ? `?externalKey=${artworkFolderKey}` : ''}`;
-            const response = await makeCaspioV3Request('post', uploadPath, formData, true);
-
-            if (response.Result && response.Result[0]) {
-                const uploadedFile = response.Result[0];
-                console.log(`File uploaded successfully: ${uploadedFile.Name} (${uploadedFile.ExternalKey})`);
-
-                // Clean up temp file
-                fs.unlinkSync(tempFilePath);
-
-                res.json({
-                    success: true,
-                    externalKey: uploadedFile.ExternalKey,
-                    fileName: uploadedFile.Name,
-                    location: 'Artwork folder',
-                    size: fileInfo.sizeApprox,
-                    mimeType: fileInfo.mimeType,
-                    description: description || null
-                });
-            } else {
-                // Clean up temp file on error
-                fs.unlinkSync(tempFilePath);
-                throw new Error('Unexpected response from Caspio Files API');
-            }
-        } catch (uploadError) {
-            // Always clean up temp file on error
-            try {
-                fs.unlinkSync(tempFilePath);
-            } catch (cleanupError) {
-                console.error('Failed to clean up temp file:', cleanupError.message);
-            }
-            throw uploadError;
-        }
-    } catch (error) {
-        console.error('Error uploading file:', error.message);
-
-        // Handle specific Caspio errors
-        if (error.response?.status === 409) {
+        } else if (error.response?.status === 409) {
             res.status(409).json({
                 success: false,
                 error: 'A file with this name already exists in the Artwork folder',
@@ -281,12 +151,6 @@ router.post('/files/upload', async (req, res) => {
                 success: false,
                 error: 'Artwork folder not found. Please check configuration',
                 code: 'FOLDER_NOT_FOUND'
-            });
-        } else if (error.response?.status === 413) {
-            res.status(413).json({
-                success: false,
-                error: 'File too large for Caspio',
-                code: 'FILE_TOO_LARGE'
             });
         } else {
             res.status(500).json({
@@ -447,47 +311,24 @@ router.post('/quote-items-with-file', async (req, res) => {
             }`;
 
             try {
-                // Validate file
-                const fileInfo = validateFile(quoteData.ImageUpload, fileName);
+                // Use shared upload service
+                const uploadResult = await uploadFileToCaspio(fileName, quoteData.ImageUpload, 'Quote item image');
 
-                // Create FormData with temp file
-                const { formData, tempFilePath } = createFormDataFromBase64(quoteData.ImageUpload, fileName);
+                if (uploadResult.success) {
+                    console.log(`File uploaded: ${uploadResult.externalKey}`);
 
-                try {
-                    // Upload to Caspio
-                    const uploadPath = `/files${artworkFolderKey ? `?externalKey=${artworkFolderKey}` : ''}`;
-                    const uploadResponse = await makeCaspioV3Request('post', uploadPath, formData, true);
+                    // Replace ImageUpload with ExternalKey
+                    quoteData.Image_Upload = uploadResult.externalKey;
+                    delete quoteData.ImageUpload;
 
-                    if (uploadResponse.Result && uploadResponse.Result[0]) {
-                        const uploadedFile = uploadResponse.Result[0];
-                        console.log(`File uploaded: ${uploadedFile.ExternalKey}`);
-
-                        // Clean up temp file
-                        fs.unlinkSync(tempFilePath);
-
-                        // Replace ImageUpload with ExternalKey
-                        quoteData.Image_Upload = uploadedFile.ExternalKey;
-                        delete quoteData.ImageUpload;
-
-                        // Add file info to response
-                        quoteData._uploadedFile = {
-                            externalKey: uploadedFile.ExternalKey,
-                            fileName: uploadedFile.Name,
-                            size: fileInfo.sizeApprox
-                        };
-                    } else {
-                        // Clean up temp file on error
-                        fs.unlinkSync(tempFilePath);
-                        throw new Error('Failed to upload file');
-                    }
-                } catch (uploadInnerError) {
-                    // Always clean up temp file on error
-                    try {
-                        fs.unlinkSync(tempFilePath);
-                    } catch (cleanupError) {
-                        console.error('Failed to clean up temp file:', cleanupError.message);
-                    }
-                    throw uploadInnerError;
+                    // Add file info to response
+                    quoteData._uploadedFile = {
+                        externalKey: uploadResult.externalKey,
+                        fileName: uploadResult.fileName,
+                        size: uploadResult.size
+                    };
+                } else {
+                    throw new Error('Failed to upload file');
                 }
             } catch (uploadError) {
                 console.error('Failed to upload file:', uploadError.message);
