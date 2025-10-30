@@ -1,5 +1,5 @@
 {
-  "scannedAt": "2025-10-29T21:42:19.223Z",
+  "scannedAt": "2025-10-30T12:04:36.457Z",
   "totalEndpoints": 152,
   "endpoints": [
     {
@@ -897,11 +897,11 @@
       "path": "/files/upload",
       "fullPath": "/api/files/upload",
       "category": "📎 File Management",
-      "description": "POST /api/files/upload Upload a file from base64 data to Caspio Files API",
+      "description": "POST /api/files/upload Upload a file from base64 data to Caspio Files API Now uses shared upload service for consistency",
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "files.js",
-      "lineNumber": 206
+      "lineNumber": 108
     },
     {
       "method": "GET",
@@ -912,7 +912,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "files.js",
-      "lineNumber": 305
+      "lineNumber": 169
     },
     {
       "method": "GET",
@@ -923,7 +923,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "files.js",
-      "lineNumber": 360
+      "lineNumber": 224
     },
     {
       "method": "DELETE",
@@ -934,7 +934,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "files.js",
-      "lineNumber": 399
+      "lineNumber": 263
     },
     {
       "method": "POST",
@@ -945,7 +945,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "files.js",
-      "lineNumber": 436
+      "lineNumber": 300
     },
     {
       "method": "GET",
