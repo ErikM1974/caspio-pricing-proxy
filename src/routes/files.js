@@ -234,7 +234,24 @@ router.post('/files/upload', async (req, res) => {
         try {
             // Upload to Caspio with Artwork folder
             const uploadPath = `/files${artworkFolderKey ? `?externalKey=${artworkFolderKey}` : ''}`;
+
+            // Enhanced logging for diagnostics
+            console.log('[File Upload] Uploading to Caspio:', {
+                url: uploadPath,
+                fileName: fileName,
+                mimeType: fileInfo.mimeType,
+                sizeApprox: `${(fileInfo.sizeApprox / 1024).toFixed(2)} KB`,
+                base64Length: fileData.length,
+                tempFilePath: tempFilePath
+            });
+
             const response = await makeCaspioV3Request('post', uploadPath, formData, true);
+
+            // Log successful response
+            console.log('[File Upload] Caspio response received:', {
+                status: 'success',
+                resultCount: response.Result?.length || 0
+            });
 
             if (response.Result && response.Result[0]) {
                 const uploadedFile = response.Result[0];
@@ -258,6 +275,15 @@ router.post('/files/upload', async (req, res) => {
                 throw new Error('Unexpected response from Caspio Files API');
             }
         } catch (uploadError) {
+            // Enhanced error logging
+            console.error('[File Upload] Caspio upload error:', {
+                message: uploadError.message,
+                responseStatus: uploadError.response?.status,
+                responseData: uploadError.response?.data,
+                fileName: fileName,
+                sizeApprox: fileInfo.sizeApprox
+            });
+
             // Always clean up temp file on error
             try {
                 fs.unlinkSync(tempFilePath);
@@ -267,7 +293,11 @@ router.post('/files/upload', async (req, res) => {
             throw uploadError;
         }
     } catch (error) {
-        console.error('Error uploading file:', error.message);
+        console.error('[File Upload] Error in upload endpoint:', {
+            message: error.message,
+            stack: error.stack,
+            code: error.code
+        });
 
         // Handle specific Caspio errors
         if (error.response?.status === 409) {
