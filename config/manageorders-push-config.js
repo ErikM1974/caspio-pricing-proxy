@@ -119,6 +119,13 @@ const SIZE_MAPPING = {
   // Flex-fit cap sizes (from OnSite Size Translation Table)
   'S/M': 'S/M',       // OnSite modifier: _S/M (e.g., C865 → C865_S/M)
   'L/XL': 'L/XL',     // OnSite modifier: _L/XL (e.g., C865 → C865_L/XL)
+
+  // Tall sizes (Nike and other athletic brands)
+  'LT': 'LT',         // Large Tall - OnSite modifier: _LT (e.g., NKDC1963 → NKDC1963_LT)
+  'XLT': 'XLT',       // XL Tall - OnSite modifier: _XLT
+  '2XLT': '2XLT',     // 2XL Tall - OnSite modifier: _2XLT
+  '3XLT': '3XLT',     // 3XL Tall - OnSite modifier: _3XLT
+  '4XLT': '4XLT',     // 4XL Tall - OnSite modifier: _4XLT
 };
 
 /**
@@ -159,7 +166,7 @@ const TEST_ORDER_PREFIX = 'NWCA-TEST-';
  *
  * @param {string} externalSize - Size from webstore/external system
  * @returns {string} OnSite size value
- * @throws {Error} If size is not in mapping
+ * @throws {Error} If size is empty/null (required field)
  */
 function translateSize(externalSize) {
   if (!externalSize) {
@@ -170,12 +177,15 @@ function translateSize(externalSize) {
   const onsiteSize = SIZE_MAPPING[normalizedSize];
 
   if (!onsiteSize) {
-    // Provide helpful error with valid sizes
-    const validSizes = Object.keys(SIZE_MAPPING).slice(0, 20).join(', ');
-    throw new Error(
-      `Invalid size: "${externalSize}". Not found in size mapping. ` +
-      `Valid sizes include: ${validSizes}... (${Object.keys(SIZE_MAPPING).length} total)`
+    // FALLBACK: Pass through unmapped sizes (ShopWorks will handle via "All Other Sizes")
+    // This mirrors ShopWorks' "Other XXXL" fallback column behavior
+    console.warn(
+      `[Size Translation] Unmapped size "${externalSize}" - passing through as-is ` +
+      `(will use "Other XXXL" column in ShopWorks)`
     );
+
+    // Return normalized size as-is (ShopWorks will map to "Other XXXL")
+    return normalizedSize;
   }
 
   return onsiteSize;
