@@ -322,7 +322,7 @@ router.get('/pricing-bundle', async (req, res) => {
     return res.status(400).json({ error: 'Decoration method is required' });
   }
 
-  const validMethods = ['DTG', 'EMB', 'CAP', 'ScreenPrint', 'DTF', 'EMB-AL', 'CAP-AL'];
+  const validMethods = ['DTG', 'EMB', 'CAP', 'ScreenPrint', 'DTF', 'EMB-AL', 'CAP-AL', 'BLANK'];
   if (!validMethods.includes(method)) {
     return res.status(400).json({ error: `Invalid decoration method. Use one of: ${validMethods.join(', ')}` });
   }
@@ -335,7 +335,8 @@ router.get('/pricing-bundle', async (req, res) => {
     'ScreenPrint': 'ScreenPrint',
     'DTF': 'DTF',
     'EMB-AL': 'EmbroideryShirts',  // Additional Logo uses same tiers as regular embroidery
-    'CAP-AL': 'EmbroideryCaps'      // Cap Additional Logo uses same tiers as regular caps
+    'CAP-AL': 'EmbroideryCaps',      // Cap Additional Logo uses same tiers as regular caps
+    'BLANK': 'Blank'
   };
 
   // Map methods to location types
@@ -346,7 +347,8 @@ router.get('/pricing-bundle', async (req, res) => {
     'ScreenPrint': 'Screen',
     'DTF': 'DTF',
     'EMB-AL': 'EMB',  // Additional Logo uses same locations as embroidery
-    'CAP-AL': 'CAP'   // Cap Additional Logo uses same locations as caps
+    'CAP-AL': 'CAP',   // Cap Additional Logo uses same locations as caps
+    'BLANK': null      // Blank products have no print locations
   };
 
   const dbMethod = methodMapping[method];
@@ -372,17 +374,19 @@ router.get('/pricing-bundle', async (req, res) => {
         console.error('Failed to fetch pricing rules:', err.message);
         return [];
       }),
-      
-      // Fetch locations
-      fetchAllCaspioPages('/tables/location/records', {
-        'q.where': `Type='${locationType}'`,
-        'q.select': 'location_code,location_name',
-        'q.orderBy': 'PK_ID ASC',
-        'q.limit': 100
-      }).catch(err => {
-        console.error('Failed to fetch locations:', err.message);
-        return [];
-      })
+
+      // Fetch locations (skip if locationType is null - e.g., BLANK products)
+      locationType ?
+        fetchAllCaspioPages('/tables/location/records', {
+          'q.where': `Type='${locationType}'`,
+          'q.select': 'location_code,location_name',
+          'q.orderBy': 'PK_ID ASC',
+          'q.limit': 100
+        }).catch(err => {
+          console.error('Failed to fetch locations:', err.message);
+          return [];
+        }) :
+        Promise.resolve([])
     ];
 
     // Add method-specific cost table query with error handling
@@ -440,6 +444,10 @@ router.get('/pricing-bundle', async (req, res) => {
             console.error('Failed to fetch DTF costs:', err.message);
             return [];
           });
+        break;
+      case 'BLANK':
+        // Blank products have no decoration costs
+        costTableQuery = Promise.resolve([]);
         break;
     }
     baseQueries.push(costTableQuery);
@@ -548,6 +556,9 @@ router.get('/pricing-bundle', async (req, res) => {
         response.allDtfCostsR = [];
         response.freightR = [];
         break;
+      case 'BLANK':
+        // Blank products don't need cost fields - only tiers, rules, and sizes
+        break;
     }
 
     // If styleNumber is provided, add the size-specific fields
@@ -599,6 +610,9 @@ router.get('/pricing-bundle', async (req, res) => {
       case 'DTF':
         response.allDtfCostsR = costs || [];
         response.freightR = freightData || [];
+        break;
+      case 'BLANK':
+        // Blank products don't have cost data to populate
         break;
     }
 
@@ -685,8 +699,11 @@ router.get('/pricing-bundle', async (req, res) => {
           requiredStructure.allDtfCostsR = [];
           requiredStructure.freightR = [];
           break;
+        case 'BLANK':
+          // Blank products don't need cost fields
+          break;
       }
-      
+
       // Add style-specific fields if styleNumber provided
       if (hasStyleNumber) {
         requiredStructure.sizes = [];
@@ -745,8 +762,11 @@ router.get('/pricing-bundle', async (req, res) => {
         errorResponse.allDtfCostsR = [];
         errorResponse.freightR = [];
         break;
+      case 'BLANK':
+        // Blank products don't need cost fields
+        break;
     }
-    
+
     if (styleNumber) {
       errorResponse.sizes = [];
       errorResponse.sellingPriceDisplayAddOns = {};
