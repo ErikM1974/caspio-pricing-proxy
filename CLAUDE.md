@@ -111,6 +111,7 @@ The `examples/` folder contains ready-to-use code examples:
 ### Key APIs Available:
 - Cart API (sessions, items, sizes)
 - Pricing API (tiers, costs, rules)
+  - **BLANK Pricing** - Blank garments with no decoration (see below)
 - Product API (search, details, categories)
 - Order API (orders, customers)
 - Order ODBC API (detailed order records)
@@ -122,6 +123,58 @@ The `examples/` folder contains ready-to-use code examples:
 - Transfers API
 - Misc API utilities
 - Production Schedules API
+
+### BLANK Pricing (Blank Garments - No Decoration)
+
+The BLANK decoration method is used for selling blank garments without any decoration (no printing, embroidery, etc.).
+
+**Endpoint:** `GET /api/pricing-bundle?method=BLANK[&styleNumber=<style>]`
+
+**Key Characteristics:**
+- **No decoration costs** - Response contains no cost fields (allDtgCostsR, allEmbroideryCostsR, etc.)
+- **No print locations** - Returns empty locations array
+- **Only base pricing** - Returns tiers, rules, sizes, and upcharges
+
+**Database Configuration:**
+- Pricing_Rules: DecorationMethod='Blank', RoundingMethod='HalfDollarCeil_Final'
+- Pricing_Tiers: Four tiers (1-23, 24-47, 48-71, 72+) with MarginDenominator=0.6
+
+**Response Structure (without styleNumber):**
+```json
+{
+  "tiersR": [4 tiers with MarginDenominator=0.6],
+  "rulesR": {"RoundingMethod": "HalfDollarCeil_Final"},
+  "locations": []
+}
+```
+
+**Response Structure (with styleNumber):**
+```json
+{
+  "tiersR": [4 tiers],
+  "rulesR": {"RoundingMethod": "HalfDollarCeil_Final"},
+  "locations": [],
+  "sizes": [array of sizes with base prices],
+  "sellingPriceDisplayAddOns": {size upcharges}
+}
+```
+
+**Implementation Notes (src/routes/pricing.js):**
+- Added 'BLANK' to validMethods array
+- Mapped 'BLANK' → 'Blank' in methodMapping
+- Set locationTypeMapping['BLANK'] = null (no locations)
+- Skip location query when locationType is null
+- costTableQuery returns Promise.resolve([]) for BLANK
+- Response structure skips all cost fields for BLANK
+
+**Production URLs:**
+```bash
+# Basic BLANK pricing
+https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/pricing-bundle?method=BLANK
+
+# BLANK pricing for specific style
+https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/pricing-bundle?method=BLANK&styleNumber=PC54
+```
 
 ## Creating New API Endpoints
 
