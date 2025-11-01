@@ -4,6 +4,7 @@
 - **ManageOrders PUSH API** - Send orders TO OnSite ERP with auto-import ([Full Documentation](memory/MANAGEORDERS_PUSH_INTEGRATION.md))
 - **Online Store Developer Guide** - Complete guide for building webstore integration ([Developer Guide](memory/ONLINE_STORE_DEVELOPER_GUIDE.md))
 - **New Products Management API** - Mark and query featured/new products dynamically ([Full Documentation](memory/NEW_PRODUCTS_API.md))
+- **BLANK Pricing** - Blank garment pricing without decoration ([Full Documentation](memory/BLANK_PRICING.md))
 - Art_Request Invoice
 
 ## Local Development Setup
