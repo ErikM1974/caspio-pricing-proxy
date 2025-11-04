@@ -461,16 +461,40 @@ router.get('/products/search', async (req, res) => {
     const pageSize = Math.min(100, Math.max(1, parseInt(limit) || 24));
     const skip = (pageNum - 1) * pageSize;
 
-    console.log(`Executing search with WHERE: ${whereClause}, will sort after grouping by: ${orderBy}`);
+    console.log(`Executing search with WHERE: ${whereClause}, ORDER BY: ${orderBy}`);
 
-    // Fetch all matching records WITHOUT ordering at Caspio level
-    // This ensures we get diverse styles across pagination, not just alphabetically similar titles
-    const allRecords = await fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
-      'q.where': whereClause
-      // NOTE: No q.orderBy here - we'll sort AFTER grouping by style
+    // PERFORMANCE OPTIMIZATION: Two-phase fetch strategy
+    // Phase 1: Get unique styles with pagination at database level (fast - only fetches what we need)
+    // Phase 2: For those specific styles, fetch all variants to aggregate colors/sizes
+
+    // Phase 1: Fetch unique styles (grouped, sorted, and paginated at database level)
+    const stylesQuery = await fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
+      'q.where': whereClause,
+      'q.select': 'STYLE, PRODUCT_TITLE, BRAND_NAME, CATEGORY_NAME, PIECE_PRICE',
+      'q.groupBy': 'STYLE, PRODUCT_TITLE, BRAND_NAME, CATEGORY_NAME, PIECE_PRICE',
+      'q.orderBy': orderBy
     });
 
-    console.log(`Found ${allRecords.length} total records before grouping`);
+    console.log(`Found ${stylesQuery.length} unique styles matching filters`);
+
+    // Calculate total count for pagination
+    const totalProducts = stylesQuery.length;
+
+    // Apply pagination to get only the styles we need for this page
+    const paginatedStyles = stylesQuery.slice(skip, skip + pageSize);
+    const styleNumbers = paginatedStyles.map(s => s.STYLE);
+
+    console.log(`Page ${pageNum}: Need detailed data for ${styleNumbers.length} styles:`, styleNumbers.join(', '));
+
+    // Phase 2: Fetch all color/size variants for ONLY the paginated styles
+    let allRecords = [];
+    if (styleNumbers.length > 0) {
+      const styleList = styleNumbers.map(s => `'${s.replace(/'/g, "''")}'`).join(',');
+      allRecords = await fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
+        'q.where': `STYLE IN (${styleList})`
+      });
+      console.log(`Fetched ${allRecords.length} variant records for ${styleNumbers.length} styles (avg ${Math.round(allRecords.length / styleNumbers.length)} variants per style)`);
+    }
 
     // Group records by STYLE to create unique products
     const productsByStyle = new Map();
@@ -618,11 +642,11 @@ router.get('/products/search', async (req, res) => {
       }
     });
 
-    // Get total count before pagination
-    const totalProducts = products.length;
+    // Note: totalProducts was already calculated from stylesQuery.length earlier (line ~481)
+    // No need to recalculate here since pagination was already applied to styles
 
-    // Apply pagination to grouped products
-    const paginatedProducts = products.slice(skip, skip + pageSize);
+    // paginatedProducts are already created from the specific styles we fetched
+    const paginatedProducts = products;
 
     // Build response
     const response = {
@@ -655,9 +679,9 @@ router.get('/products/search', async (req, res) => {
 
     // Optionally include facets for filter counts
     if (includeFacets === 'true' || includeFacets === true) {
-      console.log('Calculating facets...');
-      
-      // Get unique values for facets from all matching records
+      console.log('Calculating facets from all matching styles...');
+
+      // Get unique values for facets from ALL matching styles (not just current page)
       const facets = {
         categories: new Map(),
         subcategories: new Map(),
@@ -673,39 +697,27 @@ router.get('/products/search', async (req, res) => {
         ]
       };
 
-      // Count occurrences from grouped products (not raw records)
-      products.forEach(product => {
+      // OPTIMIZATION: Calculate facets from lightweight stylesQuery (all styles) instead of fetching all variants
+      // This gives accurate counts across ALL results, not just current page
+      // Note: Colors and sizes would require fetching all variants (expensive), so we exclude them
+      stylesQuery.forEach(styleRecord => {
         // Categories
-        if (product.category) {
-          facets.categories.set(product.category, (facets.categories.get(product.category) || 0) + 1);
+        if (styleRecord.CATEGORY_NAME) {
+          facets.categories.set(styleRecord.CATEGORY_NAME, (facets.categories.get(styleRecord.CATEGORY_NAME) || 0) + 1);
         }
-        
-        // Subcategories
-        if (product.subcategory) {
-          facets.subcategories.set(product.subcategory, (facets.subcategories.get(product.subcategory) || 0) + 1);
-        }
-        
+
+        // Subcategories - not available in lightweight query (skip to avoid fetching all data)
+
         // Brands
-        if (product.brand) {
-          facets.brands.set(product.brand, (facets.brands.get(product.brand) || 0) + 1);
+        if (styleRecord.BRAND_NAME) {
+          facets.brands.set(styleRecord.BRAND_NAME, (facets.brands.get(styleRecord.BRAND_NAME) || 0) + 1);
         }
-        
-        // Colors (count products that have each color)
-        product.colors.forEach(color => {
-          if (color.name) {
-            facets.colors.set(color.name, (facets.colors.get(color.name) || 0) + 1);
-          }
-        });
-        
-        // Sizes (count products that have each size)
-        product.sizes.forEach(size => {
-          if (size) {
-            facets.sizes.set(size, (facets.sizes.get(size) || 0) + 1);
-          }
-        });
-        
+
+        // Colors and Sizes - skipped in optimized version (would require fetching all variants)
+        // If needed, could make separate lightweight query for just color/size facets
+
         // Price ranges
-        const price = product.pricing.current;
+        const price = styleRecord.PIECE_PRICE || 0;
         if (price < 25) facets.priceRanges[0].count++;
         else if (price < 50) facets.priceRanges[1].count++;
         else if (price < 100) facets.priceRanges[2].count++;
