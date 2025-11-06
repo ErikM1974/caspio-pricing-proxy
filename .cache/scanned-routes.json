@@ -1,6 +1,6 @@
 {
-  "scannedAt": "2025-11-04T23:56:55.409Z",
-  "totalEndpoints": 152,
+  "scannedAt": "2025-11-06T12:09:06.354Z",
+  "totalEndpoints": 156,
   "endpoints": [
     {
       "method": "GET",
@@ -994,6 +994,71 @@
       "requestBody": null,
       "sourceFile": "inventory.js",
       "lineNumber": 35
+    },
+    {
+      "method": "POST",
+      "path": "/products",
+      "fullPath": "/api/products",
+      "category": "📋 General",
+      "description": "",
+      "queryParams": [
+        {
+          "key": "refresh",
+          "value": "",
+          "description": "refresh parameter",
+          "disabled": false
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "jds.js",
+      "lineNumber": 55
+    },
+    {
+      "method": "GET",
+      "path": "/products/:sku",
+      "fullPath": "/api/products/:sku",
+      "category": "📋 General",
+      "description": "GET /api/jds/products/:sku  Get details for a single product by SKU  URL Parameters: - sku: Product SKU (e.g., \"LPB004\")  Query Parameters: - refresh (boolean): Force cache refresh (default: false)  Response: { \"result\": {...product...}, \"cached\": false }  Returns 404 if product not found",
+      "queryParams": [
+        {
+          "key": "refresh",
+          "value": "",
+          "description": "refresh parameter",
+          "disabled": false
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "jds.js",
+      "lineNumber": 142
+    },
+    {
+      "method": "GET",
+      "path": "/inventory/:sku",
+      "fullPath": "/api/inventory/:sku",
+      "category": "📋 General",
+      "description": "",
+      "queryParams": [
+        {
+          "key": "refresh",
+          "value": "",
+          "description": "refresh parameter",
+          "disabled": false
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "jds.js",
+      "lineNumber": 230
+    },
+    {
+      "method": "GET",
+      "path": "/health",
+      "fullPath": "/api/health",
+      "category": "📋 General",
+      "description": "GET /api/jds/health  Health check endpoint for monitoring  Response: { \"status\": \"healthy\", \"service\": \"JDS Industries API\", \"timestamp\": \"2025-11-06T10:30:00Z\", \"config\": { \"cacheEnabled\": true, \"cacheDuration\": \"1 hour\", \"rateLimit\": \"60 req/min\" }, \"endpoints\": {...} }",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "jds.js",
+      "lineNumber": 311
     },
     {
       "method": "POST",
