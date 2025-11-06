@@ -544,7 +544,88 @@ router.get('/manageorders/tracking/:order_no', async (req, res) => {
 // ========================================
 
 let inventoryCache = new Map();
-const INVENTORY_CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+const INVENTORY_CACHE_DURATION = 1 * 60 * 1000; // 1 minute (reduced from 5 for fresher data)
+
+// Cache cleanup - Remove expired entries every 5 minutes
+setInterval(() => {
+  const now = Date.now();
+  let cleanedCount = 0;
+
+  for (const [key, value] of inventoryCache.entries()) {
+    if (now - value.timestamp > INVENTORY_CACHE_DURATION) {
+      inventoryCache.delete(key);
+      cleanedCount++;
+    }
+  }
+
+  if (cleanedCount > 0) {
+    console.log(`[Cache Cleanup] Removed ${cleanedCount} expired inventory cache entries`);
+  }
+}, 5 * 60 * 1000); // Run cleanup every 5 minutes
+
+/**
+ * GET /api/manageorders/inventory-cache-stats
+ *
+ * Returns detailed statistics about the inventory cache (for debugging).
+ */
+router.get('/manageorders/inventory-cache-stats', (req, res) => {
+  const now = Date.now();
+  const stats = {
+    totalEntries: inventoryCache.size,
+    validEntries: 0,
+    expiredEntries: 0,
+    cacheDurationMs: INVENTORY_CACHE_DURATION,
+    cacheDurationMinutes: INVENTORY_CACHE_DURATION / 60000,
+    entries: []
+  };
+
+  for (const [key, value] of inventoryCache.entries()) {
+    const age = now - value.timestamp;
+    const isValid = age < INVENTORY_CACHE_DURATION;
+    const params = JSON.parse(key);
+
+    if (isValid) {
+      stats.validEntries++;
+    } else {
+      stats.expiredEntries++;
+    }
+
+    stats.entries.push({
+      params: params,
+      timestamp: new Date(value.timestamp).toISOString(),
+      ageMs: age,
+      ageMinutes: Math.floor(age / 60000),
+      isValid: isValid,
+      recordCount: value.data.length,
+      oldestDataModification: value.data.length > 0
+        ? value.data.reduce((oldest, item) => {
+            const modDate = new Date(item.date_Modification);
+            return modDate < oldest ? modDate : oldest;
+          }, new Date(value.data[0].date_Modification)).toISOString()
+        : null
+    });
+  }
+
+  res.json(stats);
+});
+
+/**
+ * POST /api/manageorders/inventory-cache-clear
+ *
+ * Clears the entire inventory cache (for debugging/troubleshooting).
+ */
+router.post('/manageorders/inventory-cache-clear', (req, res) => {
+  const entriesCleared = inventoryCache.size;
+  inventoryCache.clear();
+
+  console.log(`[Manual Cache Clear] Cleared ${entriesCleared} inventory cache entries`);
+
+  res.json({
+    success: true,
+    message: `Cleared ${entriesCleared} inventory cache entries`,
+    timestamp: new Date().toISOString()
+  });
+});
 
 /**
  * GET /api/manageorders/inventorylevels
@@ -553,7 +634,8 @@ const INVENTORY_CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
  * Supports: PartNumber, ColorRange, Color, SKU, VendorName, etc.
  */
 router.get('/manageorders/inventorylevels', async (req, res) => {
-  console.log('GET /api/manageorders/inventorylevels requested');
+  const queryParams = Object.keys(req.query).filter(k => k !== 'refresh').map(k => `${k}=${req.query[k]}`).join(', ') || 'none';
+  console.log(`GET /api/manageorders/inventorylevels requested (params: ${queryParams})`);
 
   try {
     const now = Date.now();
@@ -563,17 +645,53 @@ router.get('/manageorders/inventorylevels', async (req, res) => {
     // Check cache (short duration for real-time inventory)
     const cached = inventoryCache.get(cacheKey);
     if (!forceRefresh && cached && (now - cached.timestamp) < INVENTORY_CACHE_DURATION) {
-      console.log('Returning cached inventory data');
+      const cacheAgeSeconds = Math.floor((now - cached.timestamp) / 1000);
+      console.log(`[CACHE HIT] Returning cached inventory data (age: ${cacheAgeSeconds}s, entries: ${cached.data.length})`);
+
+      // Check for stale data warning
+      const warnings = [];
+      if (cached.data.length > 0) {
+        const oldestMod = cached.data.reduce((oldest, item) => {
+          const modDate = new Date(item.date_Modification);
+          return modDate < oldest ? modDate : oldest;
+        }, new Date(cached.data[0].date_Modification));
+
+        const daysOld = Math.floor((now - oldestMod.getTime()) / (1000 * 60 * 60 * 24));
+        if (daysOld > 7) {
+          warnings.push(`Data is ${daysOld} days old - ManageOrders may be out of sync with OnSite`);
+        }
+      }
+
       return res.json({
         result: cached.data,
         count: cached.data.length,
         cached: true,
-        cacheDate: new Date(cached.timestamp).toISOString()
+        cacheDate: new Date(cached.timestamp).toISOString(),
+        warnings: warnings.length > 0 ? warnings : undefined
       });
     }
 
     // Fetch fresh data
+    console.log(`[CACHE MISS] Fetching fresh inventory data from ManageOrders...`);
     const inventory = await fetchInventoryLevels(req.query);
+    console.log(`[API FETCH] Received ${inventory.length} inventory records from ManageOrders`);
+
+    // Check for stale data warning
+    const warnings = [];
+    if (inventory.length > 0) {
+      const oldestMod = inventory.reduce((oldest, item) => {
+        const modDate = new Date(item.date_Modification);
+        return modDate < oldest ? modDate : oldest;
+      }, new Date(inventory[0].date_Modification));
+
+      const daysOld = Math.floor((now - oldestMod.getTime()) / (1000 * 60 * 60 * 24));
+
+      if (daysOld > 7) {
+        const warningMsg = `⚠️  Data is ${daysOld} days old (last modified: ${oldestMod.toISOString().split('T')[0]}) - ManageOrders may be out of sync with OnSite`;
+        warnings.push(warningMsg);
+        console.warn(`[STALE DATA WARNING] ${warningMsg}`);
+      }
+    }
 
     // Update cache
     inventoryCache.set(cacheKey, {
@@ -584,7 +702,8 @@ router.get('/manageorders/inventorylevels', async (req, res) => {
     res.json({
       result: inventory,
       count: inventory.length,
-      cached: false
+      cached: false,
+      warnings: warnings.length > 0 ? warnings : undefined
     });
 
   } catch (error) {
