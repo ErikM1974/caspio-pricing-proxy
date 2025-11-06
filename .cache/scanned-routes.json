@@ -1,6 +1,6 @@
 {
-  "scannedAt": "2025-11-06T12:09:06.354Z",
-  "totalEndpoints": 156,
+  "scannedAt": "2025-11-06T22:57:06.737Z",
+  "totalEndpoints": 158,
   "endpoints": [
     {
       "method": "GET",
@@ -1286,6 +1286,35 @@
     },
     {
       "method": "GET",
+      "path": "/manageorders/inventory-cache-stats",
+      "fullPath": "/api/manageorders/inventory-cache-stats",
+      "category": "📋 General",
+      "description": "GET /api/manageorders/inventory-cache-stats  Returns detailed statistics about the inventory cache (for debugging).",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "manageorders.js",
+      "lineNumber": 571
+    },
+    {
+      "method": "POST",
+      "path": "/manageorders/inventory-cache-clear",
+      "fullPath": "/api/manageorders/inventory-cache-clear",
+      "category": "📋 General",
+      "description": "POST /api/manageorders/inventory-cache-clear  Clears the entire inventory cache (for debugging/troubleshooting).",
+      "queryParams": [
+        {
+          "key": "refresh",
+          "value": "",
+          "description": "refresh parameter",
+          "disabled": false
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "manageorders.js",
+      "lineNumber": 617
+    },
+    {
+      "method": "GET",
       "path": "/manageorders/inventorylevels",
       "fullPath": "/api/manageorders/inventorylevels",
       "category": "📋 General",
@@ -1300,7 +1329,7 @@
       ],
       "requestBody": null,
       "sourceFile": "manageorders.js",
-      "lineNumber": 555
+      "lineNumber": 636
     },
     {
       "method": "GET",

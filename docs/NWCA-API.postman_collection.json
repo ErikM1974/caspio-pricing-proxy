@@ -4694,6 +4694,54 @@
 					"response": []
 				},
 				{
+					"name": "Get Manageorders Inventory Cache Stats",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/manageorders/inventory-cache-stats",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"manageorders",
+								"inventory-cache-stats"
+							]
+						},
+						"description": "GET /api/manageorders/inventory-cache-stats  Returns detailed statistics about the inventory cache (for debugging)."
+					},
+					"response": []
+				},
+				{
+					"name": "Create Manageorders Inventory Cache Clear",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/manageorders/inventory-cache-clear?refresh=",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"manageorders",
+								"inventory-cache-clear"
+							],
+							"query": [
+								{
+									"key": "refresh",
+									"value": "",
+									"description": "refresh parameter",
+									"disabled": false
+								}
+							]
+						},
+						"description": "POST /api/manageorders/inventory-cache-clear  Clears the entire inventory cache (for debugging/troubleshooting)."
+					},
+					"response": []
+				},
+				{
 					"name": "Get Manageorders Inventorylevels",
 					"request": {
 						"method": "GET",
@@ -5114,6 +5162,203 @@
 						"description": "DELETE /api/quote_sessions/:id"
 					},
 					"response": []
+				}
+			]
+		},
+		{
+			"name": "📦 JDS Industries",
+			"description": "JDS Industries API - Engravable products (mugs, tumblers, cutting boards, keychains)",
+			"item": [
+				{
+					"name": "🔍 Product Search",
+					"description": "Search for JDS products by SKU",
+					"item": [
+						{
+							"name": "Batch Product Search - Multiple SKUs",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"skus\": [\"{{jds_sku_test1}}\", \"{{jds_sku_test2}}\"]\n}"
+								},
+								"url": {
+									"raw": "{{baseUrl}}/api/jds/products?refresh=false",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"api",
+										"jds",
+										"products"
+									],
+									"query": [
+										{
+											"key": "refresh",
+											"value": "false",
+											"description": "Set to true to bypass cache",
+											"disabled": true
+										}
+									]
+								},
+								"description": "Search for multiple JDS products by SKUs. Returns partial results if some SKUs don't exist. Uses 1-hour cache."
+							},
+							"response": []
+						},
+						{
+							"name": "Single Product Details - LPB004 (Pet Bowl)",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/jds/products/{{jds_sku_test1}}?refresh=false",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"api",
+										"jds",
+										"products",
+										"{{jds_sku_test1}}"
+									],
+									"query": [
+										{
+											"key": "refresh",
+											"value": "false",
+											"description": "Set to true to bypass cache",
+											"disabled": true
+										}
+									]
+								},
+								"description": "Get complete product details for LPB004 (Polar Camel 18 oz. Pet Bowl) including pricing tiers, inventory, and images."
+							},
+							"response": []
+						},
+						{
+							"name": "Single Product Details - LTM7216",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/jds/products/{{jds_sku_test2}}?refresh=false",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"api",
+										"jds",
+										"products",
+										"{{jds_sku_test2}}"
+									],
+									"query": [
+										{
+											"key": "refresh",
+											"value": "false",
+											"description": "Set to true to bypass cache",
+											"disabled": true
+										}
+									]
+								},
+								"description": "Get complete product details for LTM7216 including pricing tiers, inventory, and images."
+							},
+							"response": []
+						}
+					]
+				},
+				{
+					"name": "📊 Inventory",
+					"description": "Check inventory levels for quick stock validation",
+					"item": [
+						{
+							"name": "Check Inventory - LTM7216",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/jds/inventory/{{jds_sku_test2}}?refresh=false",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"api",
+										"jds",
+										"inventory",
+										"{{jds_sku_test2}}"
+									],
+									"query": [
+										{
+											"key": "refresh",
+											"value": "false",
+											"description": "Set to true to bypass cache",
+											"disabled": true
+										}
+									]
+								},
+								"description": "Quick inventory check for add-to-cart validation. Returns stock levels only, no full product data. Lightweight and faster than full product query."
+							},
+							"response": []
+						},
+						{
+							"name": "Check Inventory - LPB004",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/jds/inventory/{{jds_sku_test1}}?refresh=false",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"api",
+										"jds",
+										"inventory",
+										"{{jds_sku_test1}}"
+									],
+									"query": [
+										{
+											"key": "refresh",
+											"value": "false",
+											"description": "Set to true to bypass cache",
+											"disabled": true
+										}
+									]
+								},
+								"description": "Quick inventory check for LPB004. Returns availableQuantity, localQuantity, caseQuantity, and inStock fields only."
+							},
+							"response": []
+						}
+					]
+				},
+				{
+					"name": "⚙️ System",
+					"description": "Health check and diagnostics",
+					"item": [
+						{
+							"name": "Health Check",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/jds/health",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"api",
+										"jds",
+										"health"
+									]
+								},
+								"description": "Health check endpoint. Returns service status, cache stats, configuration, and available endpoints."
+							},
+							"response": []
+						}
+					]
 				}
 			]
 		},
@@ -6436,6 +6681,18 @@
 			"key": "sessionId",
 			"value": "test-session-123",
 			"type": "string"
+		},
+		{
+			"key": "jds_sku_test1",
+			"value": "LPB004",
+			"type": "string",
+			"description": "JDS Test SKU 1 - Polar Camel 18 oz. Pet Bowl"
+		},
+		{
+			"key": "jds_sku_test2",
+			"value": "LTM7216",
+			"type": "string",
+			"description": "JDS Test SKU 2"
 		}
 	]
 }

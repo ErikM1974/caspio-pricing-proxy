@@ -4573,6 +4573,54 @@
 					"response": []
 				},
 				{
+					"name": "Get Manageorders Inventory Cache Stats",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/manageorders/inventory-cache-stats",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"manageorders",
+								"inventory-cache-stats"
+							]
+						},
+						"description": "GET /api/manageorders/inventory-cache-stats  Returns detailed statistics about the inventory cache (for debugging)."
+					},
+					"response": []
+				},
+				{
+					"name": "Create Manageorders Inventory Cache Clear",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/manageorders/inventory-cache-clear?refresh=",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"manageorders",
+								"inventory-cache-clear"
+							],
+							"query": [
+								{
+									"key": "refresh",
+									"value": "",
+									"description": "refresh parameter",
+									"disabled": false
+								}
+							]
+						},
+						"description": "POST /api/manageorders/inventory-cache-clear  Clears the entire inventory cache (for debugging/troubleshooting)."
+					},
+					"response": []
+				},
+				{
 					"name": "Get Manageorders Inventorylevels",
 					"request": {
 						"method": "GET",
