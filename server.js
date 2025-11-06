@@ -328,6 +328,22 @@ const manageOrdersPushRoutes = require('./src/routes/manageorders-push');
 app.use('/api/manageorders', manageOrdersPushRoutes);
 console.log('✓ ManageOrders PUSH routes loaded');
 
+// JDS Industries API routes (engravable products)
+const jdsLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 60, // Max 60 requests per minute
+  message: {
+    error: 'Too many requests to JDS endpoints',
+    retryAfter: '60 seconds'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  trustProxy: true
+});
+const jdsRoutes = require('./src/routes/jds');
+app.use('/api/jds', jdsLimiter, jdsRoutes);
+console.log('✓ JDS Industries routes loaded (rate limited: 60 req/min)');
+
 // --- Enhanced Error Handling Middleware ---
 app.use((err, req, res, next) => {
     const timestamp = new Date().toISOString();

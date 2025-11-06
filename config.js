@@ -56,6 +56,16 @@ const config = {
     tokenCacheDuration: 3600000, // 1 hour in milliseconds
     customerCacheDuration: 86400000, // 1 day in milliseconds
     defaultDaysBack: 60 // Default to 60 days of orders
+  },
+
+  // JDS Industries API configuration
+  jds: {
+    baseUrl: process.env.JDS_API_URL || 'https://api.jdsapp.com',
+    apiToken: process.env.JDS_API_TOKEN,
+    endpoint: '/get-product-details-by-skus',
+    requestTimeout: 30000, // 30 seconds
+    cacheDuration: 3600000, // 1 hour in milliseconds
+    rateLimitPerMinute: 60 // Max 60 requests per minute
   }
 };
 

@@ -4226,6 +4226,108 @@
 			"description": "",
 			"item": [
 				{
+					"name": "Create Products",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/products?refresh=",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"products"
+							],
+							"query": [
+								{
+									"key": "refresh",
+									"value": "",
+									"description": "refresh parameter",
+									"disabled": false
+								}
+							]
+						},
+						"description": "Create a new products record"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Products",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/products/:sku?refresh=",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"products",
+								":sku"
+							],
+							"query": [
+								{
+									"key": "refresh",
+									"value": "",
+									"description": "refresh parameter",
+									"disabled": false
+								}
+							]
+						},
+						"description": "GET /api/jds/products/:sku  Get details for a single product by SKU  URL Parameters: - sku: Product SKU (e.g., \"LPB004\")  Query Parameters: - refresh (boolean): Force cache refresh (default: false)  Response: { \"result\": {...product...}, \"cached\": false }  Returns 404 if product not found"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Inventory",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/inventory/:sku?refresh=",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"inventory",
+								":sku"
+							],
+							"query": [
+								{
+									"key": "refresh",
+									"value": "",
+									"description": "refresh parameter",
+									"disabled": false
+								}
+							]
+						},
+						"description": "Retrieve inventory with optional filtering and sorting"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Health",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/health",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"health"
+							]
+						},
+						"description": "GET /api/jds/health  Health check endpoint for monitoring  Response: { \"status\": \"healthy\", \"service\": \"JDS Industries API\", \"timestamp\": \"2025-11-06T10:30:00Z\", \"config\": { \"cacheEnabled\": true, \"cacheDuration\": \"1 hour\", \"rateLimit\": \"60 req/min\" }, \"endpoints\": {...} }"
+					},
+					"response": []
+				},
+				{
 					"name": "Create Orders Create",
 					"request": {
 						"method": "POST",
@@ -6294,6 +6396,11 @@
 			"value": "example-key",
 			"type": "string",
 			"description": "External file key"
+		},
+		{
+			"key": "sku",
+			"value": "value",
+			"type": "string"
 		},
 		{
 			"key": "extOrderId",
