@@ -122,15 +122,17 @@ async function getShopWorksSizeMapping(skus) {
     );
 
     // Create a map of SKU to size fields
+    // NOTE: sts_LimitSizeXX = 1 means BLOCKED, null means ENABLED
+    // So we use single negation: !1 = false (blocked), !null = true (enabled)
     const sizeMap = {};
     records.forEach(record => {
       sizeMap[record.ID_Product] = {
-        Size01: !!record.sts_LimitSize01,
-        Size02: !!record.sts_LimitSize02,
-        Size03: !!record.sts_LimitSize03,
-        Size04: !!record.sts_LimitSize04,
-        Size05: !!record.sts_LimitSize05,
-        Size06: !!record.sts_LimitSize06,
+        Size01: !record.sts_LimitSize01,
+        Size02: !record.sts_LimitSize02,
+        Size03: !record.sts_LimitSize03,
+        Size04: !record.sts_LimitSize04,
+        Size05: !record.sts_LimitSize05,
+        Size06: !record.sts_LimitSize06,
         pricing: {
           case: record.Price_Unit_Case
         },
@@ -268,6 +270,44 @@ async function getProductInfo(styleNumber) {
   }
 }
 
+/**
+ * Get current SanMar pricing from Sanmar_Bulk table
+ * Returns CASE_PRICE for the specified style and color
+ */
+async function getSanmarPricing(styleNumber, catalogColor) {
+  try {
+    console.log(`[getSanmarPricing] Querying pricing for ${styleNumber}, color: ${catalogColor}`);
+
+    const records = await fetchAllCaspioPages(
+      '/tables/Sanmar_Bulk_251816_Feb2024/records',
+      {
+        'q.where': `STYLE='${styleNumber}' AND CATALOG_COLOR='${catalogColor}'`,
+        'q.select': 'SIZE, CASE_PRICE',
+        'q.limit': 100
+      }
+    );
+
+    if (records.length === 0) {
+      console.warn(`[getSanmarPricing] No pricing found for ${styleNumber} in ${catalogColor}`);
+      return null;
+    }
+
+    // Create a map of size to price
+    const pricingMap = {};
+    records.forEach(record => {
+      if (record.SIZE && record.CASE_PRICE) {
+        pricingMap[record.SIZE] = record.CASE_PRICE;
+      }
+    });
+
+    console.log(`[getSanmarPricing] Found pricing for ${Object.keys(pricingMap).length} sizes`);
+    return pricingMap;
+  } catch (error) {
+    console.error('[getSanmarPricing] Error:', error);
+    return null;
+  }
+}
+
 // ==========================================
 // API ENDPOINTS
 // ==========================================
@@ -321,6 +361,7 @@ router.get('/sanmar-shopworks/mapping', async (req, res) => {
 
     // If color specified, find the selected color
     let selectedColor = null;
+    let currentSanmarPricing = null;
     if (color) {
       selectedColor = availableColors.find(c =>
         c.displayName.toLowerCase().includes(color.toLowerCase()) ||
@@ -328,6 +369,9 @@ router.get('/sanmar-shopworks/mapping', async (req, res) => {
       );
       if (!selectedColor) {
         console.warn(`[Mapping] Color "${color}" not found for ${styleNumber}`);
+      } else {
+        // Get current SanMar pricing for this color
+        currentSanmarPricing = await getSanmarPricing(styleNumber, selectedColor.catalogName);
       }
     }
 
@@ -347,6 +391,7 @@ router.get('/sanmar-shopworks/mapping', async (req, res) => {
         displayName: selectedColor.displayName,
         shopworksColor: selectedColor.catalogName
       } : null,
+      currentSanmarPricing: currentSanmarPricing,
       shopworksInventoryEntries,
       usage: {
         instructions: 'Create inventory entries in ShopWorks using the data below',
@@ -355,7 +400,8 @@ router.get('/sanmar-shopworks/mapping', async (req, res) => {
           '2. Create a new product with ID_Product = sku',
           '3. Set the color to shopworksColor (from selectedColor or choose from availableColors)',
           '4. Populate the Size fields where sizeFields[SizeXX] = true',
-          '5. Set pricing from pricing object'
+          '5. Use currentSanmarPricing[size] for current CASE_PRICE from SanMar',
+          '6. shopworksInventoryEntries[].pricing.case shows ShopWorks reference pricing'
         ]
       },
       cached: false
