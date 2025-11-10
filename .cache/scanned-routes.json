@@ -1,6 +1,6 @@
 {
-  "scannedAt": "2025-11-10T02:15:37.966Z",
-  "totalEndpoints": 161,
+  "scannedAt": "2025-11-10T04:30:11.904Z",
+  "totalEndpoints": 162,
   "endpoints": [
     {
       "method": "GET",
@@ -3240,7 +3240,7 @@
       "path": "/sanmar-shopworks/mapping",
       "fullPath": "/api/sanmar-shopworks/mapping",
       "category": "📋 General",
-      "description": "Primary mapping endpoint GET /api/sanmar-shopworks/mapping?styleNumber=PC61&includeInventory=true&colors=Forest,Black",
+      "description": "Primary mapping endpoint GET /api/sanmar-shopworks/mapping?styleNumber=PC61&color=Forest  Provides complete ShopWorks translation including: - SKU structure (which SKUs to create) - Size field mapping (which Size fields to populate) - Color translations (display name → ShopWorks catalog name) - Pricing for each SKU",
       "queryParams": [
         {
           "key": "styleNumber",
@@ -3249,21 +3249,21 @@
           "disabled": true
         },
         {
-          "key": "includeInventory",
+          "key": "color",
           "value": "",
-          "description": "includeInventory parameter",
+          "description": "Product color",
           "disabled": true
         },
         {
-          "key": "colors",
+          "key": "includeInventory",
           "value": "",
-          "description": "colors parameter",
+          "description": "includeInventory parameter",
           "disabled": true
         }
       ],
       "requestBody": null,
       "sourceFile": "sanmar-shopworks.js",
-      "lineNumber": 200
+      "lineNumber": 326
     },
     {
       "method": "GET",
@@ -3281,7 +3281,7 @@
       ],
       "requestBody": null,
       "sourceFile": "sanmar-shopworks.js",
-      "lineNumber": 285
+      "lineNumber": 437
     },
     {
       "method": "GET",
@@ -3299,7 +3299,31 @@
       ],
       "requestBody": null,
       "sourceFile": "sanmar-shopworks.js",
-      "lineNumber": 311
+      "lineNumber": 463
+    },
+    {
+      "method": "GET",
+      "path": "/sanmar-shopworks/import-format",
+      "fullPath": "/api/sanmar-shopworks/import-format",
+      "category": "📋 General",
+      "description": "ShopWorks import-ready format GET /api/sanmar-shopworks/import-format?styleNumber=PC850&color=Cardinal  Returns flat JSON array with one entry per SKU, ready for ShopWorks import Each entry includes all size fields with actual size values where enabled",
+      "queryParams": [
+        {
+          "key": "styleNumber",
+          "value": "",
+          "description": "Product style number",
+          "disabled": true
+        },
+        {
+          "key": "color",
+          "value": "",
+          "description": "Product color",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "sanmar-shopworks.js",
+      "lineNumber": 495
     },
     {
       "method": "GET",

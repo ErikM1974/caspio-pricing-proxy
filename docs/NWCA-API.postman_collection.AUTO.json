@@ -5065,20 +5065,20 @@
 									"disabled": true
 								},
 								{
+									"key": "color",
+									"value": "",
+									"description": "Product color",
+									"disabled": true
+								},
+								{
 									"key": "includeInventory",
 									"value": "",
 									"description": "includeInventory parameter",
 									"disabled": true
-								},
-								{
-									"key": "colors",
-									"value": "",
-									"description": "colors parameter",
-									"disabled": true
 								}
 							]
 						},
-						"description": "Primary mapping endpoint GET /api/sanmar-shopworks/mapping?styleNumber=PC61&includeInventory=true&colors=Forest,Black"
+						"description": "Primary mapping endpoint GET /api/sanmar-shopworks/mapping?styleNumber=PC61&color=Forest  Provides complete ShopWorks translation including: - SKU structure (which SKUs to create) - Size field mapping (which Size fields to populate) - Color translations (display name → ShopWorks catalog name) - Pricing for each SKU"
 					},
 					"response": []
 				},
@@ -5135,6 +5135,40 @@
 							]
 						},
 						"description": "Helper endpoint: Get color mapping for a style GET /api/sanmar-shopworks/color-mapping?styleNumber=PC61"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Sanmar Shopworks Import Format",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/sanmar-shopworks/import-format",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"sanmar-shopworks",
+								"import-format"
+							],
+							"query": [
+								{
+									"key": "styleNumber",
+									"value": "",
+									"description": "Product style number",
+									"disabled": true
+								},
+								{
+									"key": "color",
+									"value": "",
+									"description": "Product color",
+									"disabled": true
+								}
+							]
+						},
+						"description": "ShopWorks import-ready format GET /api/sanmar-shopworks/import-format?styleNumber=PC850&color=Cardinal  Returns flat JSON array with one entry per SKU, ready for ShopWorks import Each entry includes all size fields with actual size values where enabled"
 					},
 					"response": []
 				}

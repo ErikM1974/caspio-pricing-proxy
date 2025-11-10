@@ -5186,15 +5186,15 @@
 									"disabled": true
 								},
 								{
-									"key": "includeInventory",
+									"key": "color",
 									"value": "",
-									"description": "includeInventory parameter",
+									"description": "Product color",
 									"disabled": true
 								},
 								{
-									"key": "colors",
+									"key": "includeInventory",
 									"value": "",
-									"description": "colors parameter",
+									"description": "includeInventory parameter",
 									"disabled": true
 								}
 							]
@@ -5256,6 +5256,40 @@
 							]
 						},
 						"description": "Helper endpoint: Get color mapping for a style GET /api/sanmar-shopworks/color-mapping?styleNumber=PC61"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Sanmar Shopworks Import Format",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/sanmar-shopworks/import-format",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"sanmar-shopworks",
+								"import-format"
+							],
+							"query": [
+								{
+									"key": "styleNumber",
+									"value": "",
+									"description": "Product style number",
+									"disabled": true
+								},
+								{
+									"key": "color",
+									"value": "",
+									"description": "Product color",
+									"disabled": true
+								}
+							]
+						},
+						"description": "ShopWorks import-ready format GET /api/sanmar-shopworks/import-format?styleNumber=PC850&color=Cardinal  Returns flat JSON array with one entry per SKU, ready for ShopWorks import Each entry includes all size fields with actual size values where enabled"
 					},
 					"response": []
 				}
