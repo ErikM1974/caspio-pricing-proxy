@@ -604,6 +604,13 @@ router.get('/sanmar-shopworks/import-format', async (req, res) => {
       };
     }).filter(Boolean);
 
+    // Sort by CASE_PRICE ascending (lowest to highest)
+    importEntries.sort((a, b) => {
+      if (a.CASE_PRICE === null) return 1;
+      if (b.CASE_PRICE === null) return -1;
+      return a.CASE_PRICE - b.CASE_PRICE;
+    });
+
     res.json(importEntries);
   } catch (error) {
     console.error('[Import Format] Error:', error);
