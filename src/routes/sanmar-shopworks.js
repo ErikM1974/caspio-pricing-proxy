@@ -61,7 +61,7 @@ async function detectSKUPattern(styleNumber) {
     const records = await fetchAllCaspioPages(
       '/tables/Shopworks_Integration/records',
       {
-        'q.where': `ID_Product='${styleNumber}' OR ID_Product LIKE '${styleNumber}\\_%'`,
+        'q.where': `ID_Product='${styleNumber}' OR ID_Product LIKE '${styleNumber}[_]%'`,
         'q.select': 'ID_Product',
         'q.limit': 50
       }
