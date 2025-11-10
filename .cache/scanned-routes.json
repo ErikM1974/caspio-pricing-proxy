@@ -1,6 +1,6 @@
 {
-  "scannedAt": "2025-11-06T22:57:06.737Z",
-  "totalEndpoints": 158,
+  "scannedAt": "2025-11-10T02:15:37.966Z",
+  "totalEndpoints": 161,
   "endpoints": [
     {
       "method": "GET",
@@ -3234,6 +3234,72 @@
       "requestBody": null,
       "sourceFile": "quotes.js",
       "lineNumber": 383
+    },
+    {
+      "method": "GET",
+      "path": "/sanmar-shopworks/mapping",
+      "fullPath": "/api/sanmar-shopworks/mapping",
+      "category": "📋 General",
+      "description": "Primary mapping endpoint GET /api/sanmar-shopworks/mapping?styleNumber=PC61&includeInventory=true&colors=Forest,Black",
+      "queryParams": [
+        {
+          "key": "styleNumber",
+          "value": "",
+          "description": "Product style number",
+          "disabled": true
+        },
+        {
+          "key": "includeInventory",
+          "value": "",
+          "description": "includeInventory parameter",
+          "disabled": true
+        },
+        {
+          "key": "colors",
+          "value": "",
+          "description": "colors parameter",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "sanmar-shopworks.js",
+      "lineNumber": 200
+    },
+    {
+      "method": "GET",
+      "path": "/sanmar-shopworks/suffix-mapping",
+      "fullPath": "/api/sanmar-shopworks/suffix-mapping",
+      "category": "📋 General",
+      "description": "Helper endpoint: Get suffix mapping rules GET /api/sanmar-shopworks/suffix-mapping",
+      "queryParams": [
+        {
+          "key": "styleNumber",
+          "value": "",
+          "description": "Product style number",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "sanmar-shopworks.js",
+      "lineNumber": 285
+    },
+    {
+      "method": "GET",
+      "path": "/sanmar-shopworks/color-mapping",
+      "fullPath": "/api/sanmar-shopworks/color-mapping",
+      "category": "📋 General",
+      "description": "Helper endpoint: Get color mapping for a style GET /api/sanmar-shopworks/color-mapping?styleNumber=PC61",
+      "queryParams": [
+        {
+          "key": "styleNumber",
+          "value": "",
+          "description": "Product style number",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "sanmar-shopworks.js",
+      "lineNumber": 311
     },
     {
       "method": "GET",

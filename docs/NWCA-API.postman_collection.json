@@ -5162,6 +5162,102 @@
 						"description": "DELETE /api/quote_sessions/:id"
 					},
 					"response": []
+				},
+				{
+					"name": "Get Sanmar Shopworks Mapping",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/sanmar-shopworks/mapping",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"sanmar-shopworks",
+								"mapping"
+							],
+							"query": [
+								{
+									"key": "styleNumber",
+									"value": "",
+									"description": "Product style number",
+									"disabled": true
+								},
+								{
+									"key": "includeInventory",
+									"value": "",
+									"description": "includeInventory parameter",
+									"disabled": true
+								},
+								{
+									"key": "colors",
+									"value": "",
+									"description": "colors parameter",
+									"disabled": true
+								}
+							]
+						},
+						"description": "Primary mapping endpoint GET /api/sanmar-shopworks/mapping?styleNumber=PC61&includeInventory=true&colors=Forest,Black"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Sanmar Shopworks Suffix Mapping",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/sanmar-shopworks/suffix-mapping",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"sanmar-shopworks",
+								"suffix-mapping"
+							],
+							"query": [
+								{
+									"key": "styleNumber",
+									"value": "",
+									"description": "Product style number",
+									"disabled": true
+								}
+							]
+						},
+						"description": "Helper endpoint: Get suffix mapping rules GET /api/sanmar-shopworks/suffix-mapping"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Sanmar Shopworks Color Mapping",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/sanmar-shopworks/color-mapping",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"sanmar-shopworks",
+								"color-mapping"
+							],
+							"query": [
+								{
+									"key": "styleNumber",
+									"value": "",
+									"description": "Product style number",
+									"disabled": true
+								}
+							]
+						},
+						"description": "Helper endpoint: Get color mapping for a style GET /api/sanmar-shopworks/color-mapping?styleNumber=PC61"
+					},
+					"response": []
 				}
 			]
 		},
