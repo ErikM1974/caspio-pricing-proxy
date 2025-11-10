@@ -563,10 +563,10 @@ router.get('/sanmar-shopworks/import-format', async (req, res) => {
       if (mapping.Size04) sizes.Size04 = 'XL';
       if (mapping.Size05) sizes.Size05 = '2XL';
       if (mapping.Size06) {
-        // Size06 can be XS, 3XL, 4XL depending on SKU
-        if (sku.includes('_XS')) sizes.Size06 = 'XS';
-        else if (sku.includes('_4XL')) sizes.Size06 = '4XL';
-        else if (sku.includes('_3XL')) sizes.Size06 = '3XL';
+        // Size06 is the catch-all for extended sizes (XS, 3XL, 4XL, 5XL, 6XL, LT, XLT, etc.)
+        // Extract the suffix from the SKU (e.g., PC61_5XL -> 5XL)
+        const suffix = sku.split('_')[1];
+        if (suffix) sizes.Size06 = suffix;
       }
 
       // Get the correct price for this SKU
