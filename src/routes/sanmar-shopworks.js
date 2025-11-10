@@ -569,14 +569,32 @@ router.get('/sanmar-shopworks/import-format', async (req, res) => {
         else if (sku.includes('_3XL')) sizes.Size06 = '3XL';
       }
 
+      // Get the correct price for this SKU
+      // For base SKUs (S-XL), use S price; for extended sizes, use their specific size price
+      let casePrice = null;
+      if (currentPricing) {
+        if (sizes.Size05) {
+          // 2XL size
+          casePrice = currentPricing['2XL'] || null;
+        } else if (sizes.Size06 === 'XS') {
+          casePrice = currentPricing['XS'] || null;
+        } else if (sizes.Size06 === '3XL') {
+          casePrice = currentPricing['3XL'] || null;
+        } else if (sizes.Size06 === '4XL') {
+          casePrice = currentPricing['4XL'] || null;
+        } else {
+          // Base SKU - use S price (or first available standard size)
+          casePrice = currentPricing['S'] || currentPricing['M'] || currentPricing['L'] || Object.values(currentPricing)[0];
+        }
+      }
+
       return {
         ID_Product: sku,
         Color_Catalog: selectedColor.catalogName,  // CATALOG_COLOR - for ShopWorks
         Color_Display: selectedColor.displayName,  // COLOR_NAME - for display
         Description: mapping.description || productInfo.productTitle,
         Brand: productInfo.brand,
-        Price_Unit_Case: mapping.pricing.case,
-        CurrentSanmarPrice: currentPricing ? Object.values(currentPricing)[0] : null,
+        CASE_PRICE: casePrice,
         Size01: sizes.Size01 || null,
         Size02: sizes.Size02 || null,
         Size03: sizes.Size03 || null,
