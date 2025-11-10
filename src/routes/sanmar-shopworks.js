@@ -57,10 +57,11 @@ async function detectSKUPattern(styleNumber) {
 
     // Query Shopworks_Integration table for all SKU variants
     // This is the authoritative source for SKU structure
+    // Match exact style or style with underscore suffix (PC850 or PC850_2XL, but not PC850H)
     const records = await fetchAllCaspioPages(
       '/tables/Shopworks_Integration/records',
       {
-        'q.where': `ID_Product LIKE '${styleNumber}%'`,
+        'q.where': `ID_Product='${styleNumber}' OR ID_Product LIKE '${styleNumber}\\_%'`,
         'q.select': 'ID_Product',
         'q.limit': 50
       }
@@ -570,7 +571,8 @@ router.get('/sanmar-shopworks/import-format', async (req, res) => {
 
       return {
         ID_Product: sku,
-        Color: selectedColor.catalogName,
+        Color_Catalog: selectedColor.catalogName,  // CATALOG_COLOR - for ShopWorks
+        Color_Display: selectedColor.displayName,  // COLOR_NAME - for display
         Description: mapping.description || productInfo.productTitle,
         Brand: productInfo.brand,
         Price_Unit_Case: mapping.pricing.case,
