@@ -48,40 +48,38 @@ const SUFFIX_TO_FIELD_MAP = {
 };
 
 /**
- * Detect SKU pattern for a product
- * Returns: single-sku, standard-multi-sku (3 SKUs), or extended-multi-sku (4-6 SKUs)
+ * Detect SKU pattern for a product by querying Shopworks_Integration table
+ * Returns: single-sku, standard-multi-sku (2-3 SKUs), or extended-multi-sku (4+ SKUs)
  */
 async function detectSKUPattern(styleNumber) {
   try {
-    // Check for all potential SKU variants
-    const potentialSKUs = [
-      styleNumber,              // Base
-      `${styleNumber}_XS`,      // Extra small
-      `${styleNumber}_2XL`,     // Standard extension
-      `${styleNumber}_3XL`,     // Additional size
-      `${styleNumber}_4XL`,     // Extended
-      `${styleNumber}_5XL`,     // Extended
-      `${styleNumber}_6XL`,     // Extended
-      `${styleNumber}_XXL`,     // Women's variant
-    ];
+    console.log(`[detectSKUPattern] Querying Shopworks_Integration for ${styleNumber}`);
 
-    // Query Caspio to check which SKUs exist
-    const existingSKUs = [];
-    for (const sku of potentialSKUs) {
-      const records = await fetchAllCaspioPages(
-        '/tables/Sanmar_Bulk_251816_Feb2024/records',
-        {
-          'q.where': `STYLE='${sku}'`,
-          'q.select': 'STYLE',
-          'q.limit': 1
-        }
-      );
-      if (records.length > 0) {
-        existingSKUs.push(sku);
+    // Query Shopworks_Integration table for all SKU variants
+    // This is the authoritative source for SKU structure
+    const records = await fetchAllCaspioPages(
+      '/tables/Shopworks_Integration/records',
+      {
+        'q.where': `ID_Product LIKE '${styleNumber}%'`,
+        'q.select': 'ID_Product',
+        'q.limit': 50
       }
+    );
+
+    if (records.length === 0) {
+      console.log(`[detectSKUPattern] No records found in Shopworks_Integration for ${styleNumber}`);
+      return {
+        type: 'not-found',
+        skus: [],
+        description: 'Product not found in ShopWorks integration table'
+      };
     }
 
-    // Determine pattern type
+    // Extract SKU IDs
+    const existingSKUs = records.map(r => r.ID_Product);
+    console.log(`[detectSKUPattern] Found ${existingSKUs.length} SKUs:`, existingSKUs);
+
+    // Determine pattern type based on number of SKUs
     if (existingSKUs.length === 1) {
       return {
         type: 'single-sku',
@@ -98,17 +96,98 @@ async function detectSKUPattern(styleNumber) {
       return {
         type: 'extended-multi-sku',
         skus: existingSKUs,
-        description: 'Extended pattern with 4-6 SKUs (e.g., PC61)'
+        description: `Extended pattern with ${existingSKUs.length} SKUs (e.g., PC61, J790)`
       };
     }
   } catch (error) {
-    console.error('Error detecting SKU pattern:', error);
+    console.error('[detectSKUPattern] Error:', error);
     throw error;
   }
 }
 
 /**
- * Map SKU to ShopWorks fields
+ * Get ShopWorks size field mapping from Shopworks_Integration table
+ * Returns the actual size field configuration for each SKU
+ */
+async function getShopWorksSizeMapping(skus) {
+  try {
+    const skuList = skus.map(s => `'${s}'`).join(',');
+    const records = await fetchAllCaspioPages(
+      '/tables/Shopworks_Integration/records',
+      {
+        'q.where': `ID_Product IN (${skuList})`,
+        'q.select': 'ID_Product, sts_LimitSize01, sts_LimitSize02, sts_LimitSize03, sts_LimitSize04, sts_LimitSize05, sts_LimitSize06, Price_Unit_Piece, Price_Unit_Dozen, Price_Unit_Case',
+        'q.limit': 100
+      }
+    );
+
+    // Create a map of SKU to size fields
+    const sizeMap = {};
+    records.forEach(record => {
+      sizeMap[record.ID_Product] = {
+        Size01: !!record.sts_LimitSize01,
+        Size02: !!record.sts_LimitSize02,
+        Size03: !!record.sts_LimitSize03,
+        Size04: !!record.sts_LimitSize04,
+        Size05: !!record.sts_LimitSize05,
+        Size06: !!record.sts_LimitSize06,
+        pricing: {
+          piece: record.Price_Unit_Piece,
+          dozen: record.Price_Unit_Dozen,
+          case: record.Price_Unit_Case
+        }
+      };
+    });
+
+    return sizeMap;
+  } catch (error) {
+    console.error('[getShopWorksSizeMapping] Error:', error);
+    throw error;
+  }
+}
+
+/**
+ * Map SKU to ShopWorks fields using actual Shopworks_Integration data
+ */
+async function mapSKUToFieldsEnhanced(skus) {
+  const sizeMapping = await getShopWorksSizeMapping(skus);
+
+  return skus.map(sku => {
+    const mapping = sizeMapping[sku];
+    if (!mapping) {
+      console.warn(`[mapSKUToFieldsEnhanced] No mapping found for ${sku}`);
+      return {
+        sku,
+        type: 'unknown',
+        sizeFields: {},
+        pricing: null
+      };
+    }
+
+    // Determine which size fields are enabled
+    const enabledFields = Object.entries(mapping)
+      .filter(([key, value]) => key.startsWith('Size') && value === true)
+      .map(([key]) => key);
+
+    return {
+      sku,
+      type: sku.includes('_') ? 'extended' : 'base',
+      sizeFields: {
+        Size01: mapping.Size01,
+        Size02: mapping.Size02,
+        Size03: mapping.Size03,
+        Size04: mapping.Size04,
+        Size05: mapping.Size05,
+        Size06: mapping.Size06
+      },
+      enabledFields,
+      pricing: mapping.pricing
+    };
+  });
+}
+
+/**
+ * Map SKU to ShopWorks fields (Legacy - for backward compatibility)
  */
 function mapSKUToFields(sku, styleNumber) {
   const suffix = sku.replace(styleNumber, '');
@@ -196,71 +275,97 @@ async function getProductInfo(styleNumber) {
 
 /**
  * Primary mapping endpoint
- * GET /api/sanmar-shopworks/mapping?styleNumber=PC61&includeInventory=true&colors=Forest,Black
+ * GET /api/sanmar-shopworks/mapping?styleNumber=PC61&color=Forest
+ *
+ * Provides complete ShopWorks translation including:
+ * - SKU structure (which SKUs to create)
+ * - Size field mapping (which Size fields to populate)
+ * - Color translations (display name → ShopWorks catalog name)
+ * - Pricing for each SKU
  */
 router.get('/sanmar-shopworks/mapping', async (req, res) => {
   try {
-    const { styleNumber, includeInventory, colors } = req.query;
+    const { styleNumber, color, includeInventory } = req.query;
 
     if (!styleNumber) {
       return res.status(400).json({ error: 'styleNumber parameter is required' });
     }
 
     // Check cache
-    const cacheKey = `mapping_${styleNumber}_${includeInventory}_${colors}`;
+    const cacheKey = `mapping_v2_${styleNumber}_${color}_${includeInventory}`;
     const cached = sanmarMappingCache.get(cacheKey);
     if (cached && (Date.now() - cached.timestamp < MAPPING_CACHE_TTL)) {
       console.log(`[Mapping] Cache hit for ${styleNumber}`);
-      return res.json(cached.data);
+      return res.json({...cached.data, cached: true});
     }
 
-    console.log(`[Mapping] Fetching mapping data for ${styleNumber}`);
+    console.log(`[Mapping] Fetching complete ShopWorks translation for ${styleNumber}`);
 
-    // Get product info
+    // Get product info from Sanmar_Bulk
     const productInfo = await getProductInfo(styleNumber);
 
-    // Detect SKU pattern
+    // Detect SKU pattern from Shopworks_Integration
     const skuPattern = await detectSKUPattern(styleNumber);
 
-    // Map each SKU to ShopWorks fields
-    const skuMappings = skuPattern.skus.map(sku =>
-      mapSKUToFields(sku, styleNumber)
-    );
-
-    // Get color mappings
-    const colorMappings = await getColorMappings(styleNumber);
-
-    // Filter colors if specified
-    let selectedColors = colorMappings;
-    if (colors) {
-      const colorList = colors.split(',').map(c => c.trim());
-      selectedColors = colorMappings.filter(cm =>
-        colorList.includes(cm.catalogName) || colorList.includes(cm.displayName)
-      );
+    if (skuPattern.type === 'not-found') {
+      return res.status(404).json({
+        error: `Product ${styleNumber} not found in ShopWorks integration table`,
+        suggestion: 'This product may not be configured for ShopWorks import yet'
+      });
     }
 
-    // Build response
+    // Get enhanced SKU mappings with actual size fields and pricing
+    const shopworksInventoryEntries = await mapSKUToFieldsEnhanced(skuPattern.skus);
+
+    // Get color mappings from Sanmar_Bulk
+    const availableColors = await getColorMappings(styleNumber);
+
+    // If color specified, find the selected color
+    let selectedColor = null;
+    if (color) {
+      selectedColor = availableColors.find(c =>
+        c.displayName.toLowerCase().includes(color.toLowerCase()) ||
+        c.catalogName.toLowerCase().includes(color.toLowerCase())
+      );
+      if (!selectedColor) {
+        console.warn(`[Mapping] Color "${color}" not found for ${styleNumber}`);
+      }
+    }
+
+    // Build comprehensive response
     const response = {
       styleNumber,
       productTitle: productInfo.productTitle,
       brand: productInfo.brand,
       skuPattern: skuPattern.type,
       skuCount: skuPattern.skus.length,
-      skus: skuMappings,
-      colors: selectedColors,
-      mappingRules: SUFFIX_TO_FIELD_MAP,
+      availableColors: availableColors.map(c => ({
+        displayName: c.displayName,
+        shopworksColor: c.catalogName,
+        imageUrl: c.imageUrl
+      })),
+      selectedColor: selectedColor ? {
+        displayName: selectedColor.displayName,
+        shopworksColor: selectedColor.catalogName
+      } : null,
+      shopworksInventoryEntries,
+      usage: {
+        instructions: 'Create inventory entries in ShopWorks using the data below',
+        steps: [
+          '1. For each SKU in shopworksInventoryEntries',
+          '2. Create a new product with ID_Product = sku',
+          '3. Set the color to shopworksColor (from selectedColor or choose from availableColors)',
+          '4. Populate the Size fields where sizeFields[SizeXX] = true',
+          '5. Set pricing from pricing object'
+        ]
+      },
       cached: false
     };
 
-    // Optional: Include inventory
-    if (includeInventory === 'true' && selectedColors.length > 0) {
-      console.log(`[Mapping] Including inventory for ${selectedColors.length} colors`);
-      // This would integrate with ManageOrders API
-      // For now, we'll add a placeholder
-      response.colors = response.colors.map(color => ({
-        ...color,
-        inventoryNote: 'Use /api/manageorders/inventorylevels for real-time inventory'
-      }));
+    // Optional: Include inventory data
+    if (includeInventory === 'true' && selectedColor) {
+      console.log(`[Mapping] Including inventory note for color: ${selectedColor.catalogName}`);
+      response.inventoryNote = 'Use /api/manageorders/inventorylevels for real-time inventory levels';
     }
 
     // Cache the response
