@@ -5,6 +5,7 @@
 - **Online Store Developer Guide** - Complete guide for building webstore integration ([Developer Guide](memory/ONLINE_STORE_DEVELOPER_GUIDE.md))
 - **New Products Management API** - Mark and query featured/new products dynamically ([Full Documentation](memory/NEW_PRODUCTS_API.md))
 - **BLANK Pricing** - Blank garment pricing without decoration ([Full Documentation](memory/BLANK_PRICING.md))
+- **SanMar → ShopWorks Import API** - Translate SanMar products to ShopWorks inventory format ([Full Documentation](memory/SANMAR_SHOPWORKS_API.md))
 - **Image Loading Troubleshooting** - Diagnose slow images and Sanmar CDN issues ([Full Guide](memory/IMAGE_LOADING_TROUBLESHOOTING.md))
 - Art_Request Invoice
 
