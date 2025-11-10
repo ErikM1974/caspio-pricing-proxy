@@ -116,7 +116,7 @@ async function getShopWorksSizeMapping(skus) {
       '/tables/Shopworks_Integration/records',
       {
         'q.where': `ID_Product IN (${skuList})`,
-        'q.select': 'ID_Product, sts_LimitSize01, sts_LimitSize02, sts_LimitSize03, sts_LimitSize04, sts_LimitSize05, sts_LimitSize06, Price_Unit_Piece, Price_Unit_Dozen, Price_Unit_Case',
+        'q.select': 'ID_Product, sts_LimitSize01, sts_LimitSize02, sts_LimitSize03, sts_LimitSize04, sts_LimitSize05, sts_LimitSize06, Price_Unit_Case, Description',
         'q.limit': 100
       }
     );
@@ -132,10 +132,9 @@ async function getShopWorksSizeMapping(skus) {
         Size05: !!record.sts_LimitSize05,
         Size06: !!record.sts_LimitSize06,
         pricing: {
-          piece: record.Price_Unit_Piece,
-          dozen: record.Price_Unit_Dozen,
           case: record.Price_Unit_Case
-        }
+        },
+        description: record.Description
       };
     });
 
