@@ -484,5 +484,115 @@ router.get('/sanmar-shopworks/color-mapping', async (req, res) => {
   }
 });
 
+/**
+ * ShopWorks import-ready format
+ * GET /api/sanmar-shopworks/import-format?styleNumber=PC850&color=Cardinal
+ *
+ * Returns flat JSON array with one entry per SKU, ready for ShopWorks import
+ * Each entry includes all size fields with actual size values where enabled
+ */
+router.get('/sanmar-shopworks/import-format', async (req, res) => {
+  try {
+    const { styleNumber, color } = req.query;
+
+    if (!styleNumber) {
+      return res.status(400).json({ error: 'styleNumber parameter is required' });
+    }
+
+    if (!color) {
+      return res.status(400).json({ error: 'color parameter is required for import format' });
+    }
+
+    console.log(`[Import Format] Generating ShopWorks import data for ${styleNumber} ${color}`);
+
+    // Get product info
+    const productInfo = await getProductInfo(styleNumber);
+
+    // Detect SKU pattern
+    const skuPattern = await detectSKUPattern(styleNumber);
+
+    if (skuPattern.type === 'not-found') {
+      return res.status(404).json({
+        error: `Product ${styleNumber} not found in ShopWorks integration table`
+      });
+    }
+
+    // Get size mappings
+    const sizeMapping = await getShopWorksSizeMapping(skuPattern.skus);
+
+    // Get color mapping
+    const availableColors = await getColorMappings(styleNumber);
+    const selectedColor = availableColors.find(c =>
+      c.displayName.toLowerCase().includes(color.toLowerCase()) ||
+      c.catalogName.toLowerCase().includes(color.toLowerCase())
+    );
+
+    if (!selectedColor) {
+      return res.status(404).json({
+        error: `Color "${color}" not found for ${styleNumber}`,
+        availableColors: availableColors.map(c => c.displayName)
+      });
+    }
+
+    // Get current pricing
+    const currentPricing = await getSanmarPricing(styleNumber, selectedColor.catalogName);
+
+    // Map of size abbreviations to size field names
+    const sizeFieldMap = {
+      'XS': 'Size06',
+      'S': 'Size01',
+      'M': 'Size02',
+      'L': 'Size03',
+      'XL': 'Size04',
+      '2XL': 'Size05',
+      '3XL': 'Size06',
+      '4XL': 'Size06'
+    };
+
+    // Build import-ready entries
+    const importEntries = skuPattern.skus.map(sku => {
+      const mapping = sizeMapping[sku];
+      if (!mapping) return null;
+
+      // Determine which sizes this SKU handles
+      const sizes = {};
+      if (mapping.Size01) sizes.Size01 = 'S';
+      if (mapping.Size02) sizes.Size02 = 'M';
+      if (mapping.Size03) sizes.Size03 = 'L';
+      if (mapping.Size04) sizes.Size04 = 'XL';
+      if (mapping.Size05) sizes.Size05 = '2XL';
+      if (mapping.Size06) {
+        // Size06 can be XS, 3XL, 4XL depending on SKU
+        if (sku.includes('_XS')) sizes.Size06 = 'XS';
+        else if (sku.includes('_4XL')) sizes.Size06 = '4XL';
+        else if (sku.includes('_3XL')) sizes.Size06 = '3XL';
+      }
+
+      return {
+        ID_Product: sku,
+        Color: selectedColor.catalogName,
+        Description: mapping.description || productInfo.productTitle,
+        Brand: productInfo.brand,
+        Price_Unit_Case: mapping.pricing.case,
+        CurrentSanmarPrice: currentPricing ? Object.values(currentPricing)[0] : null,
+        Size01: sizes.Size01 || null,
+        Size02: sizes.Size02 || null,
+        Size03: sizes.Size03 || null,
+        Size04: sizes.Size04 || null,
+        Size05: sizes.Size05 || null,
+        Size06: sizes.Size06 || null
+      };
+    }).filter(Boolean);
+
+    res.json(importEntries);
+  } catch (error) {
+    console.error('[Import Format] Error:', error);
+    res.status(500).json({
+      error: 'Failed to generate import format',
+      details: error.message
+    });
+  }
+});
+
 // Export functions for testing
 module.exports = router;
