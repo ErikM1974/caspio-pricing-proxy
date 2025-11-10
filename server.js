@@ -344,6 +344,11 @@ const jdsRoutes = require('./src/routes/jds');
 app.use('/api/jds', jdsLimiter, jdsRoutes);
 console.log('✓ JDS Industries routes loaded (rate limited: 60 req/min)');
 
+// Sanmar-ShopWorks Mapping Routes
+const sanmarShopworksRoutes = require('./src/routes/sanmar-shopworks');
+app.use('/api', sanmarShopworksRoutes);
+console.log('✓ Sanmar-ShopWorks mapping routes loaded');
+
 // --- Enhanced Error Handling Middleware ---
 app.use((err, req, res, next) => {
     const timestamp = new Date().toISOString();
