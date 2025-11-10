@@ -590,8 +590,8 @@ router.get('/sanmar-shopworks/import-format', async (req, res) => {
 
       return {
         ID_Product: sku,
-        Color_Catalog: selectedColor.catalogName,  // CATALOG_COLOR - for ShopWorks
-        Color_Display: selectedColor.displayName,  // COLOR_NAME - for display
+        CATALOG_COLOR: selectedColor.catalogName,  // ShopWorks uses this field
+        COLOR_NAME: selectedColor.displayName,     // Display name from Sanmar
         Description: mapping.description || productInfo.productTitle,
         Brand: productInfo.brand,
         CASE_PRICE: casePrice,
