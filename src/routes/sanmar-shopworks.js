@@ -570,20 +570,26 @@ router.get('/sanmar-shopworks/import-format', async (req, res) => {
       }
 
       // Get the correct price for this SKU
-      // For base SKUs (S-XL), use S price; for extended sizes, use their specific size price
+      // Determine which size key to use for pricing lookup
       let casePrice = null;
       if (currentPricing) {
-        if (sizes.Size05) {
-          // 2XL size
-          casePrice = currentPricing['2XL'] || null;
-        } else if (sizes.Size06 === 'XS') {
-          casePrice = currentPricing['XS'] || null;
-        } else if (sizes.Size06 === '3XL') {
-          casePrice = currentPricing['3XL'] || null;
-        } else if (sizes.Size06 === '4XL') {
-          casePrice = currentPricing['4XL'] || null;
-        } else {
-          // Base SKU - use S price (or first available standard size)
+        let sizeKey = null;
+
+        // Map ShopWorks size columns to pricing size keys
+        if (sizes.Size01) sizeKey = 'S';
+        else if (sizes.Size02) sizeKey = 'M';
+        else if (sizes.Size03) sizeKey = 'L';
+        else if (sizes.Size04) sizeKey = 'XL';
+        else if (sizes.Size05) sizeKey = '2XL';
+        else if (sizes.Size06) sizeKey = sizes.Size06; // Use actual extracted size (XS, 3XL, 4XL, 5XL, 6XL, LT, XLT, etc.)
+
+        // Lookup price for the size, or fallback to first available price
+        if (sizeKey) {
+          casePrice = currentPricing[sizeKey] || null;
+        }
+
+        // If no price found for specific size, fall back to base size
+        if (casePrice === null) {
           casePrice = currentPricing['S'] || currentPricing['M'] || currentPricing['L'] || Object.values(currentPricing)[0];
         }
       }
