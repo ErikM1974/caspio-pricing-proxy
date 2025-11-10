@@ -56,6 +56,7 @@ async function detectSKUPattern(styleNumber) {
     // Check for all potential SKU variants
     const potentialSKUs = [
       styleNumber,              // Base
+      `${styleNumber}_XS`,      // Extra small
       `${styleNumber}_2XL`,     // Standard extension
       `${styleNumber}_3XL`,     // Additional size
       `${styleNumber}_4XL`,     // Extended
