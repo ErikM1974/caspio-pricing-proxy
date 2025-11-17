@@ -323,6 +323,11 @@ const manageOrdersRoutes = require('./src/routes/manageorders');
 app.use('/api', manageOrdersLimiter, manageOrdersRoutes);
 console.log('✓ ManageOrders routes loaded (rate limited: 30 req/min)');
 
+// PC54 Optimized Inventory routes (aggregated multi-SKU queries)
+const pc54InventoryRoutes = require('./src/routes/pc54-inventory');
+app.use('/api', manageOrdersLimiter, pc54InventoryRoutes);
+console.log('✓ PC54 Inventory routes loaded (rate limited: 30 req/min)');
+
 // ManageOrders PUSH API routes (for sending orders TO OnSite)
 const manageOrdersPushRoutes = require('./src/routes/manageorders-push');
 app.use('/api/manageorders', manageOrdersPushRoutes);

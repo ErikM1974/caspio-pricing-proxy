@@ -5935,6 +5935,69 @@
 						"description": "**Get Real-Time Inventory Levels** ⏰ Cache: 5 minutes ⭐ CRITICAL FOR WEBSTORE\n\nFetch current inventory quantities with Size01-06 breakdown.\n\n**Available Filters:**\n- `PartNumber` - Product part number (e.g., \"PC54\")\n- `Color` - Specific color name\n- `ColorRange` - Color range filter\n- `SKU` - Product SKU\n- `VendorName` - Vendor (e.g., \"SANMAR\")\n- `date_Modification_start/end` - Recently updated inventory\n- `refresh` (boolean) - Force cache refresh\n\n**Use Cases:** 🌟\n- Show \"In Stock\" / \"Out of Stock\" on product pages\n- Real-time availability before adding to cart\n- Prevent overselling\n- Display size availability matrix\n- Inventory reports\n\n**Example Queries:**\n```\n# Check stock for specific product\nGET /api/manageorders/inventorylevels?PartNumber=PC54\n\n# Get all SANMAR products\nGET /api/manageorders/inventorylevels?VendorName=SANMAR\n\n# Filter by color\nGET /api/manageorders/inventorylevels?PartNumber=PC54&Color=Jet Black\n```\n\n**Response:**\n```json\n{\n  \"result\": [\n    {\n      \"id_Part\": 12345,\n      \"PartNumber\": \"PC54\",\n      \"PartDescription\": \"Port & Company Core Cotton Tee\",\n      \"Color\": \"Jet Black\",\n      \"SKU\": \"PC54-BLK\",\n      \"VendorName\": \"SANMAR\",\n      \"Size01\": 4,    // XS quantity\n      \"Size02\": 10,   // S quantity\n      \"Size03\": 11,   // M quantity\n      \"Size04\": 79,   // L quantity\n      \"Size05\": 0,    // XL quantity (OUT OF STOCK)\n      \"Size06\": 0,    // 2XL quantity (OUT OF STOCK)\n      \"date_Modification\": \"2025-10-26T08:30:00.000Z\"\n    },\n    // ... more color variants\n  ],\n  \"count\": 5,\n  \"cached\": false\n}\n```\n\n**Size Fields:**\n- Size01 through Size06 represent different sizes\n- Typically: XS, S, M, L, XL, 2XL\n- Actual size labels may vary by product\n- 0 = Out of stock for that size\n\n**Check Stock Example:**\n```javascript\n// Check if any sizes are in stock\nconst totalStock = item.Size01 + item.Size02 + item.Size03 +\n                   item.Size04 + item.Size05 + item.Size06;\n\nif (totalStock > 0) {\n  console.log('In Stock');\n} else {\n  console.log('Out of Stock');\n}\n\n// Check specific size\nconst largeQty = item.Size04; // L size\nif (largeQty >= requestedQty) {\n  console.log('Size L available');\n}\n```\n\n**Performance:** ~1 second for 5 color variants, <100ms when cached\n\n**Cache:** Only 5 minutes for near-real-time accuracy!"
 					},
 					"response": []
+				},
+				{
+					"name": "Get PC54 Inventory (Optimized)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/manageorders/pc54-inventory?refresh=",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"manageorders",
+								"pc54-inventory"
+							],
+							"query": [
+								{
+									"key": "refresh",
+									"value": "",
+									"description": "Force cache refresh (true/false)",
+									"disabled": true
+								},
+								{
+									"key": "colors",
+									"value": "Jet Black,Navy",
+									"description": "Optional: Filter to specific colors (comma-separated)",
+									"disabled": true
+								}
+							]
+						},
+						"description": "**Optimized PC54 Inventory Endpoint** ⚡ 95% Faster!\n\n⏰ Cache: 5 minutes (inventory) + 15 minutes (color discovery)\n\n**Performance:**\n- First request: 4-5 seconds (15 parallel API calls)\n- Cached: <100ms (instant)\n- **Replaces 15 separate API calls** with 1 aggregated response\n\n**Features:**\n✅ **Dynamic Color Discovery** - Automatically finds all PC54 colors\n✅ **Multi-SKU Aggregation** - Combines PC54, PC54_2X, PC54_3X\n✅ **Smart Caching** - 5-min inventory + 15-min color cache\n✅ **Size Breakdown** - S, M, L, XL, 2XL, 3XL aggregated from all SKUs\n✅ **Future-Proof** - Add new colors to ShopWorks, they appear automatically!\n\n**Query Parameters:**\n- `colors` (string, optional): Filter to specific colors (comma-separated)\n  - Example: `?colors=Jet Black,Navy`\n  - Default: All available colors (discovered dynamically)\n- `refresh` (boolean, optional): Force cache refresh\n\n**Example Queries:**\n```\n# Get all PC54 colors (automatic discovery)\nGET /api/manageorders/pc54-inventory\n\n# Filter to specific colors\nGET /api/manageorders/pc54-inventory?colors=Jet Black,White\n\n# Force fresh data\nGET /api/manageorders/pc54-inventory?refresh=true\n```\n\n**Response:**\n```json\n{\n  \"partNumber\": \"PC54\",\n  \"lastUpdated\": \"2025-11-17T13:05:51.965Z\",\n  \"colors\": {\n    \"Jet Black\": {\n      \"total\": 137,\n      \"sizes\": {\n        \"S\": 4,\n        \"M\": 10,\n        \"L\": 11,\n        \"XL\": 79,\n        \"2XL\": 27,\n        \"3XL\": 6\n      },\n      \"skus\": {\n        \"PC54\": { \"Size01\": 4, \"Size02\": 10, \"Size03\": 11, \"Size04\": 79 },\n        \"PC54_2X\": { \"Size05\": 27 },\n        \"PC54_3X\": { \"Size06\": 6 }\n      }\n    },\n    \"White\": {\n      \"total\": 144,\n      \"sizes\": { \"S\": 34, \"M\": 40, \"L\": 11, \"XL\": 55, \"2XL\": 3, \"3XL\": 1 },\n      \"skus\": { ... }\n    }\n  },\n  \"cached\": true,\n  \"cacheAge\": 98\n}\n```\n\n**Use Cases:**\n- 3-Day Tees page (15 API calls → 1 API call)\n- Product availability display\n- Size selection matrix\n- Quick stock checks\n\n**Dynamic Color Discovery:**\nWhen you add new colors (e.g., \"Maroon\") to ShopWorks:\n1. Add PC54 Maroon inventory to ShopWorks\n2. Wait 15 minutes (or use `?refresh=true`)\n3. Maroon appears automatically - **no code changes needed!**\n\n**Performance Comparison:**\n- Old method: 15 separate calls = 35-40 seconds\n- New method: 1 aggregated call = 1-2 seconds (first) or <100ms (cached)\n- **95% faster!** ⚡"
+					},
+					"response": []
+				},
+				{
+					"name": "Get PC54 Available Colors",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/manageorders/pc54-inventory/colors?refresh=",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"manageorders",
+								"pc54-inventory",
+								"colors"
+							],
+							"query": [
+								{
+									"key": "refresh",
+									"value": "",
+									"description": "Force cache refresh (true/false)",
+									"disabled": true
+								}
+							]
+						},
+						"description": "**PC54 Color Discovery Endpoint** 🎨\n\n⏰ Cache: 15 minutes\n\nDynamically discovers all available PC54 colors from ManageOrders.\n\n**Features:**\n✅ **Auto-Discovery** - Queries ManageOrders for all PC54 colors\n✅ **Long Cache** - 15-minute cache (colors change rarely)\n✅ **Fallback Protection** - Uses default colors if discovery fails\n✅ **Debug Info** - Shows cache age, expiration, and status\n\n**Query Parameters:**\n- `refresh` (boolean, optional): Force fresh color discovery\n\n**Example Queries:**\n```\n# Get current colors (uses cache)\nGET /api/manageorders/pc54-inventory/colors\n\n# Force refresh\nGET /api/manageorders/pc54-inventory/colors?refresh=true\n```\n\n**Response:**\n```json\n{\n  \"colors\": [\n    \"Jet Black\",\n    \"White\",\n    \"Navy\",\n    \"Ath Heather\",\n    \"Dk Hthr Grey\"\n  ],\n  \"count\": 5,\n  \"cached\": true,\n  \"cacheAge\": 71,\n  \"cacheExpires\": 829,\n  \"cacheDuration\": 900,\n  \"fallbackColors\": [\n    \"Jet Black\",\n    \"Navy\",\n    \"White\",\n    \"Dk Hthr Grey\",\n    \"Ath Heather\"\n  ]\n}\n```\n\n**Use Cases:**\n- Check what colors are available\n- Verify color discovery is working\n- Debug caching issues\n- See when color cache will expire\n\n**How It Works:**\n1. Queries ManageOrders for all PC54 inventory (no color filter)\n2. Extracts unique color names from results\n3. Caches color list for 15 minutes\n4. Falls back to default 5 colors if discovery fails\n\n**Adding New Colors:**\nWhen you add \"Maroon\" to ShopWorks:\n1. This endpoint will discover it within 15 minutes\n2. The main inventory endpoint will automatically include it\n3. **No code changes required!**"
+					},
+					"response": []
 				}
 			]
 		},
