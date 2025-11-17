@@ -4770,6 +4770,119 @@
 					"response": []
 				},
 				{
+					"name": "Get Manageorders Pc54 Inventory",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/manageorders/pc54-inventory?refresh=",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"manageorders",
+								"pc54-inventory"
+							],
+							"query": [
+								{
+									"key": "colors",
+									"value": "",
+									"description": "colors parameter",
+									"disabled": true
+								},
+								{
+									"key": "refresh",
+									"value": "",
+									"description": "refresh parameter",
+									"disabled": false
+								}
+							]
+						},
+						"description": "Retrieve pc54-inventory with optional filtering and sorting"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Manageorders Pc54 Inventory Cache Stats",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/manageorders/pc54-inventory/cache-stats",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"manageorders",
+								"pc54-inventory",
+								"cache-stats"
+							]
+						},
+						"description": "GET /api/manageorders/pc54-inventory/cache-stats  Debug endpoint to view cache statistics"
+					},
+					"response": []
+				},
+				{
+					"name": "Create Manageorders Pc54 Inventory Cache Clear",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/manageorders/pc54-inventory/cache-clear?refresh=",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"manageorders",
+								"pc54-inventory",
+								"cache-clear"
+							],
+							"query": [
+								{
+									"key": "refresh",
+									"value": "",
+									"description": "refresh parameter",
+									"disabled": false
+								}
+							]
+						},
+						"description": "POST /api/manageorders/pc54-inventory/cache-clear  Clear the PC54 inventory cache"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Manageorders Pc54 Inventory Colors",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/manageorders/pc54-inventory/colors?refresh=",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"manageorders",
+								"pc54-inventory",
+								"colors"
+							],
+							"query": [
+								{
+									"key": "refresh",
+									"value": "",
+									"description": "refresh parameter",
+									"disabled": false
+								}
+							]
+						},
+						"description": "GET /api/manageorders/pc54-inventory/colors  Debug endpoint to view discovered colors and cache status"
+					},
+					"response": []
+				},
+				{
 					"name": "Get Quote_analytics",
 					"request": {
 						"method": "GET",

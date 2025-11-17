@@ -1,6 +1,6 @@
 {
-  "scannedAt": "2025-11-10T14:19:47.236Z",
-  "totalEndpoints": 162,
+  "scannedAt": "2025-11-17T13:13:31.881Z",
+  "totalEndpoints": 166,
   "endpoints": [
     {
       "method": "GET",
@@ -1859,6 +1859,77 @@
       "requestBody": null,
       "sourceFile": "orders.js",
       "lineNumber": 288
+    },
+    {
+      "method": "GET",
+      "path": "/manageorders/pc54-inventory",
+      "fullPath": "/api/manageorders/pc54-inventory",
+      "category": "📋 General",
+      "description": "",
+      "queryParams": [
+        {
+          "key": "colors",
+          "value": "",
+          "description": "colors parameter",
+          "disabled": true
+        },
+        {
+          "key": "refresh",
+          "value": "",
+          "description": "refresh parameter",
+          "disabled": false
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "pc54-inventory.js",
+      "lineNumber": 182
+    },
+    {
+      "method": "GET",
+      "path": "/manageorders/pc54-inventory/cache-stats",
+      "fullPath": "/api/manageorders/pc54-inventory/cache-stats",
+      "category": "📋 General",
+      "description": "GET /api/manageorders/pc54-inventory/cache-stats  Debug endpoint to view cache statistics",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "pc54-inventory.js",
+      "lineNumber": 292
+    },
+    {
+      "method": "POST",
+      "path": "/manageorders/pc54-inventory/cache-clear",
+      "fullPath": "/api/manageorders/pc54-inventory/cache-clear",
+      "category": "📋 General",
+      "description": "POST /api/manageorders/pc54-inventory/cache-clear  Clear the PC54 inventory cache",
+      "queryParams": [
+        {
+          "key": "refresh",
+          "value": "",
+          "description": "refresh parameter",
+          "disabled": false
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "pc54-inventory.js",
+      "lineNumber": 316
+    },
+    {
+      "method": "GET",
+      "path": "/manageorders/pc54-inventory/colors",
+      "fullPath": "/api/manageorders/pc54-inventory/colors",
+      "category": "📋 General",
+      "description": "GET /api/manageorders/pc54-inventory/colors  Debug endpoint to view discovered colors and cache status",
+      "queryParams": [
+        {
+          "key": "refresh",
+          "value": "",
+          "description": "refresh parameter",
+          "disabled": false
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "pc54-inventory.js",
+      "lineNumber": 332
     },
     {
       "method": "GET",
