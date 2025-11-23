@@ -505,4 +505,28 @@ router.get('/locations', async (req, res) => {
     }
 });
 
+// GET /api/stripe-config
+router.get('/stripe-config', (req, res) => {
+    try {
+        console.log('GET /api/stripe-config requested');
+        const publishableKey = process.env.STRIPE_PUBLISHABLE_KEY;
+
+        if (!publishableKey) {
+            console.error('STRIPE_PUBLISHABLE_KEY not configured in environment');
+            return res.status(500).json({
+                error: 'Stripe publishable key not configured'
+            });
+        }
+
+        console.log('Stripe publishable key retrieved successfully');
+        res.json({ publishableKey });
+    } catch (error) {
+        console.error('Error fetching Stripe config:', error);
+        res.status(500).json({
+            error: 'Failed to fetch Stripe configuration',
+            details: error.message
+        });
+    }
+});
+
 module.exports = router;
