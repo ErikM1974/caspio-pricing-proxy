@@ -1,6 +1,6 @@
 {
-  "scannedAt": "2025-11-17T13:13:31.881Z",
-  "totalEndpoints": 166,
+  "scannedAt": "2025-11-24T22:04:03.860Z",
+  "totalEndpoints": 168,
   "endpoints": [
     {
       "method": "GET",
@@ -1590,6 +1590,28 @@
       "requestBody": null,
       "sourceFile": "misc.js",
       "lineNumber": 484
+    },
+    {
+      "method": "GET",
+      "path": "/stripe-config",
+      "fullPath": "/api/stripe-config",
+      "category": "🔧 Utilities",
+      "description": "GET /api/stripe-config",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "misc.js",
+      "lineNumber": 509
+    },
+    {
+      "method": "POST",
+      "path": "/create-payment-intent",
+      "fullPath": "/api/create-payment-intent",
+      "category": "🔧 Utilities",
+      "description": "POST /api/create-payment-intent",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "misc.js",
+      "lineNumber": 533
     },
     {
       "method": "GET",

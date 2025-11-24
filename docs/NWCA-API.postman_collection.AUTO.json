@@ -4097,6 +4097,44 @@
 						"description": "GET /api/locations"
 					},
 					"response": []
+				},
+				{
+					"name": "Get Stripe Config",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/stripe-config",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"stripe-config"
+							]
+						},
+						"description": "GET /api/stripe-config"
+					},
+					"response": []
+				},
+				{
+					"name": "Create Create Payment Intent",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/create-payment-intent",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"create-payment-intent"
+							]
+						},
+						"description": "POST /api/create-payment-intent"
+					},
+					"response": []
 				}
 			],
 			"description": "Utility endpoints and helpers"
