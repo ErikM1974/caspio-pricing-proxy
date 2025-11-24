@@ -529,4 +529,54 @@ router.get('/stripe-config', (req, res) => {
     }
 });
 
+// POST /api/create-payment-intent
+router.post('/create-payment-intent', async (req, res) => {
+    try {
+        console.log('POST /api/create-payment-intent requested');
+
+        const secretKey = process.env.STRIPE_SECRET_KEY;
+        if (!secretKey) {
+            console.error('STRIPE_SECRET_KEY not configured in environment');
+            return res.status(500).json({
+                error: 'Stripe secret key not configured'
+            });
+        }
+
+        const Stripe = require('stripe');
+        const stripe = new Stripe(secretKey);
+
+        const { amount, currency, metadata } = req.body;
+
+        // Validation
+        if (!amount || typeof amount !== 'number') {
+            return res.status(400).json({
+                error: 'amount is required and must be a number (in cents)'
+            });
+        }
+
+        if (amount < 50) {
+            return res.status(400).json({
+                error: 'amount must be at least 50 cents'
+            });
+        }
+
+        console.log(`Creating payment intent for $${(amount / 100).toFixed(2)}`);
+
+        const paymentIntent = await stripe.paymentIntents.create({
+            amount,
+            currency: currency || 'usd',
+            metadata: metadata || {},
+            automatic_payment_methods: { enabled: true }
+        });
+
+        console.log(`Payment intent created: ${paymentIntent.id}`);
+        res.json({ clientSecret: paymentIntent.client_secret });
+    } catch (error) {
+        console.error('Error creating payment intent:', error);
+        res.status(500).json({
+            error: error.message
+        });
+    }
+});
+
 module.exports = router;
