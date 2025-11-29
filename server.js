@@ -354,6 +354,24 @@ const sanmarShopworksRoutes = require('./src/routes/sanmar-shopworks');
 app.use('/api', sanmarShopworksRoutes);
 console.log('✓ Sanmar-ShopWorks mapping routes loaded');
 
+// --- Admin Metrics Endpoint ---
+const apiTracker = require('./src/utils/api-tracker');
+
+app.get('/api/admin/metrics', (req, res) => {
+  try {
+    const summary = apiTracker.getSummary();
+    res.json({
+      success: true,
+      data: summary,
+      message: `Tracking ${summary.todayCount} calls today. Monthly projection: ${summary.monthlyProjection.toLocaleString()} / 500,000 (${summary.percentOfLimit}%)`
+    });
+  } catch (error) {
+    console.error('Error getting metrics:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+console.log('✓ Admin metrics endpoint loaded at /api/admin/metrics');
+
 // --- Enhanced Error Handling Middleware ---
 app.use((err, req, res, next) => {
     const timestamp = new Date().toISOString();

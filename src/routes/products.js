@@ -5,6 +5,10 @@ const router = express.Router();
 const { makeCaspioRequest, fetchAllCaspioPages } = require('../utils/caspio');
 const { mapFieldsForBackwardCompatibility, createProductColorsResponse, createColorSwatchesResponse } = require('../utils/field-mapper');
 
+// Cache for product search (5 minute TTL)
+const productSearchCache = new Map();
+const PRODUCT_SEARCH_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
 // GET /api/stylesearch
 router.get('/stylesearch', async (req, res) => {
   const { term } = req.query;
@@ -359,6 +363,18 @@ router.get('/products/search', async (req, res) => {
       limit = 24,           // Results per page (default: 24, max: 100)
       includeFacets = false // Include aggregation counts
     } = req.query;
+
+    // Check cache (parameter-aware)
+    const cacheKey = JSON.stringify({ q, category, subcategory, brand, color, size, minPrice, maxPrice, status, isTopSeller, sort, page, limit, includeFacets });
+    const now = Date.now();
+    const cached = productSearchCache.get(cacheKey);
+    const forceRefresh = req.query.refresh === 'true';
+
+    if (!forceRefresh && cached && (now - cached.timestamp) < PRODUCT_SEARCH_CACHE_TTL) {
+      console.log('[CACHE HIT] products/search');
+      return res.json(cached.data);
+    }
+    console.log('[CACHE MISS] products/search');
 
     // Build WHERE clause
     let whereConditions = [];
@@ -761,6 +777,20 @@ router.get('/products/search', async (req, res) => {
     }
 
     console.log(`Returning ${paginatedProducts.length} products for page ${pageNum}`);
+
+    // Cache the response
+    productSearchCache.set(cacheKey, {
+      data: response,
+      timestamp: now
+    });
+    console.log(`[CACHE SET] products/search - Cache size: ${productSearchCache.size}`);
+
+    // Limit cache size (keep last 50 entries)
+    if (productSearchCache.size > 50) {
+      const firstKey = productSearchCache.keys().next().value;
+      productSearchCache.delete(firstKey);
+    }
+
     res.json(response);
 
   } catch (error) {

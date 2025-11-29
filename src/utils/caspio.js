@@ -2,6 +2,7 @@
 
 const axios = require('axios');
 const config = require('../config');
+const apiTracker = require('./api-tracker');
 
 // Token cache
 let caspioAccessToken = null;
@@ -74,6 +75,13 @@ async function makeCaspioRequest(method, resourcePath, params = {}, data = null)
     const response = await axios(requestConfig);
     console.log(`Response status: ${response.status}`);
     console.log(`Response data: ${JSON.stringify(response.data)}`);
+
+    // Track API call
+    const tableName = resourcePath.split('/').pop().replace('/records', '');
+    apiTracker.trackCall(resourcePath, tableName, method, {
+      status: response.status,
+      recordCount: response.data?.Result?.length || (response.data ? 1 : 0)
+    });
 
     // Handle different response types based on HTTP method and status
     if (method.toLowerCase() === 'post' && response.status === 201) {
@@ -166,6 +174,13 @@ async function fetchAllCaspioPages(resourcePath, initialParams = {}, options = {
 
       try {
         const response = await axios(requestConfig);
+
+        // Track this API call
+        const tableName = resourcePath.split('/').filter(p => p).pop().replace('/records', '');
+        apiTracker.trackCall(resourcePath, tableName, 'GET', {
+          page: pageCount,
+          recordCount: response.data?.Result?.length || 0
+        });
 
         if (response.data && response.data.Result) {
           const resultsThisPage = response.data.Result.length;

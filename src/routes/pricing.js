@@ -4,6 +4,10 @@ const express = require('express');
 const router = express.Router();
 const { makeCaspioRequest, fetchAllCaspioPages } = require('../utils/caspio');
 
+// Cache for pricing bundle (15 minute TTL) - HIGH IMPACT
+const pricingBundleCache = new Map();
+const PRICING_BUNDLE_CACHE_TTL = 15 * 60 * 1000; // 15 minutes
+
 // GET /api/pricing-tiers
 router.get('/pricing-tiers', async (req, res) => {
   const { method } = req.query;
@@ -353,6 +357,18 @@ router.get('/pricing-bundle', async (req, res) => {
 
   const dbMethod = methodMapping[method];
   const locationType = locationTypeMapping[method];
+
+  // Check cache (parameter-aware)
+  const cacheKey = JSON.stringify({ method, styleNumber });
+  const now = Date.now();
+  const cached = pricingBundleCache.get(cacheKey);
+  const forceRefresh = req.query.refresh === 'true';
+
+  if (!forceRefresh && cached && (now - cached.timestamp) < PRICING_BUNDLE_CACHE_TTL) {
+    console.log(`[CACHE HIT] pricing-bundle - ${method} ${styleNumber || 'no-style'}`);
+    return res.json(cached.data);
+  }
+  console.log(`[CACHE MISS] pricing-bundle - ${method} ${styleNumber || 'no-style'}`);
 
   try {
     // Base queries that always run - wrapped to handle failures gracefully
@@ -733,6 +749,20 @@ router.get('/pricing-bundle', async (req, res) => {
     // Validate and send response
     const finalResponse = validateAndFixResponse(response, !!styleNumber);
     console.log(`Sending response for ${method} with ${styleNumber ? `style ${styleNumber}` : 'no style'}: ${JSON.stringify(Object.keys(finalResponse))}`);
+
+    // Cache the response
+    pricingBundleCache.set(cacheKey, {
+      data: finalResponse,
+      timestamp: now
+    });
+    console.log(`[CACHE SET] pricing-bundle - ${method} ${styleNumber || 'no-style'} - Cache size: ${pricingBundleCache.size}`);
+
+    // Limit cache size (keep last 100 entries)
+    if (pricingBundleCache.size > 100) {
+      const firstKey = pricingBundleCache.keys().next().value;
+      pricingBundleCache.delete(firstKey);
+    }
+
     res.json(finalResponse);
   } catch (error) {
     console.error('Error fetching pricing bundle:', error.message);
