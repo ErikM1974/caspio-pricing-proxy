@@ -276,7 +276,7 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "{{baseUrl}}/api/featured-products?// Search query\r\n      category=&// Filter by category (can be array)\r\n      subcategory=&// Filter by subcategory (can be array)\r\n      brand=&// Filter by brand (can be array)\r\n      color=&// Filter by color (can be array)\r\n      size=&// Filter by size (can be array)\r\n      minPrice=&// Minimum price filter\r\n      maxPrice=&// Maximum price filter\r\n      status = 'Active'=&// Product status filter (default to Active)\r\n      isTopSeller=&// Filter for top sellers only\r\n      sort = 'name_asc'=&// Sort order (default to name ascending)\r\n      page = 1=&// Page number (default: 1)\r\n      limit = 24=&// Results per page (default: 24=&max: 100)\r\n      includeFacets = false // Include aggregation counts=",
+							"raw": "{{baseUrl}}/api/featured-products?// Search query\r\n      category=&// Filter by category (can be array)\r\n      subcategory=&// Filter by subcategory (can be array)\r\n      brand=&// Filter by brand (can be array)\r\n      color=&// Filter by color (can be array)\r\n      size=&// Filter by size (can be array)\r\n      minPrice=&// Minimum price filter\r\n      maxPrice=&// Maximum price filter\r\n      status = 'Active'=&// Product status filter (default to Active)\r\n      isTopSeller=&// Filter for top sellers only\r\n      sort = 'name_asc'=&// Sort order (default to name ascending)\r\n      page = 1=&// Page number (default: 1)\r\n      limit = 24=&// Results per page (default: 24=&max: 100)\r\n      includeFacets = false // Include aggregation counts=&refresh=",
 							"host": [
 								"{{baseUrl}}"
 							],
@@ -374,6 +374,12 @@
 									"value": "",
 									"description": "max: 100)\r\n      includeFacets = false // Include aggregation counts parameter",
 									"disabled": false
+								},
+								{
+									"key": "refresh",
+									"value": "",
+									"description": "refresh parameter",
+									"disabled": false
 								}
 							]
 						},
@@ -387,7 +393,7 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "{{baseUrl}}/api/products/search?// Search query\r\n      category=&// Filter by category (can be array)\r\n      subcategory=&// Filter by subcategory (can be array)\r\n      brand=&// Filter by brand (can be array)\r\n      color=&// Filter by color (can be array)\r\n      size=&// Filter by size (can be array)\r\n      minPrice=&// Minimum price filter\r\n      maxPrice=&// Maximum price filter\r\n      status = 'Active'=&// Product status filter (default to Active)\r\n      isTopSeller=&// Filter for top sellers only\r\n      sort = 'name_asc'=&// Sort order (default to name ascending)\r\n      page = 1=&// Page number (default: 1)\r\n      limit = 24=&// Results per page (default: 24=&max: 100)\r\n      includeFacets = false // Include aggregation counts=",
+							"raw": "{{baseUrl}}/api/products/search?// Search query\r\n      category=&// Filter by category (can be array)\r\n      subcategory=&// Filter by subcategory (can be array)\r\n      brand=&// Filter by brand (can be array)\r\n      color=&// Filter by color (can be array)\r\n      size=&// Filter by size (can be array)\r\n      minPrice=&// Minimum price filter\r\n      maxPrice=&// Maximum price filter\r\n      status = 'Active'=&// Product status filter (default to Active)\r\n      isTopSeller=&// Filter for top sellers only\r\n      sort = 'name_asc'=&// Sort order (default to name ascending)\r\n      page = 1=&// Page number (default: 1)\r\n      limit = 24=&// Results per page (default: 24=&max: 100)\r\n      includeFacets = false // Include aggregation counts=&refresh=",
 							"host": [
 								"{{baseUrl}}"
 							],
@@ -485,6 +491,12 @@
 									"key": "max: 100)\r\n      includeFacets = false // Include aggregation counts",
 									"value": "",
 									"description": "max: 100)\r\n      includeFacets = false // Include aggregation counts parameter",
+									"disabled": false
+								},
+								{
+									"key": "refresh",
+									"value": "",
+									"description": "refresh parameter",
 									"disabled": false
 								}
 							]
@@ -1001,7 +1013,7 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "{{baseUrl}}/api/max-prices-by-style",
+							"raw": "{{baseUrl}}/api/max-prices-by-style?refresh=",
 							"host": [
 								"{{baseUrl}}"
 							],
@@ -1015,6 +1027,12 @@
 									"value": "",
 									"description": "Product style number",
 									"disabled": true
+								},
+								{
+									"key": "refresh",
+									"value": "",
+									"description": "refresh parameter",
+									"disabled": false
 								}
 							]
 						},
@@ -1028,7 +1046,7 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "{{baseUrl}}/api/pricing-bundle",
+							"raw": "{{baseUrl}}/api/pricing-bundle?refresh=",
 							"host": [
 								"{{baseUrl}}"
 							],
@@ -1048,6 +1066,12 @@
 									"value": "",
 									"description": "Product style number",
 									"disabled": true
+								},
+								{
+									"key": "refresh",
+									"value": "",
+									"description": "refresh parameter",
+									"disabled": false
 								}
 							]
 						},
