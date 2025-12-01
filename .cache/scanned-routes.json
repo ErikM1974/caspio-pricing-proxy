@@ -1,5 +1,5 @@
 {
-  "scannedAt": "2025-11-29T13:11:09.052Z",
+  "scannedAt": "2025-12-01T16:16:35.647Z",
   "totalEndpoints": 168,
   "endpoints": [
     {
@@ -3120,7 +3120,7 @@
       ],
       "requestBody": null,
       "sourceFile": "quotes.js",
-      "lineNumber": 9
+      "lineNumber": 37
     },
     {
       "method": "GET",
@@ -3131,7 +3131,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "quotes.js",
-      "lineNumber": 40
+      "lineNumber": 68
     },
     {
       "method": "POST",
@@ -3142,7 +3142,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "quotes.js",
-      "lineNumber": 62
+      "lineNumber": 90
     },
     {
       "method": "PUT",
@@ -3153,7 +3153,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "quotes.js",
-      "lineNumber": 87
+      "lineNumber": 115
     },
     {
       "method": "DELETE",
@@ -3177,7 +3177,7 @@
       ],
       "requestBody": null,
       "sourceFile": "quotes.js",
-      "lineNumber": 114
+      "lineNumber": 142
     },
     {
       "method": "GET",
@@ -3201,7 +3201,7 @@
       ],
       "requestBody": null,
       "sourceFile": "quotes.js",
-      "lineNumber": 133
+      "lineNumber": 161
     },
     {
       "method": "GET",
@@ -3212,7 +3212,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "quotes.js",
-      "lineNumber": 161
+      "lineNumber": 189
     },
     {
       "method": "POST",
@@ -3223,7 +3223,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "quotes.js",
-      "lineNumber": 183
+      "lineNumber": 211
     },
     {
       "method": "PUT",
@@ -3234,7 +3234,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "quotes.js",
-      "lineNumber": 229
+      "lineNumber": 257
     },
     {
       "method": "DELETE",
@@ -3244,6 +3244,12 @@
       "description": "DELETE /api/quote_items/:id",
       "queryParams": [
         {
+          "key": "filter",
+          "value": "",
+          "description": "filter parameter",
+          "disabled": true
+        },
+        {
           "key": "quoteID",
           "value": "",
           "description": "quoteID parameter",
@@ -3266,11 +3272,17 @@
           "value": "",
           "description": "Status filter",
           "disabled": true
+        },
+        {
+          "key": "refresh",
+          "value": "",
+          "description": "refresh parameter",
+          "disabled": false
         }
       ],
       "requestBody": null,
       "sourceFile": "quotes.js",
-      "lineNumber": 256
+      "lineNumber": 284
     },
     {
       "method": "GET",
@@ -3280,6 +3292,12 @@
       "description": "GET /api/quote_sessions",
       "queryParams": [
         {
+          "key": "filter",
+          "value": "",
+          "description": "filter parameter",
+          "disabled": true
+        },
+        {
           "key": "quoteID",
           "value": "",
           "description": "quoteID parameter",
@@ -3302,11 +3320,17 @@
           "value": "",
           "description": "Status filter",
           "disabled": true
+        },
+        {
+          "key": "refresh",
+          "value": "",
+          "description": "refresh parameter",
+          "disabled": false
         }
       ],
       "requestBody": null,
       "sourceFile": "quotes.js",
-      "lineNumber": 275
+      "lineNumber": 303
     },
     {
       "method": "GET",
@@ -3317,7 +3341,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "quotes.js",
-      "lineNumber": 309
+      "lineNumber": 421
     },
     {
       "method": "POST",
@@ -3328,7 +3352,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "quotes.js",
-      "lineNumber": 331
+      "lineNumber": 443
     },
     {
       "method": "PUT",
@@ -3339,7 +3363,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "quotes.js",
-      "lineNumber": 356
+      "lineNumber": 468
     },
     {
       "method": "DELETE",
@@ -3350,7 +3374,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "quotes.js",
-      "lineNumber": 383
+      "lineNumber": 495
     },
     {
       "method": "GET",

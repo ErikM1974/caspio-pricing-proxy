@@ -4,6 +4,34 @@ const express = require('express');
 const router = express.Router();
 const { makeCaspioRequest, fetchAllCaspioPages } = require('../utils/caspio');
 
+// Input validation helpers
+function sanitizeQuoteID(quoteID) {
+  if (!quoteID || typeof quoteID !== 'string') return null;
+  const sanitized = quoteID.replace(/[^a-zA-Z0-9_-]/g, '');
+  return (sanitized.length > 0 && sanitized.length <= 50) ? sanitized : null;
+}
+
+function sanitizeSessionID(sessionID) {
+  if (!sessionID || typeof sessionID !== 'string') return null;
+  const sanitized = sessionID.replace(/[^a-zA-Z0-9_-]/g, '');
+  return (sanitized.length > 0 && sanitized.length <= 100) ? sanitized : null;
+}
+
+function sanitizeEmail(email) {
+  if (!email || typeof email !== 'string') return null;
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return emailRegex.test(email) ? email : null;
+}
+
+function sanitizeStatus(status) {
+  const validStatuses = ['active', 'pending', 'completed', 'abandoned', 'expired'];
+  return validStatuses.includes(status?.toLowerCase()) ? status : null;
+}
+
+// Cache for quote sessions (5 minute TTL)
+const quoteSessionsCache = new Map();
+const QUOTE_SESSIONS_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
 // Quote Analytics Routes
 // GET /api/quote_analytics
 router.get('/quote_analytics', async (req, res) => {
@@ -273,31 +301,115 @@ router.delete('/quote_items/:id', async (req, res) => {
 // Quote Sessions Routes
 // GET /api/quote_sessions
 router.get('/quote_sessions', async (req, res) => {
-  console.log('GET /api/quote_sessions requested with query:', req.query);
+  console.log('GET /api/quote_sessions requested with query:', JSON.stringify(req.query));
 
   try {
     let whereConditions = [];
-    
-    if (req.query.quoteID) {
-      whereConditions.push(`QuoteID='${req.query.quoteID}'`);
-    }
-    if (req.query.sessionID) {
-      whereConditions.push(`SessionID='${req.query.sessionID}'`);
-    }
-    if (req.query.customerEmail) {
-      whereConditions.push(`CustomerEmail='${req.query.customerEmail}'`);
-    }
-    if (req.query.status) {
-      whereConditions.push(`Status='${req.query.status}'`);
+
+    // Support 'filter' parameter (parse QuoteID from filter string)
+    if (req.query.filter) {
+      console.log('Filter parameter detected:', req.query.filter);
+      const filterMatch = req.query.filter.match(/QuoteID='([^']+)'/);
+      if (filterMatch && filterMatch[1]) {
+        const sanitizedQuoteID = sanitizeQuoteID(filterMatch[1]);
+        if (!sanitizedQuoteID) {
+          return res.status(400).json({
+            error: 'Invalid QuoteID format in filter parameter',
+            hint: 'QuoteID must contain only alphanumeric characters, hyphens, and underscores'
+          });
+        }
+        whereConditions.push(`QuoteID='${sanitizedQuoteID}'`);
+        console.log('Extracted QuoteID from filter:', sanitizedQuoteID);
+      } else {
+        return res.status(400).json({
+          error: 'Invalid filter format',
+          hint: 'Expected format: filter=QuoteID=\'VALUE\' or use quoteID parameter'
+        });
+      }
     }
 
+    // Support individual parameters (backward compatibility)
+    if (req.query.quoteID) {
+      const sanitizedQuoteID = sanitizeQuoteID(req.query.quoteID);
+      if (!sanitizedQuoteID) {
+        return res.status(400).json({
+          error: 'Invalid quoteID parameter',
+          hint: 'QuoteID must contain only alphanumeric characters, hyphens, and underscores (max 50 chars)'
+        });
+      }
+      whereConditions.push(`QuoteID='${sanitizedQuoteID}'`);
+    }
+
+    if (req.query.sessionID) {
+      const sanitizedSessionID = sanitizeSessionID(req.query.sessionID);
+      if (!sanitizedSessionID) {
+        return res.status(400).json({
+          error: 'Invalid sessionID parameter',
+          hint: 'SessionID must contain only alphanumeric characters, hyphens, and underscores (max 100 chars)'
+        });
+      }
+      whereConditions.push(`SessionID='${sanitizedSessionID}'`);
+    }
+
+    if (req.query.customerEmail) {
+      const sanitizedEmail = sanitizeEmail(req.query.customerEmail);
+      if (!sanitizedEmail) {
+        return res.status(400).json({
+          error: 'Invalid customerEmail parameter',
+          hint: 'Must be a valid email address'
+        });
+      }
+      whereConditions.push(`CustomerEmail='${sanitizedEmail}'`);
+    }
+
+    if (req.query.status) {
+      const sanitizedStatus = sanitizeStatus(req.query.status);
+      if (!sanitizedStatus) {
+        return res.status(400).json({
+          error: 'Invalid status parameter',
+          hint: 'Valid values: active, pending, completed, abandoned, expired'
+        });
+      }
+      whereConditions.push(`Status='${sanitizedStatus}'`);
+    }
+
+    // Warn if no filters
+    if (whereConditions.length === 0) {
+      console.warn('WARNING: No filters provided to /api/quote_sessions - returning all records');
+    }
+
+    // Check cache
+    const forceRefresh = req.query.refresh === 'true';
+    if (!forceRefresh && whereConditions.length > 0) {
+      const cacheKey = whereConditions.sort().join('|');
+      const cached = quoteSessionsCache.get(cacheKey);
+
+      if (cached && Date.now() - cached.timestamp < QUOTE_SESSIONS_CACHE_TTL) {
+        console.log(`Cache HIT for quote_sessions: ${cacheKey} (${cached.data.length} records)`);
+        return res.json(cached.data);
+      }
+    }
+
+    // Build Caspio query
     const params = {};
     if (whereConditions.length > 0) {
       params['q.where'] = whereConditions.join(' AND ');
     }
 
+    console.log('Caspio query params:', JSON.stringify(params));
     const records = await fetchAllCaspioPages('/tables/Quote_Sessions/records', params);
     console.log(`Quote sessions: ${records.length} record(s) found`);
+
+    // Store in cache
+    if (whereConditions.length > 0) {
+      const cacheKey = whereConditions.sort().join('|');
+      quoteSessionsCache.set(cacheKey, {
+        data: records,
+        timestamp: Date.now()
+      });
+      console.log(`Cache MISS - stored quote_sessions: ${cacheKey}`);
+    }
+
     res.json(records);
   } catch (error) {
     console.error('Error fetching quote sessions:', error.message);
