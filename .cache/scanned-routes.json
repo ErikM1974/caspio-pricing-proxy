@@ -1,5 +1,5 @@
 {
-  "scannedAt": "2025-12-01T16:16:35.647Z",
+  "scannedAt": "2025-12-17T21:55:07.544Z",
   "totalEndpoints": 168,
   "endpoints": [
     {
@@ -2358,7 +2358,7 @@
       ],
       "requestBody": null,
       "sourceFile": "products.js",
-      "lineNumber": 88
+      "lineNumber": 98
     },
     {
       "method": "GET",
@@ -2376,7 +2376,7 @@
       ],
       "requestBody": null,
       "sourceFile": "products.js",
-      "lineNumber": 118
+      "lineNumber": 128
     },
     {
       "method": "GET",
@@ -2394,7 +2394,7 @@
       ],
       "requestBody": null,
       "sourceFile": "products.js",
-      "lineNumber": 148
+      "lineNumber": 158
     },
     {
       "method": "GET",
@@ -2412,7 +2412,7 @@
       ],
       "requestBody": null,
       "sourceFile": "products.js",
-      "lineNumber": 177
+      "lineNumber": 187
     },
     {
       "method": "GET",
@@ -2423,7 +2423,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "products.js",
-      "lineNumber": 207
+      "lineNumber": 217
     },
     {
       "method": "GET",
@@ -2434,7 +2434,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "products.js",
-      "lineNumber": 244
+      "lineNumber": 254
     },
     {
       "method": "GET",
@@ -2452,7 +2452,7 @@
       ],
       "requestBody": null,
       "sourceFile": "products.js",
-      "lineNumber": 266
+      "lineNumber": 276
     },
     {
       "method": "GET",
@@ -2470,7 +2470,7 @@
       ],
       "requestBody": null,
       "sourceFile": "products.js",
-      "lineNumber": 288
+      "lineNumber": 298
     },
     {
       "method": "GET",
@@ -2578,7 +2578,7 @@
       ],
       "requestBody": null,
       "sourceFile": "products.js",
-      "lineNumber": 320
+      "lineNumber": 330
     },
     {
       "method": "GET",
@@ -2686,7 +2686,7 @@
       ],
       "requestBody": null,
       "sourceFile": "products.js",
-      "lineNumber": 345
+      "lineNumber": 355
     },
     {
       "method": "GET",
@@ -2704,7 +2704,7 @@
       ],
       "requestBody": null,
       "sourceFile": "products.js",
-      "lineNumber": 810
+      "lineNumber": 820
     },
     {
       "method": "GET",
@@ -2734,7 +2734,7 @@
       ],
       "requestBody": null,
       "sourceFile": "products.js",
-      "lineNumber": 865
+      "lineNumber": 875
     },
     {
       "method": "POST",
@@ -2745,7 +2745,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "products.js",
-      "lineNumber": 938
+      "lineNumber": 948
     },
     {
       "method": "POST",
@@ -2756,7 +2756,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "products.js",
-      "lineNumber": 999
+      "lineNumber": 1009
     },
     {
       "method": "POST",
@@ -2767,7 +2767,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "products.js",
-      "lineNumber": 1093
+      "lineNumber": 1103
     },
     {
       "method": "POST",
@@ -2778,7 +2778,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "products.js",
-      "lineNumber": 1133
+      "lineNumber": 1143
     },
     {
       "method": "POST",
@@ -2789,7 +2789,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "products.js",
-      "lineNumber": 1200
+      "lineNumber": 1210
     },
     {
       "method": "POST",
@@ -2800,7 +2800,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "products.js",
-      "lineNumber": 1294
+      "lineNumber": 1304
     },
     {
       "method": "GET",
@@ -2830,7 +2830,7 @@
       ],
       "requestBody": null,
       "sourceFile": "products.js",
-      "lineNumber": 1340
+      "lineNumber": 1350
     },
     {
       "method": "GET",
