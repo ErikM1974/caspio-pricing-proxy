@@ -15,6 +15,7 @@ Detailed documentation organized by topic:
 - **[SanMar → ShopWorks Import API](memory/SANMAR_SHOPWORKS_QUICKSTART.md)** - Translate SanMar products to ShopWorks inventory format ([Full Docs](memory/SANMAR_SHOPWORKS_API.md))
 - **[Image Loading Troubleshooting](memory/IMAGE_LOADING_TROUBLESHOOTING.md)** - Diagnose slow images and Sanmar CDN issues
 - **[JDS Industries Integration](memory/JDS_INTEGRATION.md)** - Awards/engraving product integration
+- **[Git Workflow](memory/GIT_WORKFLOW.md)** - Branch strategy and deployment process (develop → main → Heroku)
 
 ## Quick Reference
 
