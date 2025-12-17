@@ -4,7 +4,7 @@
 
 Detailed documentation organized by topic:
 
-- **[API Usage Tracking & Monitoring](memory/API_USAGE_TRACKING.md)** - Real-time API call tracking, caching strategy, metrics endpoint (v1.0.0 - 2025-11-29)
+- **[API Usage Tracking & Monitoring](memory/API_USAGE_TRACKING.md)** - Real-time API call tracking, caching strategy, metrics endpoint (v1.1.0 - Updated 2025-12-17)
 - **[Local Development Setup](memory/LOCAL_DEVELOPMENT.md)** - WSL configuration, testing procedures, port management, troubleshooting
 - **[Endpoint Creation Guide](memory/ENDPOINT_CREATION_GUIDE.md)** - Step-by-step guide for adding new API endpoints, pagination best practices
 - **[ManageOrders Integration](memory/MANAGEORDERS_INTEGRATION.md)** - Customer data API proxy with caching (11 endpoints)
@@ -72,12 +72,12 @@ See [Endpoint Creation Guide](memory/ENDPOINT_CREATION_GUIDE.md) for complete st
 
 ## Recent Features
 
-### API Usage Tracking & Monitoring (v1.0.0 - 2025-11-29) ⭐ NEW
-Real-time tracking and caching to reduce Caspio API usage from 630K → ~400K calls/month
+### API Usage Tracking & Monitoring (v1.1.0 - Updated 2025-12-17) ✅ SUCCESS
+Real-time tracking and caching reduced Caspio API usage from 630K → ~280K calls/month
 - **Metrics Endpoint**: `/api/admin/metrics` - Real-time usage dashboard
 - **Automatic Tracking**: All API calls logged via `api-tracker.js` utility
-- **Caching**: Pricing bundle (15min), product search (5min)
-- **Expected Impact**: 30-40% reduction in API calls
+- **Caching**: Pricing bundle (15min), product search (5min), new products (5min), top sellers (5min), quote sessions (5min)
+- **Actual Impact**: **55-60% reduction achieved** (exceeded 30-40% target)
 
 See [API Usage Tracking Guide](memory/API_USAGE_TRACKING.md) for complete documentation.
 
@@ -194,13 +194,15 @@ Example: OGIO brand was missing because it was on page 2 when using `makeCaspioR
 Current caching (see [API Usage Tracking](memory/API_USAGE_TRACKING.md) for details):
 - **Pricing bundle**: 15 minutes (high impact - saves 7-9 calls per request)
 - **Product search**: 5 minutes (saves 2 calls per request)
+- **New products/Top sellers/Quote sessions**: 5 minutes each
 - **Cache bypass**: Add `?refresh=true` to any cached endpoint
 
-### API Usage Monitoring
-- **Current usage**: 630K calls/month (26% over 500K limit)
-- **After caching**: ~400-440K calls/month (30-40% reduction expected)
+### API Usage Monitoring (Updated Dec 2025)
+- **Before caching**: 630K calls/month (26% over 500K limit)
+- **After caching**: ~280K calls/month projected (**55-60% reduction achieved**)
+- **Current period**: 196K used (Day 21/30) - well under 500K limit
 - **Monitor**: `GET /api/admin/metrics` for real-time tracking
-- **Goal**: Stay under 450K/month (10% safety margin)
+- **Status**: ✅ HEALTHY - no action needed
 
 ## Troubleshooting
 

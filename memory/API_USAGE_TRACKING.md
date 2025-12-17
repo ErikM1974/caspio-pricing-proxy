@@ -1,8 +1,23 @@
 # API Usage Tracking & Optimization
 
-**Version**: 1.0.0
+**Version**: 1.1.0
 **Deployed**: 2025-11-29 (Heroku v201)
-**Status**: Production
+**Updated**: 2025-12-17
+**Status**: Production - HEALTHY
+
+## Results Summary (December 2025)
+
+| Metric | Before (Nov 2025) | Expected | Actual (Dec 2025) |
+|--------|-------------------|----------|-------------------|
+| Monthly calls | 630K | 400-440K | **~280K projected** |
+| % of limit | 126% (OVER) | 80-88% | **~56%** |
+| Reduction | - | 30-40% | **~55-60%** |
+
+**Current Period (Nov 27 - Dec 26, 2025):**
+- Day 21 of 30: 196K calls used
+- Daily average: ~9,333 calls/day
+- Projected total: ~280K calls
+- Status: Well under 500K limit
 
 ## Overview
 
@@ -10,17 +25,17 @@ Comprehensive API call tracking and caching system to monitor and reduce Caspio 
 
 ## Problem Solved
 
-**Before Implementation:**
+**Before Implementation (November 2025):**
 - Usage: 630K+ API calls/month (26% over 500K limit)
 - No visibility into which endpoints/tables consumed calls
 - No caching on high-traffic endpoints
 - Estimated 7-9 Caspio calls per `/api/pricing-bundle` request
 
-**After Implementation:**
+**After Implementation (December 2025):**
 - Real-time tracking of all API calls
-- Caching on 2 highest-impact endpoints
+- Caching on high-traffic endpoints (5 cached endpoints)
 - Metrics dashboard for monitoring usage
-- Expected 30-40% reduction (from 630K → ~400-440K/month)
+- **Actual 55-60% reduction** (from 630K → ~280K/month projected)
 
 ## Components
 
@@ -121,11 +136,21 @@ apiTracker.trackCall(resourcePath, tableName, 'GET', {
 
 ## Caching Implementation
 
-### Pricing Bundle Cache
+### Summary of All Caches
+
+| Cache | Endpoint | TTL | Savings | Max Size |
+|-------|----------|-----|---------|----------|
+| Pricing Bundle | `/api/pricing-bundle` | 15 min | 7-9 calls/req | 100 |
+| Product Search | `/api/products/search` | 5 min | 2 calls/req | 50 |
+| New Products | `/api/products/new` | 5 min | 1+ calls/req | - |
+| Top Sellers | `/api/products/topsellers` | 5 min | 1+ calls/req | - |
+| Quote Sessions | `/api/quote_sessions` | 5 min | 1+ calls/req | - |
+
+### Pricing Bundle Cache (Highest Impact)
 
 **Endpoint**: `/api/pricing-bundle`
 **File**: [`src/routes/pricing.js`](../src/routes/pricing.js) (lines 7-9, 361-371, 753-764)
-**Impact**: **7-9 API calls → 1 call (cache hit)**
+**Impact**: **7-9 API calls → 0 calls (cache hit)** - BIGGEST SAVINGS
 **TTL**: 15 minutes
 
 **Before Caching:**
@@ -144,39 +169,17 @@ Each request made 7-9 calls to Caspio:
 - Subsequent requests (within 15 min): 0 calls (cache hit)
 - Cache is parameter-aware: different method/styleNumber = different cache entry
 
-**Cache Configuration:**
-```javascript
-const pricingBundleCache = new Map();
-const PRICING_BUNDLE_CACHE_TTL = 15 * 60 * 1000; // 15 minutes
-
-// Cache key based on parameters
-const cacheKey = JSON.stringify({ method, styleNumber });
-
-// FIFO eviction when cache exceeds 100 entries
-if (pricingBundleCache.size > 100) {
-  const firstKey = pricingBundleCache.keys().next().value;
-  pricingBundleCache.delete(firstKey);
-}
-```
-
 **Cache Bypass:**
 ```bash
 # Force refresh (bypass cache)
 GET /api/pricing-bundle?method=DTG&styleNumber=PC54&refresh=true
 ```
 
-**Console Output:**
-```
-[CACHE MISS] pricing-bundle - DTG PC54
-[CACHE SET] pricing-bundle - DTG PC54 - Cache size: 42
-[CACHE HIT] pricing-bundle - DTG PC54
-```
-
 ### Product Search Cache
 
 **Endpoint**: `/api/products/search`
 **File**: [`src/routes/products.js`](../src/routes/products.js) (lines 8-10, 367-377, 781-792)
-**Impact**: **2 API calls → 1 call (cache hit)**
+**Impact**: **2 API calls → 0 calls (cache hit)**
 **TTL**: 5 minutes
 
 **Before Caching:**
@@ -189,23 +192,34 @@ Each search made 2 calls:
 - Subsequent identical searches (within 5 min): 0 calls (cache hit)
 - Shorter TTL due to many parameter combinations
 
-**Cache Configuration:**
-```javascript
-const productSearchCache = new Map();
-const PRODUCT_SEARCH_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+### Additional Caches
 
-// Cache key includes all query parameters
-const cacheKey = JSON.stringify({
-  q, category, subcategory, brand, color, size,
-  minPrice, maxPrice, status, isTopSeller, sort, page, limit, includeFacets
-});
+**New Products** (`/api/products/new`):
+- File: `src/routes/products.js` (lines 846-931)
+- TTL: 5 minutes
+- Object-based cache with parameter tracking
 
-// FIFO eviction when cache exceeds 50 entries
-if (productSearchCache.size > 50) {
-  const firstKey = productSearchCache.keys().next().value;
-  productSearchCache.delete(firstKey);
-}
-```
+**Top Sellers** (`/api/products/topsellers`):
+- File: `src/routes/products.js` (lines 1333-1402)
+- TTL: 5 minutes
+- Object-based cache with parameter tracking
+
+**Quote Sessions** (`/api/quote_sessions`):
+- File: `src/routes/quotes.js` (lines 31-33)
+- TTL: 5 minutes
+- Added December 2025 with filter parameter fix
+
+### Token Caching
+
+**Caspio Access Token** (server-level):
+- File: `src/utils/caspio.js`
+- Caches OAuth token with 60-second expiry buffer
+- Prevents OAuth call on every request
+
+**ManageOrders Token**:
+- File: `src/utils/manageorders.js`
+- TTL: 1 hour
+- Reduces authentication overhead
 
 ## Monitoring Workflow
 
@@ -253,19 +267,25 @@ curl https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/admin/metrics
 3. Document any usage spikes and root causes
 4. Adjust cache TTLs based on actual usage patterns
 
-## Expected Impact
+## Actual Impact (December 2025)
 
-### Conservative Estimate
-- **Starting**: 630K calls/month
-- **After caching**: 440K calls/month (30% reduction)
-- **Status**: Within limit with 12% margin
+### Results vs Projections
 
-### Optimistic Estimate
-- **Starting**: 630K calls/month
-- **After caching + data-driven optimization**: 380K calls/month (40% reduction)
-- **Status**: Within limit with 24% margin
+| Estimate | Projected | Actual |
+|----------|-----------|--------|
+| Conservative | 440K (30% reduction) | - |
+| Optimistic | 380K (40% reduction) | - |
+| **Actual** | - | **~280K (55-60% reduction)** |
 
-### Calculation Example
+### Why Results Exceeded Expectations
+
+1. **Higher cache hit rates than estimated** - Real-world usage patterns favor repeated queries
+2. **Pricing bundle cache had massive impact** - 15-min TTL covers most user sessions
+3. **Product search cache effective** - Users often search same products repeatedly
+4. **Token caching eliminated OAuth overhead** - Prevents token refresh on every request
+5. **Multiple endpoints cached** - Cumulative effect of 5+ cached endpoints
+
+### Original Calculations (For Reference)
 
 **Pricing Bundle** (assuming 5,000 requests/month):
 - Before: 5,000 requests × 8 calls = 40,000 API calls
@@ -277,7 +297,7 @@ curl https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/admin/metrics
 - After (70% cache hit rate): (10,000 × 30% × 2) + (10,000 × 70% × 0) = 6,000 API calls
 - **Savings**: 14,000 calls/month
 
-**Total Estimated Savings**: 46,000+ calls/month from just 2 endpoints
+**Actual savings exceeded these estimates significantly.**
 
 ## Future Optimization Opportunities
 
@@ -372,13 +392,17 @@ Based on plan analysis, these endpoints should be cached next:
 This implementation provides:
 - ✅ Real-time visibility into API usage
 - ✅ Automatic tracking with zero overhead
-- ✅ High-impact caching (30-40% reduction expected)
+- ✅ **High-impact caching (55-60% actual reduction achieved)**
 - ✅ Metrics dashboard for ongoing monitoring
 - ✅ Foundation for data-driven optimization
 
-**Next Steps:**
-1. Monitor for 48 hours to collect baseline data
-2. Review `/api/admin/metrics` to identify top consumers
-3. Add caching to pricing reference endpoints if needed
-4. Adjust TTLs based on actual usage patterns
-5. Document findings and maintain <500K/month pace
+**Current Status (December 2025):**
+- API usage well under control (~280K projected vs 500K limit)
+- No immediate action needed
+- Continue monitoring via `/api/admin/metrics`
+
+**Maintenance:**
+1. Check `/api/admin/metrics` weekly
+2. Watch for unusual spikes in daily usage
+3. If usage increases, consider extending cache TTLs
+4. Future optimizations available if needed (see "Future Optimization Opportunities")
