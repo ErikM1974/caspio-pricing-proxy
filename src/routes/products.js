@@ -63,10 +63,20 @@ router.get('/product-details', async (req, res) => {
       'PRODUCT_IMAGE', 'COLOR_SQUARE_IMAGE'
     ];
 
-    const records = await fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
+    let records = await fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
       'q.where': whereClause,
       'q.select': selectFields.join(', ')
     });
+
+    // Fallback: If color was provided but no results, try CATALOG_COLOR
+    if (records.length === 0 && color) {
+      console.log(`No results for COLOR_NAME='${color}', trying CATALOG_COLOR`);
+      const fallbackWhere = `STYLE='${styleNumber}' AND CATALOG_COLOR='${color}'`;
+      records = await fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
+        'q.where': fallbackWhere,
+        'q.select': selectFields.join(', ')
+      });
+    }
 
     if (records.length === 0) {
       return res.status(404).json({ error: 'Product not found' });
