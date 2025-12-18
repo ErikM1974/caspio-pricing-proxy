@@ -271,4 +271,131 @@ router.get('/gift-certificates', async (req, res) => {
   }
 });
 
+/**
+ * GET /api/gift-certificates/by-order/:orderId
+ *
+ * Reverse lookup: Find gift certificates used on a specific ShopWorks order.
+ * Takes ShopWorks order ID, finds external order ID, then searches gift certificate history.
+ */
+router.get('/gift-certificates/by-order/:orderId', async (req, res) => {
+  const shopworksOrderId = req.params.orderId;
+  console.log(`GET /api/gift-certificates/by-order/${shopworksOrderId} requested`);
+
+  // Validate order ID (must be numeric)
+  if (!shopworksOrderId || !/^\d+$/.test(shopworksOrderId)) {
+    return res.status(400).json({ error: 'Invalid order ID format. Must be a numeric ShopWorks order ID.' });
+  }
+
+  const forceRefresh = req.query.refresh === 'true';
+
+  // Check cache
+  const cacheKey = `by-order-${shopworksOrderId}`;
+  if (!forceRefresh) {
+    const cached = giftCertCache.get(cacheKey);
+    if (cached && (Date.now() - cached.timestamp) < CACHE_TTL) {
+      console.log('Returning cached gift certificate by-order data');
+      return res.json(cached.data);
+    }
+  }
+
+  try {
+    // Step 1: Get order details from ManageOrders to find external order ID
+    const orderDetails = await fetchOrderByNumber(shopworksOrderId);
+
+    if (!orderDetails || orderDetails.length === 0) {
+      return res.status(404).json({
+        error: 'Order not found in ShopWorks',
+        shopworksOrderId: parseInt(shopworksOrderId)
+      });
+    }
+
+    const order = orderDetails[0];
+    const externalOrderId = order.CustomerPurchaseOrder;
+
+    if (!externalOrderId) {
+      return res.json({
+        shopworksOrderId: parseInt(shopworksOrderId),
+        externalOrderId: null,
+        giftCertificatesUsed: [],
+        totalGiftCertificateAmount: 0,
+        count: 0,
+        message: 'No external order ID found for this ShopWorks order'
+      });
+    }
+
+    // Step 2: Search Caspio for gift certificates with this order in History
+    const params = {
+      'q.where': `History LIKE '%Order #${externalOrderId}%'`
+    };
+    const certificates = await fetchAllCaspioPages('/tables/Inksoft_Gift_Certificates/records', params);
+    console.log(`Found ${certificates.length} gift certificate(s) for order ${shopworksOrderId} (ext: ${externalOrderId})`);
+
+    // Step 3: Transform results - extract the specific redemption for this order
+    const giftCertificatesUsed = certificates.map(cert => {
+      const transactions = parseHistory(cert.History);
+      // Find transactions for this specific order
+      const orderTransactions = transactions.filter(t => t.externalOrderId === externalOrderId);
+
+      // Calculate total amount applied from this certificate to this order
+      const amountApplied = orderTransactions
+        .filter(t => t.type === 'Redeemed')
+        .reduce((sum, t) => sum + t.amount, 0);
+
+      const amountRefunded = orderTransactions
+        .filter(t => t.type === 'Refunded')
+        .reduce((sum, t) => sum + t.amount, 0);
+
+      const redemptionDate = orderTransactions.find(t => t.type === 'Redeemed')?.date || null;
+
+      const currentBalance = cert.CurrentBalance;
+      const status = (currentBalance !== null && currentBalance > 0) ? 'Active' : 'Depleted';
+
+      return {
+        certificateNumber: cert.GiftCertificateNumber,
+        amountApplied: amountApplied,
+        amountRefunded: amountRefunded,
+        netAmount: amountApplied - amountRefunded,
+        redemptionDate: redemptionDate,
+        currentBalance: currentBalance,
+        status: status,
+        customerName: cert.CustomerName,
+        customerEmail: cert.CustomerEmail,
+        storeName: cert.StoreName,
+        initialBalance: cert.InitialBalance
+      };
+    });
+
+    // Calculate totals
+    const totalGiftCertificateAmount = giftCertificatesUsed.reduce((sum, gc) => sum + gc.netAmount, 0);
+
+    const result = {
+      shopworksOrderId: parseInt(shopworksOrderId),
+      externalOrderId: externalOrderId,
+      orderCustomer: order.CustomerName,
+      orderTotal: order.cur_TotalInvoice,
+      giftCertificatesUsed: giftCertificatesUsed,
+      totalGiftCertificateAmount: totalGiftCertificateAmount,
+      count: giftCertificatesUsed.length
+    };
+
+    // Cache the result
+    giftCertCache.set(cacheKey, { data: result, timestamp: Date.now() });
+
+    // Limit cache size
+    if (giftCertCache.size > MAX_CACHE_SIZE) {
+      const firstKey = giftCertCache.keys().next().value;
+      giftCertCache.delete(firstKey);
+    }
+
+    res.json(result);
+
+  } catch (error) {
+    console.error(`Error in gift-certificates/by-order/${shopworksOrderId}:`, error.message);
+    res.status(500).json({
+      error: 'Failed to lookup gift certificates for order',
+      details: error.message
+    });
+  }
+});
+
 module.exports = router;
