@@ -4191,6 +4191,57 @@
 			"name": "📋 General",
 			"item": [
 				{
+					"name": "Get Gift Certificates",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/gift-certificates?refresh=",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"gift-certificates"
+							],
+							"query": [
+								{
+									"key": "certificateNumber",
+									"value": "",
+									"description": "certificateNumber parameter",
+									"disabled": true
+								},
+								{
+									"key": "email",
+									"value": "",
+									"description": "email parameter",
+									"disabled": true
+								},
+								{
+									"key": "storeName",
+									"value": "",
+									"description": "storeName parameter",
+									"disabled": true
+								},
+								{
+									"key": "hasBalance",
+									"value": "",
+									"description": "hasBalance parameter",
+									"disabled": true
+								},
+								{
+									"key": "refresh",
+									"value": "",
+									"description": "refresh parameter",
+									"disabled": false
+								}
+							]
+						},
+						"description": "GET /api/gift-certificates  Query gift certificates with optional filters. When certificateNumber is provided, returns single certificate with resolved ShopWorks order IDs. Otherwise returns array of matching certificates."
+					},
+					"response": []
+				},
+				{
 					"name": "Create Products",
 					"request": {
 						"method": "POST",

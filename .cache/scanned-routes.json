@@ -1,6 +1,6 @@
 {
-  "scannedAt": "2025-12-17T21:55:07.544Z",
-  "totalEndpoints": 168,
+  "scannedAt": "2025-12-18T01:24:04.299Z",
+  "totalEndpoints": 169,
   "endpoints": [
     {
       "method": "GET",
@@ -946,6 +946,48 @@
       "requestBody": null,
       "sourceFile": "files.js",
       "lineNumber": 300
+    },
+    {
+      "method": "GET",
+      "path": "/gift-certificates",
+      "fullPath": "/api/gift-certificates",
+      "category": "📋 General",
+      "description": "GET /api/gift-certificates  Query gift certificates with optional filters. When certificateNumber is provided, returns single certificate with resolved ShopWorks order IDs. Otherwise returns array of matching certificates.",
+      "queryParams": [
+        {
+          "key": "certificateNumber",
+          "value": "",
+          "description": "certificateNumber parameter",
+          "disabled": true
+        },
+        {
+          "key": "email",
+          "value": "",
+          "description": "email parameter",
+          "disabled": true
+        },
+        {
+          "key": "storeName",
+          "value": "",
+          "description": "storeName parameter",
+          "disabled": true
+        },
+        {
+          "key": "hasBalance",
+          "value": "",
+          "description": "hasBalance parameter",
+          "disabled": true
+        },
+        {
+          "key": "refresh",
+          "value": "",
+          "description": "refresh parameter",
+          "disabled": false
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "gift-certificates.js",
+      "lineNumber": 173
     },
     {
       "method": "GET",
