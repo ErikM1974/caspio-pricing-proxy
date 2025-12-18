@@ -424,36 +424,22 @@ router.delete('/gift-certificates/clear', async (req, res) => {
 
     console.log(`Found ${totalCount} records to delete`);
 
-    // Caspio REST API: DELETE with WHERE clause to delete matching records
-    // Delete in batches by PK_ID to avoid timeout issues
-    const batchSize = 500;
-    let deletedCount = 0;
+    // Delete ALL records in ONE API call using PK_ID > 0
+    await makeCaspioRequest(
+      'delete',
+      '/tables/Inksoft_Gift_Certificates/records',
+      { 'q.where': 'PK_ID > 0' }
+    );
 
-    // Get all PK_IDs
-    const pkIds = existingRecords.map(r => r.PK_ID);
-
-    // Delete in batches
-    for (let i = 0; i < pkIds.length; i += batchSize) {
-      const batchIds = pkIds.slice(i, i + batchSize);
-      const idList = batchIds.join(',');
-
-      // Delete records where PK_ID is in the batch
-      const deleteResult = await makeCaspioRequest(
-        'delete',
-        '/tables/Inksoft_Gift_Certificates/records',
-        { 'q.where': `PK_ID IN (${idList})` }
-      );
-
-      deletedCount += batchIds.length;
-      console.log(`Deleted batch ${Math.floor(i / batchSize) + 1}: ${batchIds.length} records (total: ${deletedCount})`);
-    }
+    console.log(`Deleted ${totalCount} records in single API call`);
 
     // Clear the cache since data has changed
     giftCertCache.clear();
 
     res.json({
       success: true,
-      deletedCount: deletedCount
+      deletedCount: totalCount,
+      message: `Deleted all ${totalCount} records`
     });
 
   } catch (error) {
@@ -518,36 +504,43 @@ router.post('/gift-certificates/bulk', async (req, res) => {
     });
 
     // Caspio REST API requires inserting records one at a time
+    // Parallelize for faster execution (10 concurrent requests)
     let insertedCount = 0;
     const errors = [];
+    const parallelBatchSize = 10;
 
-    // Insert records one at a time (Caspio doesn't support bulk array insert)
-    for (let i = 0; i < cleanedCertificates.length; i++) {
-      const cert = cleanedCertificates[i];
+    // Insert records in parallel batches
+    for (let i = 0; i < cleanedCertificates.length; i += parallelBatchSize) {
+      const batch = cleanedCertificates.slice(i, i + parallelBatchSize);
 
-      try {
-        const result = await makeCaspioRequest(
-          'post',
-          '/tables/Inksoft_Gift_Certificates/records',
-          {},
-          cert
-        );
+      const results = await Promise.allSettled(
+        batch.map((cert, batchIndex) =>
+          makeCaspioRequest(
+            'post',
+            '/tables/Inksoft_Gift_Certificates/records',
+            {},
+            cert
+          ).then(() => ({ success: true, index: i + batchIndex, cert }))
+           .catch(err => ({ success: false, index: i + batchIndex, cert, error: err.message }))
+        )
+      );
 
-        insertedCount++;
-
-        // Log progress every 100 records
-        if (insertedCount % 100 === 0) {
-          console.log(`Inserted ${insertedCount} of ${cleanedCertificates.length} records`);
+      // Process results
+      for (const result of results) {
+        if (result.status === 'fulfilled' && result.value.success) {
+          insertedCount++;
+        } else {
+          const errInfo = result.status === 'fulfilled' ? result.value : { index: -1, cert: {}, error: result.reason?.message };
+          errors.push({
+            index: errInfo.index,
+            certificateNumber: errInfo.cert?.GiftCertificateNumber,
+            error: errInfo.error
+          });
         }
-
-      } catch (insertError) {
-        console.error(`Error inserting record ${i + 1}:`, insertError.message);
-        errors.push({
-          index: i,
-          certificateNumber: cert.GiftCertificateNumber,
-          error: insertError.message
-        });
       }
+
+      // Log progress every batch
+      console.log(`Inserted ${insertedCount} of ${cleanedCertificates.length} records`);
     }
 
     console.log(`Bulk insert complete: ${insertedCount} of ${cleanedCertificates.length} records inserted`);
