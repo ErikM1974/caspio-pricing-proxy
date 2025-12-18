@@ -8,6 +8,7 @@ module.exports = {
   inventoryRoutes: require('./inventory'),
   pricingMatrixRoutes: require('./pricing-matrix'),
   quotesRoutes: require('./quotes'),
+  giftCertificatesRoutes: require('./gift-certificates'),
   miscRoutes: require('./misc'),
   transfersRoutes: require('./transfers')
 };

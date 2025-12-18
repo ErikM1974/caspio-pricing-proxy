@@ -276,6 +276,11 @@ const quotesRoutes = require('./src/routes/quotes');
 app.use('/api', quotesRoutes);
 console.log('✓ Quotes routes loaded');
 
+// Gift Certificates Routes
+const giftCertificatesRoutes = require('./src/routes/gift-certificates');
+app.use('/api', giftCertificatesRoutes);
+console.log('✓ Gift Certificates routes loaded');
+
 // Pricing Matrix Routes
 const pricingMatrixRoutes = require('./src/routes/pricing-matrix');
 app.use('/api', pricingMatrixRoutes);
