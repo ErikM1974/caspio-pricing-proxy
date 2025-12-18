@@ -1,6 +1,6 @@
 {
-  "scannedAt": "2025-12-18T13:04:04.820Z",
-  "totalEndpoints": 170,
+  "scannedAt": "2025-12-18T17:39:28.992Z",
+  "totalEndpoints": 172,
   "endpoints": [
     {
       "method": "GET",
@@ -1006,6 +1006,28 @@
       "requestBody": null,
       "sourceFile": "gift-certificates.js",
       "lineNumber": 280
+    },
+    {
+      "method": "DELETE",
+      "path": "/gift-certificates/clear",
+      "fullPath": "/api/gift-certificates/clear",
+      "category": "📋 General",
+      "description": "DELETE /api/gift-certificates/clear  Delete ALL records from the Inksoft_Gift_Certificates table. WARNING: This is a destructive operation - use with caution!",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "gift-certificates.js",
+      "lineNumber": 407
+    },
+    {
+      "method": "POST",
+      "path": "/gift-certificates/bulk",
+      "fullPath": "/api/gift-certificates/bulk",
+      "category": "📋 General",
+      "description": "POST /api/gift-certificates/bulk  Bulk insert gift certificate records. Caspio supports up to 1000 records per insert request.",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "gift-certificates.js",
+      "lineNumber": 474
     },
     {
       "method": "GET",

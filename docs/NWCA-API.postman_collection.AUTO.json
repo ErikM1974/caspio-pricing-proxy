@@ -4271,6 +4271,46 @@
 					"response": []
 				},
 				{
+					"name": "Delete Gift Certificates Clear",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/gift-certificates/clear",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"gift-certificates",
+								"clear"
+							]
+						},
+						"description": "DELETE /api/gift-certificates/clear  Delete ALL records from the Inksoft_Gift_Certificates table. WARNING: This is a destructive operation - use with caution!"
+					},
+					"response": []
+				},
+				{
+					"name": "Create Gift Certificates Bulk",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/gift-certificates/bulk",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"gift-certificates",
+								"bulk"
+							]
+						},
+						"description": "POST /api/gift-certificates/bulk  Bulk insert gift certificate records. Caspio supports up to 1000 records per insert request."
+					},
+					"response": []
+				},
+				{
 					"name": "Create Products",
 					"request": {
 						"method": "POST",
