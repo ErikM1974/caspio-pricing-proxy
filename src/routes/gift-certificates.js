@@ -2,7 +2,7 @@
 
 const express = require('express');
 const router = express.Router();
-const { fetchAllCaspioPages } = require('../utils/caspio');
+const { fetchAllCaspioPages, makeCaspioRequest } = require('../utils/caspio');
 const { fetchOrderNoByExternalId, fetchOrderByNumber } = require('../utils/manageorders');
 
 // Cache setup (5-minute TTL)
@@ -393,6 +393,186 @@ router.get('/gift-certificates/by-order/:orderId', async (req, res) => {
     console.error(`Error in gift-certificates/by-order/${shopworksOrderId}:`, error.message);
     res.status(500).json({
       error: 'Failed to lookup gift certificates for order',
+      details: error.message
+    });
+  }
+});
+
+/**
+ * DELETE /api/gift-certificates/clear
+ *
+ * Delete ALL records from the Inksoft_Gift_Certificates table.
+ * WARNING: This is a destructive operation - use with caution!
+ */
+router.delete('/gift-certificates/clear', async (req, res) => {
+  console.log('DELETE /api/gift-certificates/clear requested');
+
+  try {
+    // First, count how many records exist
+    const existingRecords = await fetchAllCaspioPages('/tables/Inksoft_Gift_Certificates/records', {
+      'q.select': 'PK_ID'
+    });
+    const totalCount = existingRecords.length;
+
+    if (totalCount === 0) {
+      return res.json({
+        success: true,
+        deletedCount: 0,
+        message: 'Table was already empty'
+      });
+    }
+
+    console.log(`Found ${totalCount} records to delete`);
+
+    // Caspio REST API: DELETE with WHERE clause to delete matching records
+    // Delete in batches by PK_ID to avoid timeout issues
+    const batchSize = 500;
+    let deletedCount = 0;
+
+    // Get all PK_IDs
+    const pkIds = existingRecords.map(r => r.PK_ID);
+
+    // Delete in batches
+    for (let i = 0; i < pkIds.length; i += batchSize) {
+      const batchIds = pkIds.slice(i, i + batchSize);
+      const idList = batchIds.join(',');
+
+      // Delete records where PK_ID is in the batch
+      const deleteResult = await makeCaspioRequest(
+        'delete',
+        '/tables/Inksoft_Gift_Certificates/records',
+        { 'q.where': `PK_ID IN (${idList})` }
+      );
+
+      deletedCount += batchIds.length;
+      console.log(`Deleted batch ${Math.floor(i / batchSize) + 1}: ${batchIds.length} records (total: ${deletedCount})`);
+    }
+
+    // Clear the cache since data has changed
+    giftCertCache.clear();
+
+    res.json({
+      success: true,
+      deletedCount: deletedCount
+    });
+
+  } catch (error) {
+    console.error('Error clearing gift certificates:', error.message);
+    res.status(500).json({
+      error: 'Failed to clear gift certificates table',
+      details: error.message
+    });
+  }
+});
+
+/**
+ * POST /api/gift-certificates/bulk
+ *
+ * Bulk insert gift certificate records.
+ * Caspio supports up to 1000 records per insert request.
+ */
+router.post('/gift-certificates/bulk', async (req, res) => {
+  console.log('POST /api/gift-certificates/bulk requested');
+
+  try {
+    const { certificates } = req.body;
+
+    if (!certificates || !Array.isArray(certificates)) {
+      return res.status(400).json({
+        error: 'Invalid request body. Expected { certificates: [...] }'
+      });
+    }
+
+    if (certificates.length === 0) {
+      return res.json({
+        success: true,
+        insertedCount: 0,
+        message: 'No certificates to insert'
+      });
+    }
+
+    console.log(`Received ${certificates.length} certificates for bulk insert`);
+
+    // Validate and clean certificate data
+    // Only include fields that should be inserted (not formula fields)
+    const validFields = [
+      'CustomerEmail',
+      'CustomerName',
+      'GiftCertificateNumber',
+      'StoreName',
+      'DateIssued',
+      'InitialBalance',
+      'CurrentBalance',
+      'IssueReason',
+      'History'
+    ];
+
+    const cleanedCertificates = certificates.map(cert => {
+      const cleaned = {};
+      for (const field of validFields) {
+        if (cert[field] !== undefined) {
+          cleaned[field] = cert[field];
+        }
+      }
+      return cleaned;
+    });
+
+    // Caspio bulk insert limit is 1000 records per request
+    const batchSize = 1000;
+    let insertedCount = 0;
+    const errors = [];
+
+    for (let i = 0; i < cleanedCertificates.length; i += batchSize) {
+      const batch = cleanedCertificates.slice(i, i + batchSize);
+      const batchNumber = Math.floor(i / batchSize) + 1;
+
+      try {
+        console.log(`Inserting batch ${batchNumber}: ${batch.length} records`);
+
+        // Caspio bulk insert expects an array in the request body
+        const result = await makeCaspioRequest(
+          'post',
+          '/tables/Inksoft_Gift_Certificates/records',
+          {},
+          batch
+        );
+
+        insertedCount += batch.length;
+        console.log(`Batch ${batchNumber} inserted successfully. Total: ${insertedCount}`);
+
+      } catch (batchError) {
+        console.error(`Error inserting batch ${batchNumber}:`, batchError.message);
+        errors.push({
+          batch: batchNumber,
+          startIndex: i,
+          count: batch.length,
+          error: batchError.message
+        });
+      }
+    }
+
+    // Clear the cache since data has changed
+    giftCertCache.clear();
+
+    if (errors.length > 0) {
+      res.status(207).json({
+        success: false,
+        insertedCount: insertedCount,
+        totalRequested: certificates.length,
+        errors: errors,
+        message: `Partial success: ${insertedCount} of ${certificates.length} records inserted`
+      });
+    } else {
+      res.json({
+        success: true,
+        insertedCount: insertedCount
+      });
+    }
+
+  } catch (error) {
+    console.error('Error bulk inserting gift certificates:', error.message);
+    res.status(500).json({
+      error: 'Failed to bulk insert gift certificates',
       details: error.message
     });
   }
