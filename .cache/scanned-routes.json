@@ -1,6 +1,6 @@
 {
-  "scannedAt": "2025-12-18T01:24:04.299Z",
-  "totalEndpoints": 169,
+  "scannedAt": "2025-12-18T13:04:04.820Z",
+  "totalEndpoints": 170,
   "endpoints": [
     {
       "method": "GET",
@@ -988,6 +988,24 @@
       "requestBody": null,
       "sourceFile": "gift-certificates.js",
       "lineNumber": 173
+    },
+    {
+      "method": "GET",
+      "path": "/gift-certificates/by-order/:orderId",
+      "fullPath": "/api/gift-certificates/by-order/:orderId",
+      "category": "📋 General",
+      "description": "GET /api/gift-certificates/by-order/:orderId  Reverse lookup: Find gift certificates used on a specific ShopWorks order. Takes ShopWorks order ID, finds external order ID, then searches gift certificate history.",
+      "queryParams": [
+        {
+          "key": "refresh",
+          "value": "",
+          "description": "refresh parameter",
+          "disabled": false
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "gift-certificates.js",
+      "lineNumber": 280
     },
     {
       "method": "GET",

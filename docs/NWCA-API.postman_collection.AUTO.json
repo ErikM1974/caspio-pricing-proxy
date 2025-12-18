@@ -4242,6 +4242,35 @@
 					"response": []
 				},
 				{
+					"name": "Get Gift Certificates By Order",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/gift-certificates/by-order/:orderId?refresh=",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"gift-certificates",
+								"by-order",
+								":orderId"
+							],
+							"query": [
+								{
+									"key": "refresh",
+									"value": "",
+									"description": "refresh parameter",
+									"disabled": false
+								}
+							]
+						},
+						"description": "GET /api/gift-certificates/by-order/:orderId  Reverse lookup: Find gift certificates used on a specific ShopWorks order. Takes ShopWorks order ID, finds external order ID, then searches gift certificate history."
+					},
+					"response": []
+				},
+				{
 					"name": "Create Products",
 					"request": {
 						"method": "POST",
@@ -5444,6 +5473,11 @@
 			"value": "example-key",
 			"type": "string",
 			"description": "External file key"
+		},
+		{
+			"key": "orderId",
+			"value": "value",
+			"type": "string"
 		},
 		{
 			"key": "sku",
