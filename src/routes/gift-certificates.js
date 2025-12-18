@@ -517,39 +517,40 @@ router.post('/gift-certificates/bulk', async (req, res) => {
       return cleaned;
     });
 
-    // Caspio bulk insert limit is 1000 records per request
-    const batchSize = 1000;
+    // Caspio REST API requires inserting records one at a time
     let insertedCount = 0;
     const errors = [];
 
-    for (let i = 0; i < cleanedCertificates.length; i += batchSize) {
-      const batch = cleanedCertificates.slice(i, i + batchSize);
-      const batchNumber = Math.floor(i / batchSize) + 1;
+    // Insert records one at a time (Caspio doesn't support bulk array insert)
+    for (let i = 0; i < cleanedCertificates.length; i++) {
+      const cert = cleanedCertificates[i];
 
       try {
-        console.log(`Inserting batch ${batchNumber}: ${batch.length} records`);
-
-        // Caspio bulk insert expects an array in the request body
         const result = await makeCaspioRequest(
           'post',
           '/tables/Inksoft_Gift_Certificates/records',
           {},
-          batch
+          cert
         );
 
-        insertedCount += batch.length;
-        console.log(`Batch ${batchNumber} inserted successfully. Total: ${insertedCount}`);
+        insertedCount++;
 
-      } catch (batchError) {
-        console.error(`Error inserting batch ${batchNumber}:`, batchError.message);
+        // Log progress every 100 records
+        if (insertedCount % 100 === 0) {
+          console.log(`Inserted ${insertedCount} of ${cleanedCertificates.length} records`);
+        }
+
+      } catch (insertError) {
+        console.error(`Error inserting record ${i + 1}:`, insertError.message);
         errors.push({
-          batch: batchNumber,
-          startIndex: i,
-          count: batch.length,
-          error: batchError.message
+          index: i,
+          certificateNumber: cert.GiftCertificateNumber,
+          error: insertError.message
         });
       }
     }
+
+    console.log(`Bulk insert complete: ${insertedCount} of ${cleanedCertificates.length} records inserted`);
 
     // Clear the cache since data has changed
     giftCertCache.clear();
