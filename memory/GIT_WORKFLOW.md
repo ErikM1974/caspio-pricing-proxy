@@ -38,6 +38,16 @@ git push heroku main
 git checkout develop
 ```
 
+## Slash Command
+
+**Use `/deploy` to deploy to production.** This is the easiest way to deploy.
+
+The slash command will:
+1. Switch to main branch
+2. Merge develop into main
+3. Push to GitHub and Heroku
+4. Return to develop branch
+
 ## Quick Commands
 
 ### One-liner: Deploy to Production
