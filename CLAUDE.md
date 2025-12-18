@@ -16,6 +16,7 @@ Detailed documentation organized by topic:
 - **[Image Loading Troubleshooting](memory/IMAGE_LOADING_TROUBLESHOOTING.md)** - Diagnose slow images and Sanmar CDN issues
 - **[JDS Industries Integration](memory/JDS_INTEGRATION.md)** - Awards/engraving product integration
 - **[Git Workflow](memory/GIT_WORKFLOW.md)** - Branch strategy and deployment process (develop → main → Heroku)
+- **[Gift Certificates API](memory/GIFT_CERTIFICATES_API.md)** - Gift certificate lookup and balance checking (v1.0.0 - 2025-12-18)
 
 ## Quick Reference
 
