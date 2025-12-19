@@ -5490,6 +5490,35 @@
 						"description": "ShopWorks import-ready format GET /api/sanmar-shopworks/import-format?styleNumber=PC850&color=Cardinal  Returns flat JSON array with one entry per SKU, ready for ShopWorks import Each entry includes all size fields with actual size values where enabled"
 					},
 					"response": []
+				},
+				{
+					"name": "Get Thumbnails By Design",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/thumbnails/by-design/:designId",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"thumbnails",
+								"by-design",
+								":designId"
+							],
+							"query": [
+								{
+									"key": "refresh",
+									"value": "",
+									"description": "refresh parameter",
+									"disabled": true
+								}
+							]
+						},
+						"description": "GET /api/thumbnails/by-design/:designId Look up a design thumbnail by Design ID"
+					},
+					"response": []
 				}
 			],
 			"description": ""
@@ -5536,6 +5565,11 @@
 		},
 		{
 			"key": "ext_order_id",
+			"value": "value",
+			"type": "string"
+		},
+		{
+			"key": "designId",
 			"value": "value",
 			"type": "string"
 		}

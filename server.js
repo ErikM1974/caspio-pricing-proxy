@@ -359,6 +359,11 @@ const sanmarShopworksRoutes = require('./src/routes/sanmar-shopworks');
 app.use('/api', sanmarShopworksRoutes);
 console.log('✓ Sanmar-ShopWorks mapping routes loaded');
 
+// Thumbnail Lookup Routes
+const thumbnailsRoutes = require('./src/routes/thumbnails');
+app.use('/api', thumbnailsRoutes);
+console.log('✓ Thumbnail routes loaded');
+
 // --- Admin Metrics Endpoint ---
 const apiTracker = require('./src/utils/api-tracker');
 

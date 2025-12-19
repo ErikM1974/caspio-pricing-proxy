@@ -1,6 +1,6 @@
 {
-  "scannedAt": "2025-12-18T17:39:28.992Z",
-  "totalEndpoints": 172,
+  "scannedAt": "2025-12-19T13:11:47.045Z",
+  "totalEndpoints": 173,
   "endpoints": [
     {
       "method": "GET",
@@ -1027,7 +1027,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "gift-certificates.js",
-      "lineNumber": 474
+      "lineNumber": 460
     },
     {
       "method": "GET",
@@ -3547,6 +3547,24 @@
       "requestBody": null,
       "sourceFile": "sanmar-shopworks.js",
       "lineNumber": 495
+    },
+    {
+      "method": "GET",
+      "path": "/thumbnails/by-design/:designId",
+      "fullPath": "/api/thumbnails/by-design/:designId",
+      "category": "📋 General",
+      "description": "GET /api/thumbnails/by-design/:designId Look up a design thumbnail by Design ID",
+      "queryParams": [
+        {
+          "key": "refresh",
+          "value": "",
+          "description": "refresh parameter",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "thumbnails.js",
+      "lineNumber": 34
     },
     {
       "method": "GET",
