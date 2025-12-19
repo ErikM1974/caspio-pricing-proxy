@@ -65,6 +65,7 @@ See [Endpoint Creation Guide](memory/ENDPOINT_CREATION_GUIDE.md) for complete st
 - **Quotes API** - Analytics, items, sessions
 - **Art Invoices API** - Full CRUD operations
 - **Production Schedules API** - Production tracking
+- **Thumbnail API** - `GET /api/thumbnails/by-design/:designId` - Look up design thumbnails (5-min cache)
 
 ### Integration APIs
 - **ManageOrders API** ([Docs](memory/MANAGEORDERS_INTEGRATION.md)) - 11 endpoints for ERP data (customers, orders, payments, tracking, inventory)
