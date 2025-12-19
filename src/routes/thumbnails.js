@@ -148,28 +148,39 @@ router.put('/thumbnails/:thumbnailId/external-key', async (req, res) => {
 
     console.log(`[Thumbnails] Updating ExternalKey for thumbnail ${id}`);
 
-    // Update record in Caspio
-    const params = {
-      'q.where': `ID_Serial=${id}`
+    // First verify the record exists
+    const checkParams = {
+      'q.where': `ID_Serial=${id}`,
+      'q.select': 'ID_Serial'
     };
 
-    const response = await makeCaspioRequest(
-      'put',
+    const checkResponse = await makeCaspioRequest(
+      'get',
       '/tables/Shopworks_Thumbnail_Report/records',
-      params,
-      { ExternalKey: externalKey }
+      checkParams
     );
 
-    // Check if record was updated
-    const recordsAffected = response?.RecordsAffected || response?.recordsAffected || 0;
+    const existingRecords = Array.isArray(checkResponse) ? checkResponse : (checkResponse?.Result || []);
 
-    if (recordsAffected === 0) {
+    if (existingRecords.length === 0) {
       console.log(`[Thumbnails] Thumbnail ${id} not found`);
       return res.status(404).json({
         success: false,
         error: `Thumbnail ${id} not found`
       });
     }
+
+    // Update record in Caspio
+    const updateParams = {
+      'q.where': `ID_Serial=${id}`
+    };
+
+    await makeCaspioRequest(
+      'put',
+      '/tables/Shopworks_Thumbnail_Report/records',
+      updateParams,
+      { ExternalKey: externalKey }
+    );
 
     console.log(`[Thumbnails] Updated ExternalKey for thumbnail ${id}`);
 
