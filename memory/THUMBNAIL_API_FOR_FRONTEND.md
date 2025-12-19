@@ -258,6 +258,141 @@ else:
     print(f"Not found: {thumb.message}")
 ```
 
+---
+
+## Update ExternalKey Endpoint
+
+After uploading an image to Caspio Files, use this endpoint to save the returned externalKey back to the thumbnail record.
+
+### Endpoint
+
+```
+PUT /api/thumbnails/:thumbnailId/external-key
+```
+
+### Request
+
+```python
+def update_thumbnail_external_key(thumbnail_id: int, external_key: str) -> dict:
+    """
+    Update the ExternalKey for a thumbnail record.
+
+    Args:
+        thumbnail_id: The thumbnail ID (ID_Serial)
+        external_key: The Caspio Files key from upload
+
+    Returns:
+        dict with success status
+    """
+    url = f"{BASE_URL}/api/thumbnails/{thumbnail_id}/external-key"
+
+    response = requests.put(
+        url,
+        json={"externalKey": external_key},
+        headers={"Content-Type": "application/json"},
+        timeout=10
+    )
+    response.raise_for_status()
+    return response.json()
+
+# Usage
+result = update_thumbnail_external_key(106511, "ea63d3fc-8957-4d76-a29f-06db8005b8c6")
+print(result)  # {"success": true, "thumbnailId": 106511, "message": "ExternalKey updated successfully"}
+```
+
+### cURL Example
+
+```bash
+curl -X PUT "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/thumbnails/106511/external-key" \
+  -H "Content-Type: application/json" \
+  -d '{"externalKey": "ea63d3fc-8957-4d76-a29f-06db8005b8c6"}'
+```
+
+### Responses
+
+**Success (200)**:
+```json
+{
+  "success": true,
+  "thumbnailId": 106511,
+  "message": "ExternalKey updated successfully"
+}
+```
+
+**Not Found (404)**:
+```json
+{
+  "success": false,
+  "error": "Thumbnail 999999 not found"
+}
+```
+
+**Bad Request (400)**:
+```json
+{
+  "success": false,
+  "error": "externalKey is required"
+}
+```
+
+### Input Validation
+
+- `thumbnailId` must be a positive integer
+- `externalKey` must be a non-empty string (max 255 characters)
+
+---
+
+## Automated Upload Workflow
+
+Complete workflow for uploading and linking a design thumbnail:
+
+```python
+def upload_and_link_thumbnail(thumbnail_id: int, image_path: str) -> bool:
+    """
+    Upload an image and link it to a thumbnail record.
+
+    1. Upload image to Caspio Files
+    2. Save the externalKey to the thumbnail record
+    3. Verify the update
+
+    Args:
+        thumbnail_id: The thumbnail ID to update
+        image_path: Path to the image file
+
+    Returns:
+        True if successful
+    """
+    # Step 1: Upload image
+    with open(image_path, 'rb') as f:
+        upload_response = requests.post(
+            f"{BASE_URL}/api/files/upload",
+            files={"file": f},
+            timeout=30
+        )
+    upload_response.raise_for_status()
+    external_key = upload_response.json().get("externalKey")
+
+    if not external_key:
+        raise ValueError("Upload did not return externalKey")
+
+    # Step 2: Update thumbnail record
+    update_response = requests.put(
+        f"{BASE_URL}/api/thumbnails/{thumbnail_id}/external-key",
+        json={"externalKey": external_key},
+        headers={"Content-Type": "application/json"},
+        timeout=10
+    )
+    update_response.raise_for_status()
+
+    # Step 3: Verify (optional)
+    # The next GET request will show the new externalKey
+
+    return True
+```
+
+---
+
 ## Related Endpoints
 
 - `GET /api/files/:externalKey` - Retrieve the actual image file using the externalKey
+- `POST /api/files/upload` - Upload a new image file to Caspio Files
