@@ -107,4 +107,89 @@ router.get('/thumbnails/by-design/:designId', async (req, res) => {
   }
 });
 
+/**
+ * PUT /api/thumbnails/:thumbnailId/external-key
+ * Update the ExternalKey for a thumbnail record
+ *
+ * @param {number} thumbnailId - The thumbnail ID (ID_Serial) to update
+ * @body {string} externalKey - The Caspio Files key to save
+ *
+ * @returns {object} Success or error response
+ */
+router.put('/thumbnails/:thumbnailId/external-key', async (req, res) => {
+  try {
+    const { thumbnailId } = req.params;
+    const { externalKey } = req.body;
+
+    // Validate thumbnailId - must be a positive integer
+    const id = parseInt(thumbnailId, 10);
+    if (isNaN(id) || id <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'thumbnailId must be a positive integer'
+      });
+    }
+
+    // Validate externalKey
+    if (!externalKey || typeof externalKey !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: 'externalKey is required'
+      });
+    }
+
+    // Validate externalKey length
+    if (externalKey.length > 255) {
+      return res.status(400).json({
+        success: false,
+        error: 'externalKey must be 255 characters or less'
+      });
+    }
+
+    console.log(`[Thumbnails] Updating ExternalKey for thumbnail ${id}`);
+
+    // Update record in Caspio
+    const params = {
+      'q.where': `ID_Serial=${id}`
+    };
+
+    const response = await makeCaspioRequest(
+      'put',
+      '/tables/Shopworks_Thumbnail_Report/records',
+      params,
+      { ExternalKey: externalKey }
+    );
+
+    // Check if record was updated
+    const recordsAffected = response?.RecordsAffected || response?.recordsAffected || 0;
+
+    if (recordsAffected === 0) {
+      console.log(`[Thumbnails] Thumbnail ${id} not found`);
+      return res.status(404).json({
+        success: false,
+        error: `Thumbnail ${id} not found`
+      });
+    }
+
+    console.log(`[Thumbnails] Updated ExternalKey for thumbnail ${id}`);
+
+    // Clear any cached entries that might reference this thumbnail
+    // (we don't know the designId, so we can't clear specifically)
+
+    res.json({
+      success: true,
+      thumbnailId: id,
+      message: 'ExternalKey updated successfully'
+    });
+
+  } catch (error) {
+    console.error('[Thumbnails] Error updating ExternalKey:', error.message);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update thumbnail',
+      details: error.message
+    });
+  }
+});
+
 module.exports = router;
