@@ -5519,6 +5519,27 @@
 						"description": "GET /api/thumbnails/by-design/:designId Look up a design thumbnail by Design ID"
 					},
 					"response": []
+				},
+				{
+					"name": "Update Thumbnails External Key",
+					"request": {
+						"method": "PUT",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/thumbnails/:thumbnailId/external-key",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"thumbnails",
+								":thumbnailId",
+								"external-key"
+							]
+						},
+						"description": "PUT /api/thumbnails/:thumbnailId/external-key Update the ExternalKey for a thumbnail record"
+					},
+					"response": []
 				}
 			],
 			"description": ""
@@ -5570,6 +5591,11 @@
 		},
 		{
 			"key": "designId",
+			"value": "value",
+			"type": "string"
+		},
+		{
+			"key": "thumbnailId",
 			"value": "value",
 			"type": "string"
 		}
