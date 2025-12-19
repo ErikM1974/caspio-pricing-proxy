@@ -63,13 +63,12 @@ router.get('/thumbnails/by-design/:designId', async (req, res) => {
     };
 
     const response = await makeCaspioRequest(
+      'get',
       '/tables/Shopworks_Thumbnail_Report/records',
-      'GET',
-      null,
       params
     );
 
-    const records = response?.Result || [];
+    const records = Array.isArray(response) ? response : (response?.Result || []);
 
     // Not found
     if (records.length === 0) {
