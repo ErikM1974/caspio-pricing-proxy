@@ -5540,6 +5540,46 @@
 						"description": "PUT /api/thumbnails/:thumbnailId/external-key Update the ExternalKey for a thumbnail record"
 					},
 					"response": []
+				},
+				{
+					"name": "Get Thumbnails Top Sellers",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/thumbnails/top-sellers",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"thumbnails",
+								"top-sellers"
+							],
+							"query": [
+								{
+									"key": "needsUpload",
+									"value": "",
+									"description": "needsUpload parameter",
+									"disabled": true
+								},
+								{
+									"key": "limit",
+									"value": "",
+									"description": "Maximum results",
+									"disabled": true
+								},
+								{
+									"key": "refresh",
+									"value": "",
+									"description": "refresh parameter",
+									"disabled": true
+								}
+							]
+						},
+						"description": "GET /api/thumbnails/top-sellers Get thumbnails for top-selling designs"
+					},
+					"response": []
 				}
 			],
 			"description": ""

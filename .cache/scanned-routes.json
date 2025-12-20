@@ -1,6 +1,6 @@
 {
-  "scannedAt": "2025-12-19T13:52:54.115Z",
-  "totalEndpoints": 174,
+  "scannedAt": "2025-12-20T12:44:59.906Z",
+  "totalEndpoints": 175,
   "endpoints": [
     {
       "method": "GET",
@@ -3564,7 +3564,7 @@
       ],
       "requestBody": null,
       "sourceFile": "thumbnails.js",
-      "lineNumber": 34
+      "lineNumber": 35
     },
     {
       "method": "PUT",
@@ -3575,7 +3575,37 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "thumbnails.js",
-      "lineNumber": 119
+      "lineNumber": 120
+    },
+    {
+      "method": "GET",
+      "path": "/thumbnails/top-sellers",
+      "fullPath": "/api/thumbnails/top-sellers",
+      "category": "📋 General",
+      "description": "GET /api/thumbnails/top-sellers Get thumbnails for top-selling designs",
+      "queryParams": [
+        {
+          "key": "needsUpload",
+          "value": "",
+          "description": "needsUpload parameter",
+          "disabled": true
+        },
+        {
+          "key": "limit",
+          "value": "",
+          "description": "Maximum results",
+          "disabled": true
+        },
+        {
+          "key": "refresh",
+          "value": "",
+          "description": "refresh parameter",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "thumbnails.js",
+      "lineNumber": 217
     },
     {
       "method": "GET",
