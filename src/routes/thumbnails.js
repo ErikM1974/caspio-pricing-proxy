@@ -10,6 +10,7 @@ const { makeCaspioRequest, fetchAllCaspioPages } = require('../utils/caspio');
 // Simple cache (5-minute TTL)
 const thumbnailCache = new Map();
 const topSellersCache = new Map();
+const syncStatusCache = new Map();
 const CACHE_TTL = 5 * 60 * 1000;
 
 /**
@@ -283,6 +284,81 @@ router.get('/thumbnails/top-sellers', async (req, res) => {
     console.error('[Thumbnails] Error fetching top-sellers:', error.message);
     res.status(500).json({
       error: 'Failed to fetch top-selling thumbnails',
+      details: error.message
+    });
+  }
+});
+
+/**
+ * GET /api/thumbnails/sync-status
+ * Get sync status and statistics for the thumbnail table
+ *
+ * @query {boolean} refresh - Set to 'true' to bypass cache
+ *
+ * @returns {object} Sync status with last sync time and record counts
+ */
+router.get('/thumbnails/sync-status', async (req, res) => {
+  try {
+    const refresh = req.query.refresh === 'true';
+
+    // Check cache (5 minute TTL)
+    const cacheKey = 'sync-status';
+    if (!refresh) {
+      const cached = syncStatusCache.get(cacheKey);
+      if (cached && (Date.now() - cached.timestamp < CACHE_TTL)) {
+        console.log('[Thumbnails] Cache hit for sync-status');
+        return res.json(cached.data);
+      }
+    }
+
+    console.log('[Thumbnails] Fetching sync status');
+
+    // Query 1: Get most recent timestamp_Added (order by desc, limit 1)
+    const latestRecord = await makeCaspioRequest(
+      'get',
+      '/tables/Shopworks_Thumbnail_Report/records',
+      {
+        'q.select': 'timestamp_Added',
+        'q.orderBy': 'timestamp_Added desc',
+        'q.limit': 1
+      }
+    );
+
+    const records = Array.isArray(latestRecord) ? latestRecord : (latestRecord?.Result || []);
+    const lastSync = records.length > 0 ? records[0].timestamp_Added : null;
+
+    // Query 2: Get all records to count (using fetchAllCaspioPages with select for efficiency)
+    const allRecords = await fetchAllCaspioPages(
+      '/tables/Shopworks_Thumbnail_Report/records',
+      {
+        'q.select': 'ID_Serial,ExternalKey'
+      }
+    );
+
+    const totalRecords = allRecords.length;
+    const recordsWithImages = allRecords.filter(r => r.ExternalKey && r.ExternalKey.trim() !== '').length;
+    const recordsNeedingImages = totalRecords - recordsWithImages;
+
+    const result = {
+      success: true,
+      lastSync: lastSync,
+      totalRecords: totalRecords,
+      recordsWithImages: recordsWithImages,
+      recordsNeedingImages: recordsNeedingImages
+    };
+
+    console.log(`[Thumbnails] Sync status: lastSync=${lastSync}, total=${totalRecords}, withImages=${recordsWithImages}`);
+
+    // Cache result
+    syncStatusCache.set(cacheKey, { data: result, timestamp: Date.now() });
+
+    res.json(result);
+
+  } catch (error) {
+    console.error('[Thumbnails] Error fetching sync status:', error.message);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch sync status',
       details: error.message
     });
   }
