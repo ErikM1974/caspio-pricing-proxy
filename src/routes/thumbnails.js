@@ -230,8 +230,8 @@ router.get('/thumbnails/top-sellers', async (req, res) => {
 
     console.log(`[Thumbnails] Fetching top-sellers (needsUpload=${needsUpload}, limit=${limit})`);
 
-    // Build WHERE clause (Caspio Yes/No fields use 'Yes'/'No' strings)
-    let whereClause = "IsTopSeller='Yes'";
+    // Build WHERE clause (Caspio bit fields use 1/0)
+    let whereClause = "IsTopSeller=1";
     if (needsUpload === 'true') {
       whereClause += " AND (ExternalKey IS NULL OR ExternalKey='')";
     }
