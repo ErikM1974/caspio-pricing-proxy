@@ -143,8 +143,10 @@ router.post('/files/upload', async (req, res) => {
         } else if (error.response?.status === 409) {
             res.status(409).json({
                 success: false,
-                error: 'A file with this name already exists in the Artwork folder',
-                code: 'FILE_EXISTS'
+                error: 'File already exists',
+                code: 'FILE_EXISTS',
+                exists: true,
+                fileName: fileName
             });
         } else if (error.response?.status === 404) {
             res.status(500).json({
