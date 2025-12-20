@@ -5701,6 +5701,34 @@
 						"description": "GET /api/thumbnails/top-sellers Get thumbnails for top-selling designs"
 					},
 					"response": []
+				},
+				{
+					"name": "Get Thumbnails Sync Status",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/thumbnails/sync-status",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"thumbnails",
+								"sync-status"
+							],
+							"query": [
+								{
+									"key": "refresh",
+									"value": "",
+									"description": "refresh parameter",
+									"disabled": true
+								}
+							]
+						},
+						"description": "GET /api/thumbnails/sync-status Get sync status and statistics for the thumbnail table"
+					},
+					"response": []
 				}
 			]
 		},
