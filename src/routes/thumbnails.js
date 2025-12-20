@@ -5,10 +5,11 @@
 
 const express = require('express');
 const router = express.Router();
-const { makeCaspioRequest } = require('../utils/caspio');
+const { makeCaspioRequest, fetchAllCaspioPages } = require('../utils/caspio');
 
 // Simple cache (5-minute TTL)
 const thumbnailCache = new Map();
+const topSellersCache = new Map();
 const CACHE_TTL = 5 * 60 * 1000;
 
 /**
@@ -198,6 +199,86 @@ router.put('/thumbnails/:thumbnailId/external-key', async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Failed to update thumbnail',
+      details: error.message
+    });
+  }
+});
+
+/**
+ * GET /api/thumbnails/top-sellers
+ * Get thumbnails for top-selling designs
+ *
+ * @query {boolean} needsUpload - Set to 'true' to only return records with empty ExternalKey
+ * @query {number} limit - Limit number of results
+ * @query {boolean} refresh - Set to 'true' to bypass cache
+ *
+ * @returns {object} Response with count and thumbnails array
+ */
+router.get('/thumbnails/top-sellers', async (req, res) => {
+  try {
+    const { needsUpload, limit, refresh } = req.query;
+
+    // Check cache (unless refresh=true)
+    const cacheKey = `top-sellers:${needsUpload || 'all'}:${limit || 'all'}`;
+    if (refresh !== 'true') {
+      const cached = topSellersCache.get(cacheKey);
+      if (cached && (Date.now() - cached.timestamp < CACHE_TTL)) {
+        console.log(`[Thumbnails] Cache hit for top-sellers`);
+        return res.json(cached.data);
+      }
+    }
+
+    console.log(`[Thumbnails] Fetching top-sellers (needsUpload=${needsUpload}, limit=${limit})`);
+
+    // Build WHERE clause
+    let whereClause = "IsTopSeller=true";
+    if (needsUpload === 'true') {
+      whereClause += " AND (ExternalKey IS NULL OR ExternalKey='')";
+    }
+
+    const params = {
+      'q.where': whereClause,
+      'q.orderBy': 'Thumb_DesLoc_DesDesignName'
+    };
+    if (limit) {
+      const parsedLimit = parseInt(limit, 10);
+      if (!isNaN(parsedLimit) && parsedLimit > 0) {
+        params['q.limit'] = parsedLimit;
+      }
+    }
+
+    // Use fetchAllCaspioPages for potentially large result sets
+    const records = await fetchAllCaspioPages(
+      '/tables/Shopworks_Thumbnail_Report/records',
+      params
+    );
+
+    // Transform response
+    const thumbnails = records.map(record => ({
+      thumbnailId: record.ID_Serial,
+      designId: record.Thumb_DesLocid_Design,
+      designName: record.Thumb_DesLoc_DesDesignName,
+      fileName: record.FileName,
+      externalKey: record.ExternalKey || '',
+      hasImage: !!(record.ExternalKey && record.ExternalKey.trim() !== '')
+    }));
+
+    const result = {
+      count: thumbnails.length,
+      thumbnails
+    };
+
+    console.log(`[Thumbnails] Found ${thumbnails.length} top-selling thumbnails`);
+
+    // Cache result
+    topSellersCache.set(cacheKey, { data: result, timestamp: Date.now() });
+
+    res.json(result);
+
+  } catch (error) {
+    console.error('[Thumbnails] Error fetching top-sellers:', error.message);
+    res.status(500).json({
+      error: 'Failed to fetch top-selling thumbnails',
       details: error.message
     });
   }
