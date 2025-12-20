@@ -171,6 +171,9 @@ router.put('/thumbnails/:thumbnailId/external-key', async (req, res) => {
       });
     }
 
+    // Auto-generate the public FileUrl
+    const fileUrl = `https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/files/${externalKey}`;
+
     // Update record in Caspio
     const updateParams = {
       'q.where': `ID_Serial=${id}`
@@ -180,10 +183,10 @@ router.put('/thumbnails/:thumbnailId/external-key', async (req, res) => {
       'put',
       '/tables/Shopworks_Thumbnail_Report/records',
       updateParams,
-      { ExternalKey: externalKey }
+      { ExternalKey: externalKey, FileUrl: fileUrl }
     );
 
-    console.log(`[Thumbnails] Updated ExternalKey for thumbnail ${id}`);
+    console.log(`[Thumbnails] Updated ExternalKey and FileUrl for thumbnail ${id}`);
 
     // Clear any cached entries that might reference this thumbnail
     // (we don't know the designId, so we can't clear specifically)
@@ -191,7 +194,8 @@ router.put('/thumbnails/:thumbnailId/external-key', async (req, res) => {
     res.json({
       success: true,
       thumbnailId: id,
-      message: 'ExternalKey updated successfully'
+      fileUrl: fileUrl,
+      message: 'ExternalKey and FileUrl updated successfully'
     });
 
   } catch (error) {
