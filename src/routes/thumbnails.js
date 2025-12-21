@@ -22,7 +22,7 @@ const CACHE_TTL = 5 * 60 * 1000;
  */
 function sanitizeDesignId(designId) {
   if (!designId || typeof designId !== 'string') return null;
-  const sanitized = designId.replace(/[^a-zA-Z0-9-_]/g, '');
+  const sanitized = designId.replace(/[^a-zA-Z0-9._-]/g, '');
   return (sanitized.length > 0 && sanitized.length <= 50) ? sanitized : null;
 }
 
