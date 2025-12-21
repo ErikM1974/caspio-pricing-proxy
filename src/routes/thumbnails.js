@@ -664,6 +664,7 @@ router.post('/thumbnails/upload-with-stub', upload.single('file'), async (req, r
       { 'q.where': `ID_Serial=${idSerial}`, 'q.select': 'ID_Serial' }
     );
     const existingRecords = Array.isArray(existing) ? existing : (existing?.Result || []);
+    console.log(`[Thumbnails] Check existing: ID_Serial=${idSerial}, found=${existingRecords.length} records`);
 
     // Upload to Caspio Files
     const token = await getCaspioAccessToken();
@@ -747,13 +748,29 @@ router.post('/thumbnails/upload-with-stub', upload.single('file'), async (req, r
       action = fileAlreadyExisted ? 'linked_existing' : 'updated';
     } else {
       // Insert new stub record (ID_Serial is a Number field, not auto-number)
-      await makeCaspioRequest(
-        'post',
-        '/tables/Shopworks_Thumbnail_Report/records',
-        {},
-        { ID_Serial: idSerial, ...recordData }
-      );
-      action = fileAlreadyExisted ? 'linked_existing' : 'created';
+      try {
+        await makeCaspioRequest(
+          'post',
+          '/tables/Shopworks_Thumbnail_Report/records',
+          {},
+          { ID_Serial: idSerial, ...recordData }
+        );
+        action = fileAlreadyExisted ? 'linked_existing' : 'created';
+      } catch (insertError) {
+        // Handle PRIMARY KEY or UNIQUE constraint violation - record exists, update instead
+        if (insertError.message && insertError.message.includes('duplicate key')) {
+          console.log(`[Thumbnails] Record ${idSerial} already exists (PK conflict), updating instead`);
+          await makeCaspioRequest(
+            'put',
+            '/tables/Shopworks_Thumbnail_Report/records',
+            { 'q.where': `ID_Serial=${idSerial}` },
+            recordData
+          );
+          action = fileAlreadyExisted ? 'linked_existing' : 'updated';
+        } else {
+          throw insertError;
+        }
+      }
     }
     console.log(`[Thumbnails] ${action} record ${idSerial}`);
 
