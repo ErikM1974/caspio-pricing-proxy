@@ -583,29 +583,34 @@ router.post('/thumbnails/backfill-fileurls', async (req, res) => {
 /**
  * GET /api/thumbnails/uploaded-ids
  * Get all ID_Serial values that already have images uploaded (ExternalKey populated)
+ * Returns ID, file size, and upload timestamp for change detection
  *
- * @returns {object} List of IDs with images
+ * @returns {object} List of uploaded thumbnails with metadata
  */
 router.get('/thumbnails/uploaded-ids', async (req, res) => {
   try {
-    console.log('[Thumbnails] Fetching uploaded IDs');
+    console.log('[Thumbnails] Fetching uploaded IDs with metadata');
 
     const records = await fetchAllCaspioPages(
       '/tables/Shopworks_Thumbnail_Report/records',
       {
         'q.where': "ExternalKey IS NOT NULL AND ExternalKey != ''",
-        'q.select': 'ID_Serial'
+        'q.select': 'ID_Serial,FileSizeNumber,timestamp_Uploaded'
       }
     );
 
-    const ids = records.map(r => r.ID_Serial);
+    const uploaded = records.map(r => ({
+      id: r.ID_Serial,
+      size: r.FileSizeNumber || null,
+      uploadedAt: r.timestamp_Uploaded || null
+    }));
 
-    console.log(`[Thumbnails] Found ${ids.length} records with images`);
+    console.log(`[Thumbnails] Found ${uploaded.length} records with images`);
 
     res.json({
       success: true,
-      count: ids.length,
-      ids: ids
+      count: uploaded.length,
+      uploaded: uploaded
     });
 
   } catch (error) {
@@ -621,11 +626,12 @@ router.get('/thumbnails/uploaded-ids', async (req, res) => {
 /**
  * POST /api/thumbnails/upload-with-stub
  * Upload a thumbnail file and create/update a stub record
+ * Saves file size and upload timestamp for change detection
  *
  * Expects multipart/form-data with:
  * - file: The image file (filename format: {ID_Serial}_{description}.ext)
  *
- * @returns {object} Upload result with status (created, updated, already_exists)
+ * @returns {object} Upload result with action (created, updated)
  */
 router.post('/thumbnails/upload-with-stub', upload.single('file'), async (req, res) => {
   try {
@@ -637,6 +643,8 @@ router.post('/thumbnails/upload-with-stub', upload.single('file'), async (req, r
     }
 
     const fileName = req.file.originalname;
+    const fileSize = req.file.size;
+    const uploadedAt = new Date().toISOString();
 
     // Parse ID_Serial from filename: {ID}_{description}.ext
     const match = fileName.match(/^(\d+)_/);
@@ -648,25 +656,15 @@ router.post('/thumbnails/upload-with-stub', upload.single('file'), async (req, r
     }
 
     const idSerial = parseInt(match[1], 10);
-    console.log(`[Thumbnails] Processing upload for ID_Serial ${idSerial}: ${fileName}`);
+    console.log(`[Thumbnails] Processing upload for ID_Serial ${idSerial}: ${fileName} (${fileSize} bytes)`);
 
-    // Check if record already has an image
+    // Check if record exists (don't check ExternalKey - allow re-uploads)
     const existing = await makeCaspioRequest(
       'get',
       '/tables/Shopworks_Thumbnail_Report/records',
-      { 'q.where': `ID_Serial=${idSerial}`, 'q.select': 'ID_Serial,ExternalKey' }
+      { 'q.where': `ID_Serial=${idSerial}`, 'q.select': 'ID_Serial' }
     );
     const existingRecords = Array.isArray(existing) ? existing : (existing?.Result || []);
-
-    if (existingRecords.length > 0 && existingRecords[0].ExternalKey) {
-      console.log(`[Thumbnails] ID_Serial ${idSerial} already has an image`);
-      return res.json({
-        success: true,
-        status: 'already_exists',
-        id_serial: idSerial,
-        message: 'Record already has an image uploaded'
-      });
-    }
 
     // Upload to Caspio Files
     const token = await getCaspioAccessToken();
@@ -698,45 +696,50 @@ router.post('/thumbnails/upload-with-stub', upload.single('file'), async (req, r
 
     const fileUrl = `https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/files/${externalKey}`;
 
-    // Create or update record
+    // Data to save (includes size and timestamp for change detection)
+    const recordData = {
+      ExternalKey: externalKey,
+      FileUrl: fileUrl,
+      FileName: fileName,
+      FileSizeNumber: fileSize,
+      timestamp_Uploaded: uploadedAt
+    };
+
+    let action;
     if (existingRecords.length > 0) {
-      // Update existing record (has ID but no image)
+      // Update existing record
       await makeCaspioRequest(
         'put',
         '/tables/Shopworks_Thumbnail_Report/records',
         { 'q.where': `ID_Serial=${idSerial}` },
-        { ExternalKey: externalKey, FileUrl: fileUrl, FileName: fileName }
+        recordData
       );
-      console.log(`[Thumbnails] Updated existing record ${idSerial}`);
-      res.json({
-        success: true,
-        status: 'updated',
-        id_serial: idSerial,
-        externalKey: externalKey,
-        fileUrl: fileUrl
-      });
+      action = 'updated';
+      console.log(`[Thumbnails] Updated record ${idSerial}`);
     } else {
       // Insert new stub record
       await makeCaspioRequest(
         'post',
         '/tables/Shopworks_Thumbnail_Report/records',
         {},
-        { ID_Serial: idSerial, ExternalKey: externalKey, FileUrl: fileUrl, FileName: fileName }
+        { ID_Serial: idSerial, ...recordData }
       );
+      action = 'created';
       console.log(`[Thumbnails] Created new stub record ${idSerial}`);
-      res.json({
-        success: true,
-        status: 'created',
-        id_serial: idSerial,
-        externalKey: externalKey,
-        fileUrl: fileUrl
-      });
     }
+
+    res.json({
+      success: true,
+      thumbnailId: idSerial,
+      externalKey: externalKey,
+      fileUrl: fileUrl,
+      action: action
+    });
 
   } catch (error) {
     console.error('[Thumbnails] Error in upload-with-stub:', error.message);
 
-    // Handle Caspio 409 conflict (file already exists)
+    // Handle Caspio 409 conflict (file already exists in Caspio Files)
     if (error.response?.status === 409) {
       return res.status(409).json({
         success: false,
