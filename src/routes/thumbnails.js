@@ -510,4 +510,66 @@ router.post('/thumbnails/reconcile-files', async (req, res) => {
   }
 });
 
+/**
+ * POST /api/thumbnails/backfill-fileurls
+ * One-time backfill: Populate FileUrl for records with ExternalKey but empty FileUrl
+ *
+ * @returns {object} Summary of backfill results
+ */
+router.post('/thumbnails/backfill-fileurls', async (req, res) => {
+  try {
+    console.log('[Thumbnails] Starting FileUrl backfill');
+
+    // Fetch records with ExternalKey but no FileUrl
+    const records = await fetchAllCaspioPages(
+      '/tables/Shopworks_Thumbnail_Report/records',
+      {
+        'q.where': "ExternalKey IS NOT NULL AND ExternalKey != '' AND (FileUrl IS NULL OR FileUrl = '')",
+        'q.select': 'ID_Serial,ExternalKey'
+      }
+    );
+
+    console.log(`[Thumbnails] Found ${records.length} records needing FileUrl backfill`);
+
+    let updated = 0;
+    let errors = 0;
+    const details = [];
+
+    for (const record of records) {
+      try {
+        const fileUrl = `https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/files/${record.ExternalKey}`;
+
+        await makeCaspioRequest(
+          'put',
+          '/tables/Shopworks_Thumbnail_Report/records',
+          { 'q.where': `ID_Serial=${record.ID_Serial}` },
+          { FileUrl: fileUrl }
+        );
+
+        updated++;
+        details.push({ id: record.ID_Serial, status: 'updated' });
+      } catch (err) {
+        errors++;
+        details.push({ id: record.ID_Serial, status: 'error', error: err.message });
+      }
+    }
+
+    console.log(`[Thumbnails] FileUrl backfill complete: ${updated} updated, ${errors} errors`);
+
+    res.json({
+      success: true,
+      summary: { found: records.length, updated, errors },
+      details
+    });
+
+  } catch (error) {
+    console.error('[Thumbnails] Error during FileUrl backfill:', error.message);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to backfill FileUrls',
+      details: error.message
+    });
+  }
+});
+
 module.exports = router;
