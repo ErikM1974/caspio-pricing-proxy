@@ -735,28 +735,27 @@ router.post('/thumbnails/upload-with-stub', upload.single('file'), async (req, r
       timestamp_Uploaded: uploadedAt
     };
 
-    let action;
-    if (existingRecords.length > 0) {
-      // Update existing record
-      await makeCaspioRequest(
-        'put',
-        '/tables/Shopworks_Thumbnail_Report/records',
-        { 'q.where': `ID_Serial=${idSerial}` },
-        recordData
-      );
-      action = fileAlreadyExisted ? 'linked_existing' : 'updated';
-      console.log(`[Thumbnails] ${action} record ${idSerial}`);
-    } else {
-      // Insert new stub record
-      await makeCaspioRequest(
-        'post',
-        '/tables/Shopworks_Thumbnail_Report/records',
-        {},
-        { ID_Serial: idSerial, ...recordData }
-      );
-      action = fileAlreadyExisted ? 'linked_existing' : 'created';
-      console.log(`[Thumbnails] ${action} record ${idSerial}`);
+    // Only UPDATE existing records - ID_Serial is auto-number in Caspio
+    // Records must already exist from ShopWorks sync
+    if (existingRecords.length === 0) {
+      console.log(`[Thumbnails] Record ${idSerial} not found in database - skipping`);
+      return res.status(404).json({
+        success: false,
+        error: `Thumbnail record ${idSerial} not found in database`,
+        code: 'RECORD_NOT_FOUND',
+        message: 'File was uploaded to Caspio but record does not exist in Shopworks_Thumbnail_Report. Run a sync first.'
+      });
     }
+
+    // Update existing record
+    await makeCaspioRequest(
+      'put',
+      '/tables/Shopworks_Thumbnail_Report/records',
+      { 'q.where': `ID_Serial=${idSerial}` },
+      recordData
+    );
+    const action = fileAlreadyExisted ? 'linked_existing' : 'updated';
+    console.log(`[Thumbnails] ${action} record ${idSerial}`);
 
     res.json({
       success: true,
