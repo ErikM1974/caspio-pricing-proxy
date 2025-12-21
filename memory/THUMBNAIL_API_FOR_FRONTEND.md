@@ -315,7 +315,8 @@ curl -X PUT "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/thumbna
 {
   "success": true,
   "thumbnailId": 106511,
-  "message": "ExternalKey updated successfully"
+  "fileUrl": "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/files/ea63d3fc-8957-4d76-a29f-06db8005b8c6",
+  "message": "ExternalKey and FileUrl updated successfully"
 }
 ```
 
@@ -389,6 +390,124 @@ def upload_and_link_thumbnail(thumbnail_id: int, image_path: str) -> bool:
 
     return True
 ```
+
+---
+
+## Sync Status Endpoint
+
+Check when thumbnail data was last synced from ShopWorks.
+
+### Endpoint
+
+```
+GET /api/thumbnails/sync-status
+```
+
+### Response
+
+```json
+{
+  "success": true,
+  "lastSync": "2025-12-20T09:51:42",
+  "totalRecords": 47328,
+  "recordsWithImages": 369,
+  "recordsNeedingImages": 46959
+}
+```
+
+### Python Example
+
+```python
+def get_sync_status(refresh: bool = False) -> dict:
+    """Get thumbnail table sync status."""
+    url = f"{BASE_URL}/api/thumbnails/sync-status"
+    params = {"refresh": "true"} if refresh else {}
+    response = requests.get(url, params=params)
+    return response.json()
+
+# Usage
+status = get_sync_status()
+print(f"Last sync: {status['lastSync']}")
+print(f"Total designs: {status['totalRecords']}")
+print(f"With images: {status['recordsWithImages']}")
+```
+
+### Notes
+- 5-minute cache (use `?refresh=true` to bypass)
+- Use this to show "Last sync: Today" or "Last sync: 3 days ago" in dashboard
+
+---
+
+## Reconcile Files Endpoint
+
+Link orphaned files in Caspio Files with their database records.
+
+### Endpoint
+
+```
+POST /api/thumbnails/reconcile-files
+```
+
+### What It Does
+
+1. Lists ALL files in Caspio Files "Artwork" folder (with pagination, max 1000 per page)
+2. For each file matching `{ThumbnailID}_{description}.ext`:
+   - Parses the ThumbnailID from the filename
+   - Looks up the record in `Shopworks_Thumbnail_Report`
+   - Updates `ExternalKey` and `FileUrl` if found
+
+### Response
+
+```json
+{
+  "success": true,
+  "summary": {
+    "filesProcessed": 847,
+    "matched": 25,
+    "notFoundInTable": 3,
+    "alreadyLinked": 12,
+    "errors": 807
+  },
+  "details": [
+    { "thumbnailId": "106041", "status": "matched", "externalKey": "abc123..." },
+    { "thumbnailId": "99999", "status": "not_found_in_table", "fileName": "99999_test.jpg" },
+    { "thumbnailId": "106042", "status": "already_linked", "externalKey": "def456..." },
+    { "fileName": "random-artwork.png", "status": "invalid_filename_format" }
+  ]
+}
+```
+
+### Status Values
+
+| Status | Meaning |
+|--------|---------|
+| `matched` | Successfully linked file to database record |
+| `already_linked` | File was already correctly linked |
+| `not_found_in_table` | ThumbnailID doesn't exist in database |
+| `invalid_filename_format` | Filename doesn't match `{ID}_{name}.ext` pattern |
+| `error` | Failed to process (see error field) |
+
+### Python Example
+
+```python
+def reconcile_files() -> dict:
+    """Run file reconciliation (one-time operation)."""
+    response = requests.post(f"{BASE_URL}/api/thumbnails/reconcile-files", timeout=120)
+    return response.json()
+
+# Usage
+result = reconcile_files()
+summary = result.get("summary", {})
+print(f"Files processed: {summary.get('filesProcessed')}")
+print(f"Matched & linked: {summary.get('matched')}")
+print(f"Already linked: {summary.get('alreadyLinked')}")
+```
+
+### Notes
+- **No files are deleted** - only reads file listings and updates database records
+- Run after batch uploading to link any orphaned files
+- The `errors` count includes files that don't match the naming pattern (random artwork)
+- May take a while if there are thousands of files
 
 ---
 
