@@ -679,20 +679,49 @@ router.post('/thumbnails/upload-with-stub', upload.single('file'), async (req, r
     const uploadUrl = `${config.caspio.apiV3BaseUrl}/files?externalKey=${artworkFolderKey}`;
     console.log(`[Thumbnails] Uploading to Caspio Files: ${fileName}`);
 
-    const uploadResponse = await axios.post(uploadUrl, formData, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        ...formData.getHeaders()
-      },
-      maxBodyLength: Infinity,
-      maxContentLength: Infinity,
-      timeout: 30000
-    });
+    let externalKey;
+    let fileAlreadyExisted = false;
 
-    const externalKey = uploadResponse.data?.Result?.[0]?.ExternalKey;
-    if (!externalKey) {
-      console.error('[Thumbnails] Caspio upload response:', JSON.stringify(uploadResponse.data));
-      throw new Error('Upload succeeded but no ExternalKey returned');
+    try {
+      const uploadResponse = await axios.post(uploadUrl, formData, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          ...formData.getHeaders()
+        },
+        maxBodyLength: Infinity,
+        maxContentLength: Infinity,
+        timeout: 30000
+      });
+
+      externalKey = uploadResponse.data?.Result?.[0]?.ExternalKey;
+      if (!externalKey) {
+        console.error('[Thumbnails] Caspio upload response:', JSON.stringify(uploadResponse.data));
+        throw new Error('Upload succeeded but no ExternalKey returned');
+      }
+    } catch (uploadError) {
+      // Handle 409 - file already exists in Caspio Files
+      if (uploadError.response?.status === 409) {
+        console.log(`[Thumbnails] File ${fileName} already exists, looking up ExternalKey...`);
+        fileAlreadyExisted = true;
+
+        // List files in Artwork folder to find the existing file
+        const listUrl = `${config.caspio.apiV3BaseUrl}/files?externalKey=${artworkFolderKey}&q.pageSize=1000`;
+        const listResponse = await axios.get(listUrl, {
+          headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' }
+        });
+
+        const files = listResponse.data?.Result || [];
+        const existingFile = files.find(f => f.Name === fileName);
+
+        if (!existingFile) {
+          throw new Error(`File ${fileName} reported as existing but not found in folder listing`);
+        }
+
+        externalKey = existingFile.ExternalKey;
+        console.log(`[Thumbnails] Found existing file: ${fileName} -> ${externalKey}`);
+      } else {
+        throw uploadError;
+      }
     }
 
     const fileUrl = `https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/files/${externalKey}`;
@@ -715,8 +744,8 @@ router.post('/thumbnails/upload-with-stub', upload.single('file'), async (req, r
         { 'q.where': `ID_Serial=${idSerial}` },
         recordData
       );
-      action = 'updated';
-      console.log(`[Thumbnails] Updated record ${idSerial}`);
+      action = fileAlreadyExisted ? 'linked_existing' : 'updated';
+      console.log(`[Thumbnails] ${action} record ${idSerial}`);
     } else {
       // Insert new stub record
       await makeCaspioRequest(
@@ -725,8 +754,8 @@ router.post('/thumbnails/upload-with-stub', upload.single('file'), async (req, r
         {},
         { ID_Serial: idSerial, ...recordData }
       );
-      action = 'created';
-      console.log(`[Thumbnails] Created new stub record ${idSerial}`);
+      action = fileAlreadyExisted ? 'linked_existing' : 'created';
+      console.log(`[Thumbnails] ${action} record ${idSerial}`);
     }
 
     res.json({
@@ -739,15 +768,6 @@ router.post('/thumbnails/upload-with-stub', upload.single('file'), async (req, r
 
   } catch (error) {
     console.error('[Thumbnails] Error in upload-with-stub:', error.message);
-
-    // Handle Caspio 409 conflict (file already exists in Caspio Files)
-    if (error.response?.status === 409) {
-      return res.status(409).json({
-        success: false,
-        error: 'File already exists in Caspio',
-        code: 'FILE_EXISTS'
-      });
-    }
 
     res.status(500).json({
       success: false,
