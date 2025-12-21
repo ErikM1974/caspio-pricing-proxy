@@ -5729,6 +5729,26 @@
 						"description": "GET /api/thumbnails/sync-status Get sync status and statistics for the thumbnail table"
 					},
 					"response": []
+				},
+				{
+					"name": "Create Thumbnails Reconcile Files",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/thumbnails/reconcile-files",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"thumbnails",
+								"reconcile-files"
+							]
+						},
+						"description": "POST /api/thumbnails/reconcile-files Reconcile files in Caspio Files \"Artwork\" folder with database records Matches files by parsing ThumbnailID from filename and updates ExternalKey/FileUrl"
+					},
+					"response": []
 				}
 			]
 		},
