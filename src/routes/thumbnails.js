@@ -689,8 +689,9 @@ router.post('/thumbnails/upload-with-stub', upload.single('file'), async (req, r
       timeout: 30000
     });
 
-    const externalKey = uploadResponse.data?.Result?.ExternalKey;
+    const externalKey = uploadResponse.data?.Result?.[0]?.ExternalKey;
     if (!externalKey) {
+      console.error('[Thumbnails] Caspio upload response:', JSON.stringify(uploadResponse.data));
       throw new Error('Upload succeeded but no ExternalKey returned');
     }
 
