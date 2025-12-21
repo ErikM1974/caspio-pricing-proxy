@@ -644,7 +644,6 @@ router.post('/thumbnails/upload-with-stub', upload.single('file'), async (req, r
 
     const fileName = req.file.originalname;
     const fileSize = req.file.size;
-    const uploadedAt = new Date().toISOString();
 
     // Parse ID_Serial from filename: {ID}_{description}.ext
     const match = fileName.match(/^(\d+)_/);
@@ -726,13 +725,13 @@ router.post('/thumbnails/upload-with-stub', upload.single('file'), async (req, r
 
     const fileUrl = `https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/files/${externalKey}`;
 
-    // Data to save (includes size and timestamp for change detection)
+    // Data to save (size for change detection)
+    // NOTE: timestamp_Uploaded is a Timestamp field in Caspio (auto-populated, read-only)
     const recordData = {
       ExternalKey: externalKey,
       FileUrl: fileUrl,
       FileName: fileName,
-      FileSizeNumber: fileSize,
-      timestamp_Uploaded: uploadedAt
+      FileSizeNumber: fileSize
     };
 
     // Create or update record
