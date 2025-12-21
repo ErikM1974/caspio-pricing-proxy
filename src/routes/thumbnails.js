@@ -377,20 +377,44 @@ router.post('/thumbnails/reconcile-files', async (req, res) => {
   try {
     console.log('[Thumbnails] Starting file reconciliation');
 
-    // Step 1: List all files in Artwork folder using Caspio Files API v3
+    // Step 1: List ALL files in Artwork folder using Caspio Files API v3 with pagination
     const token = await getCaspioAccessToken();
     const artworkFolderKey = config.caspio.artworkFolderKey;
-    const filesUrl = `${config.caspio.apiV3BaseUrl}/files?externalKey=${artworkFolderKey}`;
 
-    const filesResponse = await axios.get(filesUrl, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Accept': 'application/json'
+    // Fetch ALL files with pagination (Caspio max pageSize is 1000)
+    let allFiles = [];
+    let pageNumber = 1;
+    const pageSize = 1000; // Max allowed by Caspio API
+    let hasMorePages = true;
+
+    console.log('[Thumbnails] Fetching all files from Artwork folder...');
+
+    while (hasMorePages) {
+      const filesUrl = `${config.caspio.apiV3BaseUrl}/files?externalKey=${artworkFolderKey}&q.pageNumber=${pageNumber}&q.pageSize=${pageSize}`;
+
+      const filesResponse = await axios.get(filesUrl, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/json'
+        }
+      });
+
+      const pageFiles = filesResponse.data?.Result || [];
+      console.log(`[Thumbnails] Page ${pageNumber}: fetched ${pageFiles.length} files`);
+
+      if (pageFiles.length === 0) {
+        hasMorePages = false;
+      } else {
+        allFiles = allFiles.concat(pageFiles);
+        if (pageFiles.length < pageSize) {
+          hasMorePages = false; // Last page
+        }
+        pageNumber++;
       }
-    });
+    }
 
-    const files = filesResponse.data?.Result || [];
-    console.log(`[Thumbnails] Found ${files.length} files in Artwork folder`);
+    const files = allFiles;
+    console.log(`[Thumbnails] Found ${files.length} total files in Artwork folder`);
 
     // Step 2: Process each file
     const details = [];
