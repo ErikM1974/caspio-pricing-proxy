@@ -6,8 +6,16 @@
 const express = require('express');
 const router = express.Router();
 const axios = require('axios');
+const multer = require('multer');
+const FormData = require('form-data');
 const { makeCaspioRequest, fetchAllCaspioPages, getCaspioAccessToken } = require('../utils/caspio');
 const config = require('../../config');
+
+// Configure multer for memory storage (multipart/form-data uploads)
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024 } // 20MB
+});
 
 // Simple cache (5-minute TTL)
 const thumbnailCache = new Map();
@@ -567,6 +575,179 @@ router.post('/thumbnails/backfill-fileurls', async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Failed to backfill FileUrls',
+      details: error.message
+    });
+  }
+});
+
+/**
+ * GET /api/thumbnails/uploaded-ids
+ * Get all ID_Serial values that already have images uploaded (ExternalKey populated)
+ *
+ * @returns {object} List of IDs with images
+ */
+router.get('/thumbnails/uploaded-ids', async (req, res) => {
+  try {
+    console.log('[Thumbnails] Fetching uploaded IDs');
+
+    const records = await fetchAllCaspioPages(
+      '/tables/Shopworks_Thumbnail_Report/records',
+      {
+        'q.where': "ExternalKey IS NOT NULL AND ExternalKey != ''",
+        'q.select': 'ID_Serial'
+      }
+    );
+
+    const ids = records.map(r => r.ID_Serial);
+
+    console.log(`[Thumbnails] Found ${ids.length} records with images`);
+
+    res.json({
+      success: true,
+      count: ids.length,
+      ids: ids
+    });
+
+  } catch (error) {
+    console.error('[Thumbnails] Error fetching uploaded IDs:', error.message);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch uploaded IDs',
+      details: error.message
+    });
+  }
+});
+
+/**
+ * POST /api/thumbnails/upload-with-stub
+ * Upload a thumbnail file and create/update a stub record
+ *
+ * Expects multipart/form-data with:
+ * - file: The image file (filename format: {ID_Serial}_{description}.ext)
+ *
+ * @returns {object} Upload result with status (created, updated, already_exists)
+ */
+router.post('/thumbnails/upload-with-stub', upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        error: 'No file uploaded'
+      });
+    }
+
+    const fileName = req.file.originalname;
+
+    // Parse ID_Serial from filename: {ID}_{description}.ext
+    const match = fileName.match(/^(\d+)_/);
+    if (!match) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid filename format. Expected: {ID}_{description}.ext'
+      });
+    }
+
+    const idSerial = parseInt(match[1], 10);
+    console.log(`[Thumbnails] Processing upload for ID_Serial ${idSerial}: ${fileName}`);
+
+    // Check if record already has an image
+    const existing = await makeCaspioRequest(
+      'get',
+      '/tables/Shopworks_Thumbnail_Report/records',
+      { 'q.where': `ID_Serial=${idSerial}`, 'q.select': 'ID_Serial,ExternalKey' }
+    );
+    const existingRecords = Array.isArray(existing) ? existing : (existing?.Result || []);
+
+    if (existingRecords.length > 0 && existingRecords[0].ExternalKey) {
+      console.log(`[Thumbnails] ID_Serial ${idSerial} already has an image`);
+      return res.json({
+        success: true,
+        status: 'already_exists',
+        id_serial: idSerial,
+        message: 'Record already has an image uploaded'
+      });
+    }
+
+    // Upload to Caspio Files
+    const token = await getCaspioAccessToken();
+    const artworkFolderKey = config.caspio.artworkFolderKey;
+
+    const formData = new FormData();
+    formData.append('Files', req.file.buffer, {
+      filename: fileName,
+      contentType: req.file.mimetype
+    });
+
+    const uploadUrl = `${config.caspio.apiV3BaseUrl}/files?externalKey=${artworkFolderKey}`;
+    console.log(`[Thumbnails] Uploading to Caspio Files: ${fileName}`);
+
+    const uploadResponse = await axios.post(uploadUrl, formData, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        ...formData.getHeaders()
+      },
+      maxBodyLength: Infinity,
+      maxContentLength: Infinity,
+      timeout: 30000
+    });
+
+    const externalKey = uploadResponse.data?.Result?.ExternalKey;
+    if (!externalKey) {
+      throw new Error('Upload succeeded but no ExternalKey returned');
+    }
+
+    const fileUrl = `https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/files/${externalKey}`;
+
+    // Create or update record
+    if (existingRecords.length > 0) {
+      // Update existing record (has ID but no image)
+      await makeCaspioRequest(
+        'put',
+        '/tables/Shopworks_Thumbnail_Report/records',
+        { 'q.where': `ID_Serial=${idSerial}` },
+        { ExternalKey: externalKey, FileUrl: fileUrl, FileName: fileName }
+      );
+      console.log(`[Thumbnails] Updated existing record ${idSerial}`);
+      res.json({
+        success: true,
+        status: 'updated',
+        id_serial: idSerial,
+        externalKey: externalKey,
+        fileUrl: fileUrl
+      });
+    } else {
+      // Insert new stub record
+      await makeCaspioRequest(
+        'post',
+        '/tables/Shopworks_Thumbnail_Report/records',
+        {},
+        { ID_Serial: idSerial, ExternalKey: externalKey, FileUrl: fileUrl, FileName: fileName }
+      );
+      console.log(`[Thumbnails] Created new stub record ${idSerial}`);
+      res.json({
+        success: true,
+        status: 'created',
+        id_serial: idSerial,
+        externalKey: externalKey,
+        fileUrl: fileUrl
+      });
+    }
+
+  } catch (error) {
+    console.error('[Thumbnails] Error in upload-with-stub:', error.message);
+
+    // Handle Caspio 409 conflict (file already exists)
+    if (error.response?.status === 409) {
+      return res.status(409).json({
+        success: false,
+        error: 'File already exists in Caspio',
+        code: 'FILE_EXISTS'
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      error: 'Failed to upload and create stub',
       details: error.message
     });
   }
