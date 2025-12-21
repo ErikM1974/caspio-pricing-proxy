@@ -5,7 +5,9 @@
 
 const express = require('express');
 const router = express.Router();
-const { makeCaspioRequest, fetchAllCaspioPages } = require('../utils/caspio');
+const axios = require('axios');
+const { makeCaspioRequest, fetchAllCaspioPages, getCaspioAccessToken } = require('../utils/caspio');
+const config = require('../../config');
 
 // Simple cache (5-minute TTL)
 const thumbnailCache = new Map();
@@ -359,6 +361,126 @@ router.get('/thumbnails/sync-status', async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Failed to fetch sync status',
+      details: error.message
+    });
+  }
+});
+
+/**
+ * POST /api/thumbnails/reconcile-files
+ * Reconcile files in Caspio Files "Artwork" folder with database records
+ * Matches files by parsing ThumbnailID from filename and updates ExternalKey/FileUrl
+ *
+ * @returns {object} Summary of reconciliation results
+ */
+router.post('/thumbnails/reconcile-files', async (req, res) => {
+  try {
+    console.log('[Thumbnails] Starting file reconciliation');
+
+    // Step 1: List all files in Artwork folder using Caspio Files API v3
+    const token = await getCaspioAccessToken();
+    const artworkFolderKey = config.caspio.artworkFolderKey;
+    const filesUrl = `${config.caspio.apiV3BaseUrl}/files?externalKey=${artworkFolderKey}`;
+
+    const filesResponse = await axios.get(filesUrl, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'application/json'
+      }
+    });
+
+    const files = filesResponse.data?.Result || [];
+    console.log(`[Thumbnails] Found ${files.length} files in Artwork folder`);
+
+    // Step 2: Process each file
+    const details = [];
+    let matched = 0;
+    let notFoundInTable = 0;
+    let alreadyLinked = 0;
+    let errors = 0;
+
+    for (const file of files) {
+      const fileName = file.Name || file.FileName;
+      const fileExternalKey = file.ExternalKey;
+
+      // Parse ThumbnailID from filename: {ThumbnailID}_{description}.ext
+      const match = fileName.match(/^(\d+)_/);
+      if (!match) {
+        details.push({ fileName, status: 'invalid_filename_format' });
+        errors++;
+        continue;
+      }
+
+      const thumbnailId = parseInt(match[1], 10);
+
+      try {
+        // Look up record in database
+        const checkResponse = await makeCaspioRequest(
+          'get',
+          '/tables/Shopworks_Thumbnail_Report/records',
+          {
+            'q.where': `ID_Serial=${thumbnailId}`,
+            'q.select': 'ID_Serial,ExternalKey'
+          }
+        );
+
+        const records = Array.isArray(checkResponse) ? checkResponse : (checkResponse?.Result || []);
+
+        if (records.length === 0) {
+          details.push({ thumbnailId: thumbnailId.toString(), fileName, status: 'not_found_in_table' });
+          notFoundInTable++;
+          continue;
+        }
+
+        const record = records[0];
+
+        // Check if already linked with same key
+        if (record.ExternalKey === fileExternalKey) {
+          details.push({ thumbnailId: thumbnailId.toString(), status: 'already_linked', externalKey: fileExternalKey });
+          alreadyLinked++;
+          continue;
+        }
+
+        // Update the record with correct ExternalKey and FileUrl
+        const fileUrl = `https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/files/${fileExternalKey}`;
+
+        await makeCaspioRequest(
+          'put',
+          '/tables/Shopworks_Thumbnail_Report/records',
+          { 'q.where': `ID_Serial=${thumbnailId}` },
+          { ExternalKey: fileExternalKey, FileUrl: fileUrl }
+        );
+
+        details.push({ thumbnailId: thumbnailId.toString(), status: 'matched', externalKey: fileExternalKey });
+        matched++;
+      } catch (fileError) {
+        console.error(`[Thumbnails] Error processing file ${fileName}:`, fileError.message);
+        details.push({ thumbnailId: thumbnailId.toString(), fileName, status: 'error', error: fileError.message });
+        errors++;
+      }
+    }
+
+    const result = {
+      success: true,
+      summary: {
+        filesProcessed: files.length,
+        matched,
+        notFoundInTable,
+        alreadyLinked,
+        errors
+      },
+      details
+    };
+
+    console.log(`[Thumbnails] Reconciliation complete: ${matched} matched, ${notFoundInTable} not found, ${alreadyLinked} already linked, ${errors} errors`);
+
+    res.json(result);
+
+  } catch (error) {
+    console.error('[Thumbnails] Error during reconciliation:', error.message);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to reconcile files',
       details: error.message
     });
   }
