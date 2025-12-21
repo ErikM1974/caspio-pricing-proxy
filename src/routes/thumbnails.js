@@ -778,4 +778,40 @@ router.post('/thumbnails/upload-with-stub', upload.single('file'), async (req, r
   }
 });
 
+/**
+ * GET /api/thumbnails/all-ids
+ * Get all ID_Serial values from the thumbnail database
+ * Used by sync scripts to pre-filter files before uploading
+ *
+ * @returns {object} List of all thumbnail IDs in database
+ */
+router.get('/thumbnails/all-ids', async (req, res) => {
+  try {
+    console.log('[Thumbnails] Fetching all IDs from database');
+
+    const records = await fetchAllCaspioPages(
+      '/tables/Shopworks_Thumbnail_Report/records',
+      { 'q.select': 'ID_Serial' }
+    );
+
+    const ids = records.map(r => r.ID_Serial);
+
+    console.log(`[Thumbnails] Found ${ids.length} total records`);
+
+    res.json({
+      success: true,
+      count: ids.length,
+      ids: ids
+    });
+
+  } catch (error) {
+    console.error('[Thumbnails] Error fetching all IDs:', error.message);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch all IDs',
+      details: error.message
+    });
+  }
+});
+
 module.exports = router;
