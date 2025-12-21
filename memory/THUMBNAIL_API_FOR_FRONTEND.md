@@ -511,6 +511,152 @@ print(f"Already linked: {summary.get('alreadyLinked')}")
 
 ---
 
+## Uploaded IDs Endpoint (For Sync Scripts)
+
+Get all thumbnail IDs that already have images uploaded, with metadata for change detection.
+
+### Endpoint
+
+```
+GET /api/thumbnails/uploaded-ids
+```
+
+### Response
+
+```json
+{
+  "success": true,
+  "count": 369,
+  "uploaded": [
+    {"id": 104112, "size": 245678, "uploadedAt": "2025-01-06T14:30:00"},
+    {"id": 104115, "size": 189432, "uploadedAt": "2025-01-05T09:15:00"},
+    {"id": 106041, "size": null, "uploadedAt": null}
+  ]
+}
+```
+
+### Response Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | integer | Thumbnail ID (ID_Serial) |
+| `size` | integer/null | File size in bytes (null if not tracked) |
+| `uploadedAt` | string/null | ISO timestamp of upload (null if not tracked) |
+
+### Python Example
+
+```python
+def get_uploaded_ids() -> dict:
+    """Get all thumbnail IDs with images and their metadata."""
+    response = requests.get(f"{BASE_URL}/api/thumbnails/uploaded-ids")
+    return response.json()
+
+# Usage - Build lookup for change detection
+result = get_uploaded_ids()
+uploaded_map = {item["id"]: item for item in result["uploaded"]}
+
+# Check if file needs re-upload (size changed)
+def needs_upload(thumbnail_id: int, local_file_size: int) -> bool:
+    if thumbnail_id not in uploaded_map:
+        return True  # Not uploaded yet
+    existing = uploaded_map[thumbnail_id]
+    if existing["size"] is None:
+        return False  # Already uploaded but no size tracked
+    return existing["size"] != local_file_size  # Size mismatch = re-upload
+```
+
+---
+
+## Upload with Stub Endpoint (For Sync Scripts)
+
+Upload a thumbnail file and create/update the database record in one step. Saves file size and upload timestamp for change detection.
+
+### Endpoint
+
+```
+POST /api/thumbnails/upload-with-stub
+```
+
+### Request
+
+**Content-Type**: `multipart/form-data`
+
+**File naming**: `{ID_Serial}_{description}.ext`
+
+Example: `104385_Northwest_Custom_Logo.jpg`
+
+### Python Example
+
+```python
+def upload_thumbnail(file_path: str) -> dict:
+    """
+    Upload a thumbnail and create/update the database record.
+
+    File must be named: {ID_Serial}_{description}.ext
+    """
+    with open(file_path, 'rb') as f:
+        response = requests.post(
+            f"{BASE_URL}/api/thumbnails/upload-with-stub",
+            files={"file": f},
+            timeout=30
+        )
+    response.raise_for_status()
+    return response.json()
+
+# Usage
+result = upload_thumbnail("104385_Northwest_Custom_Logo.jpg")
+print(f"Action: {result['action']}")  # "created" or "updated"
+print(f"File URL: {result['fileUrl']}")
+```
+
+### Response
+
+```json
+{
+  "success": true,
+  "thumbnailId": 104385,
+  "externalKey": "abc-123-def-456",
+  "fileUrl": "https://caspio-pricing-proxy.../api/files/abc-123-def-456",
+  "action": "created"
+}
+```
+
+### Response Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `thumbnailId` | integer | The ID_Serial parsed from filename |
+| `externalKey` | string | Caspio Files key for the uploaded file |
+| `fileUrl` | string | Public URL to access the file |
+| `action` | string | `"created"` (new record) or `"updated"` (existing record) |
+
+### Error Responses
+
+**409 Conflict** - File already exists in Caspio Files:
+```json
+{
+  "success": false,
+  "error": "File already exists in Caspio",
+  "code": "FILE_EXISTS"
+}
+```
+
+**400 Bad Request** - Invalid filename format:
+```json
+{
+  "success": false,
+  "error": "Invalid filename format. Expected: {ID}_{description}.ext"
+}
+```
+
+### Notes
+
+- Saves `FileSizeNumber` and `timestamp_Uploaded` for change detection
+- Allows re-uploading to update existing records
+- If record exists in database, updates it; otherwise creates a new stub record
+
+---
+
 ## Related Endpoints
 
 - `GET /api/files/:externalKey` - Retrieve the actual image file using the externalKey
