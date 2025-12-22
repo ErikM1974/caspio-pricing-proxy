@@ -791,7 +791,8 @@ router.get('/thumbnails/all-ids', async (req, res) => {
 
     const records = await fetchAllCaspioPages(
       '/tables/Shopworks_Thumbnail_Report/records',
-      { 'q.select': 'ID_Serial' }
+      { 'q.select': 'ID_Serial' },
+      { maxPages: 100 }  // 100 pages × 1000 = 100,000 records max
     );
 
     const ids = records.map(r => r.ID_Serial);
