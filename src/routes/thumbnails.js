@@ -983,14 +983,13 @@ router.delete('/thumbnails/delete-by-year/:year', async (req, res) => {
           }
         }
 
-        // Step 2: Clear database fields
+        // Step 2: Clear database fields (timestamp_Uploaded is read-only, skip it)
         await makeCaspioRequest('put', '/tables/Shopworks_Thumbnail_Report/records',
           { 'q.where': `ID_Serial=${record.ID_Serial}` },
           {
             ExternalKey: '',
             FileUrl: '',
-            FileSizeNumber: null,
-            timestamp_Uploaded: null
+            FileSizeNumber: null
           }
         );
 
