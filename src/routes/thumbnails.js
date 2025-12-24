@@ -779,6 +779,94 @@ router.post('/thumbnails/upload-with-stub', upload.single('file'), async (req, r
 });
 
 /**
+ * GET /api/thumbnails/stats-by-year
+ * Get thumbnail statistics broken down by year
+ * Shows total records and uploaded records per year based on timestamp_Added
+ *
+ * @query {boolean} refresh - Set to 'true' to bypass cache
+ *
+ * @returns {object} Stats with total count and breakdown by year
+ */
+router.get('/thumbnails/stats-by-year', async (req, res) => {
+  try {
+    const refresh = req.query.refresh === 'true';
+
+    // Check cache (5 minute TTL)
+    const cacheKey = 'stats-by-year';
+    if (!refresh) {
+      const cached = syncStatusCache.get(cacheKey);
+      if (cached && (Date.now() - cached.timestamp < CACHE_TTL)) {
+        console.log('[Thumbnails] Cache hit for stats-by-year');
+        return res.json(cached.data);
+      }
+    }
+
+    console.log('[Thumbnails] Fetching stats by year');
+
+    // Fetch all records with timestamp_Added and ExternalKey
+    const records = await fetchAllCaspioPages(
+      '/tables/Shopworks_Thumbnail_Report/records',
+      {
+        'q.select': 'timestamp_Added,ExternalKey'
+      },
+      { maxPages: 100 }  // 100 pages × 1000 = 100,000 records max
+    );
+
+    console.log(`[Thumbnails] Processing ${records.length} records for year stats`);
+
+    // Group by year
+    const byYear = {};
+    const withUploads = {};
+
+    for (const record of records) {
+      // Extract year from timestamp_Added
+      const timestamp = record.timestamp_Added;
+      if (!timestamp) continue;
+
+      const year = new Date(timestamp).getFullYear().toString();
+
+      // Count total per year
+      byYear[year] = (byYear[year] || 0) + 1;
+
+      // Count records with ExternalKey populated (image uploaded)
+      if (record.ExternalKey && record.ExternalKey.trim() !== '') {
+        withUploads[year] = (withUploads[year] || 0) + 1;
+      }
+    }
+
+    // Sort years for consistent output
+    const sortedByYear = {};
+    const sortedWithUploads = {};
+    Object.keys(byYear).sort().forEach(year => {
+      sortedByYear[year] = byYear[year];
+      sortedWithUploads[year] = withUploads[year] || 0;
+    });
+
+    const result = {
+      success: true,
+      total: records.length,
+      byYear: sortedByYear,
+      withUploads: sortedWithUploads
+    };
+
+    console.log(`[Thumbnails] Stats by year complete: ${Object.keys(sortedByYear).length} years found`);
+
+    // Cache result
+    syncStatusCache.set(cacheKey, { data: result, timestamp: Date.now() });
+
+    res.json(result);
+
+  } catch (error) {
+    console.error('[Thumbnails] Error fetching stats by year:', error.message);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch stats by year',
+      details: error.message
+    });
+  }
+});
+
+/**
  * GET /api/thumbnails/all-ids
  * Get all ID_Serial values from the thumbnail database
  * Used by sync scripts to pre-filter files before uploading

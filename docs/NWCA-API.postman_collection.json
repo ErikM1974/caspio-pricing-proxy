@@ -5749,6 +5749,86 @@
 						"description": "POST /api/thumbnails/reconcile-files Reconcile files in Caspio Files \"Artwork\" folder with database records Matches files by parsing ThumbnailID from filename and updates ExternalKey/FileUrl"
 					},
 					"response": []
+				},
+				{
+					"name": "Create Thumbnails Backfill Fileurls",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/thumbnails/backfill-fileurls",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"thumbnails",
+								"backfill-fileurls"
+							]
+						},
+						"description": "POST /api/thumbnails/backfill-fileurls One-time backfill: Populate FileUrl for records with ExternalKey but empty FileUrl"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Thumbnails Uploaded Ids",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/thumbnails/uploaded-ids",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"thumbnails",
+								"uploaded-ids"
+							]
+						},
+						"description": "GET /api/thumbnails/uploaded-ids Get all ID_Serial values that already have images uploaded (ExternalKey populated)"
+					},
+					"response": []
+				},
+				{
+					"name": "Create Thumbnails Upload With Stub",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/thumbnails/upload-with-stub",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"thumbnails",
+								"upload-with-stub"
+							]
+						},
+						"description": "POST /api/thumbnails/upload-with-stub Upload a thumbnail file and create/update a stub record  Expects multipart/form-data with: - file: The image file (filename format: {ID_Serial}_{description}.ext)"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Thumbnails All Ids",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/thumbnails/all-ids",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"thumbnails",
+								"all-ids"
+							]
+						},
+						"description": "GET /api/thumbnails/all-ids Get all ID_Serial values from the thumbnail database Used by sync scripts to pre-filter files before uploading"
+					},
+					"response": []
 				}
 			]
 		},

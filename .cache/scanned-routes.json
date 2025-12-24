@@ -1,6 +1,6 @@
 {
-  "scannedAt": "2025-12-20T12:52:50.568Z",
-  "totalEndpoints": 175,
+  "scannedAt": "2025-12-22T03:19:18.187Z",
+  "totalEndpoints": 181,
   "endpoints": [
     {
       "method": "GET",
@@ -912,7 +912,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "files.js",
-      "lineNumber": 169
+      "lineNumber": 171
     },
     {
       "method": "GET",
@@ -923,7 +923,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "files.js",
-      "lineNumber": 224
+      "lineNumber": 226
     },
     {
       "method": "DELETE",
@@ -934,7 +934,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "files.js",
-      "lineNumber": 263
+      "lineNumber": 265
     },
     {
       "method": "POST",
@@ -945,7 +945,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "files.js",
-      "lineNumber": 300
+      "lineNumber": 302
     },
     {
       "method": "GET",
@@ -3564,7 +3564,7 @@
       ],
       "requestBody": null,
       "sourceFile": "thumbnails.js",
-      "lineNumber": 35
+      "lineNumber": 46
     },
     {
       "method": "PUT",
@@ -3575,7 +3575,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "thumbnails.js",
-      "lineNumber": 120
+      "lineNumber": 131
     },
     {
       "method": "GET",
@@ -3605,7 +3605,80 @@
       ],
       "requestBody": null,
       "sourceFile": "thumbnails.js",
-      "lineNumber": 217
+      "lineNumber": 232
+    },
+    {
+      "method": "GET",
+      "path": "/thumbnails/sync-status",
+      "fullPath": "/api/thumbnails/sync-status",
+      "category": "📋 General",
+      "description": "GET /api/thumbnails/sync-status Get sync status and statistics for the thumbnail table",
+      "queryParams": [
+        {
+          "key": "refresh",
+          "value": "",
+          "description": "refresh parameter",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "thumbnails.js",
+      "lineNumber": 310
+    },
+    {
+      "method": "POST",
+      "path": "/thumbnails/reconcile-files",
+      "fullPath": "/api/thumbnails/reconcile-files",
+      "category": "📋 General",
+      "description": "POST /api/thumbnails/reconcile-files Reconcile files in Caspio Files \"Artwork\" folder with database records Matches files by parsing ThumbnailID from filename and updates ExternalKey/FileUrl",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "thumbnails.js",
+      "lineNumber": 384
+    },
+    {
+      "method": "POST",
+      "path": "/thumbnails/backfill-fileurls",
+      "fullPath": "/api/thumbnails/backfill-fileurls",
+      "category": "📋 General",
+      "description": "POST /api/thumbnails/backfill-fileurls One-time backfill: Populate FileUrl for records with ExternalKey but empty FileUrl",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "thumbnails.js",
+      "lineNumber": 527
+    },
+    {
+      "method": "GET",
+      "path": "/thumbnails/uploaded-ids",
+      "fullPath": "/api/thumbnails/uploaded-ids",
+      "category": "📋 General",
+      "description": "GET /api/thumbnails/uploaded-ids Get all ID_Serial values that already have images uploaded (ExternalKey populated) Returns ID, file size, and upload timestamp for change detection",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "thumbnails.js",
+      "lineNumber": 590
+    },
+    {
+      "method": "POST",
+      "path": "/thumbnails/upload-with-stub",
+      "fullPath": "/api/thumbnails/upload-with-stub",
+      "category": "📋 General",
+      "description": "POST /api/thumbnails/upload-with-stub Upload a thumbnail file and create/update a stub record Saves file size and upload timestamp for change detection  Expects multipart/form-data with: - file: The image file (filename format: {ID_Serial}_{description}.ext)",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "thumbnails.js",
+      "lineNumber": 636
+    },
+    {
+      "method": "GET",
+      "path": "/thumbnails/all-ids",
+      "fullPath": "/api/thumbnails/all-ids",
+      "category": "📋 General",
+      "description": "GET /api/thumbnails/all-ids Get all ID_Serial values from the thumbnail database Used by sync scripts to pre-filter files before uploading",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "thumbnails.js",
+      "lineNumber": 788
     },
     {
       "method": "GET",
