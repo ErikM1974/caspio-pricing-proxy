@@ -5857,6 +5857,27 @@
 						"description": "GET /api/thumbnails/all-ids Get all ID_Serial values from the thumbnail database Used by sync scripts to pre-filter files before uploading"
 					},
 					"response": []
+				},
+				{
+					"name": "Delete Thumbnails Delete By Year",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/thumbnails/delete-by-year/:year",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"thumbnails",
+								"delete-by-year",
+								":year"
+							]
+						},
+						"description": "DELETE /api/thumbnails/delete-by-year/:year Bulk delete thumbnail files from Caspio storage for a specific year Frees up storage space by removing old uploads"
+					},
+					"response": []
 				}
 			]
 		},
@@ -7432,6 +7453,11 @@
 		},
 		{
 			"key": "thumbnailId",
+			"value": "value",
+			"type": "string"
+		},
+		{
+			"key": "year",
 			"value": "value",
 			"type": "string"
 		},

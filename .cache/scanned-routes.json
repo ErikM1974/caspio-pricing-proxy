@@ -1,6 +1,6 @@
 {
-  "scannedAt": "2025-12-24T00:27:31.864Z",
-  "totalEndpoints": 182,
+  "scannedAt": "2025-12-24T00:40:28.030Z",
+  "totalEndpoints": 183,
   "endpoints": [
     {
       "method": "GET",
@@ -3697,6 +3697,17 @@
       "requestBody": null,
       "sourceFile": "thumbnails.js",
       "lineNumber": 876
+    },
+    {
+      "method": "DELETE",
+      "path": "/thumbnails/delete-by-year/:year",
+      "fullPath": "/api/thumbnails/delete-by-year/:year",
+      "category": "📋 General",
+      "description": "DELETE /api/thumbnails/delete-by-year/:year Bulk delete thumbnail files from Caspio storage for a specific year Frees up storage space by removing old uploads",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "thumbnails.js",
+      "lineNumber": 915
     },
     {
       "method": "GET",
