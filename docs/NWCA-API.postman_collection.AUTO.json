@@ -5752,9 +5752,23 @@
 								"thumbnails",
 								"delete-by-year",
 								":year"
+							],
+							"query": [
+								{
+									"key": "limit",
+									"value": "",
+									"description": "Maximum results",
+									"disabled": true
+								},
+								{
+									"key": "offset",
+									"value": "",
+									"description": "offset parameter",
+									"disabled": true
+								}
 							]
 						},
-						"description": "DELETE /api/thumbnails/delete-by-year/:year Bulk delete thumbnail files from Caspio storage for a specific year Frees up storage space by removing old uploads"
+						"description": "Delete a delete-by-year record"
 					},
 					"response": []
 				}
