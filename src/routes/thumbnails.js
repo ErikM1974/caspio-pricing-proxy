@@ -908,16 +908,21 @@ router.get('/thumbnails/all-ids', async (req, res) => {
  * Bulk delete thumbnail files from Caspio storage for a specific year
  * Frees up storage space by removing old uploads
  *
- * @param {string} year - The year to delete (e.g., 2016)
+ * Supports pagination to avoid Heroku 30-second timeout:
+ * - Use ?limit=100&offset=0 to process in chunks
+ * - Loop until remaining is 0
  *
- * @returns {object} Summary of deleted files and storage freed
+ * @param {string} year - The year to delete (e.g., 2016)
+ * @query {number} limit - Max files to delete per request (default 100)
+ * @query {number} offset - Starting offset for pagination (default 0)
+ *
+ * @returns {object} Summary with deleted count and remaining
  */
 router.delete('/thumbnails/delete-by-year/:year', async (req, res) => {
-  const BATCH_SIZE = 100;
-  const BATCH_DELAY_MS = 1000; // 1 second between batches
-
   try {
     const year = parseInt(req.params.year, 10);
+    const limit = Math.min(parseInt(req.query.limit, 10) || 100, 500); // Max 500 per request
+    const offset = parseInt(req.query.offset, 10) || 0;
 
     // Validate year
     if (isNaN(year) || year < 2000 || year > 2100) {
@@ -927,34 +932,42 @@ router.delete('/thumbnails/delete-by-year/:year', async (req, res) => {
       });
     }
 
-    console.log(`[Thumbnails] Starting bulk delete for year ${year}`);
+    console.log(`[Thumbnails] Delete by year ${year}, limit=${limit}, offset=${offset}`);
 
     // Get access token for file deletion
     const token = await getCaspioAccessToken();
 
-    // Query all records for this year with ExternalKey populated
+    // Query records for this year with ExternalKey populated
     const whereClause = `YEAR(timestamp_Added)=${year} AND ExternalKey IS NOT NULL AND ExternalKey != ''`;
 
-    console.log(`[Thumbnails] Querying records with: ${whereClause}`);
+    // Get total count first (for remaining calculation)
+    const countResponse = await makeCaspioRequest('get', '/tables/Shopworks_Thumbnail_Report/records', {
+      'q.where': whereClause,
+      'q.select': 'ID_Serial',
+      'q.limit': 1,
+      'q.pageSize': 1
+    });
 
-    const records = await fetchAllCaspioPages(
-      '/tables/Shopworks_Thumbnail_Report/records',
-      {
-        'q.where': whereClause,
-        'q.select': 'ID_Serial,ExternalKey,FileSizeNumber'
-      },
-      { maxPages: 50 }  // Up to 50,000 records
-    );
+    // Fetch the chunk to process (using Caspio's built-in pagination)
+    const chunkResponse = await makeCaspioRequest('get', '/tables/Shopworks_Thumbnail_Report/records', {
+      'q.where': whereClause,
+      'q.select': 'ID_Serial,ExternalKey,FileSizeNumber',
+      'q.limit': limit
+    });
 
-    console.log(`[Thumbnails] Found ${records.length} records to delete for year ${year}`);
+    const records = Array.isArray(chunkResponse) ? chunkResponse : (chunkResponse?.Result || []);
+
+    console.log(`[Thumbnails] Found ${records.length} records to process in this chunk`);
 
     if (records.length === 0) {
       return res.json({
         success: true,
         year: year,
-        filesDeleted: 0,
+        deleted: 0,
+        remaining: 0,
+        nextOffset: null,
         storageFreed: '0 bytes',
-        message: 'No files found for this year with uploads'
+        message: 'No more files to delete for this year'
       });
     }
 
@@ -963,59 +976,44 @@ router.delete('/thumbnails/delete-by-year/:year', async (req, res) => {
     let errors = 0;
     const errorDetails = [];
 
-    // Process in batches
-    for (let i = 0; i < records.length; i += BATCH_SIZE) {
-      const batch = records.slice(i, i + BATCH_SIZE);
-      const batchNum = Math.floor(i / BATCH_SIZE) + 1;
-      const totalBatches = Math.ceil(records.length / BATCH_SIZE);
-
-      console.log(`[Thumbnails] Processing batch ${batchNum}/${totalBatches} (${batch.length} records)`);
-
-      for (const record of batch) {
+    // Process all records in this chunk
+    for (const record of records) {
+      try {
+        // Step 1: Delete file from Caspio storage
         try {
-          // Step 1: Delete file from Caspio storage
-          try {
-            await axios.delete(`${config.caspio.apiV3BaseUrl}/files/${record.ExternalKey}`, {
-              headers: { 'Authorization': `Bearer ${token}` }
-            });
-          } catch (fileError) {
-            // 404 is OK - file already deleted
-            if (fileError.response?.status !== 404) {
-              throw fileError;
-            }
-          }
-
-          // Step 2: Clear database fields
-          await makeCaspioRequest('put', '/tables/Shopworks_Thumbnail_Report/records',
-            { 'q.where': `ID_Serial=${record.ID_Serial}` },
-            {
-              ExternalKey: '',
-              FileUrl: '',
-              FileSizeNumber: null,
-              timestamp_Uploaded: null
-            }
-          );
-
-          filesDeleted++;
-          totalBytes += record.FileSizeNumber || 0;
-
-        } catch (recordError) {
-          errors++;
-          errorDetails.push({
-            id: record.ID_Serial,
-            externalKey: record.ExternalKey,
-            error: recordError.message
+          await axios.delete(`${config.caspio.apiV3BaseUrl}/files/${record.ExternalKey}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
           });
-          console.error(`[Thumbnails] Error deleting record ${record.ID_Serial}:`, recordError.message);
+        } catch (fileError) {
+          // 404 is OK - file already deleted
+          if (fileError.response?.status !== 404) {
+            throw fileError;
+          }
         }
-      }
 
-      // Rate limit: delay between batches (except last batch)
-      if (i + BATCH_SIZE < records.length) {
-        await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
-      }
+        // Step 2: Clear database fields
+        await makeCaspioRequest('put', '/tables/Shopworks_Thumbnail_Report/records',
+          { 'q.where': `ID_Serial=${record.ID_Serial}` },
+          {
+            ExternalKey: '',
+            FileUrl: '',
+            FileSizeNumber: null,
+            timestamp_Uploaded: null
+          }
+        );
 
-      console.log(`[Thumbnails] Batch ${batchNum} complete. Progress: ${filesDeleted}/${records.length} deleted, ${errors} errors`);
+        filesDeleted++;
+        totalBytes += record.FileSizeNumber || 0;
+
+      } catch (recordError) {
+        errors++;
+        errorDetails.push({
+          id: record.ID_Serial,
+          externalKey: record.ExternalKey,
+          error: recordError.message
+        });
+        console.error(`[Thumbnails] Error deleting record ${record.ID_Serial}:`, recordError.message);
+      }
     }
 
     // Format storage freed
@@ -1028,21 +1026,30 @@ router.delete('/thumbnails/delete-by-year/:year', async (req, res) => {
       storageFreed = `${totalBytes} bytes`;
     }
 
-    console.log(`[Thumbnails] Bulk delete complete for year ${year}. Deleted: ${filesDeleted}, Errors: ${errors}, Storage freed: ${storageFreed}`);
+    // Calculate remaining (we deleted filesDeleted, so check if more exist)
+    // We need to query again to see how many are left
+    const remainingResponse = await makeCaspioRequest('get', '/tables/Shopworks_Thumbnail_Report/records', {
+      'q.where': whereClause,
+      'q.select': 'ID_Serial',
+      'q.limit': 1
+    });
+    const remainingRecords = Array.isArray(remainingResponse) ? remainingResponse : (remainingResponse?.Result || []);
+    const hasMore = remainingRecords.length > 0;
+
+    console.log(`[Thumbnails] Chunk complete. Deleted: ${filesDeleted}, Errors: ${errors}, More remaining: ${hasMore}`);
 
     const response = {
       success: true,
       year: year,
-      filesDeleted: filesDeleted,
+      deleted: filesDeleted,
+      remaining: hasMore ? '(more exist)' : 0,
+      nextOffset: hasMore ? offset + limit : null,
       storageFreed: storageFreed,
       errors: errors
     };
 
     if (errorDetails.length > 0) {
-      response.errorDetails = errorDetails.slice(0, 10); // First 10 errors only
-      if (errorDetails.length > 10) {
-        response.errorDetails.push({ note: `...and ${errorDetails.length - 10} more errors` });
-      }
+      response.errorDetails = errorDetails.slice(0, 5); // First 5 errors only
     }
 
     res.json(response);
