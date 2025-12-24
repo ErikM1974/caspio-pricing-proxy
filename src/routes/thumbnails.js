@@ -940,15 +940,7 @@ router.delete('/thumbnails/delete-by-year/:year', async (req, res) => {
     // Query records for this year with ExternalKey populated
     const whereClause = `YEAR(timestamp_Added)=${year} AND ExternalKey IS NOT NULL AND ExternalKey != ''`;
 
-    // Get total count first (for remaining calculation)
-    const countResponse = await makeCaspioRequest('get', '/tables/Shopworks_Thumbnail_Report/records', {
-      'q.where': whereClause,
-      'q.select': 'ID_Serial',
-      'q.limit': 1,
-      'q.pageSize': 1
-    });
-
-    // Fetch the chunk to process (using Caspio's built-in pagination)
+    // Fetch the chunk to process
     const chunkResponse = await makeCaspioRequest('get', '/tables/Shopworks_Thumbnail_Report/records', {
       'q.where': whereClause,
       'q.select': 'ID_Serial,ExternalKey,FileSizeNumber',
