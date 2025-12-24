@@ -903,4 +903,158 @@ router.get('/thumbnails/all-ids', async (req, res) => {
   }
 });
 
+/**
+ * DELETE /api/thumbnails/delete-by-year/:year
+ * Bulk delete thumbnail files from Caspio storage for a specific year
+ * Frees up storage space by removing old uploads
+ *
+ * @param {string} year - The year to delete (e.g., 2016)
+ *
+ * @returns {object} Summary of deleted files and storage freed
+ */
+router.delete('/thumbnails/delete-by-year/:year', async (req, res) => {
+  const BATCH_SIZE = 100;
+  const BATCH_DELAY_MS = 1000; // 1 second between batches
+
+  try {
+    const year = parseInt(req.params.year, 10);
+
+    // Validate year
+    if (isNaN(year) || year < 2000 || year > 2100) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid year parameter. Must be between 2000-2100.'
+      });
+    }
+
+    console.log(`[Thumbnails] Starting bulk delete for year ${year}`);
+
+    // Get access token for file deletion
+    const token = await getCaspioAccessToken();
+
+    // Query all records for this year with ExternalKey populated
+    const whereClause = `YEAR(timestamp_Added)=${year} AND ExternalKey IS NOT NULL AND ExternalKey != ''`;
+
+    console.log(`[Thumbnails] Querying records with: ${whereClause}`);
+
+    const records = await fetchAllCaspioPages(
+      '/tables/Shopworks_Thumbnail_Report/records',
+      {
+        'q.where': whereClause,
+        'q.select': 'ID_Serial,ExternalKey,FileSizeNumber'
+      },
+      { maxPages: 50 }  // Up to 50,000 records
+    );
+
+    console.log(`[Thumbnails] Found ${records.length} records to delete for year ${year}`);
+
+    if (records.length === 0) {
+      return res.json({
+        success: true,
+        year: year,
+        filesDeleted: 0,
+        storageFreed: '0 bytes',
+        message: 'No files found for this year with uploads'
+      });
+    }
+
+    let filesDeleted = 0;
+    let totalBytes = 0;
+    let errors = 0;
+    const errorDetails = [];
+
+    // Process in batches
+    for (let i = 0; i < records.length; i += BATCH_SIZE) {
+      const batch = records.slice(i, i + BATCH_SIZE);
+      const batchNum = Math.floor(i / BATCH_SIZE) + 1;
+      const totalBatches = Math.ceil(records.length / BATCH_SIZE);
+
+      console.log(`[Thumbnails] Processing batch ${batchNum}/${totalBatches} (${batch.length} records)`);
+
+      for (const record of batch) {
+        try {
+          // Step 1: Delete file from Caspio storage
+          try {
+            await axios.delete(`${config.caspio.apiV3BaseUrl}/files/${record.ExternalKey}`, {
+              headers: { 'Authorization': `Bearer ${token}` }
+            });
+          } catch (fileError) {
+            // 404 is OK - file already deleted
+            if (fileError.response?.status !== 404) {
+              throw fileError;
+            }
+          }
+
+          // Step 2: Clear database fields
+          await makeCaspioRequest('put', '/tables/Shopworks_Thumbnail_Report/records',
+            { 'q.where': `ID_Serial=${record.ID_Serial}` },
+            {
+              ExternalKey: '',
+              FileUrl: '',
+              FileSizeNumber: null,
+              timestamp_Uploaded: null
+            }
+          );
+
+          filesDeleted++;
+          totalBytes += record.FileSizeNumber || 0;
+
+        } catch (recordError) {
+          errors++;
+          errorDetails.push({
+            id: record.ID_Serial,
+            externalKey: record.ExternalKey,
+            error: recordError.message
+          });
+          console.error(`[Thumbnails] Error deleting record ${record.ID_Serial}:`, recordError.message);
+        }
+      }
+
+      // Rate limit: delay between batches (except last batch)
+      if (i + BATCH_SIZE < records.length) {
+        await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
+      }
+
+      console.log(`[Thumbnails] Batch ${batchNum} complete. Progress: ${filesDeleted}/${records.length} deleted, ${errors} errors`);
+    }
+
+    // Format storage freed
+    let storageFreed;
+    if (totalBytes >= 1024 * 1024 * 1024) {
+      storageFreed = `~${(totalBytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+    } else if (totalBytes >= 1024 * 1024) {
+      storageFreed = `~${(totalBytes / (1024 * 1024)).toFixed(1)} MB`;
+    } else {
+      storageFreed = `${totalBytes} bytes`;
+    }
+
+    console.log(`[Thumbnails] Bulk delete complete for year ${year}. Deleted: ${filesDeleted}, Errors: ${errors}, Storage freed: ${storageFreed}`);
+
+    const response = {
+      success: true,
+      year: year,
+      filesDeleted: filesDeleted,
+      storageFreed: storageFreed,
+      errors: errors
+    };
+
+    if (errorDetails.length > 0) {
+      response.errorDetails = errorDetails.slice(0, 10); // First 10 errors only
+      if (errorDetails.length > 10) {
+        response.errorDetails.push({ note: `...and ${errorDetails.length - 10} more errors` });
+      }
+    }
+
+    res.json(response);
+
+  } catch (error) {
+    console.error('[Thumbnails] Error in bulk delete:', error.message);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to complete bulk delete',
+      details: error.message
+    });
+  }
+});
+
 module.exports = router;
