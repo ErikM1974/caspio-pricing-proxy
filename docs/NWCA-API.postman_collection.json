@@ -5811,6 +5811,34 @@
 					"response": []
 				},
 				{
+					"name": "Get Thumbnails Stats By Year",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/thumbnails/stats-by-year",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"thumbnails",
+								"stats-by-year"
+							],
+							"query": [
+								{
+									"key": "refresh",
+									"value": "",
+									"description": "refresh parameter",
+									"disabled": true
+								}
+							]
+						},
+						"description": "GET /api/thumbnails/stats-by-year Get thumbnail statistics broken down by year Shows total records and uploaded records per year based on timestamp_Added"
+					},
+					"response": []
+				},
+				{
 					"name": "Get Thumbnails All Ids",
 					"request": {
 						"method": "GET",
