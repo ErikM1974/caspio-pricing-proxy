@@ -59,6 +59,7 @@ See [Endpoint Creation Guide](memory/ENDPOINT_CREATION_GUIDE.md) for complete st
 - **Cart API** - Sessions, items, sizes
 - **Pricing API** - Tiers, costs, rules, bundles
   - BLANK Pricing ([Docs](memory/BLANK_PRICING.md)) - Blank garments without decoration
+  - Decorated Cap Prices - Pre-calculated cap prices by brand for "As low as" display
 - **Product API** - Search, details, categories
 - **Order API** - Orders, customers, dashboard
 - **Inventory API** - Stock levels, sizes
@@ -74,6 +75,23 @@ See [Endpoint Creation Guide](memory/ENDPOINT_CREATION_GUIDE.md) for complete st
 - **SanMar → ShopWorks API** ([Docs](memory/SANMAR_SHOPWORKS_API.md)) - Translate products to ShopWorks format
 
 ## Recent Features
+
+### Decorated Cap Prices API (v1.0.0 - 2025-12-25)
+Pre-calculated decorated cap prices for frontend "As low as: $XX" display
+- **Endpoint**: `GET /api/decorated-cap-prices?brand=Richardson&tier=72+`
+- **Purpose**: Returns all cap prices for a brand in one call (no individual API calls per product)
+- **Formula**: `Math.ceil((baseCapPrice / 0.6) + embroideryCost)` at 8,000 stitches
+- **Tiers**: "72+" (default), "48-71", "24-47"
+- **Cache**: 5 minutes with `?refresh=true` bypass
+
+**Response Example:**
+```json
+{
+  "brand": "Richardson",
+  "tier": "72+",
+  "prices": { "112": 20, "112FP": 20, "112FPR": 21, "115": 20, ... }
+}
+```
 
 ### API Usage Tracking & Monitoring (v1.1.0 - Updated 2025-12-17) ✅ SUCCESS
 Real-time tracking and caching reduced Caspio API usage from 630K → ~280K calls/month
@@ -173,6 +191,7 @@ GET /api/admin/metrics
 # Pricing
 GET /api/pricing-bundle?method=DTG&styleNumber=PC54
 GET /api/pricing-bundle?method=BLANK&styleNumber=PC54
+GET /api/decorated-cap-prices?brand=Richardson&tier=72+
 
 # Products
 GET /api/products/search?q=PC54&limit=10
@@ -198,6 +217,7 @@ Current caching (see [API Usage Tracking](memory/API_USAGE_TRACKING.md) for deta
 - **Pricing bundle**: 15 minutes (high impact - saves 7-9 calls per request)
 - **Product search**: 5 minutes (saves 2 calls per request)
 - **New products/Top sellers/Quote sessions**: 5 minutes each
+- **Decorated cap prices**: 5 minutes (saves 2 calls per request)
 - **Cache bypass**: Add `?refresh=true` to any cached endpoint
 
 ### API Usage Monitoring (Updated Dec 2025)
