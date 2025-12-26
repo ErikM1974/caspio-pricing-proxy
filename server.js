@@ -364,6 +364,11 @@ const thumbnailsRoutes = require('./src/routes/thumbnails');
 app.use('/api', thumbnailsRoutes);
 console.log('✓ Thumbnail routes loaded');
 
+// Decorated Cap Prices Routes
+const decoratedCapPricesRoutes = require('./src/routes/decorated-cap-prices');
+app.use('/api', decoratedCapPricesRoutes);
+console.log('✓ Decorated cap prices routes loaded');
+
 // --- Admin Metrics Endpoint ---
 const apiTracker = require('./src/utils/api-tracker');
 
