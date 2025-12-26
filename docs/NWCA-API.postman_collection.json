@@ -4312,6 +4312,45 @@
 			"description": "",
 			"item": [
 				{
+					"name": "Get Decorated Cap Prices",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/decorated-cap-prices?tier = '72+'=&refresh=",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"decorated-cap-prices"
+							],
+							"query": [
+								{
+									"key": "brand",
+									"value": "",
+									"description": "Brand name",
+									"disabled": true
+								},
+								{
+									"key": "tier = '72+'",
+									"value": "",
+									"description": "tier = '72+' parameter",
+									"disabled": false
+								},
+								{
+									"key": "refresh",
+									"value": "",
+									"description": "refresh parameter",
+									"disabled": false
+								}
+							]
+						},
+						"description": "- refresh (optional): Set to \"true\" to bypass cache"
+					},
+					"response": []
+				},
+				{
 					"name": "Get Gift Certificates",
 					"request": {
 						"method": "GET",

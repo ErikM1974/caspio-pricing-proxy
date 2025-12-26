@@ -1,6 +1,6 @@
 {
-  "scannedAt": "2025-12-24T00:46:58.975Z",
-  "totalEndpoints": 183,
+  "scannedAt": "2025-12-26T03:27:11.039Z",
+  "totalEndpoints": 184,
   "endpoints": [
     {
       "method": "GET",
@@ -823,6 +823,36 @@
       "requestBody": null,
       "sourceFile": "cart.js",
       "lineNumber": 616
+    },
+    {
+      "method": "GET",
+      "path": "/decorated-cap-prices",
+      "fullPath": "/api/decorated-cap-prices",
+      "category": "📋 General",
+      "description": "- refresh (optional): Set to \"true\" to bypass cache",
+      "queryParams": [
+        {
+          "key": "brand",
+          "value": "",
+          "description": "Brand name",
+          "disabled": true
+        },
+        {
+          "key": "tier = '72+'",
+          "value": "",
+          "description": "tier = '72+' parameter",
+          "disabled": false
+        },
+        {
+          "key": "refresh",
+          "value": "",
+          "description": "refresh parameter",
+          "disabled": false
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "decorated-cap-prices.js",
+      "lineNumber": 21
     },
     {
       "method": "GET",
