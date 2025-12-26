@@ -4612,7 +4612,7 @@
 								}
 							]
 						},
-						"description": "GET /api/manageorders/orders  Fetches orders by date range with multiple date filter options. Supports: date_Ordered, date_Invoiced, date_RequestedToShip, date_Produced, date_Shipped"
+						"description": "GET /api/manageorders/orders  Fetches orders by date range with multiple date filter options. Date filters: date_Ordered, date_Invoiced, date_RequestedToShip, date_Produced, date_Shipped Optional: id_Customer - Filter by specific customer ID (e.g., ?id_Customer=1821)"
 					},
 					"response": []
 				},

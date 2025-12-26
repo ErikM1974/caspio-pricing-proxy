@@ -1,5 +1,5 @@
 {
-  "scannedAt": "2025-12-26T03:27:11.039Z",
+  "scannedAt": "2025-12-26T14:44:20.246Z",
   "totalEndpoints": 184,
   "endpoints": [
     {
@@ -1257,7 +1257,7 @@
       "path": "/manageorders/orders",
       "fullPath": "/api/manageorders/orders",
       "category": "📋 General",
-      "description": "GET /api/manageorders/orders  Fetches orders by date range with multiple date filter options. Supports: date_Ordered, date_Invoiced, date_RequestedToShip, date_Produced, date_Shipped",
+      "description": "GET /api/manageorders/orders  Fetches orders by date range with multiple date filter options. Date filters: date_Ordered, date_Invoiced, date_RequestedToShip, date_Produced, date_Shipped Optional: id_Customer - Filter by specific customer ID (e.g., ?id_Customer=1821)",
       "queryParams": [
         {
           "key": "refresh",
@@ -1268,7 +1268,7 @@
       ],
       "requestBody": null,
       "sourceFile": "manageorders.js",
-      "lineNumber": 152
+      "lineNumber": 153
     },
     {
       "method": "GET",
@@ -1286,7 +1286,7 @@
       ],
       "requestBody": null,
       "sourceFile": "manageorders.js",
-      "lineNumber": 205
+      "lineNumber": 206
     },
     {
       "method": "GET",
@@ -1304,7 +1304,7 @@
       ],
       "requestBody": null,
       "sourceFile": "manageorders.js",
-      "lineNumber": 254
+      "lineNumber": 255
     },
     {
       "method": "GET",
@@ -1322,7 +1322,7 @@
       ],
       "requestBody": null,
       "sourceFile": "manageorders.js",
-      "lineNumber": 287
+      "lineNumber": 288
     },
     {
       "method": "GET",
@@ -1340,7 +1340,7 @@
       ],
       "requestBody": null,
       "sourceFile": "manageorders.js",
-      "lineNumber": 342
+      "lineNumber": 343
     },
     {
       "method": "GET",
@@ -1358,7 +1358,7 @@
       ],
       "requestBody": null,
       "sourceFile": "manageorders.js",
-      "lineNumber": 391
+      "lineNumber": 392
     },
     {
       "method": "GET",
@@ -1376,7 +1376,7 @@
       ],
       "requestBody": null,
       "sourceFile": "manageorders.js",
-      "lineNumber": 448
+      "lineNumber": 449
     },
     {
       "method": "GET",
@@ -1394,7 +1394,7 @@
       ],
       "requestBody": null,
       "sourceFile": "manageorders.js",
-      "lineNumber": 497
+      "lineNumber": 498
     },
     {
       "method": "GET",
@@ -1405,7 +1405,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "manageorders.js",
-      "lineNumber": 571
+      "lineNumber": 572
     },
     {
       "method": "POST",
@@ -1423,7 +1423,7 @@
       ],
       "requestBody": null,
       "sourceFile": "manageorders.js",
-      "lineNumber": 617
+      "lineNumber": 618
     },
     {
       "method": "GET",
@@ -1441,7 +1441,7 @@
       ],
       "requestBody": null,
       "sourceFile": "manageorders.js",
-      "lineNumber": 636
+      "lineNumber": 637
     },
     {
       "method": "GET",
