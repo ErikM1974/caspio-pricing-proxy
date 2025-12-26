@@ -147,7 +147,8 @@ const ORDERS_CACHE_DURATION = 60 * 60 * 1000; // 1 hour
  * GET /api/manageorders/orders
  *
  * Fetches orders by date range with multiple date filter options.
- * Supports: date_Ordered, date_Invoiced, date_RequestedToShip, date_Produced, date_Shipped
+ * Date filters: date_Ordered, date_Invoiced, date_RequestedToShip, date_Produced, date_Shipped
+ * Optional: id_Customer - Filter by specific customer ID (e.g., ?id_Customer=1821)
  */
 router.get('/manageorders/orders', async (req, res) => {
   console.log('GET /api/manageorders/orders requested');

@@ -110,6 +110,9 @@ Query orders by date range with multiple filter options.
 ```bash
 # Get October orders
 curl "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/manageorders/orders?date_Ordered_start=2025-10-01&date_Ordered_end=2025-10-31"
+
+# Get 2025 orders for a specific customer
+curl "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/manageorders/orders?date_Invoiced_start=2025-01-01&date_Invoiced_end=2025-12-31&id_Customer=1821"
 ```
 
 #### 4. GET /api/manageorders/orders/:order_no
