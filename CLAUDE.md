@@ -73,8 +73,42 @@ See [Endpoint Creation Guide](memory/ENDPOINT_CREATION_GUIDE.md) for complete st
 - **ManageOrders PUSH API** ([Docs](memory/MANAGEORDERS_PUSH_INTEGRATION.md)) - Send orders TO OnSite for production
 - **JDS Industries API** ([Docs](memory/JDS_INTEGRATION.md)) - Awards/engraving product integration
 - **SanMar → ShopWorks API** ([Docs](memory/SANMAR_SHOPWORKS_API.md)) - Translate products to ShopWorks format
+- **Designs API** - CRUD endpoints for InkSoft Transform store designs (5 endpoints)
 
 ## Recent Features
+
+### Designs API (v1.0.0 - 2025-12-31)
+CRUD endpoints for managing InkSoft Transform store designs.
+
+**Endpoints**:
+- `GET /api/designs/store/:store_id` - Get active designs for a store (sorted by sort_order)
+- `GET /api/designs` - Get all designs grouped by StoreName (admin view)
+- `POST /api/designs` - Create new design
+- `PUT /api/designs/:pk_id` - Update design by PK_ID
+- `DELETE /api/designs/:pk_id` - Soft delete (sets IsActive=false)
+
+**Table**: `Inksoft_Transform_Designs_seed`
+
+**Response Example** (GET /api/designs/store/122087):
+```json
+{
+  "success": true,
+  "store_id": 122087,
+  "designs": [
+    {
+      "PK_ID": 6,
+      "StoreName": "Hops n Drops",
+      "StoreId": 122087,
+      "id_Design": 31071,
+      "DesignName": "Hops N Drops",
+      "is_default": true,
+      "detection_key": "",
+      "multi_select": true,
+      "sort_order": 1
+    }
+  ]
+}
+```
 
 ### Decorated Cap Prices API (v1.0.0 - 2025-12-25)
 Pre-calculated decorated cap prices for frontend "As low as: $XX" display
@@ -203,6 +237,13 @@ GET /api/manageorders/orders/138145
 
 # Inventory
 GET /api/manageorders/inventorylevels?PartNumber=PC54
+
+# Designs (InkSoft Transform)
+GET /api/designs/store/122087
+GET /api/designs
+POST /api/designs
+PUT /api/designs/:pk_id
+DELETE /api/designs/:pk_id
 ```
 
 ## Important Notes

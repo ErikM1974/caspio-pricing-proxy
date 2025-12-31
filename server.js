@@ -369,6 +369,11 @@ const decoratedCapPricesRoutes = require('./src/routes/decorated-cap-prices');
 app.use('/api', decoratedCapPricesRoutes);
 console.log('✓ Decorated cap prices routes loaded');
 
+// Designs Routes (InkSoft Transform integration)
+const designsRoutes = require('./src/routes/designs');
+app.use('/api', designsRoutes);
+console.log('✓ Designs routes loaded');
+
 // --- Admin Metrics Endpoint ---
 const apiTracker = require('./src/utils/api-tracker');
 
