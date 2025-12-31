@@ -21,7 +21,7 @@ router.get('/designs/store/:store_id', async (req, res) => {
     try {
         const resource = `/tables/${TABLE_NAME}/records`;
         const params = {
-            'q.where': `StoreId=${store_id} AND IsActive=true`,
+            'q.where': `StoreId=${store_id} AND IsActive=1`,
             'q.orderBy': 'sort_order ASC'
         };
 
@@ -43,7 +43,7 @@ router.get('/designs', async (req, res) => {
     try {
         const resource = `/tables/${TABLE_NAME}/records`;
         const params = {
-            'q.where': 'IsActive=true',
+            'q.where': 'IsActive=1',
             'q.orderBy': 'StoreName ASC, sort_order ASC'
         };
 
@@ -74,8 +74,8 @@ router.post('/designs', express.json(), async (req, res) => {
     try {
         const requestData = { ...req.body };
 
-        // Auto-set IsActive to true for new records
-        requestData.IsActive = true;
+        // Auto-set IsActive to true for new records (Caspio uses 1/0 for Yes/No)
+        requestData.IsActive = 1;
 
         // Convert null detection_key to empty string
         if (requestData.detection_key === null || requestData.detection_key === undefined) {
@@ -159,7 +159,7 @@ router.delete('/designs/:pk_id', async (req, res) => {
         const token = await getCaspioAccessToken();
         const url = `${caspioApiBaseUrl}/tables/${TABLE_NAME}/records?q.where=PK_ID=${pk_id}`;
 
-        // Soft delete: set IsActive to false
+        // Soft delete: set IsActive to false (Caspio uses 1/0 for Yes/No)
         await axios({
             method: 'put',
             url: url,
@@ -167,7 +167,7 @@ router.delete('/designs/:pk_id', async (req, res) => {
                 'Authorization': `Bearer ${token}`,
                 'Content-Type': 'application/json'
             },
-            data: { IsActive: false },
+            data: { IsActive: 0 },
             timeout: 15000
         });
 
