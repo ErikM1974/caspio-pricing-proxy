@@ -599,7 +599,7 @@ router.get('/pricing-bundle', async (req, res) => {
           TierLabel: '1-23',
           MinQuantity: 1,
           MaxQuantity: 23,
-          MarginDenominator: 0.6,
+          MarginDenominator: 0.57,
           TargetMargin: 0,
           LTM_Fee: 50
         });
