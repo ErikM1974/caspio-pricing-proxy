@@ -18,6 +18,7 @@ Detailed documentation organized by topic:
 - **[Git Workflow](memory/GIT_WORKFLOW.md)** - Branch strategy and deployment process (develop → main → Heroku)
 - **[Gift Certificates API](memory/GIFT_CERTIFICATES_API.md)** - Gift certificate lookup and balance checking (v1.0.0 - 2025-12-18)
 - **[Daily Sales Archive API](memory/DAILY_SALES_API.md)** - YTD tracking beyond ManageOrders 60-day limit (v1.0.0 - 2026-01-01)
+- **[2026 Margin Update](memory/2026_MARGIN_UPDATE.md)** - Changed from 40% to 43% margin (0.6 → 0.57 denominator) - 2026-01-02
 
 ## Quick Reference
 

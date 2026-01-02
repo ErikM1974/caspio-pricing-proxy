@@ -64,19 +64,31 @@ router.get('/decorated-cap-prices', async (req, res) => {
     const embroideryCost = tierCost.EmbroideryCost;
     console.log(`Embroidery cost for tier ${tier}: $${embroideryCost}`);
 
-    // 3. Calculate decorated price for each style
-    // Formula: decoratedPrice = Math.ceil((baseCapPrice / 0.6) + embroideryCost)
+    // 3. Query margin denominator for EmbroideryCaps at the specified tier
+    const marginTiers = await fetchAllCaspioPages('/tables/Pricing_Tiers/records', {
+      'q.where': `DecorationMethod='EmbroideryCaps' AND TierLabel='${tier}'`,
+      'q.select': 'MarginDenominator'
+    });
+
+    // Get margin (fallback to 0.6 if not found for safety)
+    const marginDenominator = marginTiers.length > 0 && marginTiers[0].MarginDenominator
+      ? marginTiers[0].MarginDenominator
+      : 0.6;
+    console.log(`Margin denominator for EmbroideryCaps tier ${tier}: ${marginDenominator}`);
+
+    // 4. Calculate decorated price for each style
+    // Formula: decoratedPrice = Math.ceil((baseCapPrice / marginDenominator) + embroideryCost)
     const prices = {};
     products.forEach(product => {
       if (product.STYLE && product.MAX_PRICE) {
         const basePrice = parseFloat(product.MAX_PRICE);
-        const decoratedPrice = Math.ceil((basePrice / 0.6) + embroideryCost);
+        const decoratedPrice = Math.ceil((basePrice / marginDenominator) + embroideryCost);
         prices[product.STYLE] = decoratedPrice;
       }
     });
     console.log(`Calculated prices for ${Object.keys(prices).length} styles`);
 
-    const response = { brand, tier, prices };
+    const response = { brand, tier, marginDenominator, prices };
 
     // Cache result
     decoratedCapPricesCache.set(cacheKey, { data: response, timestamp: Date.now() });
