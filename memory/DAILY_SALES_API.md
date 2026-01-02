@@ -1,8 +1,8 @@
 # Daily Sales Archive API
 
-**Last Updated:** 2026-01-01
+**Last Updated:** 2026-01-02
 **Status:** Production Ready
-**Version:** 1.0.0
+**Version:** 1.1.0
 
 ## Overview
 
@@ -370,7 +370,176 @@ def bulk_archive(records):
 
 ---
 
+## Per-Rep Daily Sales Archive
+
+Track daily sales broken down by sales rep for team performance YTD tracking.
+
+**Caspio Table:** `NW_Daily_Sales_By_Rep`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| SalesDate | Date/Time | Sales date |
+| RepName | Text (255) | Normalized rep name (e.g., "Nika Lao", "House", "Other") |
+| Revenue | Currency | Rep's revenue for that day |
+| OrderCount | Number | Rep's order count for that day |
+| ArchivedAt | Timestamp | When record was created/updated |
+
+---
+
+### 5. GET /api/caspio/daily-sales-by-rep
+
+Fetch daily sales breakdown by rep for a date range.
+
+#### Query Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `start` | string | Yes | Start date (YYYY-MM-DD) |
+| `end` | string | Yes | End date (YYYY-MM-DD) |
+
+#### Example Request
+
+```bash
+curl "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/caspio/daily-sales-by-rep?start=2026-01-01&end=2026-01-31"
+```
+
+#### Example Response
+
+```json
+{
+  "success": true,
+  "start": "2026-01-01",
+  "end": "2026-01-31",
+  "days": [
+    {
+      "date": "2026-01-02",
+      "reps": [
+        { "name": "Nika Lao", "revenue": 5234.50, "orderCount": 12 },
+        { "name": "Taneisha Clark", "revenue": 2150.00, "orderCount": 8 }
+      ]
+    },
+    {
+      "date": "2026-01-03",
+      "reps": [
+        { "name": "Nika Lao", "revenue": 3100.00, "orderCount": 7 },
+        { "name": "Ruthie Nhoung", "revenue": 1200.00, "orderCount": 4 }
+      ]
+    }
+  ],
+  "summary": {
+    "reps": [
+      { "name": "Nika Lao", "totalRevenue": 45000.00, "totalOrders": 112 },
+      { "name": "Taneisha Clark", "totalRevenue": 28000.00, "totalOrders": 72 }
+    ],
+    "totalRevenue": 85000.00,
+    "totalOrders": 220
+  }
+}
+```
+
+---
+
+### 6. GET /api/caspio/daily-sales-by-rep/ytd
+
+Get Year-to-Date totals aggregated by rep.
+
+#### Query Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `year` | number | No | Year to calculate YTD for (default: current year) |
+
+#### Example Request
+
+```bash
+curl "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/caspio/daily-sales-by-rep/ytd?year=2026"
+```
+
+#### Example Response
+
+```json
+{
+  "success": true,
+  "year": 2026,
+  "reps": [
+    { "name": "Nika Lao", "totalRevenue": 125000.00, "totalOrders": 320 },
+    { "name": "Taneisha Clark", "totalRevenue": 85000.00, "totalOrders": 210 },
+    { "name": "Ruthie Nhoung", "totalRevenue": 45000.00, "totalOrders": 98 },
+    { "name": "House", "totalRevenue": 12000.00, "totalOrders": 45 },
+    { "name": "Other", "totalRevenue": 5000.00, "totalOrders": 22 }
+  ],
+  "lastArchivedDate": "2026-03-15",
+  "totalRevenue": 272000.00,
+  "totalOrders": 695
+}
+```
+
+---
+
+### 7. POST /api/caspio/daily-sales-by-rep
+
+Archive a single day's per-rep sales data. Upserts each rep (updates if exists, inserts if not).
+
+#### Request Body
+
+```json
+{
+  "date": "2026-01-15",
+  "reps": [
+    { "name": "Nika Lao", "revenue": 5234.50, "orderCount": 12 },
+    { "name": "Taneisha Clark", "revenue": 2150.00, "orderCount": 8 },
+    { "name": "Ruthie Nhoung", "revenue": 890.25, "orderCount": 3 },
+    { "name": "House", "revenue": 450.00, "orderCount": 2 },
+    { "name": "Other", "revenue": 125.00, "orderCount": 1 }
+  ]
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `date` | string | Yes | Date (YYYY-MM-DD) |
+| `reps` | array | Yes | Array of rep sales data |
+| `reps[].name` | string | Yes | Rep name |
+| `reps[].revenue` | number | Yes | Rep's revenue |
+| `reps[].orderCount` | number | Yes | Rep's order count |
+
+#### Example Request
+
+```bash
+curl -X POST "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/caspio/daily-sales-by-rep" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "date": "2026-01-15",
+    "reps": [
+      { "name": "Nika Lao", "revenue": 5234.50, "orderCount": 12 },
+      { "name": "Taneisha Clark", "revenue": 2150.00, "orderCount": 8 }
+    ]
+  }'
+```
+
+#### Example Response
+
+```json
+{
+  "success": true,
+  "date": "2026-01-15",
+  "repsArchived": 5,
+  "created": 3,
+  "updated": 2,
+  "message": "Archived 5 reps for 2026-01-15"
+}
+```
+
+---
+
 ## Changelog
+
+### v1.1.0 - 2026-01-02
+- Added per-rep daily sales archive endpoints:
+  - `GET /api/caspio/daily-sales-by-rep` - Date range query by rep
+  - `GET /api/caspio/daily-sales-by-rep/ytd` - Year-to-date by rep
+  - `POST /api/caspio/daily-sales-by-rep` - Archive per-rep data for a date
+- New Caspio table: `NW_Daily_Sales_By_Rep`
 
 ### v1.0.0 - 2026-01-01
 - Initial release

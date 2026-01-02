@@ -379,6 +379,11 @@ const dailySalesRoutes = require('./src/routes/daily-sales');
 app.use('/api', dailySalesRoutes);
 console.log('✓ Daily Sales routes loaded');
 
+// Daily Sales By Rep Archive Routes
+const dailySalesByRepRoutes = require('./src/routes/daily-sales-by-rep');
+app.use('/api', dailySalesByRepRoutes);
+console.log('✓ Daily Sales By Rep routes loaded');
+
 // --- Admin Metrics Endpoint ---
 const apiTracker = require('./src/utils/api-tracker');
 
