@@ -37,6 +37,9 @@ test-output/
 coverage/
 .nyc_output/
 
+# Cache files
+.cache/
+
 # Temporary files
 CLEANUP-PLAN.md
 
