@@ -1,14 +1,18 @@
-# Message to Claude Pricing (Frontend) - 2026 Margin Update
+# Message to Claude Pricing (Frontend) - 2026 Pricing Update
 
 **Date**: January 2, 2026
 **From**: Claude (caspio-pricing-proxy backend)
-**Subject**: 2026 Pricing Margin Update - API Changes
+**Subject**: 2026 Pricing Update - Margins + DTG Costs
 
 ---
 
 ## Summary
 
-We've updated the pricing margins for 2026. The `MarginDenominator` in the Caspio `Pricing_Tiers` table has been changed from **0.6** (40% margin) to **0.57** (43% margin) for most decoration methods.
+We've updated pricing for 2026 with three changes:
+
+1. **Margin Increase**: 40% → 43% (MarginDenominator 0.6 → 0.57)
+2. **DTG Print Costs**: +$0.50 across all print locations
+3. **DTF Costs**: +$0.50 transfer, labor $2.00 → $2.50
 
 **Effective immediately** - the API is already returning the new values.
 
@@ -137,6 +141,88 @@ ScreenPrint keeps its **tiered margin structure** (unchanged):
 
 ---
 
+## DTG Print Cost Update (+$0.50)
+
+All DTG print costs increased by $0.50 across all locations and tiers.
+
+### Updated DTG Costs
+
+#### Left Chest (LC)
+| Tier | Old | New |
+|------|-----|-----|
+| 12-23 | $8.00 | **$8.50** |
+| 24-47 | $7.00 | **$7.50** |
+| 48-71 | $6.00 | **$6.50** |
+| 72+ | $5.00 | **$5.50** |
+
+#### Full Front (FF) / Full Back (FB)
+| Tier | Old | New |
+|------|-----|-----|
+| 12-23 | $10.50 | **$11.00** |
+| 24-47 | $9.50 | **$10.00** |
+| 48-71 | $7.00 | **$7.50** |
+| 72+ | $6.25 | **$6.75** |
+
+#### Jumbo Front (JF) / Jumbo Back (JB)
+| Tier | Old | New |
+|------|-----|-----|
+| 12-23 | $12.50 | **$13.00** |
+| 24-47 | $11.50 | **$12.00** |
+| 48-71 | $9.00 | **$9.50** |
+| 72+ | $8.25 | **$8.75** |
+
+### DTG Endpoints Affected
+
+| Endpoint | Auto-Updates? |
+|----------|---------------|
+| `/api/dtg-costs` | ✅ Yes |
+| `/api/pricing-bundle?method=DTG` | ✅ Yes (15-min cache) |
+| `/api/dtg/product-bundle` | ✅ Yes |
+
+**Frontend action**: No changes needed - API returns updated costs automatically.
+
+---
+
+## DTF Pricing Update (+$0.50 Transfer, +$0.50 Labor)
+
+DTF transfer costs increased by $0.50, and pressing labor increased from $2.00 to $2.50.
+
+### Updated DTF Costs
+
+#### Small (Up to 5" x 5")
+| Tier | Transfer | Labor |
+|------|----------|-------|
+| 10-23 | **$6.50** | **$2.50** |
+| 24-47 | **$5.75** | **$2.50** |
+| 48-71 | **$4.50** | **$2.50** |
+| 72+ | **$3.75** | **$2.50** |
+
+#### Medium (Up to 10" x 10")
+| Tier | Transfer | Labor |
+|------|----------|-------|
+| 10-23 | **$10.00** | **$2.50** |
+| 24-47 | **$8.75** | **$2.50** |
+| 48-71 | **$7.00** | **$2.50** |
+| 72+ | **$5.50** | **$2.50** |
+
+#### Large (Up to 12" x 16")
+| Tier | Transfer | Labor |
+|------|----------|-------|
+| 10-23 | **$15.00** | **$2.50** |
+| 24-47 | **$13.00** | **$2.50** |
+| 48-71 | **$10.50** | **$2.50** |
+| 72+ | **$8.50** | **$2.50** |
+
+### DTF Endpoint Affected
+
+| Endpoint | Auto-Updates? |
+|----------|---------------|
+| `/api/pricing-bundle?method=DTF` | ✅ Yes (15-min cache) |
+
+**Frontend action**: No changes needed - API returns updated costs automatically.
+
+---
+
 ## Frontend Checklist
 
 | Item | Action Required? |
@@ -154,7 +240,7 @@ ScreenPrint keeps its **tiered margin structure** (unchanged):
 To verify the new pricing:
 
 ```bash
-# Check pricing bundle
+# Check margin in pricing bundle
 curl "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/pricing-bundle?method=DTG&styleNumber=PC54&refresh=true"
 
 # Check decorated cap prices
@@ -162,9 +248,14 @@ curl "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/decorated-cap-
 
 # Check raw tiers
 curl "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/pricing-tiers"
+
+# Check DTG costs
+curl "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/dtg-costs"
 ```
 
-Look for `MarginDenominator: 0.57` in responses (except ScreenPrint).
+**Verify**:
+- `MarginDenominator: 0.57` in responses (except ScreenPrint)
+- DTG costs show new values (e.g., LC 72+ = $5.50, FF 72+ = $6.75)
 
 ---
 
@@ -173,12 +264,14 @@ Look for `MarginDenominator: 0.57` in responses (except ScreenPrint).
 Please create a memory file in your frontend project documenting:
 
 1. **2026 margin update**: 40% → 43% (0.6 → 0.57)
-2. **Effective date**: January 2, 2026
-3. **ScreenPrint exception**: Keeps tiered 0.45-0.6 structure
-4. **API endpoints**: All return updated values automatically
-5. **Price formula**: `Price = Cost / MarginDenominator`
+2. **2026 DTG costs**: +$0.50 across all print locations
+3. **2026 DTF costs**: +$0.50 transfer, labor $2.00 → $2.50
+4. **Effective date**: January 2, 2026
+5. **ScreenPrint exception**: Keeps tiered 0.45-0.6 margins
+6. **API endpoints**: All return updated values automatically
+7. **Price formula**: `Price = Cost / MarginDenominator`
 
-Suggested filename: `memory/2026_PRICING_MARGINS.md`
+Suggested filename: `memory/2026_PRICING_UPDATE.md`
 
 ---
 
@@ -190,4 +283,9 @@ The backend API documentation is in:
 
 ---
 
-**TL;DR**: Margins increased from 40% to 43%. API returns updated values automatically. Customers see ~5.3% price increase. No frontend code changes required unless you have hardcoded margin values.
+**TL;DR**:
+1. Margins increased from 40% to 43% (~5.3% price increase on garments)
+2. DTG print costs increased by $0.50 across all locations
+3. DTF transfer costs +$0.50, labor $2.00 → $2.50
+
+API returns all updated values automatically. No frontend code changes required unless you have hardcoded values.
