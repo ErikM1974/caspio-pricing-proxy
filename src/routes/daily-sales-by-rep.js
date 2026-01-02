@@ -266,7 +266,6 @@ router.post('/caspio/daily-sales-by-rep', async (req, res) => {
     }
   }
 
-  const timestamp = new Date().toISOString();
   const results = { created: 0, updated: 0, errors: [] };
 
   try {
@@ -286,14 +285,13 @@ router.post('/caspio/daily-sales-by-rep', async (req, res) => {
             { 'q.where': `SalesDate='${date}' AND RepName='${rep.name}'` },
             {
               Revenue: parseFloat(rep.revenue),
-              OrderCount: parseInt(rep.orderCount),
-              ArchivedAt: timestamp
+              OrderCount: parseInt(rep.orderCount)
             }
           );
           results.updated++;
           console.log(`Updated ${rep.name} for ${date}: $${rep.revenue}`);
         } else {
-          // Insert new record
+          // Insert new record (ArchivedAt auto-set by Caspio timestamp field)
           await makeCaspioRequest(
             'post',
             `/tables/${TABLE_NAME}/records`,
@@ -302,8 +300,7 @@ router.post('/caspio/daily-sales-by-rep', async (req, res) => {
               SalesDate: date,
               RepName: rep.name,
               Revenue: parseFloat(rep.revenue),
-              OrderCount: parseInt(rep.orderCount),
-              ArchivedAt: timestamp
+              OrderCount: parseInt(rep.orderCount)
             }
           );
           results.created++;
