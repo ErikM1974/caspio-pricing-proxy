@@ -1,6 +1,6 @@
 {
-  "scannedAt": "2025-12-26T14:44:20.246Z",
-  "totalEndpoints": 184,
+  "scannedAt": "2026-01-02T13:19:31.234Z",
+  "totalEndpoints": 196,
   "endpoints": [
     {
       "method": "GET",
@@ -826,6 +826,123 @@
     },
     {
       "method": "GET",
+      "path": "/caspio/daily-sales-by-rep",
+      "fullPath": "/api/caspio/daily-sales-by-rep",
+      "category": "📋 General",
+      "description": "GET /api/caspio/daily-sales-by-rep Fetch archived daily sales by rep for a date range  Query params: - start: Start date (YYYY-MM-DD) - required - end: End date (YYYY-MM-DD) - required  Returns: { days: [{ date, reps: [...] }], summary: { reps: [...], totalRevenue, totalOrders } }",
+      "queryParams": [
+        {
+          "key": "start",
+          "value": "",
+          "description": "start parameter",
+          "disabled": true
+        },
+        {
+          "key": "end",
+          "value": "",
+          "description": "end parameter",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "daily-sales-by-rep.js",
+      "lineNumber": 20
+    },
+    {
+      "method": "GET",
+      "path": "/caspio/daily-sales-by-rep/ytd",
+      "fullPath": "/api/caspio/daily-sales-by-rep/ytd",
+      "category": "📋 General",
+      "description": "GET /api/caspio/daily-sales-by-rep/ytd Get Year-to-Date summary aggregated by rep  Query params: - year: Year to calculate YTD for (default: current year)  Returns: { year, reps: [...], lastArchivedDate, totalRevenue, totalOrders }",
+      "queryParams": [
+        {
+          "key": "year",
+          "value": "",
+          "description": "year parameter",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "daily-sales-by-rep.js",
+      "lineNumber": 140
+    },
+    {
+      "method": "POST",
+      "path": "/caspio/daily-sales-by-rep",
+      "fullPath": "/api/caspio/daily-sales-by-rep",
+      "category": "📋 General",
+      "description": "POST /api/caspio/daily-sales-by-rep Archive a single day's per-rep sales data to Caspio  Body: - date: The sales date (YYYY-MM-DD) - required - reps: Array of { name, revenue, orderCount } - required  Returns: { success: true, date, repsArchived, message }",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "daily-sales-by-rep.js",
+      "lineNumber": 227
+    },
+    {
+      "method": "GET",
+      "path": "/caspio/daily-sales",
+      "fullPath": "/api/caspio/daily-sales",
+      "category": "📋 General",
+      "description": "GET /api/caspio/daily-sales Fetch archived daily sales records from Caspio  Query params: - start: Start date (YYYY-MM-DD) - required - end: End date (YYYY-MM-DD) - required  Returns: Array of { Date, Revenue, OrderCount, CapturedAt }",
+      "queryParams": [
+        {
+          "key": "start",
+          "value": "",
+          "description": "start parameter",
+          "disabled": true
+        },
+        {
+          "key": "end",
+          "value": "",
+          "description": "end parameter",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "daily-sales.js",
+      "lineNumber": 17
+    },
+    {
+      "method": "POST",
+      "path": "/caspio/daily-sales",
+      "fullPath": "/api/caspio/daily-sales",
+      "category": "📋 General",
+      "description": "POST /api/caspio/daily-sales Archive a single day's sales data to Caspio  Body: - date: The sales date (YYYY-MM-DD) - required - revenue: Total invoiced revenue for that day - required - orderCount: Number of orders invoiced - required  Returns: { success: true, record: {...} }",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "daily-sales.js",
+      "lineNumber": 91
+    },
+    {
+      "method": "GET",
+      "path": "/caspio/daily-sales/ytd",
+      "fullPath": "/api/caspio/daily-sales/ytd",
+      "category": "📋 General",
+      "description": "GET /api/caspio/daily-sales/ytd Get Year-to-Date summary from archived data  Query params: - year: Year to calculate YTD for (default: current year)  Returns: { ytdRevenue, ytdOrders, daysWithData, lastArchivedDate }",
+      "queryParams": [
+        {
+          "key": "year",
+          "value": "",
+          "description": "year parameter",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "daily-sales.js",
+      "lineNumber": 201
+    },
+    {
+      "method": "POST",
+      "path": "/caspio/daily-sales/bulk",
+      "fullPath": "/api/caspio/daily-sales/bulk",
+      "category": "📋 General",
+      "description": "POST /api/caspio/daily-sales/bulk Archive multiple days of sales data at once (for backfilling)  Body: Array of { date, revenue, orderCount }  Returns: { success: true, created: N, updated: M, errors: [] }",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "daily-sales.js",
+      "lineNumber": 255
+    },
+    {
+      "method": "GET",
       "path": "/decorated-cap-prices",
       "fullPath": "/api/decorated-cap-prices",
       "category": "📋 General",
@@ -853,6 +970,61 @@
       "requestBody": null,
       "sourceFile": "decorated-cap-prices.js",
       "lineNumber": 21
+    },
+    {
+      "method": "GET",
+      "path": "/designs/store/:store_id",
+      "fullPath": "/api/designs/store/:store_id",
+      "category": "📋 General",
+      "description": "GET /api/designs/store/:store_id - Get active designs for a specific store",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "designs.js",
+      "lineNumber": 14
+    },
+    {
+      "method": "GET",
+      "path": "/designs",
+      "fullPath": "/api/designs",
+      "category": "📋 General",
+      "description": "GET /api/designs - Get all active designs grouped by StoreName (admin view)",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "designs.js",
+      "lineNumber": 42
+    },
+    {
+      "method": "POST",
+      "path": "/designs",
+      "fullPath": "/api/designs",
+      "category": "📋 General",
+      "description": "POST /api/designs - Create a new design",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "designs.js",
+      "lineNumber": 73
+    },
+    {
+      "method": "PUT",
+      "path": "/designs/:pk_id",
+      "fullPath": "/api/designs/:pk_id",
+      "category": "📋 General",
+      "description": "PUT /api/designs/:pk_id - Update a design by PK_ID",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "designs.js",
+      "lineNumber": 120
+    },
+    {
+      "method": "DELETE",
+      "path": "/designs/:pk_id",
+      "fullPath": "/api/designs/:pk_id",
+      "category": "📋 General",
+      "description": "DELETE /api/designs/:pk_id - Soft delete a design (set IsActive=false)",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "designs.js",
+      "lineNumber": 151
     },
     {
       "method": "GET",

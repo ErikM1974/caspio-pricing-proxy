@@ -4191,6 +4191,193 @@
 			"name": "📋 General",
 			"item": [
 				{
+					"name": "Get Caspio Daily Sales By Rep",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/caspio/daily-sales-by-rep",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"caspio",
+								"daily-sales-by-rep"
+							],
+							"query": [
+								{
+									"key": "start",
+									"value": "",
+									"description": "start parameter",
+									"disabled": true
+								},
+								{
+									"key": "end",
+									"value": "",
+									"description": "end parameter",
+									"disabled": true
+								}
+							]
+						},
+						"description": "GET /api/caspio/daily-sales-by-rep Fetch archived daily sales by rep for a date range  Query params: - start: Start date (YYYY-MM-DD) - required - end: End date (YYYY-MM-DD) - required  Returns: { days: [{ date, reps: [...] }], summary: { reps: [...], totalRevenue, totalOrders } }"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Caspio Daily Sales By Rep Ytd",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/caspio/daily-sales-by-rep/ytd",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"caspio",
+								"daily-sales-by-rep",
+								"ytd"
+							],
+							"query": [
+								{
+									"key": "year",
+									"value": "",
+									"description": "year parameter",
+									"disabled": true
+								}
+							]
+						},
+						"description": "GET /api/caspio/daily-sales-by-rep/ytd Get Year-to-Date summary aggregated by rep  Query params: - year: Year to calculate YTD for (default: current year)  Returns: { year, reps: [...], lastArchivedDate, totalRevenue, totalOrders }"
+					},
+					"response": []
+				},
+				{
+					"name": "Create Caspio Daily Sales By Rep",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/caspio/daily-sales-by-rep",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"caspio",
+								"daily-sales-by-rep"
+							]
+						},
+						"description": "POST /api/caspio/daily-sales-by-rep Archive a single day's per-rep sales data to Caspio  Body: - date: The sales date (YYYY-MM-DD) - required - reps: Array of { name, revenue, orderCount } - required  Returns: { success: true, date, repsArchived, message }"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Caspio Daily Sales",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/caspio/daily-sales",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"caspio",
+								"daily-sales"
+							],
+							"query": [
+								{
+									"key": "start",
+									"value": "",
+									"description": "start parameter",
+									"disabled": true
+								},
+								{
+									"key": "end",
+									"value": "",
+									"description": "end parameter",
+									"disabled": true
+								}
+							]
+						},
+						"description": "GET /api/caspio/daily-sales Fetch archived daily sales records from Caspio  Query params: - start: Start date (YYYY-MM-DD) - required - end: End date (YYYY-MM-DD) - required  Returns: Array of { Date, Revenue, OrderCount, CapturedAt }"
+					},
+					"response": []
+				},
+				{
+					"name": "Create Caspio Daily Sales",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/caspio/daily-sales",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"caspio",
+								"daily-sales"
+							]
+						},
+						"description": "POST /api/caspio/daily-sales Archive a single day's sales data to Caspio  Body: - date: The sales date (YYYY-MM-DD) - required - revenue: Total invoiced revenue for that day - required - orderCount: Number of orders invoiced - required  Returns: { success: true, record: {...} }"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Caspio Daily Sales Ytd",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/caspio/daily-sales/ytd",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"caspio",
+								"daily-sales",
+								"ytd"
+							],
+							"query": [
+								{
+									"key": "year",
+									"value": "",
+									"description": "year parameter",
+									"disabled": true
+								}
+							]
+						},
+						"description": "GET /api/caspio/daily-sales/ytd Get Year-to-Date summary from archived data  Query params: - year: Year to calculate YTD for (default: current year)  Returns: { ytdRevenue, ytdOrders, daysWithData, lastArchivedDate }"
+					},
+					"response": []
+				},
+				{
+					"name": "Create Caspio Daily Sales Bulk",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/caspio/daily-sales/bulk",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"caspio",
+								"daily-sales",
+								"bulk"
+							]
+						},
+						"description": "POST /api/caspio/daily-sales/bulk Archive multiple days of sales data at once (for backfilling)  Body: Array of { date, revenue, orderCount }  Returns: { success: true, created: N, updated: M, errors: [] }"
+					},
+					"response": []
+				},
+				{
 					"name": "Get Decorated Cap Prices",
 					"request": {
 						"method": "GET",
@@ -4226,6 +4413,105 @@
 							]
 						},
 						"description": "- refresh (optional): Set to \"true\" to bypass cache"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Designs Store",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/designs/store/:store_id",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"designs",
+								"store",
+								":store_id"
+							]
+						},
+						"description": "GET /api/designs/store/:store_id - Get active designs for a specific store"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Designs",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/designs",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"designs"
+							]
+						},
+						"description": "GET /api/designs - Get all active designs grouped by StoreName (admin view)"
+					},
+					"response": []
+				},
+				{
+					"name": "Create Designs",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/designs",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"designs"
+							]
+						},
+						"description": "POST /api/designs - Create a new design"
+					},
+					"response": []
+				},
+				{
+					"name": "Update Designs",
+					"request": {
+						"method": "PUT",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/designs/:pk_id",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"designs",
+								":pk_id"
+							]
+						},
+						"description": "PUT /api/designs/:pk_id - Update a design by PK_ID"
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Designs",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/designs/:pk_id",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"designs",
+								":pk_id"
+							]
+						},
+						"description": "DELETE /api/designs/:pk_id - Soft delete a design (set IsActive=false)"
 					},
 					"response": []
 				},
@@ -5827,6 +6113,16 @@
 			"value": "1",
 			"type": "string",
 			"description": "Generic ID for CRUD operations"
+		},
+		{
+			"key": "store_id",
+			"value": "value",
+			"type": "string"
+		},
+		{
+			"key": "pk_id",
+			"value": "value",
+			"type": "string"
 		},
 		{
 			"key": "externalKey",
