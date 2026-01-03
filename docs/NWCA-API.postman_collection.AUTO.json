@@ -5817,6 +5817,26 @@
 					"response": []
 				},
 				{
+					"name": "Create Sanmar Shopworks Quote To Linesoe",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/sanmar-shopworks/quote-to-linesoe",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"sanmar-shopworks",
+								"quote-to-linesoe"
+							]
+						},
+						"description": "Transform embroidery quote items to ShopWorks LinesOE format POST /api/sanmar-shopworks/quote-to-linesoe  Takes quote builder line items and transforms them into ShopWorks-ready format: - Standard sizes (S/M/L/XL) grouped into single line item - Each extended size (2XL, 3XL, etc.) becomes separate line item with suffix - Proper Size01-Size06 field population - Size limit flags set correctly"
+					},
+					"response": []
+				},
+				{
 					"name": "Get Thumbnails By Design",
 					"request": {
 						"method": "GET",

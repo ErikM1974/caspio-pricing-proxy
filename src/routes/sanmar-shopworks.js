@@ -701,10 +701,15 @@ router.post('/sanmar-shopworks/quote-to-linesoe', async (req, res) => {
         });
       }
 
+      // SIZE_MODIFIERS for correct ShopWorks suffix format (matches Python Inksoft app)
+      const SIZE_MODIFIERS = {
+        '2XL': '_2X', '3XL': '_3X', '4XL': '_4X', '5XL': '_5X', '6XL': '_6X'
+      };
+
       // Create separate line items for each extended size
       for (const [size, qty] of Object.entries(extendedSizes)) {
-        // Use SUFFIX_TO_FIELD_MAP pattern for suffix
-        const suffix = `_${size}`;
+        // Use SIZE_MODIFIERS for correct suffix (e.g., _2X not _2XL)
+        const suffix = SIZE_MODIFIERS[size] || `_${size}`;
         const upcharge = sizeUpcharges?.[size] || 0;
         const isTwoXL = size === '2XL';
 
