@@ -627,5 +627,138 @@ router.get('/sanmar-shopworks/import-format', async (req, res) => {
   }
 });
 
+/**
+ * Transform embroidery quote items to ShopWorks LinesOE format
+ * POST /api/sanmar-shopworks/quote-to-linesoe
+ *
+ * Takes quote builder line items and transforms them into ShopWorks-ready format:
+ * - Standard sizes (S/M/L/XL) grouped into single line item
+ * - Each extended size (2XL, 3XL, etc.) becomes separate line item with suffix
+ * - Proper Size01-Size06 field population
+ * - Size limit flags set correctly
+ */
+router.post('/sanmar-shopworks/quote-to-linesoe', async (req, res) => {
+  try {
+    const { quoteId, items, embroideryConfig } = req.body;
+
+    if (!items || !Array.isArray(items)) {
+      return res.status(400).json({ error: 'items array is required' });
+    }
+
+    console.log(`[Quote to LinesOE] Processing ${items.length} items for quote ${quoteId || 'N/A'}`);
+
+    const lineItems = [];
+
+    for (const item of items) {
+      const { styleNumber, color, catalogColor, description, sizes, unitPrice, sizeUpcharges } = item;
+
+      if (!styleNumber || !sizes) {
+        console.warn('[Quote to LinesOE] Skipping item with missing styleNumber or sizes');
+        continue;
+      }
+
+      // Group sizes into standard (S/M/L/XL) and extended (2XL+)
+      const standardSizes = ['S', 'M', 'L', 'XL'];
+      const standardQty = {};
+      const extendedSizes = {};
+
+      for (const [size, qty] of Object.entries(sizes)) {
+        if (qty > 0) {
+          if (standardSizes.includes(size)) {
+            standardQty[size] = qty;
+          } else {
+            extendedSizes[size] = qty;
+          }
+        }
+      }
+
+      // Create base line item for standard sizes
+      const totalStandardQty = Object.values(standardQty).reduce((a, b) => a + b, 0);
+      if (totalStandardQty > 0) {
+        lineItems.push({
+          PartNumber: styleNumber,
+          Color: catalogColor || color,
+          Description: description,
+          Qty: totalStandardQty,
+          Price: unitPrice,
+          Size01: standardQty['S'] || null,
+          Size02: standardQty['M'] || null,
+          Size03: standardQty['L'] || null,
+          Size04: standardQty['XL'] || null,
+          Size05: null,
+          Size06: null,
+          sts_LimitSize01: null,
+          sts_LimitSize02: null,
+          sts_LimitSize03: null,
+          sts_LimitSize04: null,
+          sts_LimitSize05: 1,
+          sts_LimitSize06: 1,
+          sts_EnableTax01: 1,
+          sts_EnableTax02: 1,
+          sts_EnableTax03: 1,
+          sts_EnableTax04: 1,
+          sts_TaxOverride: 1
+        });
+      }
+
+      // Create separate line items for each extended size
+      for (const [size, qty] of Object.entries(extendedSizes)) {
+        // Use SUFFIX_TO_FIELD_MAP pattern for suffix
+        const suffix = `_${size}`;
+        const upcharge = sizeUpcharges?.[size] || 0;
+        const isTwoXL = size === '2XL';
+
+        lineItems.push({
+          PartNumber: `${styleNumber}${suffix}`,
+          Color: catalogColor || color,
+          Description: `${description} (${size})`,
+          Qty: qty,
+          Price: unitPrice + upcharge,
+          Size01: null,
+          Size02: null,
+          Size03: null,
+          Size04: null,
+          Size05: isTwoXL ? qty : null,
+          Size06: !isTwoXL ? qty : null,
+          sts_LimitSize01: 1,
+          sts_LimitSize02: 1,
+          sts_LimitSize03: 1,
+          sts_LimitSize04: 1,
+          sts_LimitSize05: isTwoXL ? null : 1,
+          sts_LimitSize06: !isTwoXL ? null : 1,
+          sts_EnableTax01: 1,
+          sts_EnableTax02: 1,
+          sts_EnableTax03: 1,
+          sts_EnableTax04: 1,
+          sts_TaxOverride: 1
+        });
+      }
+    }
+
+    // Calculate totals
+    const totalQty = lineItems.reduce((sum, item) => sum + item.Qty, 0);
+    const totalValue = lineItems.reduce((sum, item) => sum + (item.Qty * item.Price), 0);
+
+    console.log(`[Quote to LinesOE] Generated ${lineItems.length} line items, total qty: ${totalQty}`);
+
+    res.json({
+      quoteId,
+      lineItems,
+      embroideryConfig,
+      totals: {
+        lineItemCount: lineItems.length,
+        totalQty,
+        totalValue: Math.round(totalValue * 100) / 100
+      }
+    });
+  } catch (error) {
+    console.error('[Quote to LinesOE] Error:', error);
+    res.status(500).json({
+      error: 'Failed to transform quote to LinesOE format',
+      details: error.message
+    });
+  }
+});
+
 // Export functions for testing
 module.exports = router;
