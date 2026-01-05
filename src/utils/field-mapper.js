@@ -88,6 +88,8 @@ function createProductColorsResponse(records, styleNumber) {
   return {
     productTitle: firstRecord.PRODUCT_TITLE || '',
     PRODUCT_DESCRIPTION: firstRecord.PRODUCT_DESCRIPTION || '',
+    CATEGORY_NAME: firstRecord.CATEGORY_NAME || '',      // For cap vs garment detection
+    SUBCATEGORY_NAME: firstRecord.SUBCATEGORY_NAME || '',
     colors: Array.from(colorsMap.values())
   };
 }

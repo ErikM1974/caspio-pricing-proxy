@@ -830,7 +830,8 @@ router.get('/product-colors', async (req, res) => {
     const selectFields = [
       'PRODUCT_TITLE', 'PRODUCT_DESCRIPTION', 'COLOR_NAME', 'CATALOG_COLOR',
       'COLOR_SQUARE_IMAGE', 'FRONT_MODEL', 'FRONT_FLAT',
-      'COLOR_SWATCH_IMAGE', 'PRODUCT_IMAGE'
+      'COLOR_SWATCH_IMAGE', 'PRODUCT_IMAGE',
+      'CATEGORY_NAME', 'SUBCATEGORY_NAME'  // For cap vs garment detection
     ];
 
     const records = await fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
