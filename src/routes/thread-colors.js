@@ -15,9 +15,9 @@ router.get('/thread-colors', async (req, res) => {
             'q.orderBy': 'Thread_Color ASC'
         };
 
-        // Filter: instock=true means Instock=-1 (Caspio uses -1 for true)
+        // Filter: instock=true returns only in-stock colors (Caspio Yes/No field)
         if (instock === 'true') {
-            params['q.where'] = 'Instock=-1';
+            params['q.where'] = "Instock='Yes'";
         }
 
         const colors = await fetchAllCaspioPages('/tables/ThreadColors/records', params);
