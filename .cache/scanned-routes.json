@@ -1,6 +1,6 @@
 {
-  "scannedAt": "2026-01-09T00:26:50.748Z",
-  "totalEndpoints": 198,
+  "scannedAt": "2026-01-09T17:00:52.383Z",
+  "totalEndpoints": 203,
   "endpoints": [
     {
       "method": "GET",
@@ -1896,6 +1896,92 @@
       "requestBody": null,
       "sourceFile": "misc.js",
       "lineNumber": 533
+    },
+    {
+      "method": "GET",
+      "path": "/monograms",
+      "fullPath": "/api/monograms",
+      "category": "📋 General",
+      "description": "GET /api/monograms - List all monograms with optional filters",
+      "queryParams": [
+        {
+          "key": "orderNumber",
+          "value": "",
+          "description": "orderNumber parameter",
+          "disabled": true
+        },
+        {
+          "key": "companyName",
+          "value": "",
+          "description": "companyName parameter",
+          "disabled": true
+        },
+        {
+          "key": "status",
+          "value": "",
+          "description": "Status filter",
+          "disabled": true
+        },
+        {
+          "key": "dateFrom",
+          "value": "",
+          "description": "dateFrom parameter",
+          "disabled": true
+        },
+        {
+          "key": "dateTo",
+          "value": "",
+          "description": "dateTo parameter",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "monograms.js",
+      "lineNumber": 14
+    },
+    {
+      "method": "GET",
+      "path": "/monograms/:orderNumber",
+      "fullPath": "/api/monograms/:orderNumber",
+      "category": "📋 General",
+      "description": "GET /api/monograms/:orderNumber - Get single monogram by OrderNumber",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "monograms.js",
+      "lineNumber": 61
+    },
+    {
+      "method": "POST",
+      "path": "/monograms",
+      "fullPath": "/api/monograms",
+      "category": "📋 General",
+      "description": "POST /api/monograms - Create new monogram (with upsert support)",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "monograms.js",
+      "lineNumber": 93
+    },
+    {
+      "method": "PUT",
+      "path": "/monograms/:id_monogram",
+      "fullPath": "/api/monograms/:id_monogram",
+      "category": "📋 General",
+      "description": "PUT /api/monograms/:id_monogram - Update monogram by ID",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "monograms.js",
+      "lineNumber": 190
+    },
+    {
+      "method": "DELETE",
+      "path": "/monograms/:id_monogram",
+      "fullPath": "/api/monograms/:id_monogram",
+      "category": "📋 General",
+      "description": "DELETE /api/monograms/:id_monogram - Delete monogram by ID",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "monograms.js",
+      "lineNumber": 228
     },
     {
       "method": "GET",
