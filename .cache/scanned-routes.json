@@ -1,6 +1,6 @@
 {
-  "scannedAt": "2026-01-09T17:00:52.383Z",
-  "totalEndpoints": 203,
+  "scannedAt": "2026-01-09T22:13:29.899Z",
+  "totalEndpoints": 209,
   "endpoints": [
     {
       "method": "GET",
@@ -1148,6 +1148,91 @@
       "requestBody": null,
       "sourceFile": "files.js",
       "lineNumber": 302
+    },
+    {
+      "method": "GET",
+      "path": "/garment-tracker",
+      "fullPath": "/api/garment-tracker",
+      "category": "📋 General",
+      "description": "GET /api/garment-tracker?q.orderBy=DateInvoiced DESC&q.limit=100",
+      "queryParams": [
+        {
+          "key": "q.where",
+          "value": "",
+          "description": "Filter records using SQL-like WHERE clause",
+          "disabled": true
+        },
+        {
+          "key": "q.orderBy",
+          "value": "",
+          "description": "Sort order (e.g., \"Field ASC\" or \"Field DESC\")",
+          "disabled": true
+        },
+        {
+          "key": "q.limit",
+          "value": "",
+          "description": "Maximum number of records to return (1-1000)",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "garment-tracker.js",
+      "lineNumber": 19
+    },
+    {
+      "method": "DELETE",
+      "path": "/garment-tracker/bulk",
+      "fullPath": "/api/garment-tracker/bulk",
+      "category": "📋 General",
+      "description": "Body: { \"where\": \"YEAR(TrackedAt)=2025\" }",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "garment-tracker.js",
+      "lineNumber": 65
+    },
+    {
+      "method": "GET",
+      "path": "/garment-tracker/:id",
+      "fullPath": "/api/garment-tracker/:id",
+      "category": "📋 General",
+      "description": "GET /api/garment-tracker/:id - Get single record by ID_Garment",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "garment-tracker.js",
+      "lineNumber": 108
+    },
+    {
+      "method": "POST",
+      "path": "/garment-tracker",
+      "fullPath": "/api/garment-tracker",
+      "category": "📋 General",
+      "description": "Body: { OrderNumber, DateInvoiced, RepName, CustomerName, CompanyName, PartNumber, StyleCategory, Quantity, BonusAmount, TrackedAt }",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "garment-tracker.js",
+      "lineNumber": 141
+    },
+    {
+      "method": "PUT",
+      "path": "/garment-tracker/:id",
+      "fullPath": "/api/garment-tracker/:id",
+      "category": "📋 General",
+      "description": "PUT /api/garment-tracker/:id - Update record by ID_Garment",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "garment-tracker.js",
+      "lineNumber": 194
+    },
+    {
+      "method": "DELETE",
+      "path": "/garment-tracker/:id",
+      "fullPath": "/api/garment-tracker/:id",
+      "category": "📋 General",
+      "description": "DELETE /api/garment-tracker/:id - Delete record by ID_Garment",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "garment-tracker.js",
+      "lineNumber": 229
     },
     {
       "method": "GET",

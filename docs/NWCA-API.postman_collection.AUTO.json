@@ -4516,6 +4516,144 @@
 					"response": []
 				},
 				{
+					"name": "Get Garment Tracker",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/garment-tracker",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"garment-tracker"
+							],
+							"query": [
+								{
+									"key": "q.where",
+									"value": "",
+									"description": "Filter records using SQL-like WHERE clause",
+									"disabled": true
+								},
+								{
+									"key": "q.orderBy",
+									"value": "",
+									"description": "Sort order (e.g., \"Field ASC\" or \"Field DESC\")",
+									"disabled": true
+								},
+								{
+									"key": "q.limit",
+									"value": "",
+									"description": "Maximum number of records to return (1-1000)",
+									"disabled": true
+								}
+							]
+						},
+						"description": "GET /api/garment-tracker?q.orderBy=DateInvoiced DESC&q.limit=100"
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Garment Tracker Bulk",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/garment-tracker/bulk",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"garment-tracker",
+								"bulk"
+							]
+						},
+						"description": "Body: { \"where\": \"YEAR(TrackedAt)=2025\" }"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Single Garment Tracker",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/garment-tracker/:id",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"garment-tracker",
+								":id"
+							]
+						},
+						"description": "GET /api/garment-tracker/:id - Get single record by ID_Garment"
+					},
+					"response": []
+				},
+				{
+					"name": "Create Garment Tracker",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/garment-tracker",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"garment-tracker"
+							]
+						},
+						"description": "Body: { OrderNumber, DateInvoiced, RepName, CustomerName, CompanyName, PartNumber, StyleCategory, Quantity, BonusAmount, TrackedAt }"
+					},
+					"response": []
+				},
+				{
+					"name": "Update Garment Tracker",
+					"request": {
+						"method": "PUT",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/garment-tracker/:id",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"garment-tracker",
+								":id"
+							]
+						},
+						"description": "PUT /api/garment-tracker/:id - Update record by ID_Garment"
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Garment Tracker",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/garment-tracker/:id",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"garment-tracker",
+								":id"
+							]
+						},
+						"description": "DELETE /api/garment-tracker/:id - Delete record by ID_Garment"
+					},
+					"response": []
+				},
+				{
 					"name": "Get Gift Certificates",
 					"request": {
 						"method": "GET",
