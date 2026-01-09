@@ -19,6 +19,7 @@ Detailed documentation organized by topic:
 - **[Gift Certificates API](memory/GIFT_CERTIFICATES_API.md)** - Gift certificate lookup and balance checking (v1.0.0 - 2025-12-18)
 - **[Daily Sales Archive API](memory/DAILY_SALES_API.md)** - YTD tracking beyond ManageOrders 60-day limit (v1.0.0 - 2026-01-01)
 - **[2026 Margin Update](memory/2026_MARGIN_UPDATE.md)** - Changed from 40% to 43% margin (0.6 → 0.57 denominator) - 2026-01-02
+- **[Thread Colors API](memory/THREAD_COLORS_API.md)** - Thread color lookup for monogram form (v1.0.0 - 2026-01-08)
 
 ## Quick Reference
 
@@ -78,6 +79,9 @@ See [Endpoint Creation Guide](memory/ENDPOINT_CREATION_GUIDE.md) for complete st
 - **Designs API** - CRUD endpoints for InkSoft Transform store designs (5 endpoints)
 
 ## Recent Features
+
+### Thread Colors API (v1.0.0 - 2026-01-08)
+See [Thread Colors API](memory/THREAD_COLORS_API.md)
 
 ### Designs API (v1.0.0 - 2025-12-31)
 CRUD endpoints for managing InkSoft Transform store designs.
@@ -239,6 +243,10 @@ GET /api/manageorders/orders/138145
 
 # Inventory
 GET /api/manageorders/inventorylevels?PartNumber=PC54
+
+# Thread Colors (Monogram Form)
+GET /api/thread-colors
+GET /api/thread-colors?instock=true
 
 # Designs (InkSoft Transform)
 GET /api/designs/store/122087
