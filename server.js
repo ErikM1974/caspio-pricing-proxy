@@ -384,6 +384,11 @@ const dailySalesByRepRoutes = require('./src/routes/daily-sales-by-rep');
 app.use('/api', dailySalesByRepRoutes);
 console.log('✓ Daily Sales By Rep routes loaded');
 
+// Thread Colors Routes
+const threadColorsRoutes = require('./src/routes/thread-colors');
+app.use('/api', threadColorsRoutes);
+console.log('✓ Thread Colors routes loaded');
+
 // --- Admin Metrics Endpoint ---
 const apiTracker = require('./src/utils/api-tracker');
 
