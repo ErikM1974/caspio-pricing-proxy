@@ -389,6 +389,11 @@ const threadColorsRoutes = require('./src/routes/thread-colors');
 app.use('/api', threadColorsRoutes);
 console.log('✓ Thread Colors routes loaded');
 
+// Monograms Routes (CRUD for monogram orders)
+const monogramsRoutes = require('./src/routes/monograms');
+app.use('/api', monogramsRoutes);
+console.log('✓ Monograms routes loaded');
+
 // --- Admin Metrics Endpoint ---
 const apiTracker = require('./src/utils/api-tracker');
 

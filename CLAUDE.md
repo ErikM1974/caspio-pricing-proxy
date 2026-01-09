@@ -20,6 +20,7 @@ Detailed documentation organized by topic:
 - **[Daily Sales Archive API](memory/DAILY_SALES_API.md)** - YTD tracking beyond ManageOrders 60-day limit (v1.0.0 - 2026-01-01)
 - **[2026 Margin Update](memory/2026_MARGIN_UPDATE.md)** - Changed from 40% to 43% margin (0.6 → 0.57 denominator) - 2026-01-02
 - **[Thread Colors API](memory/THREAD_COLORS_API.md)** - Thread color lookup for monogram form (v1.0.0 - 2026-01-08)
+- **[Monograms API](memory/MONOGRAMS_API.md)** - CRUD endpoints for monogram orders (v1.0.0 - 2026-01-09)
 
 ## Quick Reference
 
@@ -254,6 +255,13 @@ GET /api/designs
 POST /api/designs
 PUT /api/designs/:pk_id
 DELETE /api/designs/:pk_id
+
+# Monograms (CRUD)
+GET /api/monograms
+GET /api/monograms/:orderNumber
+POST /api/monograms
+PUT /api/monograms/:id_monogram
+DELETE /api/monograms/:id_monogram
 ```
 
 ## Important Notes
