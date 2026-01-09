@@ -5958,6 +5958,33 @@
 					"response": []
 				},
 				{
+					"name": "Get Thread Colors",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/thread-colors",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"thread-colors"
+							],
+							"query": [
+								{
+									"key": "instock",
+									"value": "",
+									"description": "instock parameter",
+									"disabled": true
+								}
+							]
+						},
+						"description": "Optional query param: ?instock=true to return only in-stock colors"
+					},
+					"response": []
+				},
+				{
 					"name": "Get Thumbnails By Design",
 					"request": {
 						"method": "GET",

@@ -1,6 +1,6 @@
 {
-  "scannedAt": "2026-01-03T14:28:23.113Z",
-  "totalEndpoints": 197,
+  "scannedAt": "2026-01-09T00:26:50.748Z",
+  "totalEndpoints": 198,
   "endpoints": [
     {
       "method": "GET",
@@ -3018,7 +3018,7 @@
       ],
       "requestBody": null,
       "sourceFile": "products.js",
-      "lineNumber": 875
+      "lineNumber": 876
     },
     {
       "method": "POST",
@@ -3029,7 +3029,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "products.js",
-      "lineNumber": 948
+      "lineNumber": 949
     },
     {
       "method": "POST",
@@ -3040,7 +3040,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "products.js",
-      "lineNumber": 1009
+      "lineNumber": 1010
     },
     {
       "method": "POST",
@@ -3051,7 +3051,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "products.js",
-      "lineNumber": 1103
+      "lineNumber": 1104
     },
     {
       "method": "POST",
@@ -3062,7 +3062,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "products.js",
-      "lineNumber": 1143
+      "lineNumber": 1144
     },
     {
       "method": "POST",
@@ -3073,7 +3073,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "products.js",
-      "lineNumber": 1210
+      "lineNumber": 1211
     },
     {
       "method": "POST",
@@ -3084,7 +3084,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "products.js",
-      "lineNumber": 1304
+      "lineNumber": 1305
     },
     {
       "method": "GET",
@@ -3114,7 +3114,7 @@
       ],
       "requestBody": null,
       "sourceFile": "products.js",
-      "lineNumber": 1350
+      "lineNumber": 1351
     },
     {
       "method": "GET",
@@ -3760,6 +3760,24 @@
       "requestBody": null,
       "sourceFile": "sanmar-shopworks.js",
       "lineNumber": 640
+    },
+    {
+      "method": "GET",
+      "path": "/thread-colors",
+      "fullPath": "/api/thread-colors",
+      "category": "📋 General",
+      "description": "Optional query param: ?instock=true to return only in-stock colors",
+      "queryParams": [
+        {
+          "key": "instock",
+          "value": "",
+          "description": "instock parameter",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "thread-colors.js",
+      "lineNumber": 8
     },
     {
       "method": "GET",
