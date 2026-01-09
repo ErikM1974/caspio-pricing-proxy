@@ -394,6 +394,11 @@ const monogramsRoutes = require('./src/routes/monograms');
 app.use('/api', monogramsRoutes);
 console.log('✓ Monograms routes loaded');
 
+// Garment Tracker Routes (staff dashboard tracking optimization)
+const garmentTrackerRoutes = require('./src/routes/garment-tracker');
+app.use('/api', garmentTrackerRoutes);
+console.log('✓ Garment Tracker routes loaded');
+
 // --- Admin Metrics Endpoint ---
 const apiTracker = require('./src/utils/api-tracker');
 

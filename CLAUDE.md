@@ -21,6 +21,7 @@ Detailed documentation organized by topic:
 - **[2026 Margin Update](memory/2026_MARGIN_UPDATE.md)** - Changed from 40% to 43% margin (0.6 → 0.57 denominator) - 2026-01-02
 - **[Thread Colors API](memory/THREAD_COLORS_API.md)** - Thread color lookup for monogram form (v1.0.0 - 2026-01-08)
 - **[Monograms API](memory/MONOGRAMS_API.md)** - CRUD endpoints for monogram orders (v1.0.0 - 2026-01-09)
+- **[Garment Tracker API](memory/GARMENT_TRACKER_API.md)** - Pre-processed garment tracking for staff dashboard (v1.0.0 - 2026-01-09)
 
 ## Quick Reference
 
@@ -80,6 +81,21 @@ See [Endpoint Creation Guide](memory/ENDPOINT_CREATION_GUIDE.md) for complete st
 - **Designs API** - CRUD endpoints for InkSoft Transform store designs (5 endpoints)
 
 ## Recent Features
+
+### Garment Tracker API (v1.0.0 - 2026-01-09)
+Pre-processed garment tracking data for staff dashboard optimization. Reduces 44+ API calls to 1.
+
+**Endpoints**:
+- `GET /api/garment-tracker` - Query with passthrough params (`q.where`, `q.orderBy`, `q.limit`)
+- `GET /api/garment-tracker/:id` - Get single record
+- `POST /api/garment-tracker` - Create record
+- `PUT /api/garment-tracker/:id` - Update record
+- `DELETE /api/garment-tracker/:id` - Delete record
+- `DELETE /api/garment-tracker/bulk` - Bulk delete with WHERE clause
+
+**Table**: `GarmentTracker`
+
+See [Garment Tracker API](memory/GARMENT_TRACKER_API.md) for complete documentation.
 
 ### Thread Colors API (v1.0.0 - 2026-01-08)
 See [Thread Colors API](memory/THREAD_COLORS_API.md)
@@ -262,6 +278,15 @@ GET /api/monograms/:orderNumber
 POST /api/monograms
 PUT /api/monograms/:id_monogram
 DELETE /api/monograms/:id_monogram
+
+# Garment Tracker (Staff Dashboard)
+GET /api/garment-tracker
+GET /api/garment-tracker?q.where=RepName='Nika Lao'
+GET /api/garment-tracker/:id
+POST /api/garment-tracker
+PUT /api/garment-tracker/:id
+DELETE /api/garment-tracker/:id
+DELETE /api/garment-tracker/bulk
 ```
 
 ## Important Notes
