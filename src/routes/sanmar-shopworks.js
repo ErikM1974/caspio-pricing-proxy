@@ -420,6 +420,12 @@ router.get('/sanmar-shopworks/mapping', async (req, res) => {
       timestamp: Date.now()
     });
 
+    // Limit cache size (keep last 100 entries)
+    if (sanmarMappingCache.size > 100) {
+      const firstKey = sanmarMappingCache.keys().next().value;
+      sanmarMappingCache.delete(firstKey);
+    }
+
     res.json(response);
   } catch (error) {
     console.error('[Mapping] Error:', error);

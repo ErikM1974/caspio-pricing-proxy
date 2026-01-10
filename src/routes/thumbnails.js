@@ -108,6 +108,12 @@ router.get('/thumbnails/by-design/:designId', async (req, res) => {
     // Cache result
     thumbnailCache.set(cacheKey, { data: result, timestamp: Date.now() });
 
+    // Limit cache size (keep last 200 entries)
+    if (thumbnailCache.size > 200) {
+      const firstKey = thumbnailCache.keys().next().value;
+      thumbnailCache.delete(firstKey);
+    }
+
     res.json(result);
 
   } catch (error) {
@@ -288,6 +294,12 @@ router.get('/thumbnails/top-sellers', async (req, res) => {
     // Cache result
     topSellersCache.set(cacheKey, { data: result, timestamp: Date.now() });
 
+    // Limit cache size (keep last 50 entries)
+    if (topSellersCache.size > 50) {
+      const firstKey = topSellersCache.keys().next().value;
+      topSellersCache.delete(firstKey);
+    }
+
     res.json(result);
 
   } catch (error) {
@@ -361,6 +373,12 @@ router.get('/thumbnails/sync-status', async (req, res) => {
 
     // Cache result
     syncStatusCache.set(cacheKey, { data: result, timestamp: Date.now() });
+
+    // Limit cache size (keep last 20 entries)
+    if (syncStatusCache.size > 20) {
+      const firstKey = syncStatusCache.keys().next().value;
+      syncStatusCache.delete(firstKey);
+    }
 
     res.json(result);
 
@@ -853,6 +871,12 @@ router.get('/thumbnails/stats-by-year', async (req, res) => {
 
     // Cache result
     syncStatusCache.set(cacheKey, { data: result, timestamp: Date.now() });
+
+    // Limit cache size (keep last 20 entries)
+    if (syncStatusCache.size > 20) {
+      const firstKey = syncStatusCache.keys().next().value;
+      syncStatusCache.delete(firstKey);
+    }
 
     res.json(result);
 

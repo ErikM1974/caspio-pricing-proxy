@@ -408,6 +408,12 @@ router.get('/quote_sessions', async (req, res) => {
         timestamp: Date.now()
       });
       console.log(`Cache MISS - stored quote_sessions: ${cacheKey}`);
+
+      // Limit cache size (keep last 100 entries)
+      if (quoteSessionsCache.size > 100) {
+        const firstKey = quoteSessionsCache.keys().next().value;
+        quoteSessionsCache.delete(firstKey);
+      }
     }
 
     res.json(records);
