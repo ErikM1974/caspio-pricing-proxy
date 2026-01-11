@@ -1,5 +1,14 @@
 # Caspio Pricing Proxy - Claude AI Instructions
 
+## Cross-Project Knowledge Hub
+
+**For documentation spanning all 3 NWCA projects, see:**
+- **[CROSS_PROJECT_HUB.md](../Pricing%20Index%20File%202025/memory/CROSS_PROJECT_HUB.md)** - Entry point for all projects
+- **[GLOSSARY.md](../Pricing%20Index%20File%202025/memory/GLOSSARY.md)** - Shared terminology
+- **[LESSONS_LEARNED.md](../Pricing%20Index%20File%202025/memory/LESSONS_LEARNED.md)** - Master lessons (all projects)
+
+---
+
 ## Related Projects
 
 This API server is consumed by two frontend projects:
