@@ -1,8 +1,8 @@
 # ManageOrders PUSH API Integration
 
-**Version:** 1.1.0
-**Last Updated:** October 29, 2025
-**Purpose:** Send orders FROM our system TO ShopWorks OnSite via ManageOrders PUSH API
+**Version:** 1.2.0
+**Last Updated:** January 11, 2026
+**Purpose:** Send orders and tracking FROM our system TO ShopWorks OnSite via ManageOrders PUSH API
 
 ---
 
@@ -32,6 +32,8 @@ Customer Order → NWCA Website → Caspio Pricing Proxy → ManageOrders PUSH A
 - ✅ **Multiple File Upload** - Unlimited artwork and document files (NEW v1.1.0)
 - ✅ **Smart File Routing** - Artwork → Designs, All Files → Attachments (NEW v1.1.0)
 - ✅ **Extended File Types** - AI, PSD, EPS, PDF, JPG, PNG, DOCX, ZIP, and more (NEW v1.1.0)
+- ✅ **Tracking Number PUSH** - Send tracking to OnSite, single or batch (NEW v1.2.0)
+- ✅ **Tracking Verification** - Verify tracking was received (NEW v1.2.0)
 - ✅ **Design Support** - Upload design thumbnails via ImageURL
 - ✅ **Payment Integration** - Send payment status and details
 - ✅ **Shipping Integration** - Full shipping address support
@@ -310,8 +312,137 @@ Local: http://localhost:3002
   "endpoints": {
     "createOrder": "POST /api/manageorders/orders/create",
     "verifyOrder": "GET /api/manageorders/orders/verify/:extOrderId",
-    "testAuth": "POST /api/manageorders/auth/test"
+    "testAuth": "POST /api/manageorders/auth/test",
+    "pushTracking": "POST /api/manageorders/tracking/push",
+    "pullTracking": "GET /api/manageorders/tracking/pull",
+    "verifyTracking": "GET /api/manageorders/tracking/verify/:extOrderId"
   }
+}
+```
+
+---
+
+### 5. Push Tracking (NEW v1.2.0)
+
+**Endpoint:** `POST /api/manageorders/tracking/push`
+
+**Purpose:** Send tracking numbers to ManageOrders for orders you've previously pushed
+
+**Request Body (single tracking):**
+```json
+{
+  "extOrderId": "NWCA-12345",
+  "trackingNumber": "1Z999AA10123456784",
+  "shippingMethod": "UPS Ground",
+  "cost": 12.95,
+  "weight": 2.5,
+  "extShipId": "SHIP-1"
+}
+```
+
+**Request Body (multiple tracking - array):**
+```json
+[
+  { "extOrderId": "NWCA-12345", "trackingNumber": "1Z999AA10123456784", "shippingMethod": "UPS Ground" },
+  { "extOrderId": "NWCA-12346", "trackingNumber": "1Z999AA10123456785", "shippingMethod": "UPS Ground" }
+]
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "trackingCount": 1,
+  "trackingNumbers": ["1Z999AA10123456784"],
+  "extOrderIds": ["NWCA-12345"],
+  "timestamp": "2025-01-11T10:30:00Z"
+}
+```
+
+**Required Fields:**
+- `extOrderId` - Must match an order you previously pushed
+- `trackingNumber` - Carrier tracking number
+
+**Optional Fields:**
+- `shippingMethod` - e.g., "UPS Ground", "FedEx Home"
+- `cost` - Shipping cost (number)
+- `weight` - Package weight (number)
+- `extShipId` - For split shipments (matches ShippingAddresses.ExtShipID)
+- `customField01-05` - Custom tracking fields
+
+---
+
+### 6. Pull Tracking (NEW v1.2.0)
+
+**Endpoint:** `GET /api/manageorders/tracking/pull`
+
+**Purpose:** Retrieve tracking data you've pushed by date range
+
+**Query Parameters:**
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `dateFrom` | string | Yes | Start date (YYYY-MM-DD) |
+| `dateTo` | string | Yes | End date (YYYY-MM-DD) |
+| `timeFrom` | string | No | Start time (HH-MM-SS) |
+| `timeTo` | string | No | End time (HH-MM-SS) |
+| `apiSource` | string | No | Filter: "all", "none", or specific source |
+
+**Example:**
+```
+GET /api/manageorders/tracking/pull?dateFrom=2025-01-10&dateTo=2025-01-11&apiSource=NWCA
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "count": 5,
+  "dateRange": { "from": "2025-01-10", "to": "2025-01-11" },
+  "tracking": [...],
+  "timestamp": "2025-01-11T10:30:00Z"
+}
+```
+
+---
+
+### 7. Verify Tracking (NEW v1.2.0)
+
+**Endpoint:** `GET /api/manageorders/tracking/verify/:extOrderId`
+
+**Purpose:** Verify tracking was pushed for a specific order
+
+**URL Parameters:**
+- `extOrderId` - External order ID (e.g., "NWCA-12345")
+
+**Query Parameters (optional):**
+- `dateFrom` - Start date to search (defaults to today)
+- `dateTo` - End date to search (defaults to today)
+
+**Example:**
+```
+GET /api/manageorders/tracking/verify/NWCA-12345
+GET /api/manageorders/tracking/verify/NWCA-12345?dateFrom=2025-01-01&dateTo=2025-01-11
+```
+
+**Response (found):**
+```json
+{
+  "success": true,
+  "found": true,
+  "extOrderId": "NWCA-12345",
+  "trackingCount": 1,
+  "tracking": [...]
+}
+```
+
+**Response (not found):**
+```json
+{
+  "success": true,
+  "found": false,
+  "extOrderId": "NWCA-12345",
+  "message": "No tracking found for this order in the specified date range",
+  "dateRange": { "from": "2025-01-11", "to": "2025-01-11" }
 }
 ```
 

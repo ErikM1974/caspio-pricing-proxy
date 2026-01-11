@@ -1,9 +1,42 @@
 # Caspio Pricing Proxy - Claude AI Instructions
 
+## Related Projects
+
+This API server is consumed by two frontend projects:
+
+| Project | Location | Relationship |
+|---------|----------|--------------|
+| **Pricing Index File 2025** | `../Pricing Index File 2025` | Primary frontend - quote builders, calculators consume all pricing APIs |
+| **Python Inksoft** | `../Python Inksoft` | Uses `/api/designs/*` and `/api/gift-certificates/*` endpoints |
+
+When modifying API endpoints, check if these projects need updates.
+
+## ManageOrders API - Complete Reference
+
+For **comprehensive ManageOrders documentation** (PULL + PUSH APIs), see the master file in the Pricing Index project:
+
+**`../Pricing Index File 2025/memory/MANAGEORDERS_COMPLETE_REFERENCE.md`**
+
+This is the single source of truth covering:
+- All 7 PULL API endpoints with response schemas
+- Complete PUSH API (ExternalOrderJson) structure
+- 165+ field definitions
+- Critical gotchas (id_Integration, tax flags, date formats)
+- Real-world implementations (Staff Dashboard, Garment Tracker)
+
+**Before committing**, if you discovered any ManageOrders patterns:
+1. Add fields/endpoints → `MANAGEORDERS_COMPLETE_REFERENCE.md`
+2. Add bugs/gotchas → `LESSONS_LEARNED.md` (both projects)
+
+This ensures documentation stays current and nothing is forgotten.
+
+---
+
 ## Memory Files
 
 Detailed documentation organized by topic:
 
+- **[LESSONS_LEARNED.md](memory/LESSONS_LEARNED.md)** - Past bugs and solutions (check first when debugging!)
 - **[API Usage Tracking & Monitoring](memory/API_USAGE_TRACKING.md)** - Real-time API call tracking, caching strategy, metrics endpoint (v1.1.0 - Updated 2025-12-17)
 - **[Local Development Setup](memory/LOCAL_DEVELOPMENT.md)** - WSL configuration, testing procedures, port management, troubleshooting
 - **[Endpoint Creation Guide](memory/ENDPOINT_CREATION_GUIDE.md)** - Step-by-step guide for adding new API endpoints, pagination best practices
@@ -82,125 +115,13 @@ See [Endpoint Creation Guide](memory/ENDPOINT_CREATION_GUIDE.md) for complete st
 
 ## Recent Features
 
-### Garment Tracker API (v1.0.0 - 2026-01-09)
-Pre-processed garment tracking data for staff dashboard optimization. Reduces 44+ API calls to 1.
-
-**Endpoints**:
-- `GET /api/garment-tracker` - Query with passthrough params (`q.where`, `q.orderBy`, `q.limit`)
-- `GET /api/garment-tracker/:id` - Get single record
-- `POST /api/garment-tracker` - Create record
-- `PUT /api/garment-tracker/:id` - Update record
-- `DELETE /api/garment-tracker/:id` - Delete record
-- `DELETE /api/garment-tracker/bulk` - Bulk delete with WHERE clause
-
-**Table**: `GarmentTracker`
-
-See [Garment Tracker API](memory/GARMENT_TRACKER_API.md) for complete documentation.
-
-### Thread Colors API (v1.0.0 - 2026-01-08)
-See [Thread Colors API](memory/THREAD_COLORS_API.md)
-
-### Designs API (v1.0.0 - 2025-12-31)
-CRUD endpoints for managing InkSoft Transform store designs.
-
-**Endpoints**:
-- `GET /api/designs/store/:store_id` - Get active designs for a store (sorted by sort_order)
-- `GET /api/designs` - Get all designs grouped by StoreName (admin view)
-- `POST /api/designs` - Create new design
-- `PUT /api/designs/:pk_id` - Update design by PK_ID
-- `DELETE /api/designs/:pk_id` - Soft delete (sets IsActive=false)
-
-**Table**: `Inksoft_Transform_Designs_seed`
-
-**Response Example** (GET /api/designs/store/122087):
-```json
-{
-  "success": true,
-  "store_id": 122087,
-  "designs": [
-    {
-      "PK_ID": 6,
-      "StoreName": "Hops n Drops",
-      "StoreId": 122087,
-      "id_Design": 31071,
-      "DesignName": "Hops N Drops",
-      "is_default": true,
-      "detection_key": "",
-      "multi_select": true,
-      "sort_order": 1
-    }
-  ]
-}
-```
-
-### Decorated Cap Prices API (v1.0.0 - 2025-12-25)
-Pre-calculated decorated cap prices for frontend "As low as: $XX" display
-- **Endpoint**: `GET /api/decorated-cap-prices?brand=Richardson&tier=72+`
-- **Purpose**: Returns all cap prices for a brand in one call (no individual API calls per product)
-- **Formula**: `Math.ceil((baseCapPrice / 0.6) + embroideryCost)` at 8,000 stitches
-- **Tiers**: "72+" (default), "48-71", "24-47"
-- **Cache**: 5 minutes with `?refresh=true` bypass
-
-**Response Example:**
-```json
-{
-  "brand": "Richardson",
-  "tier": "72+",
-  "prices": { "112": 20, "112FP": 20, "112FPR": 21, "115": 20, ... }
-}
-```
-
-### API Usage Tracking & Monitoring (v1.1.0 - Updated 2025-12-17) ✅ SUCCESS
-Real-time tracking and caching reduced Caspio API usage from 630K → ~280K calls/month
-- **Metrics Endpoint**: `/api/admin/metrics` - Real-time usage dashboard
-- **Automatic Tracking**: All API calls logged via `api-tracker.js` utility
-- **Caching**: Pricing bundle (15min), product search (5min), new products (5min), top sellers (5min), quote sessions (5min)
-- **Actual Impact**: **55-60% reduction achieved** (exceeded 30-40% target)
-
-See [API Usage Tracking Guide](memory/API_USAGE_TRACKING.md) for complete documentation.
-
-### New Products Management API (v1.4.0)
-Mark and query featured/"new" products dynamically
-- `GET /api/products/new` - Query new products (5-min cache)
-- `POST /api/admin/products/mark-as-new` - Batch mark products
-- `POST /api/admin/products/add-isnew-field` - One-time setup
-
-See [New Products API Docs](memory/NEW_PRODUCTS_API.md) for examples and usage.
-
-### ManageOrders Integration (v1.3.0)
-Complete ERP integration with 11 endpoints for customers, orders, payments, tracking, and inventory
-- Smart multi-level caching (5min to 24hr)
-- Rate limiting: 30 requests/minute
-- Critical for webstore: Inventory levels, order tracking, payments
-
-See [ManageOrders Integration Guide](memory/MANAGEORDERS_INTEGRATION.md) for all endpoints and examples.
-
-### ManageOrders PUSH API (v1.0.1)
-Send orders FROM webstore TO ShopWorks OnSite for production
-- Auto-imported hourly into OnSite Order Entry
-- Automatic date conversion (YYYY-MM-DD → MM/DD/YYYY)
-- Size translation (L → LG in OnSite)
-- Design support via ImageURL
-
-See [ManageOrders PUSH Guide](memory/MANAGEORDERS_PUSH_INTEGRATION.md) and [Online Store Developer Guide](memory/ONLINE_STORE_DEVELOPER_GUIDE.md) for complete integration instructions.
-
-### Order Dashboard API
-Pre-calculated metrics for UI dashboards
-- Summary metrics (orders, sales, shipping)
-- Breakdowns by CSR and Order Type
-- Year-over-Year comparison (optional)
-- 60-second parameter-aware cache
-
-**Endpoint**: `GET /api/order-dashboard?days=7&includeDetails=false&compareYoY=false`
-**Note**: Filters by `date_OrderInvoiced` (not `date_OrderPlaced`) for accurate financial reporting
-
-### BLANK Pricing
-Blank garments without decoration (no printing, embroidery, etc.)
-- **Endpoint**: `GET /api/pricing-bundle?method=BLANK&styleNumber=PC54`
-- Returns tiers, rules, sizes, upcharges (no decoration costs)
-- Rounding: HalfDollarCeil_Final, Margin: 0.6
-
-See [BLANK Pricing Docs](memory/BLANK_PRICING.md) for implementation details.
+See the Memory Files section above for detailed documentation on each API. Key recent additions:
+- **Garment Tracker API** - Staff dashboard optimization (Jan 2026)
+- **Thread Colors API** - Monogram form support (Jan 2026)
+- **Monograms API** - CRUD for monogram orders (Jan 2026)
+- **Designs API** - InkSoft Transform store designs
+- **Decorated Cap Prices API** - Pre-calculated "As low as" prices
+- **API Usage Tracking** - 55-60% reduction achieved ✅
 
 ## Documentation
 
@@ -240,54 +161,9 @@ MANAGEORDERS_PASSWORD=your_password
 
 **Base URL**: `https://caspio-pricing-proxy-ab30a049961a.herokuapp.com`
 
-**Key Endpoints**:
-```bash
-# API Usage Metrics
-GET /api/admin/metrics
+**Quick test**: `GET /api/admin/metrics` - API usage dashboard
 
-# Pricing
-GET /api/pricing-bundle?method=DTG&styleNumber=PC54
-GET /api/pricing-bundle?method=BLANK&styleNumber=PC54
-GET /api/decorated-cap-prices?brand=Richardson&tier=72+
-
-# Products
-GET /api/products/search?q=PC54&limit=10
-GET /api/products/new?limit=10
-
-# Orders
-GET /api/order-dashboard?days=7
-GET /api/manageorders/orders/138145
-
-# Inventory
-GET /api/manageorders/inventorylevels?PartNumber=PC54
-
-# Thread Colors (Monogram Form)
-GET /api/thread-colors
-GET /api/thread-colors?instock=true
-
-# Designs (InkSoft Transform)
-GET /api/designs/store/122087
-GET /api/designs
-POST /api/designs
-PUT /api/designs/:pk_id
-DELETE /api/designs/:pk_id
-
-# Monograms (CRUD)
-GET /api/monograms
-GET /api/monograms/:orderNumber
-POST /api/monograms
-PUT /api/monograms/:id_monogram
-DELETE /api/monograms/:id_monogram
-
-# Garment Tracker (Staff Dashboard)
-GET /api/garment-tracker
-GET /api/garment-tracker?q.where=RepName='Nika Lao'
-GET /api/garment-tracker/:id
-POST /api/garment-tracker
-PUT /api/garment-tracker/:id
-DELETE /api/garment-tracker/:id
-DELETE /api/garment-tracker/bulk
-```
+See memory files for complete endpoint documentation.
 
 ## Important Notes
 
