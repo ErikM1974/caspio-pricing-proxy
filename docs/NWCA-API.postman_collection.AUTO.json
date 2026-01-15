@@ -5668,6 +5668,26 @@
 					"response": []
 				},
 				{
+					"name": "Get Quote Sequence",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/quote-sequence/:prefix",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"quote-sequence",
+								":prefix"
+							]
+						},
+						"description": "Supports prefixes like EMB, DTG, DTF, SPC for quote IDs (e.g., EMB-2026-001)"
+					},
+					"response": []
+				},
+				{
 					"name": "Get Quote_analytics",
 					"request": {
 						"method": "GET",
@@ -6584,6 +6604,11 @@
 		},
 		{
 			"key": "id_monogram",
+			"value": "value",
+			"type": "string"
+		},
+		{
+			"key": "prefix",
 			"value": "value",
 			"type": "string"
 		},
