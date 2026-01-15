@@ -28,7 +28,7 @@ router.get('/pricing-tiers', async (req, res) => {
     } else {
       whereClause = `DecorationMethod='${method}'`;
     }
-    
+
     const records = await fetchAllCaspioPages('/tables/Pricing_Tiers/records', {
       'q.where': whereClause,
       'q.select': 'PK_ID,TierID,DecorationMethod,TierLabel,MinQuantity,MaxQuantity,MarginDenominator,TargetMargin,LTM_Fee',
@@ -39,6 +39,52 @@ router.get('/pricing-tiers', async (req, res) => {
   } catch (error) {
     console.error('Error fetching pricing tiers:', error.message);
     res.status(500).json({ error: 'Failed to fetch pricing tiers', details: error.message });
+  }
+});
+
+// POST /api/pricing-tiers - Create new pricing tier
+router.post('/pricing-tiers', async (req, res) => {
+  console.log('POST /api/pricing-tiers - Creating new pricing tier');
+
+  try {
+    const result = await makeCaspioRequest('post', '/tables/Pricing_Tiers/records', {}, req.body);
+    console.log('Pricing tier created:', result);
+    res.status(201).json(result);
+  } catch (error) {
+    console.error('Error creating pricing tier:', error.message);
+    res.status(500).json({ error: 'Failed to create pricing tier', details: error.message });
+  }
+});
+
+// PUT /api/pricing-tiers/:id - Update pricing tier
+router.put('/pricing-tiers/:id', async (req, res) => {
+  const { id } = req.params;
+  console.log(`PUT /api/pricing-tiers/${id} - Updating pricing tier`);
+
+  try {
+    const result = await makeCaspioRequest('put', '/tables/Pricing_Tiers/records',
+      { 'q.where': `TierID=${id}` }, req.body);
+    console.log('Pricing tier updated:', result);
+    res.json({ message: 'Pricing tier updated successfully', updated: result });
+  } catch (error) {
+    console.error('Error updating pricing tier:', error.message);
+    res.status(500).json({ error: 'Failed to update pricing tier', details: error.message });
+  }
+});
+
+// DELETE /api/pricing-tiers/:id - Delete pricing tier
+router.delete('/pricing-tiers/:id', async (req, res) => {
+  const { id } = req.params;
+  console.log(`DELETE /api/pricing-tiers/${id} - Deleting pricing tier`);
+
+  try {
+    const result = await makeCaspioRequest('delete', '/tables/Pricing_Tiers/records',
+      { 'q.where': `TierID=${id}` });
+    console.log('Pricing tier deleted:', result);
+    res.json({ message: 'Pricing tier deleted successfully', recordsAffected: result.RecordsAffected || 0 });
+  } catch (error) {
+    console.error('Error deleting pricing tier:', error.message);
+    res.status(500).json({ error: 'Failed to delete pricing tier', details: error.message });
   }
 });
 
@@ -61,6 +107,52 @@ router.get('/embroidery-costs', async (req, res) => {
   } catch (error) {
     console.error('Error fetching embroidery costs:', error.message);
     res.status(500).json({ error: 'Failed to fetch embroidery costs', details: error.message });
+  }
+});
+
+// POST /api/embroidery-costs - Create new embroidery cost record
+router.post('/embroidery-costs', async (req, res) => {
+  console.log('POST /api/embroidery-costs - Creating new embroidery cost record');
+
+  try {
+    const result = await makeCaspioRequest('post', '/tables/Embroidery_Costs/records', {}, req.body);
+    console.log('Embroidery cost record created:', result);
+    res.status(201).json(result);
+  } catch (error) {
+    console.error('Error creating embroidery cost record:', error.message);
+    res.status(500).json({ error: 'Failed to create embroidery cost record', details: error.message });
+  }
+});
+
+// PUT /api/embroidery-costs/:id - Update embroidery cost record
+router.put('/embroidery-costs/:id', async (req, res) => {
+  const { id } = req.params;
+  console.log(`PUT /api/embroidery-costs/${id} - Updating embroidery cost record`);
+
+  try {
+    const result = await makeCaspioRequest('put', '/tables/Embroidery_Costs/records',
+      { 'q.where': `PK_ID=${id}` }, req.body);
+    console.log('Embroidery cost record updated:', result);
+    res.json({ message: 'Embroidery cost record updated successfully', updated: result });
+  } catch (error) {
+    console.error('Error updating embroidery cost record:', error.message);
+    res.status(500).json({ error: 'Failed to update embroidery cost record', details: error.message });
+  }
+});
+
+// DELETE /api/embroidery-costs/:id - Delete embroidery cost record
+router.delete('/embroidery-costs/:id', async (req, res) => {
+  const { id } = req.params;
+  console.log(`DELETE /api/embroidery-costs/${id} - Deleting embroidery cost record`);
+
+  try {
+    const result = await makeCaspioRequest('delete', '/tables/Embroidery_Costs/records',
+      { 'q.where': `PK_ID=${id}` });
+    console.log('Embroidery cost record deleted:', result);
+    res.json({ message: 'Embroidery cost record deleted successfully', recordsAffected: result.RecordsAffected || 0 });
+  } catch (error) {
+    console.error('Error deleting embroidery cost record:', error.message);
+    res.status(500).json({ error: 'Failed to delete embroidery cost record', details: error.message });
   }
 });
 
@@ -326,7 +418,7 @@ router.get('/pricing-bundle', async (req, res) => {
     return res.status(400).json({ error: 'Decoration method is required' });
   }
 
-  const validMethods = ['DTG', 'EMB', 'CAP', 'ScreenPrint', 'DTF', 'EMB-AL', 'CAP-AL', 'BLANK'];
+  const validMethods = ['DTG', 'EMB', 'CAP', 'ScreenPrint', 'DTF', 'EMB-AL', 'CAP-AL', 'BLANK', 'PATCH', 'CAP-PUFF'];
   if (!validMethods.includes(method)) {
     return res.status(400).json({ error: `Invalid decoration method. Use one of: ${validMethods.join(', ')}` });
   }
@@ -340,7 +432,9 @@ router.get('/pricing-bundle', async (req, res) => {
     'DTF': 'DTF',
     'EMB-AL': 'EmbroideryShirts',  // Additional Logo uses same tiers as regular embroidery
     'CAP-AL': 'EmbroideryCaps',      // Cap Additional Logo uses same tiers as regular caps
-    'BLANK': 'Blank'
+    'BLANK': 'Blank',
+    'PATCH': 'LaserPatches',         // Laser leatherette patches for caps
+    'CAP-PUFF': 'EmbroideryCaps'     // 3D Puff uses same tiers as regular cap embroidery
   };
 
   // Map methods to location types
@@ -352,7 +446,9 @@ router.get('/pricing-bundle', async (req, res) => {
     'DTF': 'DTF',
     'EMB-AL': 'EMB',  // Additional Logo uses same locations as embroidery
     'CAP-AL': 'CAP',   // Cap Additional Logo uses same locations as caps
-    'BLANK': null      // Blank products have no print locations
+    'BLANK': null,     // Blank products have no print locations
+    'PATCH': 'PATCH',  // Front only for patches
+    'CAP-PUFF': 'CAP'  // 3D Puff uses same locations as caps
   };
 
   const dbMethod = methodMapping[method];
@@ -465,6 +561,24 @@ router.get('/pricing-bundle', async (req, res) => {
         // Blank products have no decoration costs
         costTableQuery = Promise.resolve([]);
         break;
+      case 'PATCH':
+        // Laser leatherette patches - fetch from Embroidery_Costs with ItemType='Patch'
+        costTableQuery = fetchAllCaspioPages('/tables/Embroidery_Costs/records', {
+          'q.where': "ItemType='Patch'"
+        }).catch(err => {
+          console.error('Failed to fetch patch costs:', err.message);
+          return [];
+        });
+        break;
+      case 'CAP-PUFF':
+        // 3D Puff embroidery - fetch both regular cap costs and puff upcharge config
+        costTableQuery = fetchAllCaspioPages('/tables/Embroidery_Costs/records', {
+          'q.where': "ItemType='Cap' OR ItemType='3D-Puff'"
+        }).catch(err => {
+          console.error('Failed to fetch 3D puff costs:', err.message);
+          return [];
+        });
+        break;
     }
     baseQueries.push(costTableQuery);
 
@@ -563,7 +677,11 @@ router.get('/pricing-bundle', async (req, res) => {
       case 'CAP':
       case 'EMB-AL':
       case 'CAP-AL':
+      case 'CAP-PUFF':
         response.allEmbroideryCostsR = [];
+        break;
+      case 'PATCH':
+        response.allPatchCostsR = [];
         break;
       case 'ScreenPrint':
         response.allScreenprintCostsR = [];
@@ -618,7 +736,11 @@ router.get('/pricing-bundle', async (req, res) => {
       case 'CAP':
       case 'EMB-AL':
       case 'CAP-AL':
+      case 'CAP-PUFF':
         response.allEmbroideryCostsR = costs || [];
+        break;
+      case 'PATCH':
+        response.allPatchCostsR = costs || [];
         break;
       case 'ScreenPrint':
         response.allScreenprintCostsR = costs || [];
@@ -706,7 +828,11 @@ router.get('/pricing-bundle', async (req, res) => {
         case 'CAP':
         case 'EMB-AL':
         case 'CAP-AL':
+        case 'CAP-PUFF':
           requiredStructure.allEmbroideryCostsR = [];
+          break;
+        case 'PATCH':
+          requiredStructure.allPatchCostsR = [];
           break;
         case 'ScreenPrint':
           requiredStructure.allScreenprintCostsR = [];
@@ -783,7 +909,11 @@ router.get('/pricing-bundle', async (req, res) => {
       case 'CAP':
       case 'EMB-AL':
       case 'CAP-AL':
+      case 'CAP-PUFF':
         errorResponse.allEmbroideryCostsR = [];
+        break;
+      case 'PATCH':
+        errorResponse.allPatchCostsR = [];
         break;
       case 'ScreenPrint':
         errorResponse.allScreenprintCostsR = [];
@@ -801,7 +931,7 @@ router.get('/pricing-bundle', async (req, res) => {
       errorResponse.sizes = [];
       errorResponse.sellingPriceDisplayAddOns = {};
     }
-    
+
     res.json(errorResponse);
   }
 });
