@@ -399,6 +399,11 @@ const garmentTrackerRoutes = require('./src/routes/garment-tracker');
 app.use('/api', garmentTrackerRoutes);
 console.log('✓ Garment Tracker routes loaded');
 
+// Quote Sequence Routes (atomic get-and-increment for quote IDs)
+const quoteSequenceRoutes = require('./src/routes/quote-sequence');
+app.use('/api', quoteSequenceRoutes);
+console.log('✓ Quote Sequence routes loaded');
+
 // --- Admin Metrics Endpoint ---
 const apiTracker = require('./src/utils/api-tracker');
 
