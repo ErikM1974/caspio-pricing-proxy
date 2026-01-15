@@ -1,6 +1,6 @@
 {
-  "scannedAt": "2026-01-09T22:13:29.899Z",
-  "totalEndpoints": 209,
+  "scannedAt": "2026-01-15T12:34:30.006Z",
+  "totalEndpoints": 213,
   "endpoints": [
     {
       "method": "GET",
@@ -1210,7 +1210,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "garment-tracker.js",
-      "lineNumber": 141
+      "lineNumber": 142
     },
     {
       "method": "PUT",
@@ -1221,7 +1221,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "garment-tracker.js",
-      "lineNumber": 194
+      "lineNumber": 242
     },
     {
       "method": "DELETE",
@@ -1232,7 +1232,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "garment-tracker.js",
-      "lineNumber": 229
+      "lineNumber": 277
     },
     {
       "method": "GET",
@@ -1438,7 +1438,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "manageorders-push.js",
-      "lineNumber": 62
+      "lineNumber": 63
     },
     {
       "method": "GET",
@@ -1449,7 +1449,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "manageorders-push.js",
-      "lineNumber": 124
+      "lineNumber": 125
     },
     {
       "method": "POST",
@@ -1460,7 +1460,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "manageorders-push.js",
-      "lineNumber": 166
+      "lineNumber": 167
     },
     {
       "method": "GET",
@@ -1471,7 +1471,84 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "manageorders-push.js",
-      "lineNumber": 195
+      "lineNumber": 196
+    },
+    {
+      "method": "POST",
+      "path": "/tracking/push",
+      "fullPath": "/api/tracking/push",
+      "category": "📋 General",
+      "description": "",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "manageorders-push.js",
+      "lineNumber": 246
+    },
+    {
+      "method": "GET",
+      "path": "/tracking/pull",
+      "fullPath": "/api/tracking/pull",
+      "category": "📋 General",
+      "description": "",
+      "queryParams": [
+        {
+          "key": "dateFrom",
+          "value": "",
+          "description": "dateFrom parameter",
+          "disabled": true
+        },
+        {
+          "key": "dateTo",
+          "value": "",
+          "description": "dateTo parameter",
+          "disabled": true
+        },
+        {
+          "key": "timeFrom",
+          "value": "",
+          "description": "timeFrom parameter",
+          "disabled": false
+        },
+        {
+          "key": "timeTo",
+          "value": "",
+          "description": "timeTo parameter",
+          "disabled": false
+        },
+        {
+          "key": "apiSource",
+          "value": "",
+          "description": "apiSource parameter",
+          "disabled": false
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "manageorders-push.js",
+      "lineNumber": 307
+    },
+    {
+      "method": "GET",
+      "path": "/tracking/verify/:extOrderId",
+      "fullPath": "/api/tracking/verify/:extOrderId",
+      "category": "📋 General",
+      "description": "",
+      "queryParams": [
+        {
+          "key": "dateFrom",
+          "value": "",
+          "description": "dateFrom parameter",
+          "disabled": false
+        },
+        {
+          "key": "dateTo",
+          "value": "",
+          "description": "dateTo parameter",
+          "disabled": false
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "manageorders-push.js",
+      "lineNumber": 365
     },
     {
       "method": "GET",
@@ -3289,6 +3366,17 @@
     },
     {
       "method": "GET",
+      "path": "/quote-sequence/:prefix",
+      "fullPath": "/api/quote-sequence/:prefix",
+      "category": "📋 General",
+      "description": "Supports prefixes like EMB, DTG, DTF, SPC for quote IDs (e.g., EMB-2026-001)",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "quote-sequence.js",
+      "lineNumber": 8
+    },
+    {
+      "method": "GET",
       "path": "/quote_analytics",
       "fullPath": "/api/quote_analytics",
       "category": "📋 General",
@@ -3796,7 +3884,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "quotes.js",
-      "lineNumber": 421
+      "lineNumber": 427
     },
     {
       "method": "POST",
@@ -3807,7 +3895,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "quotes.js",
-      "lineNumber": 443
+      "lineNumber": 449
     },
     {
       "method": "PUT",
@@ -3818,7 +3906,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "quotes.js",
-      "lineNumber": 468
+      "lineNumber": 474
     },
     {
       "method": "DELETE",
@@ -3829,7 +3917,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "quotes.js",
-      "lineNumber": 495
+      "lineNumber": 501
     },
     {
       "method": "GET",
@@ -3877,7 +3965,7 @@
       ],
       "requestBody": null,
       "sourceFile": "sanmar-shopworks.js",
-      "lineNumber": 437
+      "lineNumber": 443
     },
     {
       "method": "GET",
@@ -3895,7 +3983,7 @@
       ],
       "requestBody": null,
       "sourceFile": "sanmar-shopworks.js",
-      "lineNumber": 463
+      "lineNumber": 469
     },
     {
       "method": "GET",
@@ -3919,7 +4007,7 @@
       ],
       "requestBody": null,
       "sourceFile": "sanmar-shopworks.js",
-      "lineNumber": 495
+      "lineNumber": 501
     },
     {
       "method": "POST",
@@ -3930,7 +4018,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "sanmar-shopworks.js",
-      "lineNumber": 640
+      "lineNumber": 646
     },
     {
       "method": "GET",
@@ -3977,7 +4065,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "thumbnails.js",
-      "lineNumber": 131
+      "lineNumber": 137
     },
     {
       "method": "GET",
@@ -4007,7 +4095,7 @@
       ],
       "requestBody": null,
       "sourceFile": "thumbnails.js",
-      "lineNumber": 232
+      "lineNumber": 238
     },
     {
       "method": "GET",
@@ -4025,7 +4113,7 @@
       ],
       "requestBody": null,
       "sourceFile": "thumbnails.js",
-      "lineNumber": 310
+      "lineNumber": 322
     },
     {
       "method": "POST",
@@ -4036,7 +4124,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "thumbnails.js",
-      "lineNumber": 384
+      "lineNumber": 402
     },
     {
       "method": "POST",
@@ -4047,7 +4135,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "thumbnails.js",
-      "lineNumber": 527
+      "lineNumber": 545
     },
     {
       "method": "GET",
@@ -4058,7 +4146,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "thumbnails.js",
-      "lineNumber": 590
+      "lineNumber": 608
     },
     {
       "method": "POST",
@@ -4069,7 +4157,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "thumbnails.js",
-      "lineNumber": 636
+      "lineNumber": 654
     },
     {
       "method": "GET",
@@ -4087,7 +4175,7 @@
       ],
       "requestBody": null,
       "sourceFile": "thumbnails.js",
-      "lineNumber": 790
+      "lineNumber": 808
     },
     {
       "method": "GET",
@@ -4098,7 +4186,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "thumbnails.js",
-      "lineNumber": 876
+      "lineNumber": 900
     },
     {
       "method": "DELETE",
@@ -4122,7 +4210,7 @@
       ],
       "requestBody": null,
       "sourceFile": "thumbnails.js",
-      "lineNumber": 921
+      "lineNumber": 945
     },
     {
       "method": "GET",

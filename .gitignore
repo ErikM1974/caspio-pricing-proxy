@@ -48,3 +48,4 @@ CLEANUP-PLAN.md
 QUOTE_API_INTEGRATION_GUIDE_UPDATED.md
 test-heroku-files.js
 .cache/scanned-routes.json
+.cache/scanned-routes.json
