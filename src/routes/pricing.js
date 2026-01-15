@@ -125,13 +125,14 @@ router.post('/embroidery-costs', async (req, res) => {
 });
 
 // PUT /api/embroidery-costs/:id - Update embroidery cost record
+// Note: Use EmbroideryCostID (not PK_ID) from the record
 router.put('/embroidery-costs/:id', async (req, res) => {
   const { id } = req.params;
   console.log(`PUT /api/embroidery-costs/${id} - Updating embroidery cost record`);
 
   try {
     const result = await makeCaspioRequest('put', '/tables/Embroidery_Costs/records',
-      { 'q.where': `PK_ID=${id}` }, req.body);
+      { 'q.where': `EmbroideryCostID=${id}` }, req.body);
     console.log('Embroidery cost record updated:', result);
     res.json({ message: 'Embroidery cost record updated successfully', updated: result });
   } catch (error) {
