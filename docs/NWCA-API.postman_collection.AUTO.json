@@ -770,6 +770,79 @@
 					"response": []
 				},
 				{
+					"name": "Create Pricing Tiers",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/pricing-tiers",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"pricing-tiers"
+							]
+						},
+						"description": "POST /api/pricing-tiers - Create new pricing tier"
+					},
+					"response": []
+				},
+				{
+					"name": "Update Pricing Tiers",
+					"request": {
+						"method": "PUT",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/pricing-tiers/:id",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"pricing-tiers",
+								":id"
+							]
+						},
+						"description": "PUT /api/pricing-tiers/:id - Update pricing tier"
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Pricing Tiers",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/pricing-tiers/:id",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"pricing-tiers",
+								":id"
+							],
+							"query": [
+								{
+									"key": "itemType",
+									"value": "",
+									"description": "itemType parameter",
+									"disabled": true
+								},
+								{
+									"key": "stitchCount",
+									"value": "",
+									"description": "stitchCount parameter",
+									"disabled": true
+								}
+							]
+						},
+						"description": "DELETE /api/pricing-tiers/:id - Delete pricing tier"
+					},
+					"response": []
+				},
+				{
 					"name": "Get Embroidery Costs",
 					"request": {
 						"method": "GET",
@@ -799,6 +872,65 @@
 							]
 						},
 						"description": "GET /api/embroidery-costs"
+					},
+					"response": []
+				},
+				{
+					"name": "Create Embroidery Costs",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/embroidery-costs",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"embroidery-costs"
+							]
+						},
+						"description": "POST /api/embroidery-costs - Create new embroidery cost record"
+					},
+					"response": []
+				},
+				{
+					"name": "Update Embroidery Costs",
+					"request": {
+						"method": "PUT",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/embroidery-costs/:id",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"embroidery-costs",
+								":id"
+							]
+						},
+						"description": "Note: Use EmbroideryCostID (not PK_ID) from the record"
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Embroidery Costs",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/embroidery-costs/:id",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"embroidery-costs",
+								":id"
+							]
+						},
+						"description": "DELETE /api/embroidery-costs/:id - Delete embroidery cost record"
 					},
 					"response": []
 				},
@@ -6228,6 +6360,241 @@
 							]
 						},
 						"description": "Transform embroidery quote items to ShopWorks LinesOE format POST /api/sanmar-shopworks/quote-to-linesoe  Takes quote builder line items and transforms them into ShopWorks-ready format: - Standard sizes (S/M/L/XL) grouped into single line item - Each extended size (2XL, 3XL, etc.) becomes separate line item with suffix - Proper Size01-Size06 field population - Size limit flags set correctly"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Taneisha Accounts",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/taneisha-accounts",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"taneisha-accounts"
+							],
+							"query": [
+								{
+									"key": "accountTier",
+									"value": "",
+									"description": "accountTier parameter",
+									"disabled": true
+								},
+								{
+									"key": "priorityTier",
+									"value": "",
+									"description": "priorityTier parameter",
+									"disabled": true
+								},
+								{
+									"key": "month",
+									"value": "",
+									"description": "month parameter",
+									"disabled": true
+								},
+								{
+									"key": "quarter",
+									"value": "",
+									"description": "quarter parameter",
+									"disabled": true
+								},
+								{
+									"key": "isActive",
+									"value": "",
+									"description": "isActive parameter",
+									"disabled": true
+								},
+								{
+									"key": "buysCaps",
+									"value": "",
+									"description": "buysCaps parameter",
+									"disabled": true
+								},
+								{
+									"key": "buysJackets",
+									"value": "",
+									"description": "buysJackets parameter",
+									"disabled": true
+								},
+								{
+									"key": "buysCarhartt",
+									"value": "",
+									"description": "buysCarhartt parameter",
+									"disabled": true
+								},
+								{
+									"key": "buysPolos",
+									"value": "",
+									"description": "buysPolos parameter",
+									"disabled": true
+								},
+								{
+									"key": "buysTShirts",
+									"value": "",
+									"description": "buysTShirts parameter",
+									"disabled": true
+								},
+								{
+									"key": "buysHoodies",
+									"value": "",
+									"description": "buysHoodies parameter",
+									"disabled": true
+								},
+								{
+									"key": "buysSafety",
+									"value": "",
+									"description": "buysSafety parameter",
+									"disabled": true
+								},
+								{
+									"key": "atRisk",
+									"value": "",
+									"description": "atRisk parameter",
+									"disabled": true
+								},
+								{
+									"key": "overdueForOrder",
+									"value": "",
+									"description": "overdueForOrder parameter",
+									"disabled": true
+								},
+								{
+									"key": "contactStatus",
+									"value": "",
+									"description": "contactStatus parameter",
+									"disabled": true
+								},
+								{
+									"key": "trend",
+									"value": "",
+									"description": "trend parameter",
+									"disabled": true
+								},
+								{
+									"key": "search",
+									"value": "",
+									"description": "search parameter",
+									"disabled": true
+								},
+								{
+									"key": "orderBy",
+									"value": "",
+									"description": "orderBy parameter",
+									"disabled": true
+								},
+								{
+									"key": "orderDir",
+									"value": "",
+									"description": "orderDir parameter",
+									"disabled": true
+								}
+							]
+						},
+						"description": "GET /api/taneisha-accounts - List all accounts with optional filters"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Single Taneisha Accounts",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/taneisha-accounts/:id",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"taneisha-accounts",
+								":id"
+							]
+						},
+						"description": "GET /api/taneisha-accounts/:id - Get single account by ID_Customer"
+					},
+					"response": []
+				},
+				{
+					"name": "Create Taneisha Accounts",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/taneisha-accounts",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"taneisha-accounts"
+							]
+						},
+						"description": "POST /api/taneisha-accounts - Create new account"
+					},
+					"response": []
+				},
+				{
+					"name": "Update Taneisha Accounts",
+					"request": {
+						"method": "PUT",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/taneisha-accounts/:id",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"taneisha-accounts",
+								":id"
+							]
+						},
+						"description": "PUT /api/taneisha-accounts/:id - Update account (any fields)"
+					},
+					"response": []
+				},
+				{
+					"name": "Update Taneisha Accounts Crm",
+					"request": {
+						"method": "PUT",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/taneisha-accounts/:id/crm",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"taneisha-accounts",
+								":id",
+								"crm"
+							]
+						},
+						"description": "PUT /api/taneisha-accounts/:id/crm - Update CRM fields only (whitelisted)"
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Taneisha Accounts",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/taneisha-accounts/:id",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"taneisha-accounts",
+								":id"
+							]
+						},
+						"description": "DELETE /api/taneisha-accounts/:id - Delete account"
 					},
 					"response": []
 				},

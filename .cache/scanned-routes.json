@@ -1,6 +1,6 @@
 {
-  "scannedAt": "2026-01-15T12:34:30.006Z",
-  "totalEndpoints": 213,
+  "scannedAt": "2026-01-21T23:47:19.651Z",
+  "totalEndpoints": 225,
   "endpoints": [
     {
       "method": "GET",
@@ -2629,6 +2629,52 @@
       "lineNumber": 12
     },
     {
+      "method": "POST",
+      "path": "/pricing-tiers",
+      "fullPath": "/api/pricing-tiers",
+      "category": "💰 Pricing",
+      "description": "POST /api/pricing-tiers - Create new pricing tier",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "pricing.js",
+      "lineNumber": 46
+    },
+    {
+      "method": "PUT",
+      "path": "/pricing-tiers/:id",
+      "fullPath": "/api/pricing-tiers/:id",
+      "category": "💰 Pricing",
+      "description": "PUT /api/pricing-tiers/:id - Update pricing tier",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "pricing.js",
+      "lineNumber": 60
+    },
+    {
+      "method": "DELETE",
+      "path": "/pricing-tiers/:id",
+      "fullPath": "/api/pricing-tiers/:id",
+      "category": "💰 Pricing",
+      "description": "DELETE /api/pricing-tiers/:id - Delete pricing tier",
+      "queryParams": [
+        {
+          "key": "itemType",
+          "value": "",
+          "description": "itemType parameter",
+          "disabled": true
+        },
+        {
+          "key": "stitchCount",
+          "value": "",
+          "description": "stitchCount parameter",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "pricing.js",
+      "lineNumber": 76
+    },
+    {
       "method": "GET",
       "path": "/embroidery-costs",
       "fullPath": "/api/embroidery-costs",
@@ -2650,7 +2696,40 @@
       ],
       "requestBody": null,
       "sourceFile": "pricing.js",
-      "lineNumber": 46
+      "lineNumber": 92
+    },
+    {
+      "method": "POST",
+      "path": "/embroidery-costs",
+      "fullPath": "/api/embroidery-costs",
+      "category": "💰 Pricing",
+      "description": "POST /api/embroidery-costs - Create new embroidery cost record",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "pricing.js",
+      "lineNumber": 114
+    },
+    {
+      "method": "PUT",
+      "path": "/embroidery-costs/:id",
+      "fullPath": "/api/embroidery-costs/:id",
+      "category": "💰 Pricing",
+      "description": "Note: Use EmbroideryCostID (not PK_ID) from the record",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "pricing.js",
+      "lineNumber": 129
+    },
+    {
+      "method": "DELETE",
+      "path": "/embroidery-costs/:id",
+      "fullPath": "/api/embroidery-costs/:id",
+      "category": "💰 Pricing",
+      "description": "DELETE /api/embroidery-costs/:id - Delete embroidery cost record",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "pricing.js",
+      "lineNumber": 145
     },
     {
       "method": "GET",
@@ -2668,7 +2747,7 @@
       ],
       "requestBody": null,
       "sourceFile": "pricing.js",
-      "lineNumber": 68
+      "lineNumber": 161
     },
     {
       "method": "GET",
@@ -2686,7 +2765,7 @@
       ],
       "requestBody": null,
       "sourceFile": "pricing.js",
-      "lineNumber": 82
+      "lineNumber": 175
     },
     {
       "method": "GET",
@@ -2704,7 +2783,7 @@
       ],
       "requestBody": null,
       "sourceFile": "pricing.js",
-      "lineNumber": 103
+      "lineNumber": 196
     },
     {
       "method": "GET",
@@ -2722,7 +2801,7 @@
       ],
       "requestBody": null,
       "sourceFile": "pricing.js",
-      "lineNumber": 125
+      "lineNumber": 218
     },
     {
       "method": "GET",
@@ -2746,7 +2825,7 @@
       ],
       "requestBody": null,
       "sourceFile": "pricing.js",
-      "lineNumber": 164
+      "lineNumber": 257
     },
     {
       "method": "GET",
@@ -2770,7 +2849,7 @@
       ],
       "requestBody": null,
       "sourceFile": "pricing.js",
-      "lineNumber": 236
+      "lineNumber": 329
     },
     {
       "method": "GET",
@@ -2800,7 +2879,7 @@
       ],
       "requestBody": null,
       "sourceFile": "pricing.js",
-      "lineNumber": 321
+      "lineNumber": 414
     },
     {
       "method": "GET",
@@ -4019,6 +4098,187 @@
       "requestBody": null,
       "sourceFile": "sanmar-shopworks.js",
       "lineNumber": 646
+    },
+    {
+      "method": "GET",
+      "path": "/taneisha-accounts",
+      "fullPath": "/api/taneisha-accounts",
+      "category": "📋 General",
+      "description": "GET /api/taneisha-accounts - List all accounts with optional filters",
+      "queryParams": [
+        {
+          "key": "accountTier",
+          "value": "",
+          "description": "accountTier parameter",
+          "disabled": true
+        },
+        {
+          "key": "priorityTier",
+          "value": "",
+          "description": "priorityTier parameter",
+          "disabled": true
+        },
+        {
+          "key": "month",
+          "value": "",
+          "description": "month parameter",
+          "disabled": true
+        },
+        {
+          "key": "quarter",
+          "value": "",
+          "description": "quarter parameter",
+          "disabled": true
+        },
+        {
+          "key": "isActive",
+          "value": "",
+          "description": "isActive parameter",
+          "disabled": true
+        },
+        {
+          "key": "buysCaps",
+          "value": "",
+          "description": "buysCaps parameter",
+          "disabled": true
+        },
+        {
+          "key": "buysJackets",
+          "value": "",
+          "description": "buysJackets parameter",
+          "disabled": true
+        },
+        {
+          "key": "buysCarhartt",
+          "value": "",
+          "description": "buysCarhartt parameter",
+          "disabled": true
+        },
+        {
+          "key": "buysPolos",
+          "value": "",
+          "description": "buysPolos parameter",
+          "disabled": true
+        },
+        {
+          "key": "buysTShirts",
+          "value": "",
+          "description": "buysTShirts parameter",
+          "disabled": true
+        },
+        {
+          "key": "buysHoodies",
+          "value": "",
+          "description": "buysHoodies parameter",
+          "disabled": true
+        },
+        {
+          "key": "buysSafety",
+          "value": "",
+          "description": "buysSafety parameter",
+          "disabled": true
+        },
+        {
+          "key": "atRisk",
+          "value": "",
+          "description": "atRisk parameter",
+          "disabled": true
+        },
+        {
+          "key": "overdueForOrder",
+          "value": "",
+          "description": "overdueForOrder parameter",
+          "disabled": true
+        },
+        {
+          "key": "contactStatus",
+          "value": "",
+          "description": "contactStatus parameter",
+          "disabled": true
+        },
+        {
+          "key": "trend",
+          "value": "",
+          "description": "trend parameter",
+          "disabled": true
+        },
+        {
+          "key": "search",
+          "value": "",
+          "description": "search parameter",
+          "disabled": true
+        },
+        {
+          "key": "orderBy",
+          "value": "",
+          "description": "orderBy parameter",
+          "disabled": true
+        },
+        {
+          "key": "orderDir",
+          "value": "",
+          "description": "orderDir parameter",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "taneisha-accounts.js",
+      "lineNumber": 49
+    },
+    {
+      "method": "GET",
+      "path": "/taneisha-accounts/:id",
+      "fullPath": "/api/taneisha-accounts/:id",
+      "category": "📋 General",
+      "description": "GET /api/taneisha-accounts/:id - Get single account by ID_Customer",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "taneisha-accounts.js",
+      "lineNumber": 152
+    },
+    {
+      "method": "POST",
+      "path": "/taneisha-accounts",
+      "fullPath": "/api/taneisha-accounts",
+      "category": "📋 General",
+      "description": "POST /api/taneisha-accounts - Create new account",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "taneisha-accounts.js",
+      "lineNumber": 184
+    },
+    {
+      "method": "PUT",
+      "path": "/taneisha-accounts/:id",
+      "fullPath": "/api/taneisha-accounts/:id",
+      "category": "📋 General",
+      "description": "PUT /api/taneisha-accounts/:id - Update account (any fields)",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "taneisha-accounts.js",
+      "lineNumber": 244
+    },
+    {
+      "method": "PUT",
+      "path": "/taneisha-accounts/:id/crm",
+      "fullPath": "/api/taneisha-accounts/:id/crm",
+      "category": "📋 General",
+      "description": "PUT /api/taneisha-accounts/:id/crm - Update CRM fields only (whitelisted)",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "taneisha-accounts.js",
+      "lineNumber": 290
+    },
+    {
+      "method": "DELETE",
+      "path": "/taneisha-accounts/:id",
+      "fullPath": "/api/taneisha-accounts/:id",
+      "category": "📋 General",
+      "description": "DELETE /api/taneisha-accounts/:id - Delete account",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "taneisha-accounts.js",
+      "lineNumber": 343
     },
     {
       "method": "GET",
