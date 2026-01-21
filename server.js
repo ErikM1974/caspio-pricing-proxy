@@ -404,6 +404,11 @@ const quoteSequenceRoutes = require('./src/routes/quote-sequence');
 app.use('/api', quoteSequenceRoutes);
 console.log('✓ Quote Sequence routes loaded');
 
+// Taneisha Accounts Routes (CRM for Taneisha's 800 customer accounts)
+const taneishaAccountsRoutes = require('./src/routes/taneisha-accounts');
+app.use('/api', taneishaAccountsRoutes);
+console.log('✓ Taneisha Accounts routes loaded');
+
 // --- Admin Metrics Endpoint ---
 const apiTracker = require('./src/utils/api-tracker');
 

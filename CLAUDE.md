@@ -64,6 +64,7 @@ Detailed documentation organized by topic:
 - **[Thread Colors API](memory/THREAD_COLORS_API.md)** - Thread color lookup for monogram form (v1.0.0 - 2026-01-08)
 - **[Monograms API](memory/MONOGRAMS_API.md)** - CRUD endpoints for monogram orders (v1.0.0 - 2026-01-09)
 - **[Garment Tracker API](memory/GARMENT_TRACKER_API.md)** - Pre-processed garment tracking for staff dashboard (v1.0.0 - 2026-01-09)
+- **[Taneisha Accounts API](memory/TANEISHA_ACCOUNTS_API.md)** - CRM for Taneisha's 800 customer accounts (v1.0.0 - 2026-01-21)
 
 ## Quick Reference
 
