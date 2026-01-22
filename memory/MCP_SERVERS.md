@@ -1,7 +1,8 @@
 # MCP Servers for Claude Desktop
 
-**Version**: 1.0.0
+**Version**: 1.1.0
 **Created**: 2026-01-22
+**Updated**: 2026-01-22
 **Purpose**: Enable Claude Desktop to interact with NWCA APIs via tools
 
 ---
@@ -26,11 +27,11 @@ C:\Users\erik\AppData\Roaming\Claude\claude_desktop_config.json
 
 ### 1. nwca-accounts (LOCAL DEV)
 
-**Purpose:** Manage Taneisha and Nika's customer account lists
+**Purpose:** Manage Taneisha, Nika, and House customer account lists
 
 **Location:** `caspio-pricing-proxy/mcp-server/index.js`
 
-**Tools Available:**
+**Rep Account Tools:**
 
 | Tool | Description |
 |------|-------------|
@@ -41,11 +42,23 @@ C:\Users\erik\AppData\Roaming\Claude\claude_desktop_config.json
 | `move_account` | Move customer from one rep's list to another |
 | `reconcile_accounts` | Find customers with orders not in rep's list |
 | `sync_sales` | Update YTD sales from ManageOrders |
-| `rep_audit` | Check for account/order mismatches |
+| `rep_audit` | Check for account/order mismatches (includes House check) |
 | `create_account` | Add customer to rep's list |
 | `delete_account` | Remove customer from rep's list |
 
-**Example prompts:**
+**House Account Tools:**
+
+| Tool | Description |
+|------|-------------|
+| `list_house_accounts` | List house accounts with filters (assignee, reviewed, search) |
+| `get_house_account` | Get details for a single house account |
+| `add_house_account` | Add customer to house accounts |
+| `update_house_account` | Update house account (assignee, notes, reviewed) |
+| `delete_house_account` | Remove customer from house accounts |
+| `move_to_house` | Move customer from rep's list to house accounts |
+| `house_stats` | Get house account statistics by assignee |
+
+**Example prompts - Rep Accounts:**
 - "Show me Taneisha's at-risk accounts"
 - "Show me Nika's unclassified accounts" (accounts with no tier)
 - "Run the rep audit for 2026"
@@ -55,6 +68,15 @@ C:\Users\erik\AppData\Roaming\Claude\claude_desktop_config.json
 - "Change customer 12345 to GOLD tier"
 - "Move customer 12345 from Nika's list to Taneisha's list"
 - "Mark customer 12345 as at-risk"
+
+**Example prompts - House Accounts:**
+- "Show me all house accounts assigned to Ruthie"
+- "Show unreviewed house accounts"
+- "Add customer 12345 to house accounts, assigned to Erik"
+- "Move customer 12345 from Nika's list to house accounts, assigned to Web"
+- "Mark house account 12345 as reviewed"
+- "Show me house account statistics"
+- "Who has the most house accounts?"
 
 ---
 
@@ -233,4 +255,5 @@ The MCP server calls the Heroku API. Check:
 - [Rep Account Management](REP_ACCOUNT_MANAGEMENT.md) - Backend API documentation
 - [Taneisha Accounts API](TANEISHA_ACCOUNTS_API.md) - Endpoint details
 - [Nika Accounts API](NIKA_ACCOUNTS_API.md) - Endpoint details
+- [House Accounts API](HOUSE_ACCOUNTS_API.md) - House accounts endpoint details
 - [MCP Documentation](https://modelcontextprotocol.io/) - Official MCP docs

@@ -429,6 +429,11 @@ const repAuditRoutes = require('./src/routes/rep-audit');
 app.use('/api', repAuditRoutes);
 console.log('✓ Rep Audit routes loaded');
 
+// House Accounts Routes (catch-all for non-sales-rep customers: Ruthie, House, Erik, Jim, Web)
+const houseAccountsRoutes = require('./src/routes/house-accounts');
+app.use('/api', houseAccountsRoutes);
+console.log('✓ House Accounts routes loaded');
+
 // --- Admin Metrics Endpoint ---
 const apiTracker = require('./src/utils/api-tracker');
 

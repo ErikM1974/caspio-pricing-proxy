@@ -7,6 +7,7 @@ const { fetchAllCaspioPages } = require('../utils/caspio');
 
 const TANEISHA_TABLE = 'Taneisha_All_Accounts_Caspio';
 const NIKA_TABLE = 'Nika_All_Accounts_Caspio';
+const HOUSE_TABLE = 'House_Accounts';
 
 // GET /api/rep-audit - Find orders where rep doesn't match account assignment
 // Query params:
@@ -22,21 +23,26 @@ router.get('/rep-audit', async (req, res) => {
 
         const { fetchOrders, getDateDaysAgo } = require('../utils/manageorders');
 
-        // Step 1: Get both account lists
+        // Step 1: Get all account lists (Taneisha, Nika, House)
         console.log('Fetching account lists...');
-        const [taneishaAccounts, nikaAccounts] = await Promise.all([
+        const [taneishaAccounts, nikaAccounts, houseAccounts] = await Promise.all([
             fetchAllCaspioPages(`/tables/${TANEISHA_TABLE}/records`, {
                 'q.select': 'ID_Customer,CompanyName'
             }),
             fetchAllCaspioPages(`/tables/${NIKA_TABLE}/records`, {
                 'q.select': 'ID_Customer,CompanyName'
-            })
+            }),
+            fetchAllCaspioPages(`/tables/${HOUSE_TABLE}/records`, {
+                'q.select': 'ID_Customer,CompanyName,Assigned_To'
+            }).catch(() => []) // House table may not exist yet
         ]);
 
         const taneishaIds = new Set(taneishaAccounts.map(a => a.ID_Customer));
         const nikaIds = new Set(nikaAccounts.map(a => a.ID_Customer));
+        const houseIds = new Set(houseAccounts.map(a => a.ID_Customer));
+        const houseAssignments = new Map(houseAccounts.map(a => [a.ID_Customer, a.Assigned_To]));
 
-        console.log(`Taneisha: ${taneishaIds.size} accounts, Nika: ${nikaIds.size} accounts`);
+        console.log(`Taneisha: ${taneishaIds.size} accounts, Nika: ${nikaIds.size} accounts, House: ${houseIds.size} accounts`);
 
         // Step 2: Fetch orders (last 60 days in chunks)
         console.log('Fetching orders...');
@@ -67,7 +73,8 @@ router.get('/rep-audit', async (req, res) => {
         const mismatches = {
             nikaOrdersTaneishaCustomer: [],  // Nika wrote order for Taneisha's customer
             taneishaOrdersNikaCustomer: [],  // Taneisha wrote order for Nika's customer
-            unassignedCustomers: []          // Customer not in either list
+            houseAccountOrders: [],          // Orders for house account customers (for visibility)
+            unassignedCustomers: []          // Customer not in ANY list
         };
 
         const customerSummary = new Map(); // Track totals per customer
@@ -77,7 +84,14 @@ router.get('/rep-audit', async (req, res) => {
             const rep = order.CustomerServiceRep;
             const inTaneisha = taneishaIds.has(customerId);
             const inNika = nikaIds.has(customerId);
+            const inHouse = houseIds.has(customerId);
             const orderTotal = parseFloat(order.cur_SubTotal) || 0;
+
+            // Determine assignment
+            let assignedTo = 'NONE';
+            if (inTaneisha) assignedTo = 'Taneisha';
+            else if (inNika) assignedTo = 'Nika';
+            else if (inHouse) assignedTo = `House (${houseAssignments.get(customerId) || 'Unknown'})`;
 
             // Build order summary
             const orderInfo = {
@@ -87,7 +101,7 @@ router.get('/rep-audit', async (req, res) => {
                 CustomerServiceRep: rep,
                 date_Invoiced: order.date_Invoiced?.split('T')[0],
                 cur_SubTotal: orderTotal,
-                assignedTo: inTaneisha ? 'Taneisha' : (inNika ? 'Nika' : 'NONE')
+                assignedTo: assignedTo
             };
 
             // Check for mismatches
@@ -97,8 +111,11 @@ router.get('/rep-audit', async (req, res) => {
             } else if (rep === 'Taneisha Clark' && inNika && !inTaneisha) {
                 // Taneisha wrote order for customer on Nika's list only
                 mismatches.taneishaOrdersNikaCustomer.push(orderInfo);
+            } else if (inHouse) {
+                // Customer in house accounts - track for visibility but not an issue
+                mismatches.houseAccountOrders.push(orderInfo);
             } else if (!inTaneisha && !inNika && includeUnassigned) {
-                // Customer not in either list
+                // Customer not in ANY list
                 mismatches.unassignedCustomers.push(orderInfo);
             }
         });
@@ -106,11 +123,13 @@ router.get('/rep-audit', async (req, res) => {
         // Calculate totals
         const nikaWrongTotal = mismatches.nikaOrdersTaneishaCustomer.reduce((sum, o) => sum + o.cur_SubTotal, 0);
         const taneishaWrongTotal = mismatches.taneishaOrdersNikaCustomer.reduce((sum, o) => sum + o.cur_SubTotal, 0);
+        const houseTotal = mismatches.houseAccountOrders.reduce((sum, o) => sum + o.cur_SubTotal, 0);
         const unassignedTotal = mismatches.unassignedCustomers.reduce((sum, o) => sum + o.cur_SubTotal, 0);
 
         // Sort by amount descending
         mismatches.nikaOrdersTaneishaCustomer.sort((a, b) => b.cur_SubTotal - a.cur_SubTotal);
         mismatches.taneishaOrdersNikaCustomer.sort((a, b) => b.cur_SubTotal - a.cur_SubTotal);
+        mismatches.houseAccountOrders.sort((a, b) => b.cur_SubTotal - a.cur_SubTotal);
         mismatches.unassignedCustomers.sort((a, b) => b.cur_SubTotal - a.cur_SubTotal);
 
         // Get unique customers per category
@@ -130,6 +149,11 @@ router.get('/rep-audit', async (req, res) => {
         const summary = {
             year: filterYear,
             totalOrdersChecked: yearOrders.length,
+            accountLists: {
+                taneisha: taneishaIds.size,
+                nika: nikaIds.size,
+                house: houseIds.size
+            },
             issues: {
                 nikaOrdersTaneishaCustomer: {
                     count: mismatches.nikaOrdersTaneishaCustomer.length,
@@ -147,8 +171,14 @@ router.get('/rep-audit', async (req, res) => {
                     count: mismatches.unassignedCustomers.length,
                     total: unassignedTotal,
                     uniqueCustomers: getUniqueCustomers(mismatches.unassignedCustomers).length,
-                    description: "Orders for customers not in either list"
+                    description: "Orders for customers not in ANY list (Taneisha, Nika, or House)"
                 }
+            },
+            houseAccounts: {
+                count: mismatches.houseAccountOrders.length,
+                total: houseTotal,
+                uniqueCustomers: getUniqueCustomers(mismatches.houseAccountOrders).length,
+                description: "Orders for House Account customers (not issues - for visibility)"
             },
             totalIssues: mismatches.nikaOrdersTaneishaCustomer.length +
                          mismatches.taneishaOrdersNikaCustomer.length +
@@ -178,18 +208,22 @@ router.get('/rep-audit/summary', async (req, res) => {
 
         const { fetchOrders, getDateDaysAgo } = require('../utils/manageorders');
 
-        // Get both account lists
-        const [taneishaAccounts, nikaAccounts] = await Promise.all([
+        // Get all account lists (Taneisha, Nika, House)
+        const [taneishaAccounts, nikaAccounts, houseAccounts] = await Promise.all([
             fetchAllCaspioPages(`/tables/${TANEISHA_TABLE}/records`, {
                 'q.select': 'ID_Customer'
             }),
             fetchAllCaspioPages(`/tables/${NIKA_TABLE}/records`, {
                 'q.select': 'ID_Customer'
-            })
+            }),
+            fetchAllCaspioPages(`/tables/${HOUSE_TABLE}/records`, {
+                'q.select': 'ID_Customer'
+            }).catch(() => []) // House table may not exist yet
         ]);
 
         const taneishaIds = new Set(taneishaAccounts.map(a => a.ID_Customer));
         const nikaIds = new Set(nikaAccounts.map(a => a.ID_Customer));
+        const houseIds = new Set(houseAccounts.map(a => a.ID_Customer));
 
         // Fetch orders
         let allOrders = [];
@@ -216,6 +250,7 @@ router.get('/rep-audit/summary', async (req, res) => {
         // Count issues
         let nikaWrong = 0, nikaWrongAmount = 0;
         let taneishaWrong = 0, taneishaWrongAmount = 0;
+        let houseCount = 0, houseAmount = 0;
         let unassigned = 0, unassignedAmount = 0;
 
         yearOrders.forEach(order => {
@@ -223,6 +258,7 @@ router.get('/rep-audit/summary', async (req, res) => {
             const rep = order.CustomerServiceRep;
             const inTaneisha = taneishaIds.has(customerId);
             const inNika = nikaIds.has(customerId);
+            const inHouse = houseIds.has(customerId);
             const amount = parseFloat(order.cur_SubTotal) || 0;
 
             if (rep === 'Nika Lao' && inTaneisha && !inNika) {
@@ -231,6 +267,10 @@ router.get('/rep-audit/summary', async (req, res) => {
             } else if (rep === 'Taneisha Clark' && inNika && !inTaneisha) {
                 taneishaWrong++;
                 taneishaWrongAmount += amount;
+            } else if (inHouse) {
+                // In house accounts - not an issue, just tracking
+                houseCount++;
+                houseAmount += amount;
             } else if (!inTaneisha && !inNika) {
                 unassigned++;
                 unassignedAmount += amount;
@@ -245,11 +285,17 @@ router.get('/rep-audit/summary', async (req, res) => {
             year: filterYear,
             status: hasIssues ? 'ISSUES_FOUND' : 'OK',
             totalOrdersChecked: yearOrders.length,
+            accountLists: {
+                taneisha: taneishaIds.size,
+                nika: nikaIds.size,
+                house: houseIds.size
+            },
             issues: {
                 nikaOrdersTaneishaCustomer: { count: nikaWrong, total: nikaWrongAmount },
                 taneishaOrdersNikaCustomer: { count: taneishaWrong, total: taneishaWrongAmount },
                 unassignedCustomers: { count: unassigned, total: unassignedAmount }
             },
+            houseAccounts: { count: houseCount, total: houseAmount },
             totalIssues,
             totalMismatchedRevenue: nikaWrongAmount + taneishaWrongAmount + unassignedAmount,
             message: hasIssues
