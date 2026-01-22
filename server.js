@@ -419,6 +419,11 @@ const nikaAccountsRoutes = require('./src/routes/nika-accounts');
 app.use('/api', nikaAccountsRoutes);
 console.log('✓ Nika Accounts routes loaded');
 
+// Nika Daily Sales Archive Routes (YTD tracking beyond ManageOrders 60-day limit)
+const nikaDailySalesRoutes = require('./src/routes/nika-daily-sales');
+app.use('/api/nika', nikaDailySalesRoutes);
+console.log('✓ Nika Daily Sales Archive routes loaded');
+
 // Rep Audit Routes (cross-check orders vs account assignments)
 const repAuditRoutes = require('./src/routes/rep-audit');
 app.use('/api', repAuditRoutes);
