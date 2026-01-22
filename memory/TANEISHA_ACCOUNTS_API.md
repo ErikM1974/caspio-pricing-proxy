@@ -23,7 +23,9 @@ CRUD endpoints for managing Taneisha Clark's 800 customer accounts with CRM trac
 |--------|----------|-------------|
 | GET | `/api/taneisha-accounts` | List all accounts with filtering |
 | GET | `/api/taneisha-accounts/:id` | Get single account by ID_Customer |
+| GET | `/api/taneisha-accounts/reconcile` | Find customers with orders not in list |
 | POST | `/api/taneisha-accounts` | Create new account |
+| POST | `/api/taneisha-accounts/sync-sales` | Sync YTD sales from ManageOrders |
 | PUT | `/api/taneisha-accounts/:id` | Update account (any fields) |
 | PUT | `/api/taneisha-accounts/:id/crm` | Update CRM fields only |
 | DELETE | `/api/taneisha-accounts/:id` | Delete account |
@@ -140,6 +142,122 @@ GET /api/taneisha-accounts/12345
   }
 }
 ```
+
+---
+
+## GET /api/taneisha-accounts/reconcile
+
+**Find customers who have Taneisha orders but are NOT in her Caspio account list.** This helps identify missing customers that need to be added.
+
+### How It Works
+1. Fetches all customers from Taneisha's Caspio list
+2. Fetches all orders from ManageOrders (last 60 days) where `CustomerServiceRep = 'Taneisha Clark'`
+3. Finds customers with Taneisha orders who aren't in her Caspio list
+4. Optionally auto-adds them with `?autoAdd=true`
+
+### Query Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `autoAdd` | boolean | Set to `true` to automatically add missing customers to Caspio |
+
+### Example Requests
+
+```bash
+# View missing customers (read-only)
+GET /api/taneisha-accounts/reconcile
+
+# Auto-add missing customers to Caspio
+GET /api/taneisha-accounts/reconcile?autoAdd=true
+```
+
+### Response (Read-Only)
+```json
+{
+  "success": true,
+  "existingAccounts": 799,
+  "missingCustomers": [
+    {
+      "ID_Customer": 8194,
+      "CompanyName": "Vector Research & Development, Inc.",
+      "orders": 1,
+      "totalSales": 1462,
+      "lastOrderDate": "2025-12-09"
+    },
+    {
+      "ID_Customer": 2791,
+      "CompanyName": "Northwest Embroidery-Store",
+      "orders": 1,
+      "totalSales": 482,
+      "lastOrderDate": "2025-12-23"
+    }
+  ],
+  "missingCount": 3,
+  "missingSales": 1944,
+  "message": "Found 3 customers with $1944.00 in sales not in Taneisha's list"
+}
+```
+
+### Response (With autoAdd=true)
+```json
+{
+  "success": true,
+  "existingAccounts": 799,
+  "missingCustomers": [...],
+  "missingCount": 3,
+  "missingSales": 1944,
+  "autoAdded": [8194, 2791, 6569],
+  "message": "Added 3 missing customers to Taneisha's list"
+}
+```
+
+### Frontend UI Suggestion
+
+Add a "Reconcile Accounts" button/section that:
+1. Calls `/api/taneisha-accounts/reconcile` to show missing customers
+2. Displays a table with: Company Name, Orders, Total Sales, Last Order Date
+3. Provides an "Add All Missing" button that calls `?autoAdd=true`
+4. Shows success message with count of added customers
+
+---
+
+## POST /api/taneisha-accounts/sync-sales
+
+**Sync YTD sales from ManageOrders to update account analytics.** Uses HYBRID pattern: Archive (pre-60 days) + Fresh ManageOrders (last 60 days).
+
+### What It Updates
+- `YTD_Sales_2026` - Year-to-date sales total
+- `Order_Count_2026` - Number of orders this year
+- `Last_Order_Date` - Most recent order date
+- `Last_Sync_Date` - When sync was performed
+
+### How It Works
+1. Fetches archived YTD totals from `Taneisha_Daily_Sales_By_Account` (data older than 60 days)
+2. Fetches fresh orders from ManageOrders (last 60 days) in 20-day chunks
+3. Only counts orders where `CustomerServiceRep = 'Taneisha Clark'`
+4. Combines archived + fresh for true YTD totals
+5. Updates each account in Caspio
+
+### Example Request
+```bash
+POST /api/taneisha-accounts/sync-sales
+```
+
+### Response
+```json
+{
+  "success": true,
+  "message": "Updated 150 Taneisha accounts with YTD sales",
+  "accountsUpdated": 150,
+  "totalYTD": 73650.99,
+  "syncDate": "2026-01-22"
+}
+```
+
+### Important Notes
+- **Only counts Taneisha's orders**: Filters by `CustomerServiceRep === 'Taneisha Clark'`
+- **Resets stale data**: Accounts with no matching orders get reset to $0
+- **ManageOrders sync delay**: ShopWorks data syncs to ManageOrders hourly
 
 ---
 

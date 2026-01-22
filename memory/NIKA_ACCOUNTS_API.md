@@ -23,6 +23,7 @@ CRUD endpoints for managing Nika's customer accounts with CRM tracking, contact 
 |--------|----------|-------------|
 | GET | `/api/nika-accounts` | List all accounts with filtering |
 | GET | `/api/nika-accounts/:id` | Get single account by ID_Customer |
+| GET | `/api/nika-accounts/reconcile` | Find customers with orders not in list |
 | POST | `/api/nika-accounts` | Create new account |
 | PUT | `/api/nika-accounts/:id` | Update account (any fields) |
 | PUT | `/api/nika-accounts/:id/crm` | Update CRM fields only |
@@ -100,6 +101,82 @@ GET /api/nika-accounts?overdueForOrder=1&orderBy=Last_Order&orderDir=DESC
   "accounts": [...]
 }
 ```
+
+---
+
+## GET /api/nika-accounts/reconcile
+
+**Find customers who have Nika orders but are NOT in her Caspio account list.** This helps identify missing customers that need to be added.
+
+### How It Works
+1. Fetches all customers from Nika's Caspio list
+2. Fetches all orders from ManageOrders (last 60 days) where `CustomerServiceRep = 'Nika Lao'`
+3. Finds customers with Nika orders who aren't in her Caspio list
+4. Optionally auto-adds them with `?autoAdd=true`
+
+### Query Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `autoAdd` | boolean | Set to `true` to automatically add missing customers to Caspio |
+
+### Example Requests
+
+```bash
+# View missing customers (read-only)
+GET /api/nika-accounts/reconcile
+
+# Auto-add missing customers to Caspio
+GET /api/nika-accounts/reconcile?autoAdd=true
+```
+
+### Response (Read-Only)
+```json
+{
+  "success": true,
+  "existingAccounts": 407,
+  "missingCustomers": [
+    {
+      "ID_Customer": 6924,
+      "CompanyName": "Lavelle Vac and Drainage",
+      "orders": 1,
+      "totalSales": 4711.5,
+      "lastOrderDate": "2025-12-15"
+    },
+    {
+      "ID_Customer": 10201,
+      "CompanyName": "Schneider Electric",
+      "orders": 2,
+      "totalSales": 3818,
+      "lastOrderDate": "2026-01-06"
+    }
+  ],
+  "missingCount": 37,
+  "missingSales": 33826.05,
+  "message": "Found 37 customers with $33826.05 in sales not in Nika's list"
+}
+```
+
+### Response (With autoAdd=true)
+```json
+{
+  "success": true,
+  "existingAccounts": 407,
+  "missingCustomers": [...],
+  "missingCount": 37,
+  "missingSales": 33826.05,
+  "autoAdded": [6924, 10201, 11430, ...],
+  "message": "Added 37 missing customers to Nika's list"
+}
+```
+
+### Frontend UI Suggestion
+
+Add a "Reconcile Accounts" button/section that:
+1. Calls `/api/nika-accounts/reconcile` to show missing customers
+2. Displays a table with: Company Name, Orders, Total Sales, Last Order Date
+3. Provides an "Add All Missing" button that calls `?autoAdd=true`
+4. Shows success message with count of added customers
 
 ---
 
