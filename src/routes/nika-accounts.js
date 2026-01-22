@@ -401,7 +401,7 @@ router.post('/nika-accounts/sync-sales', express.json(), async (req, res) => {
             const invoiceDate = new Date(order.date_Invoiced);
             if (invoiceDate.getFullYear() !== currentYear) return;
 
-            const orderTotal = parseFloat(order.amount_Total) || 0;
+            const orderTotal = parseFloat(order.cur_SubTotal) || 0;
 
             if (!salesByCustomer.has(customerId)) {
                 salesByCustomer.set(customerId, {

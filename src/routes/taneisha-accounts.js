@@ -435,7 +435,7 @@ router.post('/taneisha-accounts/sync-sales', express.json(), async (req, res) =>
             const invoiceDate = new Date(order.date_Invoiced);
             if (invoiceDate.getFullYear() !== currentYear) return;
 
-            const orderTotal = parseFloat(order.amount_Total) || 0;
+            const orderTotal = parseFloat(order.cur_SubTotal) || 0;
             const invoiceDateStr = order.date_Invoiced.split('T')[0];
 
             // Aggregate for account updates
