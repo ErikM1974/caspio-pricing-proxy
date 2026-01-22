@@ -5808,6 +5808,261 @@
 					"response": []
 				},
 				{
+					"name": "Get Nika Accounts",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/nika-accounts",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"nika-accounts"
+							],
+							"query": [
+								{
+									"key": "accountTier",
+									"value": "",
+									"description": "accountTier parameter",
+									"disabled": true
+								},
+								{
+									"key": "priorityTier",
+									"value": "",
+									"description": "priorityTier parameter",
+									"disabled": true
+								},
+								{
+									"key": "month",
+									"value": "",
+									"description": "month parameter",
+									"disabled": true
+								},
+								{
+									"key": "quarter",
+									"value": "",
+									"description": "quarter parameter",
+									"disabled": true
+								},
+								{
+									"key": "isActive",
+									"value": "",
+									"description": "isActive parameter",
+									"disabled": true
+								},
+								{
+									"key": "buysCaps",
+									"value": "",
+									"description": "buysCaps parameter",
+									"disabled": true
+								},
+								{
+									"key": "buysJackets",
+									"value": "",
+									"description": "buysJackets parameter",
+									"disabled": true
+								},
+								{
+									"key": "buysCarhartt",
+									"value": "",
+									"description": "buysCarhartt parameter",
+									"disabled": true
+								},
+								{
+									"key": "buysPolos",
+									"value": "",
+									"description": "buysPolos parameter",
+									"disabled": true
+								},
+								{
+									"key": "buysTShirts",
+									"value": "",
+									"description": "buysTShirts parameter",
+									"disabled": true
+								},
+								{
+									"key": "buysHoodies",
+									"value": "",
+									"description": "buysHoodies parameter",
+									"disabled": true
+								},
+								{
+									"key": "buysSafety",
+									"value": "",
+									"description": "buysSafety parameter",
+									"disabled": true
+								},
+								{
+									"key": "atRisk",
+									"value": "",
+									"description": "atRisk parameter",
+									"disabled": true
+								},
+								{
+									"key": "overdueForOrder",
+									"value": "",
+									"description": "overdueForOrder parameter",
+									"disabled": true
+								},
+								{
+									"key": "contactStatus",
+									"value": "",
+									"description": "contactStatus parameter",
+									"disabled": true
+								},
+								{
+									"key": "trend",
+									"value": "",
+									"description": "trend parameter",
+									"disabled": true
+								},
+								{
+									"key": "search",
+									"value": "",
+									"description": "search parameter",
+									"disabled": true
+								},
+								{
+									"key": "orderBy",
+									"value": "",
+									"description": "orderBy parameter",
+									"disabled": true
+								},
+								{
+									"key": "orderDir",
+									"value": "",
+									"description": "orderDir parameter",
+									"disabled": true
+								}
+							]
+						},
+						"description": "GET /api/nika-accounts - List all accounts with optional filters"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Single Nika Accounts",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/nika-accounts/:id",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"nika-accounts",
+								":id"
+							]
+						},
+						"description": "GET /api/nika-accounts/:id - Get single account by ID_Customer"
+					},
+					"response": []
+				},
+				{
+					"name": "Create Nika Accounts",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/nika-accounts",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"nika-accounts"
+							]
+						},
+						"description": "POST /api/nika-accounts - Create new account"
+					},
+					"response": []
+				},
+				{
+					"name": "Update Nika Accounts",
+					"request": {
+						"method": "PUT",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/nika-accounts/:id",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"nika-accounts",
+								":id"
+							]
+						},
+						"description": "PUT /api/nika-accounts/:id - Update account (any fields)"
+					},
+					"response": []
+				},
+				{
+					"name": "Update Nika Accounts Crm",
+					"request": {
+						"method": "PUT",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/nika-accounts/:id/crm",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"nika-accounts",
+								":id",
+								"crm"
+							]
+						},
+						"description": "PUT /api/nika-accounts/:id/crm - Update CRM fields only (whitelisted)"
+					},
+					"response": []
+				},
+				{
+					"name": "Create Nika Accounts Sync Sales",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/nika-accounts/sync-sales",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"nika-accounts",
+								"sync-sales"
+							]
+						},
+						"description": "Updates YTD_Sales_2026, Order_Count_2026, Last_Order_Date, Last_Sync_Date"
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Nika Accounts",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/nika-accounts/:id",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"nika-accounts",
+								":id"
+							]
+						},
+						"description": "DELETE /api/nika-accounts/:id - Delete account"
+					},
+					"response": []
+				},
+				{
 					"name": "Get Manageorders Pc54 Inventory",
 					"request": {
 						"method": "GET",
@@ -6696,6 +6951,26 @@
 							]
 						},
 						"description": "PUT /api/taneisha-accounts/:id/crm - Update CRM fields only (whitelisted)"
+					},
+					"response": []
+				},
+				{
+					"name": "Create Taneisha Accounts Sync Sales",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/taneisha-accounts/sync-sales",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"taneisha-accounts",
+								"sync-sales"
+							]
+						},
+						"description": "Updates YTD_Sales_2026, Order_Count_2026, Last_Order_Date, Last_Sync_Date"
 					},
 					"response": []
 				},

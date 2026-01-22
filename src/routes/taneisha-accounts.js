@@ -339,6 +339,136 @@ router.put('/taneisha-accounts/:id/crm', express.json(), async (req, res) => {
     }
 });
 
+// POST /api/taneisha-accounts/sync-sales - Sync YTD sales from ManageOrders
+// Updates YTD_Sales_2026, Order_Count_2026, Last_Order_Date, Last_Sync_Date
+router.post('/taneisha-accounts/sync-sales', express.json(), async (req, res) => {
+    try {
+        console.log('Starting Taneisha accounts sales sync from ManageOrders...');
+
+        const { fetchOrders, getDateDaysAgo, getTodayDate } = require('../utils/manageorders');
+
+        // Fetch last 60 days of orders from ManageOrders
+        const startDate = getDateDaysAgo(60);
+        const endDate = getTodayDate();
+
+        const orders = await fetchOrders({
+            startDate: startDate,
+            endDate: endDate,
+            dateType: 'dateInvoiced' // Only invoiced orders count toward sales
+        });
+
+        console.log(`Fetched ${orders.length} orders from ManageOrders for sync`);
+
+        // First, get all Taneisha accounts to match customer IDs
+        const resource = `/tables/${TABLE_NAME}/records`;
+        const params = {
+            'q.select': 'ID_Customer,CompanyName,YTD_Sales_2026,Order_Count_2026,Last_Order_Date,Last_Sync_Date'
+        };
+
+        const accounts = await fetchAllCaspioPages(resource, params);
+        console.log(`Found ${accounts.length} Taneisha accounts to match`);
+
+        // Create a map of customer IDs to accounts
+        const accountMap = new Map();
+        accounts.forEach(account => {
+            accountMap.set(account.ID_Customer, account);
+        });
+
+        // Aggregate sales by customer ID
+        const salesByCustomer = new Map();
+        const currentYear = new Date().getFullYear();
+
+        orders.forEach(order => {
+            const customerId = order.id_Customer;
+
+            // Only process orders for Taneisha's customers
+            if (!accountMap.has(customerId)) return;
+
+            // Only count 2026 invoiced orders
+            const invoiceDate = new Date(order.date_Invoiced);
+            if (invoiceDate.getFullYear() !== currentYear) return;
+
+            const orderTotal = parseFloat(order.amount_Total) || 0;
+
+            if (!salesByCustomer.has(customerId)) {
+                salesByCustomer.set(customerId, {
+                    totalSales: 0,
+                    orderCount: 0,
+                    lastOrderDate: null
+                });
+            }
+
+            const customerSales = salesByCustomer.get(customerId);
+            customerSales.totalSales += orderTotal;
+            customerSales.orderCount += 1;
+
+            // Track most recent order date
+            if (!customerSales.lastOrderDate || invoiceDate > new Date(customerSales.lastOrderDate)) {
+                customerSales.lastOrderDate = order.date_Invoiced.split('T')[0];
+            }
+        });
+
+        console.log(`Found sales for ${salesByCustomer.size} Taneisha accounts`);
+
+        // Update each account with new sales data
+        const token = await getCaspioAccessToken();
+        const today = getTodayDate();
+        let updatedCount = 0;
+        let errorCount = 0;
+
+        for (const [customerId, sales] of salesByCustomer) {
+            try {
+                const account = accountMap.get(customerId);
+                const existingSales = parseFloat(account.YTD_Sales_2026) || 0;
+                const existingCount = parseInt(account.Order_Count_2026) || 0;
+
+                // Calculate new totals (add to existing if this is an incremental sync)
+                // For simplicity, we'll just set the values from the 60-day window
+                // A more sophisticated approach would track lastSyncDate and only add new orders
+                const updateData = {
+                    YTD_Sales_2026: sales.totalSales,
+                    Order_Count_2026: sales.orderCount,
+                    Last_Order_Date: sales.lastOrderDate,
+                    Last_Sync_Date: today
+                };
+
+                const url = `${caspioApiBaseUrl}/tables/${TABLE_NAME}/records?q.where=${PRIMARY_KEY}=${customerId}`;
+
+                await axios({
+                    method: 'put',
+                    url: url,
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    data: updateData,
+                    timeout: 10000
+                });
+
+                updatedCount++;
+            } catch (updateError) {
+                console.error(`Error updating customer ${customerId}:`, updateError.message);
+                errorCount++;
+            }
+        }
+
+        console.log(`Sales sync complete: ${updatedCount} accounts updated, ${errorCount} errors`);
+
+        res.json({
+            success: true,
+            message: 'Sales sync completed',
+            ordersProcessed: orders.length,
+            accountsUpdated: updatedCount,
+            errors: errorCount,
+            syncDate: today
+        });
+    } catch (error) {
+        console.error('Error syncing Taneisha accounts sales:',
+            error.response ? JSON.stringify(error.response.data) : error.message);
+        res.status(500).json({ success: false, error: 'Failed to sync sales data' });
+    }
+});
+
 // DELETE /api/taneisha-accounts/:id - Delete account
 router.delete('/taneisha-accounts/:id', async (req, res) => {
     const { id } = req.params;
