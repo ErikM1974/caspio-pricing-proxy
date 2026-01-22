@@ -339,27 +339,58 @@ router.put('/taneisha-accounts/:id/crm', express.json(), async (req, res) => {
     }
 });
 
-// POST /api/taneisha-accounts/sync-sales - Sync YTD sales from ManageOrders
+// POST /api/taneisha-accounts/sync-sales - Sync YTD sales from ManageOrders with archive support
+// HYBRID PATTERN: Archive (pre-60 days) + Fresh ManageOrders (last 60 days) = True YTD
 // Updates YTD_Sales_2026, Order_Count_2026, Last_Order_Date, Last_Sync_Date
 router.post('/taneisha-accounts/sync-sales', express.json(), async (req, res) => {
     try {
-        console.log('Starting Taneisha accounts sales sync from ManageOrders...');
+        console.log('Starting Taneisha accounts HYBRID sales sync...');
 
-        const { fetchOrders, getDateDaysAgo, getTodayDate } = require('../utils/manageorders');
+        const { fetchOrders, getDateDaysAgo, getTodayDate, formatDateYYYYMMDD } = require('../utils/manageorders');
+        const currentYear = new Date().getFullYear();
 
-        // Fetch last 60 days of orders from ManageOrders
+        // Step 1: Get archived YTD totals per customer (pre-60 day boundary)
+        console.log('Step 1: Fetching archived YTD totals per customer...');
+        const ARCHIVE_TABLE = 'Taneisha_Daily_Sales_By_Account';
+        const archiveBoundary = getDateDaysAgo(60); // Only archive data older than this
+        let archivedByCustomer = new Map();
+
+        try {
+            const archivedRecords = await fetchAllCaspioPages(`/tables/${ARCHIVE_TABLE}/records`, {
+                'q.where': `SalesDate>='${currentYear}-01-01' AND SalesDate<'${archiveBoundary}'`,
+                'q.limit': 5000
+            });
+
+            // Aggregate archived data by CustomerID
+            for (const record of archivedRecords) {
+                const customerId = parseInt(record.CustomerID);
+                if (!archivedByCustomer.has(customerId)) {
+                    archivedByCustomer.set(customerId, { totalSales: 0, orderCount: 0 });
+                }
+                const archived = archivedByCustomer.get(customerId);
+                archived.totalSales += parseFloat(record.Revenue) || 0;
+                archived.orderCount += parseInt(record.OrderCount) || 0;
+            }
+            console.log(`Found archived data for ${archivedByCustomer.size} customers`);
+        } catch (archiveError) {
+            console.warn('Could not fetch archived data (table may not exist yet):', archiveError.message);
+            // Continue without archived data - fresh data only
+        }
+
+        // Step 2: Fetch fresh ManageOrders data (last 60 days)
+        console.log('Step 2: Fetching fresh ManageOrders data (last 60 days)...');
         const startDate = getDateDaysAgo(60);
         const endDate = getTodayDate();
 
         const orders = await fetchOrders({
             startDate: startDate,
             endDate: endDate,
-            dateType: 'dateInvoiced' // Only invoiced orders count toward sales
+            dateType: 'dateInvoiced'
         });
 
-        console.log(`Fetched ${orders.length} orders from ManageOrders for sync`);
+        console.log(`Fetched ${orders.length} orders from ManageOrders`);
 
-        // First, get all Taneisha accounts to match customer IDs
+        // Step 3: Get all Taneisha accounts
         const resource = `/tables/${TABLE_NAME}/records`;
         const params = {
             'q.select': 'ID_Customer,CompanyName,YTD_Sales_2026,Order_Count_2026,Last_Order_Date,Last_Sync_Date'
@@ -374,9 +405,9 @@ router.post('/taneisha-accounts/sync-sales', express.json(), async (req, res) =>
             accountMap.set(account.ID_Customer, account);
         });
 
-        // Aggregate sales by customer ID
-        const salesByCustomer = new Map();
-        const currentYear = new Date().getFullYear();
+        // Step 4: Aggregate fresh sales by customer ID (and by date for archiving)
+        const freshSalesByCustomer = new Map();
+        const salesByDateAndCustomer = new Map(); // For archiving: date -> Map(customerId -> {revenue, orderCount, customerName})
 
         orders.forEach(order => {
             const customerId = order.id_Customer;
@@ -384,53 +415,83 @@ router.post('/taneisha-accounts/sync-sales', express.json(), async (req, res) =>
             // Only process orders for Taneisha's customers
             if (!accountMap.has(customerId)) return;
 
-            // Only count 2026 invoiced orders
+            // Only count current year invoiced orders
             const invoiceDate = new Date(order.date_Invoiced);
             if (invoiceDate.getFullYear() !== currentYear) return;
 
             const orderTotal = parseFloat(order.amount_Total) || 0;
+            const invoiceDateStr = order.date_Invoiced.split('T')[0];
 
-            if (!salesByCustomer.has(customerId)) {
-                salesByCustomer.set(customerId, {
+            // Aggregate for account updates
+            if (!freshSalesByCustomer.has(customerId)) {
+                freshSalesByCustomer.set(customerId, {
                     totalSales: 0,
                     orderCount: 0,
                     lastOrderDate: null
                 });
             }
 
-            const customerSales = salesByCustomer.get(customerId);
+            const customerSales = freshSalesByCustomer.get(customerId);
             customerSales.totalSales += orderTotal;
             customerSales.orderCount += 1;
 
-            // Track most recent order date
             if (!customerSales.lastOrderDate || invoiceDate > new Date(customerSales.lastOrderDate)) {
-                customerSales.lastOrderDate = order.date_Invoiced.split('T')[0];
+                customerSales.lastOrderDate = invoiceDateStr;
             }
+
+            // Also track by date for archiving
+            if (!salesByDateAndCustomer.has(invoiceDateStr)) {
+                salesByDateAndCustomer.set(invoiceDateStr, new Map());
+            }
+            const dateMap = salesByDateAndCustomer.get(invoiceDateStr);
+            if (!dateMap.has(customerId)) {
+                const account = accountMap.get(customerId);
+                dateMap.set(customerId, {
+                    revenue: 0,
+                    orderCount: 0,
+                    customerName: account.CompanyName || ''
+                });
+            }
+            const dayCustomer = dateMap.get(customerId);
+            dayCustomer.revenue += orderTotal;
+            dayCustomer.orderCount += 1;
         });
 
-        console.log(`Found sales for ${salesByCustomer.size} Taneisha accounts`);
+        console.log(`Aggregated fresh sales for ${freshSalesByCustomer.size} Taneisha accounts`);
 
-        // Update each account with new sales data
+        // Step 5: Combine archived + fresh for true YTD and update accounts
         const token = await getCaspioAccessToken();
         const today = getTodayDate();
         let updatedCount = 0;
         let errorCount = 0;
 
-        for (const [customerId, sales] of salesByCustomer) {
-            try {
-                const account = accountMap.get(customerId);
-                const existingSales = parseFloat(account.YTD_Sales_2026) || 0;
-                const existingCount = parseInt(account.Order_Count_2026) || 0;
+        // Get all customer IDs that have either archived or fresh data
+        const allCustomerIds = new Set([
+            ...archivedByCustomer.keys(),
+            ...freshSalesByCustomer.keys()
+        ]);
 
-                // Calculate new totals (add to existing if this is an incremental sync)
-                // For simplicity, we'll just set the values from the 60-day window
-                // A more sophisticated approach would track lastSyncDate and only add new orders
+        for (const customerId of allCustomerIds) {
+            if (!accountMap.has(customerId)) continue;
+
+            try {
+                const archived = archivedByCustomer.get(customerId) || { totalSales: 0, orderCount: 0 };
+                const fresh = freshSalesByCustomer.get(customerId) || { totalSales: 0, orderCount: 0, lastOrderDate: null };
+
+                // True YTD = Archived + Fresh
+                const trueYTDSales = archived.totalSales + fresh.totalSales;
+                const trueYTDOrders = archived.orderCount + fresh.orderCount;
+
                 const updateData = {
-                    YTD_Sales_2026: sales.totalSales,
-                    Order_Count_2026: sales.orderCount,
-                    Last_Order_Date: sales.lastOrderDate,
+                    YTD_Sales_2026: trueYTDSales,
+                    Order_Count_2026: trueYTDOrders,
                     Last_Sync_Date: today
                 };
+
+                // Only update last order date if we have fresh data
+                if (fresh.lastOrderDate) {
+                    updateData.Last_Order_Date = fresh.lastOrderDate;
+                }
 
                 const url = `${caspioApiBaseUrl}/tables/${TABLE_NAME}/records?q.where=${PRIMARY_KEY}=${customerId}`;
 
@@ -452,13 +513,80 @@ router.post('/taneisha-accounts/sync-sales', express.json(), async (req, res) =>
             }
         }
 
-        console.log(`Sales sync complete: ${updatedCount} accounts updated, ${errorCount} errors`);
+        // Step 6: Archive days 55-60 (soon to expire from ManageOrders)
+        let daysArchived = 0;
+        let customersArchived = 0;
+        console.log('Step 6: Archiving days 55-60 (before they expire from ManageOrders)...');
+
+        try {
+            // Archive days 55-60
+            for (let daysAgo = 55; daysAgo <= 60; daysAgo++) {
+                const archiveDate = getDateDaysAgo(daysAgo);
+                const customersForDay = salesByDateAndCustomer.get(archiveDate);
+
+                if (customersForDay && customersForDay.size > 0) {
+                    // Archive this day's per-customer data
+                    const customersToArchive = [];
+                    for (const [custId, data] of customersForDay) {
+                        customersToArchive.push({
+                            customerId: custId,
+                            customerName: data.customerName,
+                            revenue: data.revenue,
+                            orderCount: data.orderCount
+                        });
+                    }
+
+                    // Post to archive endpoint
+                    try {
+                        for (const customer of customersToArchive) {
+                            // Check if already archived
+                            const existing = await fetchAllCaspioPages(`/tables/${ARCHIVE_TABLE}/records`, {
+                                'q.where': `SalesDate='${archiveDate}' AND CustomerID='${customer.customerId}'`,
+                                'q.limit': 1
+                            });
+
+                            if (existing.length === 0) {
+                                await axios({
+                                    method: 'post',
+                                    url: `${caspioApiBaseUrl}/tables/${ARCHIVE_TABLE}/records`,
+                                    headers: {
+                                        'Authorization': `Bearer ${token}`,
+                                        'Content-Type': 'application/json'
+                                    },
+                                    data: {
+                                        SalesDate: archiveDate,
+                                        CustomerID: String(customer.customerId),
+                                        CustomerName: customer.customerName,
+                                        Revenue: customer.revenue,
+                                        OrderCount: customer.orderCount
+                                    },
+                                    timeout: 10000
+                                });
+                                customersArchived++;
+                            }
+                        }
+                        daysArchived++;
+                        console.log(`Archived ${archiveDate}: ${customersToArchive.length} customers`);
+                    } catch (archivePostError) {
+                        console.warn(`Could not archive ${archiveDate}:`, archivePostError.message);
+                    }
+                }
+            }
+        } catch (archiveError) {
+            console.warn('Error during archiving (continuing):', archiveError.message);
+        }
+
+        console.log(`HYBRID Sales sync complete: ${updatedCount} accounts updated, ${daysArchived} days archived (${customersArchived} customer records), ${errorCount} errors`);
 
         res.json({
             success: true,
-            message: 'Sales sync completed',
+            message: 'Hybrid sales sync completed (Archive + Fresh = True YTD)',
             ordersProcessed: orders.length,
             accountsUpdated: updatedCount,
+            archivedCustomers: archivedByCustomer.size,
+            freshCustomers: freshSalesByCustomer.size,
+            daysArchived: daysArchived,
+            customerRecordsArchived: customersArchived,
             errors: errorCount,
             syncDate: today
         });
