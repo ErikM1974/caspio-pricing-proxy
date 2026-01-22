@@ -268,6 +268,75 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           },
           required: ["rep", "customerId"]
         }
+      },
+      {
+        name: "update_account",
+        description: "Update any field on a customer account (tier, at-risk status, company name, etc.)",
+        inputSchema: {
+          type: "object",
+          properties: {
+            rep: {
+              type: "string",
+              enum: ["taneisha", "nika"],
+              description: "Which sales rep's account to update"
+            },
+            customerId: {
+              type: "integer",
+              description: "The customer ID to update"
+            },
+            Account_Tier: {
+              type: "string",
+              description: "Account tier (e.g., 'GOLD \\'26-TANEISHA', 'SILVER \\'26-NIKA', 'Win Back \\'26 TANEISHA')"
+            },
+            Priority_Tier: {
+              type: "string",
+              description: "Priority tier (A, B, C, D, E)"
+            },
+            At_Risk: {
+              type: "integer",
+              enum: [0, 1],
+              description: "At risk flag (1 = at risk)"
+            },
+            CompanyName: {
+              type: "string",
+              description: "Company/account name"
+            },
+            Is_Active: {
+              type: "integer",
+              enum: [0, 1],
+              description: "Active flag (1 = active)"
+            }
+          },
+          required: ["rep", "customerId"]
+        }
+      },
+      {
+        name: "move_account",
+        description: "Move a customer from one rep's list to another (copies all data, then deletes from original)",
+        inputSchema: {
+          type: "object",
+          properties: {
+            customerId: {
+              type: "integer",
+              description: "The customer ID to move"
+            },
+            fromRep: {
+              type: "string",
+              enum: ["taneisha", "nika"],
+              description: "Source rep (where the account currently is)"
+            },
+            toRep: {
+              type: "string",
+              enum: ["taneisha", "nika"],
+              description: "Destination rep (where to move the account)"
+            },
+            newTier: {
+              type: "string",
+              description: "Optional: New tier for destination (e.g., 'GOLD \\'26-NIKA'). If not provided, tier will be cleared."
+            }
+          },
+          required: ["customerId", "fromRep", "toRep"]
+        }
       }
     ]
   };
@@ -364,6 +433,71 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           method: "DELETE"
         });
         return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      }
+
+      case "update_account": {
+        const { rep, customerId, ...updateFields } = args;
+        const result = await apiCall(`/api/${rep}-accounts/${customerId}`, {
+          method: "PUT",
+          body: JSON.stringify(updateFields)
+        });
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      }
+
+      case "move_account": {
+        const { customerId, fromRep, toRep, newTier } = args;
+
+        // Step 1: Get the account from source
+        const sourceAccount = await apiCall(`/api/${fromRep}-accounts/${customerId}`);
+        if (!sourceAccount.success) {
+          return { content: [{ type: "text", text: JSON.stringify({
+            success: false,
+            error: `Account ${customerId} not found in ${fromRep}'s list`
+          }, null, 2) }] };
+        }
+
+        // Step 2: Prepare data for destination (copy relevant fields)
+        const accountData = sourceAccount.account;
+        const newAccountData = {
+          ID_Customer: accountData.ID_Customer,
+          CompanyName: accountData.CompanyName,
+          Account_Tier: newTier || "", // Use new tier or clear it
+          Priority_Tier: accountData.Priority_Tier,
+          // Copy other important fields
+          Contact_Status: accountData.Contact_Status,
+          Contact_Notes: accountData.Contact_Notes,
+          Last_Contact_Date: accountData.Last_Contact_Date,
+          Next_Follow_Up: accountData.Next_Follow_Up,
+          Follow_Up_Type: accountData.Follow_Up_Type
+        };
+
+        // Step 3: Create in destination
+        const createResult = await apiCall(`/api/${toRep}-accounts`, {
+          method: "POST",
+          body: JSON.stringify(newAccountData)
+        });
+
+        if (!createResult.success) {
+          return { content: [{ type: "text", text: JSON.stringify({
+            success: false,
+            error: `Failed to create account in ${toRep}'s list`,
+            details: createResult
+          }, null, 2) }] };
+        }
+
+        // Step 4: Delete from source
+        const deleteResult = await apiCall(`/api/${fromRep}-accounts/${customerId}`, {
+          method: "DELETE"
+        });
+
+        return { content: [{ type: "text", text: JSON.stringify({
+          success: true,
+          message: `Moved ${accountData.CompanyName} (${customerId}) from ${fromRep} to ${toRep}`,
+          newTier: newTier || "(no tier assigned)",
+          fromRep,
+          toRep,
+          deleteResult
+        }, null, 2) }] };
       }
 
       default:
