@@ -148,6 +148,115 @@ router.get('/nika-accounts', async (req, res) => {
     }
 });
 
+// GET /api/nika-accounts/reconcile - Find customers with Nika orders not in her Caspio list
+// Query params:
+//   - autoAdd=true: Automatically add missing customers to Caspio
+router.get('/nika-accounts/reconcile', async (req, res) => {
+    try {
+        const autoAdd = req.query.autoAdd === 'true';
+        console.log(`Reconciling Nika accounts (autoAdd: ${autoAdd})...`);
+
+        const { fetchOrders, getDateDaysAgo } = require('../utils/manageorders');
+
+        // Get all Nika accounts from Caspio
+        const accounts = await fetchAllCaspioPages(`/tables/${TABLE_NAME}/records`, {
+            'q.select': 'ID_Customer,CompanyName'
+        });
+        const existingCustomerIds = new Set(accounts.map(a => a.ID_Customer));
+        console.log(`Found ${existingCustomerIds.size} existing Nika accounts in Caspio`);
+
+        // Fetch recent orders from ManageOrders (last 60 days)
+        let allOrders = [];
+        for (let chunk = 0; chunk < 3; chunk++) {
+            const chunkEnd = getDateDaysAgo(chunk * 20);
+            const chunkStart = getDateDaysAgo((chunk + 1) * 20);
+            try {
+                const chunkOrders = await fetchOrders({
+                    date_Invoiced_start: chunkStart,
+                    date_Invoiced_end: chunkEnd
+                });
+                allOrders = allOrders.concat(chunkOrders);
+            } catch (e) {
+                console.warn(`Chunk ${chunk + 1} failed: ${e.message}`);
+            }
+        }
+
+        // Find Nika orders for customers NOT in her list
+        const nikaOrders = allOrders.filter(o => o.CustomerServiceRep === 'Nika Lao');
+        const missingCustomers = new Map();
+
+        nikaOrders.forEach(order => {
+            if (!existingCustomerIds.has(order.id_Customer)) {
+                if (!missingCustomers.has(order.id_Customer)) {
+                    missingCustomers.set(order.id_Customer, {
+                        ID_Customer: order.id_Customer,
+                        CompanyName: order.CustomerName,
+                        orders: 0,
+                        totalSales: 0,
+                        lastOrderDate: null
+                    });
+                }
+                const cust = missingCustomers.get(order.id_Customer);
+                cust.orders++;
+                cust.totalSales += parseFloat(order.cur_SubTotal) || 0;
+                const orderDate = order.date_Invoiced?.split('T')[0];
+                if (!cust.lastOrderDate || orderDate > cust.lastOrderDate) {
+                    cust.lastOrderDate = orderDate;
+                }
+            }
+        });
+
+        const missingList = [...missingCustomers.values()].sort((a, b) => b.totalSales - a.totalSales);
+        const totalMissingSales = missingList.reduce((sum, c) => sum + c.totalSales, 0);
+
+        console.log(`Found ${missingList.length} customers with Nika orders not in her Caspio list`);
+
+        // Auto-add if requested
+        let added = [];
+        if (autoAdd && missingList.length > 0) {
+            const token = await getCaspioAccessToken();
+            for (const customer of missingList) {
+                try {
+                    await axios({
+                        method: 'post',
+                        url: `${caspioApiBaseUrl}/tables/${TABLE_NAME}/records`,
+                        headers: {
+                            'Authorization': `Bearer ${token}`,
+                            'Content-Type': 'application/json'
+                        },
+                        data: {
+                            ID_Customer: customer.ID_Customer,
+                            CompanyName: customer.CompanyName,
+                            Account_Tier: "BRONZE '26-NIKA",  // Default tier for new accounts
+                            Is_Active: 1
+                        },
+                        timeout: 10000
+                    });
+                    added.push(customer.ID_Customer);
+                    console.log(`Added customer ${customer.ID_Customer}: ${customer.CompanyName}`);
+                } catch (addError) {
+                    console.error(`Failed to add customer ${customer.ID_Customer}:`, addError.message);
+                }
+            }
+        }
+
+        res.json({
+            success: true,
+            existingAccounts: existingCustomerIds.size,
+            missingCustomers: missingList,
+            missingCount: missingList.length,
+            missingSales: totalMissingSales,
+            autoAdded: added.length > 0 ? added : undefined,
+            message: autoAdd && added.length > 0
+                ? `Added ${added.length} missing customers to Nika's list`
+                : `Found ${missingList.length} customers with $${totalMissingSales.toFixed(2)} in sales not in Nika's list`
+        });
+    } catch (error) {
+        console.error('Error reconciling Nika accounts:', error.message);
+        res.status(500).json({ success: false, error: 'Failed to reconcile accounts' });
+    }
+});
+
 // GET /api/nika-accounts/:id - Get single account by ID_Customer
 router.get('/nika-accounts/:id', async (req, res) => {
     const { id } = req.params;
@@ -489,115 +598,6 @@ router.post('/nika-accounts/sync-sales', express.json(), async (req, res) => {
         console.error('Error syncing Nika accounts sales:',
             error.response ? JSON.stringify(error.response.data) : error.message);
         res.status(500).json({ success: false, error: 'Failed to sync sales data' });
-    }
-});
-
-// GET /api/nika-accounts/reconcile - Find customers with Nika orders not in her Caspio list
-// Query params:
-//   - autoAdd=true: Automatically add missing customers to Caspio
-router.get('/nika-accounts/reconcile', async (req, res) => {
-    try {
-        const autoAdd = req.query.autoAdd === 'true';
-        console.log(`Reconciling Nika accounts (autoAdd: ${autoAdd})...`);
-
-        const { fetchOrders, getDateDaysAgo } = require('../utils/manageorders');
-
-        // Get all Nika accounts from Caspio
-        const accounts = await fetchAllCaspioPages(`/tables/${TABLE_NAME}/records`, {
-            'q.select': 'ID_Customer,CompanyName'
-        });
-        const existingCustomerIds = new Set(accounts.map(a => a.ID_Customer));
-        console.log(`Found ${existingCustomerIds.size} existing Nika accounts in Caspio`);
-
-        // Fetch recent orders from ManageOrders (last 60 days)
-        let allOrders = [];
-        for (let chunk = 0; chunk < 3; chunk++) {
-            const chunkEnd = getDateDaysAgo(chunk * 20);
-            const chunkStart = getDateDaysAgo((chunk + 1) * 20);
-            try {
-                const chunkOrders = await fetchOrders({
-                    date_Invoiced_start: chunkStart,
-                    date_Invoiced_end: chunkEnd
-                });
-                allOrders = allOrders.concat(chunkOrders);
-            } catch (e) {
-                console.warn(`Chunk ${chunk + 1} failed: ${e.message}`);
-            }
-        }
-
-        // Find Nika orders for customers NOT in her list
-        const nikaOrders = allOrders.filter(o => o.CustomerServiceRep === 'Nika Lao');
-        const missingCustomers = new Map();
-
-        nikaOrders.forEach(order => {
-            if (!existingCustomerIds.has(order.id_Customer)) {
-                if (!missingCustomers.has(order.id_Customer)) {
-                    missingCustomers.set(order.id_Customer, {
-                        ID_Customer: order.id_Customer,
-                        CompanyName: order.CustomerName,
-                        orders: 0,
-                        totalSales: 0,
-                        lastOrderDate: null
-                    });
-                }
-                const cust = missingCustomers.get(order.id_Customer);
-                cust.orders++;
-                cust.totalSales += parseFloat(order.cur_SubTotal) || 0;
-                const orderDate = order.date_Invoiced?.split('T')[0];
-                if (!cust.lastOrderDate || orderDate > cust.lastOrderDate) {
-                    cust.lastOrderDate = orderDate;
-                }
-            }
-        });
-
-        const missingList = [...missingCustomers.values()].sort((a, b) => b.totalSales - a.totalSales);
-        const totalMissingSales = missingList.reduce((sum, c) => sum + c.totalSales, 0);
-
-        console.log(`Found ${missingList.length} customers with Nika orders not in her Caspio list`);
-
-        // Auto-add if requested
-        let added = [];
-        if (autoAdd && missingList.length > 0) {
-            const token = await getCaspioAccessToken();
-            for (const customer of missingList) {
-                try {
-                    await axios({
-                        method: 'post',
-                        url: `${caspioApiBaseUrl}/tables/${TABLE_NAME}/records`,
-                        headers: {
-                            'Authorization': `Bearer ${token}`,
-                            'Content-Type': 'application/json'
-                        },
-                        data: {
-                            ID_Customer: customer.ID_Customer,
-                            CompanyName: customer.CompanyName,
-                            Account_Tier: "BRONZE '26-NIKA",  // Default tier for new accounts
-                            Is_Active: 1
-                        },
-                        timeout: 10000
-                    });
-                    added.push(customer.ID_Customer);
-                    console.log(`Added customer ${customer.ID_Customer}: ${customer.CompanyName}`);
-                } catch (addError) {
-                    console.error(`Failed to add customer ${customer.ID_Customer}:`, addError.message);
-                }
-            }
-        }
-
-        res.json({
-            success: true,
-            existingAccounts: existingCustomerIds.size,
-            missingCustomers: missingList,
-            missingCount: missingList.length,
-            missingSales: totalMissingSales,
-            autoAdded: added.length > 0 ? added : undefined,
-            message: autoAdd && added.length > 0
-                ? `Added ${added.length} missing customers to Nika's list`
-                : `Found ${missingList.length} customers with $${totalMissingSales.toFixed(2)} in sales not in Nika's list`
-        });
-    } catch (error) {
-        console.error('Error reconciling Nika accounts:', error.message);
-        res.status(500).json({ success: false, error: 'Failed to reconcile accounts' });
     }
 });
 
