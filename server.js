@@ -419,6 +419,11 @@ const nikaAccountsRoutes = require('./src/routes/nika-accounts');
 app.use('/api', nikaAccountsRoutes);
 console.log('✓ Nika Accounts routes loaded');
 
+// Rep Audit Routes (cross-check orders vs account assignments)
+const repAuditRoutes = require('./src/routes/rep-audit');
+app.use('/api', repAuditRoutes);
+console.log('✓ Rep Audit routes loaded');
+
 // --- Admin Metrics Endpoint ---
 const apiTracker = require('./src/utils/api-tracker');
 
