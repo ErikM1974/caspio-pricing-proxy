@@ -347,16 +347,29 @@ router.post('/nika-accounts/sync-sales', express.json(), async (req, res) => {
 
         const { fetchOrders, getDateDaysAgo, getTodayDate } = require('../utils/manageorders');
 
-        // Fetch last 60 days of orders from ManageOrders
-        const startDate = getDateDaysAgo(60);
+        // Fetch last 60 days of orders from ManageOrders in chunks to avoid timeout
         const endDate = getTodayDate();
+        let allOrders = [];
 
-        const orders = await fetchOrders({
-            startDate: startDate,
-            endDate: endDate,
-            dateType: 'dateInvoiced' // Only invoiced orders count toward sales
-        });
+        // Fetch in 20-day chunks to avoid ManageOrders API timeout (504)
+        for (let chunk = 0; chunk < 3; chunk++) {
+            const chunkEnd = getDateDaysAgo(chunk * 20);
+            const chunkStart = getDateDaysAgo((chunk + 1) * 20);
+            console.log(`  Fetching chunk ${chunk + 1}/3: ${chunkStart} to ${chunkEnd}`);
 
+            try {
+                const chunkOrders = await fetchOrders({
+                    date_Invoiced_start: chunkStart,
+                    date_Invoiced_end: chunkEnd
+                });
+                allOrders = allOrders.concat(chunkOrders);
+                console.log(`  Chunk ${chunk + 1}: ${chunkOrders.length} orders`);
+            } catch (chunkError) {
+                console.warn(`  Chunk ${chunk + 1} failed: ${chunkError.message}`);
+            }
+        }
+
+        const orders = allOrders;
         console.log(`Fetched ${orders.length} orders from ManageOrders for sync`);
 
         // First, get all Nika accounts to match customer IDs

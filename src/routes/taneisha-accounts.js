@@ -346,7 +346,7 @@ router.post('/taneisha-accounts/sync-sales', express.json(), async (req, res) =>
     try {
         console.log('Starting Taneisha accounts HYBRID sales sync...');
 
-        const { fetchOrders, getDateDaysAgo, getTodayDate, formatDateYYYYMMDD } = require('../utils/manageorders');
+        const { fetchOrders, getDateDaysAgo, getTodayDate } = require('../utils/manageorders');
         const currentYear = new Date().getFullYear();
 
         // Step 1: Get archived YTD totals per customer (pre-60 day boundary)
@@ -378,15 +378,31 @@ router.post('/taneisha-accounts/sync-sales', express.json(), async (req, res) =>
         }
 
         // Step 2: Fetch fresh ManageOrders data (last 60 days)
-        console.log('Step 2: Fetching fresh ManageOrders data (last 60 days)...');
-        const startDate = getDateDaysAgo(60);
+        // Use smaller chunks to avoid ManageOrders API timeout (504)
+        console.log('Step 2: Fetching fresh ManageOrders data (last 60 days in chunks)...');
         const endDate = getTodayDate();
+        let allOrders = [];
 
-        const orders = await fetchOrders({
-            startDate: startDate,
-            endDate: endDate,
-            dateType: 'dateInvoiced'
-        });
+        // Fetch in 20-day chunks to avoid timeout
+        for (let chunk = 0; chunk < 3; chunk++) {
+            const chunkEnd = getDateDaysAgo(chunk * 20);
+            const chunkStart = getDateDaysAgo((chunk + 1) * 20);
+            console.log(`  Fetching chunk ${chunk + 1}/3: ${chunkStart} to ${chunkEnd}`);
+
+            try {
+                const chunkOrders = await fetchOrders({
+                    date_Invoiced_start: chunkStart,
+                    date_Invoiced_end: chunkEnd
+                });
+                allOrders = allOrders.concat(chunkOrders);
+                console.log(`  Chunk ${chunk + 1}: ${chunkOrders.length} orders`);
+            } catch (chunkError) {
+                console.warn(`  Chunk ${chunk + 1} failed: ${chunkError.message}`);
+                // Continue with other chunks
+            }
+        }
+
+        const orders = allOrders;
 
         console.log(`Fetched ${orders.length} orders from ManageOrders`);
 
