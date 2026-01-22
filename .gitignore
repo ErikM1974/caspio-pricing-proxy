@@ -49,3 +49,7 @@ QUOTE_API_INTEGRATION_GUIDE_UPDATED.md
 test-heroku-files.js
 .cache/scanned-routes.json
 .cache/scanned-routes.json
+nika_missing_customers.csv
+REVIEW_in_taneisha_list_but_nika_orders.csv
+REVIEW_not_in_either_list.csv
+taneisha_missing_customers.csv

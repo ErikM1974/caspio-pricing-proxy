@@ -5714,6 +5714,12 @@
 									"disabled": true
 								},
 								{
+									"key": "unclassified",
+									"value": "",
+									"description": "unclassified parameter",
+									"disabled": true
+								},
+								{
 									"key": "month",
 									"value": "",
 									"description": "month parameter",
@@ -5814,10 +5820,44 @@
 									"value": "",
 									"description": "orderDir parameter",
 									"disabled": true
+								},
+								{
+									"key": "autoAdd",
+									"value": "",
+									"description": "autoAdd parameter",
+									"disabled": true
 								}
 							]
 						},
 						"description": "GET /api/nika-accounts - List all accounts with optional filters"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Nika Accounts Reconcile",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/nika-accounts/reconcile",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"nika-accounts",
+								"reconcile"
+							],
+							"query": [
+								{
+									"key": "autoAdd",
+									"value": "",
+									"description": "autoAdd parameter",
+									"disabled": true
+								}
+							]
+						},
+						"description": "- autoAdd=true: Automatically add missing customers to Caspio"
 					},
 					"response": []
 				},
@@ -5938,6 +5978,106 @@
 							]
 						},
 						"description": "DELETE /api/nika-accounts/:id - Delete account"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Daily Sales By Account",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/daily-sales-by-account",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"daily-sales-by-account"
+							],
+							"query": [
+								{
+									"key": "start",
+									"value": "",
+									"description": "start parameter",
+									"disabled": true
+								},
+								{
+									"key": "end",
+									"value": "",
+									"description": "end parameter",
+									"disabled": true
+								}
+							]
+						},
+						"description": "GET /api/nika/daily-sales-by-account Fetch archived daily sales by customer for a date range  Query params: - start: Start date (YYYY-MM-DD) - required - end: End date (YYYY-MM-DD) - required  Returns: { days: [{ date, customers: [...] }], summary: { customers: [...], totalRevenue, totalOrders } }"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Daily Sales By Account Ytd",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/daily-sales-by-account/ytd",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"daily-sales-by-account",
+								"ytd"
+							],
+							"query": [
+								{
+									"key": "year",
+									"value": "",
+									"description": "year parameter",
+									"disabled": true
+								}
+							]
+						},
+						"description": "GET /api/nika/daily-sales-by-account/ytd Get Year-to-Date summary aggregated by customer  Query params: - year: Year to calculate YTD for (default: current year)  Returns: { year, customers: [...], lastArchivedDate, totalRevenue, totalOrders }"
+					},
+					"response": []
+				},
+				{
+					"name": "Create Daily Sales By Account",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/daily-sales-by-account",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"daily-sales-by-account"
+							]
+						},
+						"description": "POST /api/nika/daily-sales-by-account Archive a single day's per-customer sales data to Caspio  Body: - date: The sales date (YYYY-MM-DD) - required - customers: Array of { customerId, customerName, revenue, orderCount } - required  Returns: { success: true, date, customersArchived, message }"
+					},
+					"response": []
+				},
+				{
+					"name": "Create Daily Sales By Account Bulk",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/daily-sales-by-account/bulk",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"daily-sales-by-account",
+								"bulk"
+							]
+						},
+						"description": "POST /api/nika/daily-sales-by-account/bulk Archive multiple days of per-customer sales data at once (for backfilling)  Body: Array of { date, customers: [...] }  Returns: { success, totalCustomersArchived, dayResults: [...] }"
 					},
 					"response": []
 				},
@@ -6469,6 +6609,67 @@
 					"response": []
 				},
 				{
+					"name": "Get Rep Audit",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/rep-audit?year=",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"rep-audit"
+							],
+							"query": [
+								{
+									"key": "year",
+									"value": "",
+									"description": "year parameter",
+									"disabled": false
+								},
+								{
+									"key": "includeUnassigned",
+									"value": "",
+									"description": "includeUnassigned parameter",
+									"disabled": true
+								}
+							]
+						},
+						"description": "- includeUnassigned: Include orders for customers not in either list (default: true)"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Rep Audit Summary",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/rep-audit/summary?year=",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"rep-audit",
+								"summary"
+							],
+							"query": [
+								{
+									"key": "year",
+									"value": "",
+									"description": "year parameter",
+									"disabled": false
+								}
+							]
+						},
+						"description": "GET /api/rep-audit/summary - Quick summary without order details"
+					},
+					"response": []
+				},
+				{
 					"name": "Get Sanmar Shopworks Mapping",
 					"request": {
 						"method": "GET",
@@ -6646,6 +6847,12 @@
 									"disabled": true
 								},
 								{
+									"key": "unclassified",
+									"value": "",
+									"description": "unclassified parameter",
+									"disabled": true
+								},
+								{
 									"key": "month",
 									"value": "",
 									"description": "month parameter",
@@ -6746,10 +6953,44 @@
 									"value": "",
 									"description": "orderDir parameter",
 									"disabled": true
+								},
+								{
+									"key": "autoAdd",
+									"value": "",
+									"description": "autoAdd parameter",
+									"disabled": true
 								}
 							]
 						},
 						"description": "GET /api/taneisha-accounts - List all accounts with optional filters"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Taneisha Accounts Reconcile",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/taneisha-accounts/reconcile",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"taneisha-accounts",
+								"reconcile"
+							],
+							"query": [
+								{
+									"key": "autoAdd",
+									"value": "",
+									"description": "autoAdd parameter",
+									"disabled": true
+								}
+							]
+						},
+						"description": "- autoAdd=true: Automatically add missing customers to Caspio"
 					},
 					"response": []
 				},

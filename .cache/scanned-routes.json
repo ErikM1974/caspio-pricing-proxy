@@ -1,6 +1,6 @@
 {
-  "scannedAt": "2026-01-22T16:02:15.219Z",
-  "totalEndpoints": 237,
+  "scannedAt": "2026-01-22T20:15:41.765Z",
+  "totalEndpoints": 245,
   "endpoints": [
     {
       "method": "GET",
@@ -2165,6 +2165,12 @@
           "disabled": true
         },
         {
+          "key": "unclassified",
+          "value": "",
+          "description": "unclassified parameter",
+          "disabled": true
+        },
+        {
           "key": "month",
           "value": "",
           "description": "month parameter",
@@ -2265,11 +2271,35 @@
           "value": "",
           "description": "orderDir parameter",
           "disabled": true
+        },
+        {
+          "key": "autoAdd",
+          "value": "",
+          "description": "autoAdd parameter",
+          "disabled": true
         }
       ],
       "requestBody": null,
       "sourceFile": "nika-accounts.js",
       "lineNumber": 49
+    },
+    {
+      "method": "GET",
+      "path": "/nika-accounts/reconcile",
+      "fullPath": "/api/nika-accounts/reconcile",
+      "category": "📋 General",
+      "description": "- autoAdd=true: Automatically add missing customers to Caspio",
+      "queryParams": [
+        {
+          "key": "autoAdd",
+          "value": "",
+          "description": "autoAdd parameter",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "nika-accounts.js",
+      "lineNumber": 158
     },
     {
       "method": "GET",
@@ -2280,7 +2310,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "nika-accounts.js",
-      "lineNumber": 152
+      "lineNumber": 265
     },
     {
       "method": "POST",
@@ -2291,7 +2321,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "nika-accounts.js",
-      "lineNumber": 184
+      "lineNumber": 297
     },
     {
       "method": "PUT",
@@ -2302,7 +2332,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "nika-accounts.js",
-      "lineNumber": 244
+      "lineNumber": 357
     },
     {
       "method": "PUT",
@@ -2313,7 +2343,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "nika-accounts.js",
-      "lineNumber": 290
+      "lineNumber": 403
     },
     {
       "method": "POST",
@@ -2324,7 +2354,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "nika-accounts.js",
-      "lineNumber": 344
+      "lineNumber": 457
     },
     {
       "method": "DELETE",
@@ -2335,7 +2365,71 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "nika-accounts.js",
-      "lineNumber": 473
+      "lineNumber": 609
+    },
+    {
+      "method": "GET",
+      "path": "/daily-sales-by-account",
+      "fullPath": "/api/daily-sales-by-account",
+      "category": "📋 General",
+      "description": "GET /api/nika/daily-sales-by-account Fetch archived daily sales by customer for a date range  Query params: - start: Start date (YYYY-MM-DD) - required - end: End date (YYYY-MM-DD) - required  Returns: { days: [{ date, customers: [...] }], summary: { customers: [...], totalRevenue, totalOrders } }",
+      "queryParams": [
+        {
+          "key": "start",
+          "value": "",
+          "description": "start parameter",
+          "disabled": true
+        },
+        {
+          "key": "end",
+          "value": "",
+          "description": "end parameter",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "nika-daily-sales.js",
+      "lineNumber": 20
+    },
+    {
+      "method": "GET",
+      "path": "/daily-sales-by-account/ytd",
+      "fullPath": "/api/daily-sales-by-account/ytd",
+      "category": "📋 General",
+      "description": "GET /api/nika/daily-sales-by-account/ytd Get Year-to-Date summary aggregated by customer  Query params: - year: Year to calculate YTD for (default: current year)  Returns: { year, customers: [...], lastArchivedDate, totalRevenue, totalOrders }",
+      "queryParams": [
+        {
+          "key": "year",
+          "value": "",
+          "description": "year parameter",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "nika-daily-sales.js",
+      "lineNumber": 146
+    },
+    {
+      "method": "POST",
+      "path": "/daily-sales-by-account",
+      "fullPath": "/api/daily-sales-by-account",
+      "category": "📋 General",
+      "description": "POST /api/nika/daily-sales-by-account Archive a single day's per-customer sales data to Caspio  Body: - date: The sales date (YYYY-MM-DD) - required - customers: Array of { customerId, customerName, revenue, orderCount } - required  Returns: { success: true, date, customersArchived, message }",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "nika-daily-sales.js",
+      "lineNumber": 238
+    },
+    {
+      "method": "POST",
+      "path": "/daily-sales-by-account/bulk",
+      "fullPath": "/api/daily-sales-by-account/bulk",
+      "category": "📋 General",
+      "description": "POST /api/nika/daily-sales-by-account/bulk Archive multiple days of per-customer sales data at once (for backfilling)  Body: Array of { date, customers: [...] }  Returns: { success, totalCustomersArchived, dayResults: [...] }",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "nika-daily-sales.js",
+      "lineNumber": 363
     },
     {
       "method": "GET",
@@ -4192,6 +4286,48 @@
     },
     {
       "method": "GET",
+      "path": "/rep-audit",
+      "fullPath": "/api/rep-audit",
+      "category": "📋 General",
+      "description": "- includeUnassigned: Include orders for customers not in either list (default: true)",
+      "queryParams": [
+        {
+          "key": "year",
+          "value": "",
+          "description": "year parameter",
+          "disabled": false
+        },
+        {
+          "key": "includeUnassigned",
+          "value": "",
+          "description": "includeUnassigned parameter",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "rep-audit.js",
+      "lineNumber": 15
+    },
+    {
+      "method": "GET",
+      "path": "/rep-audit/summary",
+      "fullPath": "/api/rep-audit/summary",
+      "category": "📋 General",
+      "description": "GET /api/rep-audit/summary - Quick summary without order details",
+      "queryParams": [
+        {
+          "key": "year",
+          "value": "",
+          "description": "year parameter",
+          "disabled": false
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "rep-audit.js",
+      "lineNumber": 172
+    },
+    {
+      "method": "GET",
       "path": "/sanmar-shopworks/mapping",
       "fullPath": "/api/sanmar-shopworks/mapping",
       "category": "📋 General",
@@ -4311,6 +4447,12 @@
           "disabled": true
         },
         {
+          "key": "unclassified",
+          "value": "",
+          "description": "unclassified parameter",
+          "disabled": true
+        },
+        {
           "key": "month",
           "value": "",
           "description": "month parameter",
@@ -4411,11 +4553,35 @@
           "value": "",
           "description": "orderDir parameter",
           "disabled": true
+        },
+        {
+          "key": "autoAdd",
+          "value": "",
+          "description": "autoAdd parameter",
+          "disabled": true
         }
       ],
       "requestBody": null,
       "sourceFile": "taneisha-accounts.js",
       "lineNumber": 49
+    },
+    {
+      "method": "GET",
+      "path": "/taneisha-accounts/reconcile",
+      "fullPath": "/api/taneisha-accounts/reconcile",
+      "category": "📋 General",
+      "description": "- autoAdd=true: Automatically add missing customers to Caspio",
+      "queryParams": [
+        {
+          "key": "autoAdd",
+          "value": "",
+          "description": "autoAdd parameter",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "taneisha-accounts.js",
+      "lineNumber": 158
     },
     {
       "method": "GET",
@@ -4426,7 +4592,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "taneisha-accounts.js",
-      "lineNumber": 152
+      "lineNumber": 265
     },
     {
       "method": "POST",
@@ -4437,7 +4603,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "taneisha-accounts.js",
-      "lineNumber": 184
+      "lineNumber": 297
     },
     {
       "method": "PUT",
@@ -4448,7 +4614,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "taneisha-accounts.js",
-      "lineNumber": 244
+      "lineNumber": 357
     },
     {
       "method": "PUT",
@@ -4459,7 +4625,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "taneisha-accounts.js",
-      "lineNumber": 290
+      "lineNumber": 403
     },
     {
       "method": "POST",
@@ -4470,7 +4636,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "taneisha-accounts.js",
-      "lineNumber": 345
+      "lineNumber": 458
     },
     {
       "method": "DELETE",
@@ -4481,7 +4647,7 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "taneisha-accounts.js",
-      "lineNumber": 601
+      "lineNumber": 741
     },
     {
       "method": "GET",
