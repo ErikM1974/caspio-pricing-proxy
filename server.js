@@ -409,6 +409,11 @@ const taneishaAccountsRoutes = require('./src/routes/taneisha-accounts');
 app.use('/api', taneishaAccountsRoutes);
 console.log('✓ Taneisha Accounts routes loaded');
 
+// Nika Accounts Routes (CRM for Nika's customer accounts)
+const nikaAccountsRoutes = require('./src/routes/nika-accounts');
+app.use('/api', nikaAccountsRoutes);
+console.log('✓ Nika Accounts routes loaded');
+
 // --- Admin Metrics Endpoint ---
 const apiTracker = require('./src/utils/api-tracker');
 

@@ -65,6 +65,7 @@ Detailed documentation organized by topic:
 - **[Monograms API](memory/MONOGRAMS_API.md)** - CRUD endpoints for monogram orders (v1.0.0 - 2026-01-09)
 - **[Garment Tracker API](memory/GARMENT_TRACKER_API.md)** - Pre-processed garment tracking for staff dashboard (v1.0.0 - 2026-01-09)
 - **[Taneisha Accounts API](memory/TANEISHA_ACCOUNTS_API.md)** - CRM for Taneisha's 800 customer accounts (v1.0.0 - 2026-01-21)
+- **[Nika Accounts API](memory/NIKA_ACCOUNTS_API.md)** - CRM for Nika's 407 customer accounts (v1.0.0 - 2026-01-22)
 
 ## Quick Reference
 
