@@ -20,6 +20,7 @@
  * - update_house_account: Update house account
  * - delete_house_account: Remove from house accounts
  * - move_to_house: Move from rep list to house accounts
+ * - move_from_house: Move from house accounts to rep list
  * - house_stats: Get house account statistics
  */
 
@@ -489,6 +490,33 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           properties: {}
         }
       },
+      {
+        name: "move_from_house",
+        description: "Move a customer FROM house accounts TO a rep's list (Taneisha or Nika)",
+        inputSchema: {
+          type: "object",
+          properties: {
+            customerId: {
+              type: "integer",
+              description: "The customer ID to move"
+            },
+            toRep: {
+              type: "string",
+              enum: ["taneisha", "nika"],
+              description: "Destination rep (where to move the account)"
+            },
+            accountTier: {
+              type: "string",
+              description: "Account tier for the rep's list (e.g., 'GOLD \\'26-TANEISHA')"
+            },
+            notes: {
+              type: "string",
+              description: "Optional notes about why moved"
+            }
+          },
+          required: ["customerId", "toRep"]
+        }
+      },
       // House Daily Sales Tools
       {
         name: "house_daily_sales",
@@ -797,6 +825,54 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "house_stats": {
         const result = await apiCall("/api/house-accounts/stats");
         return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      }
+
+      case "move_from_house": {
+        const { customerId, toRep, accountTier, notes } = args;
+
+        // Step 1: Get the account from house accounts
+        const sourceAccount = await apiCall(`/api/house-accounts/${customerId}`);
+        if (!sourceAccount.success) {
+          return { content: [{ type: "text", text: JSON.stringify({
+            success: false,
+            error: `Account ${customerId} not found in House Accounts`
+          }, null, 2) }] };
+        }
+
+        const accountData = sourceAccount.account;
+
+        // Step 2: Create in rep's account list
+        const createResult = await apiCall(`/api/${toRep}-accounts`, {
+          method: "POST",
+          body: JSON.stringify({
+            ID_Customer: accountData.ID_Customer,
+            CompanyName: accountData.CompanyName,
+            Account_Tier: accountTier || "",
+            Notes: notes || `Moved from House Accounts (was assigned to: ${accountData.Assigned_To})`
+          })
+        });
+
+        if (!createResult.success) {
+          return { content: [{ type: "text", text: JSON.stringify({
+            success: false,
+            error: `Failed to create account in ${toRep}'s list`,
+            details: createResult
+          }, null, 2) }] };
+        }
+
+        // Step 3: Delete from house accounts
+        const deleteResult = await apiCall(`/api/house-accounts/${customerId}`, {
+          method: "DELETE"
+        });
+
+        return { content: [{ type: "text", text: JSON.stringify({
+          success: true,
+          message: `Moved ${accountData.CompanyName} (${customerId}) from House Accounts to ${toRep}'s list`,
+          previousAssignee: accountData.Assigned_To,
+          newTier: accountTier || "(no tier assigned)",
+          toRep,
+          deleteResult
+        }, null, 2) }] };
       }
 
       // House Daily Sales Handlers

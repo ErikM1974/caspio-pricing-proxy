@@ -372,6 +372,7 @@ The following MCP tools are available in Claude Desktop:
 | `update_house_account` | Update account |
 | `delete_house_account` | Remove account |
 | `move_to_house` | Move from rep list to house |
+| `move_from_house` | Move from house to rep list (Taneisha/Nika) |
 | `house_stats` | Get statistics |
 
 **Daily Sales:**
