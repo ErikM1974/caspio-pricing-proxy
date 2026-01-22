@@ -485,10 +485,18 @@ router.post('/taneisha-accounts/sync-sales', express.json(), async (req, res) =>
         let errorCount = 0;
 
         // Get all customer IDs that have either archived or fresh data
-        const allCustomerIds = new Set([
+        const customersWithData = new Set([
             ...archivedByCustomer.keys(),
             ...freshSalesByCustomer.keys()
         ]);
+
+        // Also include accounts that currently have YTD > 0 (need to reset if no Taneisha orders)
+        const allCustomerIds = new Set([...customersWithData]);
+        for (const [customerId, account] of accountMap) {
+            if ((account.YTD_Sales_2026 || 0) > 0) {
+                allCustomerIds.add(customerId);
+            }
+        }
 
         for (const customerId of allCustomerIds) {
             if (!accountMap.has(customerId)) continue;

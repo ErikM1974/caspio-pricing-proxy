@@ -432,21 +432,28 @@ router.post('/nika-accounts/sync-sales', express.json(), async (req, res) => {
         let updatedCount = 0;
         let errorCount = 0;
 
-        for (const [customerId, sales] of salesByCustomer) {
-            try {
-                const account = accountMap.get(customerId);
-                const existingSales = parseFloat(account.YTD_Sales_2026) || 0;
-                const existingCount = parseInt(account.Order_Count_2026) || 0;
+        // Also include accounts that currently have YTD > 0 (need to reset if no Nika orders)
+        const allCustomerIds = new Set([...salesByCustomer.keys()]);
+        for (const [customerId, account] of accountMap) {
+            if ((account.YTD_Sales_2026 || 0) > 0) {
+                allCustomerIds.add(customerId);
+            }
+        }
 
-                // Calculate new totals (add to existing if this is an incremental sync)
-                // For simplicity, we'll just set the values from the 60-day window
-                // A more sophisticated approach would track lastSyncDate and only add new orders
+        for (const customerId of allCustomerIds) {
+            try {
+                const sales = salesByCustomer.get(customerId) || { totalSales: 0, orderCount: 0, lastOrderDate: null };
+
                 const updateData = {
                     YTD_Sales_2026: sales.totalSales,
                     Order_Count_2026: sales.orderCount,
-                    Last_Order_Date: sales.lastOrderDate,
                     Last_Sync_Date: today
                 };
+
+                // Only update last order date if we have fresh data
+                if (sales.lastOrderDate) {
+                    updateData.Last_Order_Date = sales.lastOrderDate;
+                }
 
                 const url = `${caspioApiBaseUrl}/tables/${TABLE_NAME}/records?q.where=${PRIMARY_KEY}=${customerId}`;
 
