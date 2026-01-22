@@ -60,6 +60,10 @@ router.get('/nika-accounts', async (req, res) => {
         if (req.query.priorityTier) {
             whereConditions.push(`Priority_Tier='${req.query.priorityTier}'`);
         }
+        // Unclassified filter - accounts with no tier assigned
+        if (req.query.unclassified === '1' || req.query.unclassified === 'true') {
+            whereConditions.push(`(Account_Tier IS NULL OR Account_Tier='')`);
+        }
 
         // Month activity filter
         if (req.query.month) {
