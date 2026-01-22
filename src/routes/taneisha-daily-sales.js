@@ -1,4 +1,4 @@
-// Taneisha Daily Sales By Account Archive routes - For YTD tracking beyond ManageOrders 60-day limit
+// Taneisha Daily Sales Archive routes - For YTD tracking beyond ManageOrders 60-day limit
 // Table: Taneisha_Daily_Sales_By_Account (SalesDate, CustomerID, CustomerName, Revenue, OrderCount, ArchivedAt)
 
 const express = require('express');
