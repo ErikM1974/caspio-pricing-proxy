@@ -1,6 +1,6 @@
 {
-  "scannedAt": "2026-01-21T23:47:19.651Z",
-  "totalEndpoints": 225,
+  "scannedAt": "2026-01-22T16:02:15.219Z",
+  "totalEndpoints": 237,
   "endpoints": [
     {
       "method": "GET",
@@ -2147,6 +2147,198 @@
     },
     {
       "method": "GET",
+      "path": "/nika-accounts",
+      "fullPath": "/api/nika-accounts",
+      "category": "📋 General",
+      "description": "GET /api/nika-accounts - List all accounts with optional filters",
+      "queryParams": [
+        {
+          "key": "accountTier",
+          "value": "",
+          "description": "accountTier parameter",
+          "disabled": true
+        },
+        {
+          "key": "priorityTier",
+          "value": "",
+          "description": "priorityTier parameter",
+          "disabled": true
+        },
+        {
+          "key": "month",
+          "value": "",
+          "description": "month parameter",
+          "disabled": true
+        },
+        {
+          "key": "quarter",
+          "value": "",
+          "description": "quarter parameter",
+          "disabled": true
+        },
+        {
+          "key": "isActive",
+          "value": "",
+          "description": "isActive parameter",
+          "disabled": true
+        },
+        {
+          "key": "buysCaps",
+          "value": "",
+          "description": "buysCaps parameter",
+          "disabled": true
+        },
+        {
+          "key": "buysJackets",
+          "value": "",
+          "description": "buysJackets parameter",
+          "disabled": true
+        },
+        {
+          "key": "buysCarhartt",
+          "value": "",
+          "description": "buysCarhartt parameter",
+          "disabled": true
+        },
+        {
+          "key": "buysPolos",
+          "value": "",
+          "description": "buysPolos parameter",
+          "disabled": true
+        },
+        {
+          "key": "buysTShirts",
+          "value": "",
+          "description": "buysTShirts parameter",
+          "disabled": true
+        },
+        {
+          "key": "buysHoodies",
+          "value": "",
+          "description": "buysHoodies parameter",
+          "disabled": true
+        },
+        {
+          "key": "buysSafety",
+          "value": "",
+          "description": "buysSafety parameter",
+          "disabled": true
+        },
+        {
+          "key": "atRisk",
+          "value": "",
+          "description": "atRisk parameter",
+          "disabled": true
+        },
+        {
+          "key": "overdueForOrder",
+          "value": "",
+          "description": "overdueForOrder parameter",
+          "disabled": true
+        },
+        {
+          "key": "contactStatus",
+          "value": "",
+          "description": "contactStatus parameter",
+          "disabled": true
+        },
+        {
+          "key": "trend",
+          "value": "",
+          "description": "trend parameter",
+          "disabled": true
+        },
+        {
+          "key": "search",
+          "value": "",
+          "description": "search parameter",
+          "disabled": true
+        },
+        {
+          "key": "orderBy",
+          "value": "",
+          "description": "orderBy parameter",
+          "disabled": true
+        },
+        {
+          "key": "orderDir",
+          "value": "",
+          "description": "orderDir parameter",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "nika-accounts.js",
+      "lineNumber": 49
+    },
+    {
+      "method": "GET",
+      "path": "/nika-accounts/:id",
+      "fullPath": "/api/nika-accounts/:id",
+      "category": "📋 General",
+      "description": "GET /api/nika-accounts/:id - Get single account by ID_Customer",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "nika-accounts.js",
+      "lineNumber": 152
+    },
+    {
+      "method": "POST",
+      "path": "/nika-accounts",
+      "fullPath": "/api/nika-accounts",
+      "category": "📋 General",
+      "description": "POST /api/nika-accounts - Create new account",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "nika-accounts.js",
+      "lineNumber": 184
+    },
+    {
+      "method": "PUT",
+      "path": "/nika-accounts/:id",
+      "fullPath": "/api/nika-accounts/:id",
+      "category": "📋 General",
+      "description": "PUT /api/nika-accounts/:id - Update account (any fields)",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "nika-accounts.js",
+      "lineNumber": 244
+    },
+    {
+      "method": "PUT",
+      "path": "/nika-accounts/:id/crm",
+      "fullPath": "/api/nika-accounts/:id/crm",
+      "category": "📋 General",
+      "description": "PUT /api/nika-accounts/:id/crm - Update CRM fields only (whitelisted)",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "nika-accounts.js",
+      "lineNumber": 290
+    },
+    {
+      "method": "POST",
+      "path": "/nika-accounts/sync-sales",
+      "fullPath": "/api/nika-accounts/sync-sales",
+      "category": "📋 General",
+      "description": "Updates YTD_Sales_2026, Order_Count_2026, Last_Order_Date, Last_Sync_Date",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "nika-accounts.js",
+      "lineNumber": 344
+    },
+    {
+      "method": "DELETE",
+      "path": "/nika-accounts/:id",
+      "fullPath": "/api/nika-accounts/:id",
+      "category": "📋 General",
+      "description": "DELETE /api/nika-accounts/:id - Delete account",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "nika-accounts.js",
+      "lineNumber": 473
+    },
+    {
+      "method": "GET",
       "path": "/orders",
       "fullPath": "/api/orders",
       "category": "📦 Orders",
@@ -4270,6 +4462,17 @@
       "lineNumber": 290
     },
     {
+      "method": "POST",
+      "path": "/taneisha-accounts/sync-sales",
+      "fullPath": "/api/taneisha-accounts/sync-sales",
+      "category": "📋 General",
+      "description": "Updates YTD_Sales_2026, Order_Count_2026, Last_Order_Date, Last_Sync_Date",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "taneisha-accounts.js",
+      "lineNumber": 345
+    },
+    {
       "method": "DELETE",
       "path": "/taneisha-accounts/:id",
       "fullPath": "/api/taneisha-accounts/:id",
@@ -4278,7 +4481,71 @@
       "queryParams": [],
       "requestBody": null,
       "sourceFile": "taneisha-accounts.js",
-      "lineNumber": 343
+      "lineNumber": 601
+    },
+    {
+      "method": "GET",
+      "path": "/daily-sales-by-account",
+      "fullPath": "/api/daily-sales-by-account",
+      "category": "📋 General",
+      "description": "GET /api/taneisha/daily-sales-by-account Fetch archived daily sales by customer for a date range  Query params: - start: Start date (YYYY-MM-DD) - required - end: End date (YYYY-MM-DD) - required  Returns: { days: [{ date, customers: [...] }], summary: { customers: [...], totalRevenue, totalOrders } }",
+      "queryParams": [
+        {
+          "key": "start",
+          "value": "",
+          "description": "start parameter",
+          "disabled": true
+        },
+        {
+          "key": "end",
+          "value": "",
+          "description": "end parameter",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "taneisha-daily-sales.js",
+      "lineNumber": 20
+    },
+    {
+      "method": "GET",
+      "path": "/daily-sales-by-account/ytd",
+      "fullPath": "/api/daily-sales-by-account/ytd",
+      "category": "📋 General",
+      "description": "GET /api/taneisha/daily-sales-by-account/ytd Get Year-to-Date summary aggregated by customer  Query params: - year: Year to calculate YTD for (default: current year)  Returns: { year, customers: [...], lastArchivedDate, totalRevenue, totalOrders }",
+      "queryParams": [
+        {
+          "key": "year",
+          "value": "",
+          "description": "year parameter",
+          "disabled": true
+        }
+      ],
+      "requestBody": null,
+      "sourceFile": "taneisha-daily-sales.js",
+      "lineNumber": 146
+    },
+    {
+      "method": "POST",
+      "path": "/daily-sales-by-account",
+      "fullPath": "/api/daily-sales-by-account",
+      "category": "📋 General",
+      "description": "POST /api/taneisha/daily-sales-by-account Archive a single day's per-customer sales data to Caspio  Body: - date: The sales date (YYYY-MM-DD) - required - customers: Array of { customerId, customerName, revenue, orderCount } - required  Returns: { success: true, date, customersArchived, message }",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "taneisha-daily-sales.js",
+      "lineNumber": 238
+    },
+    {
+      "method": "POST",
+      "path": "/daily-sales-by-account/bulk",
+      "fullPath": "/api/daily-sales-by-account/bulk",
+      "category": "📋 General",
+      "description": "POST /api/taneisha/daily-sales-by-account/bulk Archive multiple days of per-customer sales data at once (for backfilling)  Body: Array of { date, customers: [...] }  Returns: { success, totalCustomersArchived, dayResults: [...] }",
+      "queryParams": [],
+      "requestBody": null,
+      "sourceFile": "taneisha-daily-sales.js",
+      "lineNumber": 363
     },
     {
       "method": "GET",

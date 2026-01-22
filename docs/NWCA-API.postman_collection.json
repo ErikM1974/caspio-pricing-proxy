@@ -6995,6 +6995,106 @@
 					"response": []
 				},
 				{
+					"name": "Get Daily Sales By Account",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/daily-sales-by-account",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"daily-sales-by-account"
+							],
+							"query": [
+								{
+									"key": "start",
+									"value": "",
+									"description": "start parameter",
+									"disabled": true
+								},
+								{
+									"key": "end",
+									"value": "",
+									"description": "end parameter",
+									"disabled": true
+								}
+							]
+						},
+						"description": "GET /api/taneisha/daily-sales-by-account Fetch archived daily sales by customer for a date range  Query params: - start: Start date (YYYY-MM-DD) - required - end: End date (YYYY-MM-DD) - required  Returns: { days: [{ date, customers: [...] }], summary: { customers: [...], totalRevenue, totalOrders } }"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Daily Sales By Account Ytd",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/daily-sales-by-account/ytd",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"daily-sales-by-account",
+								"ytd"
+							],
+							"query": [
+								{
+									"key": "year",
+									"value": "",
+									"description": "year parameter",
+									"disabled": true
+								}
+							]
+						},
+						"description": "GET /api/taneisha/daily-sales-by-account/ytd Get Year-to-Date summary aggregated by customer  Query params: - year: Year to calculate YTD for (default: current year)  Returns: { year, customers: [...], lastArchivedDate, totalRevenue, totalOrders }"
+					},
+					"response": []
+				},
+				{
+					"name": "Create Daily Sales By Account",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/daily-sales-by-account",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"daily-sales-by-account"
+							]
+						},
+						"description": "POST /api/taneisha/daily-sales-by-account Archive a single day's per-customer sales data to Caspio  Body: - date: The sales date (YYYY-MM-DD) - required - customers: Array of { customerId, customerName, revenue, orderCount } - required  Returns: { success: true, date, customersArchived, message }"
+					},
+					"response": []
+				},
+				{
+					"name": "Create Daily Sales By Account Bulk",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/daily-sales-by-account/bulk",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"daily-sales-by-account",
+								"bulk"
+							]
+						},
+						"description": "POST /api/taneisha/daily-sales-by-account/bulk Archive multiple days of per-customer sales data at once (for backfilling)  Body: Array of { date, customers: [...] }  Returns: { success, totalCustomersArchived, dayResults: [...] }"
+					},
+					"response": []
+				},
+				{
 					"name": "Get Thread Colors",
 					"request": {
 						"method": "GET",
