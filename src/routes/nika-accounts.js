@@ -397,6 +397,9 @@ router.post('/nika-accounts/sync-sales', express.json(), async (req, res) => {
             // Only process orders for Nika's customers
             if (!accountMap.has(customerId)) return;
 
+            // Only count orders where Nika is the rep (some customers may have orders from other reps)
+            if (order.CustomerServiceRep !== 'Nika Lao') return;
+
             // Only count 2026 invoiced orders
             const invoiceDate = new Date(order.date_Invoiced);
             if (invoiceDate.getFullYear() !== currentYear) return;

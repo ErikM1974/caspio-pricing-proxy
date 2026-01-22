@@ -431,6 +431,9 @@ router.post('/taneisha-accounts/sync-sales', express.json(), async (req, res) =>
             // Only process orders for Taneisha's customers
             if (!accountMap.has(customerId)) return;
 
+            // Only count orders where Taneisha is the rep (some customers may have orders from other reps)
+            if (order.CustomerServiceRep !== 'Taneisha Clark') return;
+
             // Only count current year invoiced orders
             const invoiceDate = new Date(order.date_Invoiced);
             if (invoiceDate.getFullYear() !== currentYear) return;
