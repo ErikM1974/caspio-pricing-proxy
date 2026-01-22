@@ -1,8 +1,9 @@
 # House Accounts API
 
-**Version**: 1.0.0
+**Version**: 1.1.0
 **Created**: 2026-01-22
-**Table**: `House_Accounts`
+**Updated**: 2026-01-22
+**Tables**: `House_Accounts`, `House_Daily_Sales_By_Account`
 
 ---
 
@@ -283,9 +284,85 @@ The rep audit (`/api/rep-audit`) now checks House_Accounts:
 
 ---
 
+## Daily Sales Archive
+
+### Table: `House_Daily_Sales_By_Account`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| SalesDate | Date/Time | Sales date |
+| CustomerID | Text 255 | ShopWorks customer ID |
+| CustomerName | Text 255 | Company name |
+| Revenue | Currency | Daily revenue |
+| OrderCount | Number | Number of orders |
+| ArchivedAt | Timestamp | When archived |
+
+### GET /api/house/daily-sales-by-account
+
+Fetch archived daily sales for a date range.
+
+**Query Parameters:**
+- `start` (required): Start date (YYYY-MM-DD)
+- `end` (required): End date (YYYY-MM-DD)
+
+**Example:**
+```bash
+curl "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/house/daily-sales-by-account?start=2026-01-01&end=2026-01-31"
+```
+
+---
+
+### GET /api/house/daily-sales-by-account/ytd
+
+Get Year-to-Date summary aggregated by customer.
+
+**Query Parameters:**
+- `year` (optional): Year to get YTD for (default: current year)
+
+**Example:**
+```bash
+curl "https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/house/daily-sales-by-account/ytd?year=2026"
+```
+
+---
+
+### POST /api/house/daily-sales-by-account
+
+Archive a single day's per-customer sales data.
+
+**Body:**
+```json
+{
+  "date": "2026-01-15",
+  "customers": [
+    { "customerId": 12345, "customerName": "ACME Corp", "revenue": 5234.50, "orderCount": 2 }
+  ]
+}
+```
+
+---
+
+### POST /api/house/daily-sales-by-account/bulk
+
+Archive multiple days at once (for backfilling).
+
+**Body:**
+```json
+[
+  {
+    "date": "2026-01-01",
+    "customers": [{ "customerId": 12345, "customerName": "ACME Corp", "revenue": 500, "orderCount": 1 }]
+  }
+]
+```
+
+---
+
 ## MCP Tools
 
 The following MCP tools are available in Claude Desktop:
+
+**Account Management:**
 
 | Tool | Description |
 |------|-------------|
@@ -296,6 +373,13 @@ The following MCP tools are available in Claude Desktop:
 | `delete_house_account` | Remove account |
 | `move_to_house` | Move from rep list to house |
 | `house_stats` | Get statistics |
+
+**Daily Sales:**
+
+| Tool | Description |
+|------|-------------|
+| `house_daily_sales` | Get archived sales for date range |
+| `house_ytd_sales` | Get YTD summary for house accounts |
 
 ---
 

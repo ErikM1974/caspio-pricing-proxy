@@ -434,6 +434,11 @@ const houseAccountsRoutes = require('./src/routes/house-accounts');
 app.use('/api', houseAccountsRoutes);
 console.log('✓ House Accounts routes loaded');
 
+// House Daily Sales Archive Routes (YTD tracking beyond ManageOrders 60-day limit)
+const houseDailySalesRoutes = require('./src/routes/house-daily-sales');
+app.use('/api/house', houseDailySalesRoutes);
+console.log('✓ House Daily Sales Archive routes loaded');
+
 // --- Admin Metrics Endpoint ---
 const apiTracker = require('./src/utils/api-tracker');
 

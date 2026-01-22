@@ -57,6 +57,8 @@ C:\Users\erik\AppData\Roaming\Claude\claude_desktop_config.json
 | `delete_house_account` | Remove customer from house accounts |
 | `move_to_house` | Move customer from rep's list to house accounts |
 | `house_stats` | Get house account statistics by assignee |
+| `house_daily_sales` | Get archived daily sales for date range |
+| `house_ytd_sales` | Get YTD sales summary for house accounts |
 
 **Example prompts - Rep Accounts:**
 - "Show me Taneisha's at-risk accounts"

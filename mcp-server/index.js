@@ -488,6 +488,38 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           type: "object",
           properties: {}
         }
+      },
+      // House Daily Sales Tools
+      {
+        name: "house_daily_sales",
+        description: "Get archived daily sales for house accounts in a date range",
+        inputSchema: {
+          type: "object",
+          properties: {
+            start: {
+              type: "string",
+              description: "Start date (YYYY-MM-DD)"
+            },
+            end: {
+              type: "string",
+              description: "End date (YYYY-MM-DD)"
+            }
+          },
+          required: ["start", "end"]
+        }
+      },
+      {
+        name: "house_ytd_sales",
+        description: "Get Year-to-Date sales summary for house accounts",
+        inputSchema: {
+          type: "object",
+          properties: {
+            year: {
+              type: "integer",
+              description: "Year to get YTD for (default: current year)"
+            }
+          }
+        }
       }
     ]
   };
@@ -764,6 +796,65 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case "house_stats": {
         const result = await apiCall("/api/house-accounts/stats");
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      }
+
+      // House Daily Sales Handlers
+      case "house_daily_sales": {
+        const { start, end } = args;
+        const result = await apiCall(`/api/house/daily-sales-by-account?start=${start}&end=${end}`);
+
+        // Summarize for readability
+        if (result.success && result.summary) {
+          const summary = {
+            success: true,
+            dateRange: { start, end },
+            totalRevenue: result.summary.totalRevenue,
+            totalOrders: result.summary.totalOrders,
+            daysWithData: result.days?.length || 0,
+            topCustomers: result.summary.customers?.slice(0, 10).map(c => ({
+              customerId: c.customerId,
+              customerName: c.customerName,
+              revenue: c.totalRevenue,
+              orders: c.totalOrders
+            })),
+            note: result.summary.customers?.length > 10
+              ? `Showing top 10 of ${result.summary.customers.length} customers`
+              : undefined
+          };
+          return { content: [{ type: "text", text: JSON.stringify(summary, null, 2) }] };
+        }
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      }
+
+      case "house_ytd_sales": {
+        const { year } = args;
+        const endpoint = year
+          ? `/api/house/daily-sales-by-account/ytd?year=${year}`
+          : "/api/house/daily-sales-by-account/ytd";
+        const result = await apiCall(endpoint);
+
+        // Summarize for readability
+        if (result.success) {
+          const summary = {
+            success: true,
+            year: result.year,
+            totalRevenue: result.totalRevenue,
+            totalOrders: result.totalOrders,
+            lastArchivedDate: result.lastArchivedDate,
+            customerCount: result.customers?.length || 0,
+            topCustomers: result.customers?.slice(0, 10).map(c => ({
+              customerId: c.customerId,
+              customerName: c.customerName,
+              revenue: c.totalRevenue,
+              orders: c.totalOrders
+            })),
+            note: result.customers?.length > 10
+              ? `Showing top 10 of ${result.customers.length} customers`
+              : undefined
+          };
+          return { content: [{ type: "text", text: JSON.stringify(summary, null, 2) }] };
+        }
         return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
       }
 
