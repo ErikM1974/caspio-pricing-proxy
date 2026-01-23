@@ -105,6 +105,151 @@ router.get('/house-accounts/stats', async (req, res) => {
     }
 });
 
+// GET /api/house-accounts/reconcile - Find customers with orders not in ANY account list
+// Checks Taneisha_All_Accounts_Caspio, Nika_All_Accounts_Caspio, and House_Accounts
+// Query params:
+//   - autoAdd=true: Automatically add missing customers to House_Accounts
+router.get('/house-accounts/reconcile', async (req, res) => {
+    try {
+        const autoAdd = req.query.autoAdd === 'true';
+        console.log(`Reconciling all accounts (autoAdd: ${autoAdd})...`);
+
+        const { fetchOrders, getDateDaysAgo } = require('../utils/manageorders');
+
+        // Get all customer IDs from all three tables
+        const [taneishaAccounts, nikaAccounts, houseAccounts] = await Promise.all([
+            fetchAllCaspioPages('/tables/Taneisha_All_Accounts_Caspio/records', {
+                'q.select': 'ID_Customer'
+            }),
+            fetchAllCaspioPages('/tables/Nika_All_Accounts_Caspio/records', {
+                'q.select': 'ID_Customer'
+            }),
+            fetchAllCaspioPages('/tables/House_Accounts/records', {
+                'q.select': 'ID_Customer'
+            })
+        ]);
+
+        const allKnownIds = new Set([
+            ...taneishaAccounts.map(a => a.ID_Customer),
+            ...nikaAccounts.map(a => a.ID_Customer),
+            ...houseAccounts.map(a => a.ID_Customer)
+        ]);
+
+        console.log(`Found ${allKnownIds.size} total known customers across all tables`);
+        console.log(`  - Taneisha: ${taneishaAccounts.length}`);
+        console.log(`  - Nika: ${nikaAccounts.length}`);
+        console.log(`  - House: ${houseAccounts.length}`);
+
+        // Fetch recent orders from ManageOrders (last 60 days in 3 chunks)
+        let allOrders = [];
+        for (let chunk = 0; chunk < 3; chunk++) {
+            const chunkEnd = getDateDaysAgo(chunk * 20);
+            const chunkStart = getDateDaysAgo((chunk + 1) * 20);
+            try {
+                const chunkOrders = await fetchOrders({
+                    date_Invoiced_start: chunkStart,
+                    date_Invoiced_end: chunkEnd
+                });
+                allOrders = allOrders.concat(chunkOrders);
+            } catch (e) {
+                console.warn(`Chunk ${chunk + 1} failed: ${e.message}`);
+            }
+        }
+
+        console.log(`Fetched ${allOrders.length} total orders from last 60 days`);
+
+        // Find orders for customers NOT in any list
+        const missingCustomers = new Map();
+
+        allOrders.forEach(order => {
+            if (!allKnownIds.has(order.id_Customer)) {
+                if (!missingCustomers.has(order.id_Customer)) {
+                    missingCustomers.set(order.id_Customer, {
+                        ID_Customer: order.id_Customer,
+                        // Use CustomerName if available, otherwise show ID as fallback
+                        companyName: order.CustomerName || `ID: ${order.id_Customer}`,
+                        rep: order.CustomerServiceRep || '',
+                        orderCount: 0,
+                        totalSales: 0,
+                        lastOrderDate: null
+                    });
+                }
+                const cust = missingCustomers.get(order.id_Customer);
+                cust.orderCount++;
+                cust.totalSales += parseFloat(order.cur_SubTotal) || 0;
+                const orderDate = order.date_Invoiced?.split('T')[0];
+                if (!cust.lastOrderDate || orderDate > cust.lastOrderDate) {
+                    cust.lastOrderDate = orderDate;
+                }
+            }
+        });
+
+        const missingList = [...missingCustomers.values()].sort((a, b) => b.totalSales - a.totalSales);
+        const totalMissingSales = missingList.reduce((sum, c) => sum + c.totalSales, 0);
+
+        console.log(`Found ${missingList.length} customers with orders not in any account list`);
+
+        // Auto-add if requested
+        let addedCount = 0;
+        if (autoAdd && missingList.length > 0) {
+            const token = await getCaspioAccessToken();
+            const today = new Date().toISOString().split('T')[0];
+
+            for (const customer of missingList) {
+                try {
+                    // Intelligent Assigned_To based on rep field
+                    let assignedTo = 'House';
+                    const repLower = (customer.rep || '').toLowerCase();
+                    if (repLower.includes('ruthie')) {
+                        assignedTo = 'Ruthie';
+                    } else if (repLower.includes('erik')) {
+                        assignedTo = 'Erik';
+                    } else if (!repLower || repLower === '') {
+                        assignedTo = 'Web';
+                    }
+
+                    await axios({
+                        method: 'post',
+                        url: `${caspioApiBaseUrl}/tables/${TABLE_NAME}/records`,
+                        headers: {
+                            'Authorization': `Bearer ${token}`,
+                            'Content-Type': 'application/json'
+                        },
+                        data: {
+                            ID_Customer: customer.ID_Customer,
+                            CompanyName: customer.companyName,
+                            Assigned_To: assignedTo,
+                            Notes: `Auto-added from reconcile. Rep: ${customer.rep || 'Unknown'}. Orders: ${customer.orderCount}. Sales: $${customer.totalSales.toFixed(2)}`,
+                            Date_Added: today,
+                            Reviewed: false
+                        },
+                        timeout: 10000
+                    });
+                    addedCount++;
+                    console.log(`Added customer ${customer.ID_Customer}: ${customer.companyName} -> ${assignedTo}`);
+                } catch (addError) {
+                    console.error(`Failed to add customer ${customer.ID_Customer}:`, addError.message);
+                }
+            }
+        }
+
+        res.json({
+            success: true,
+            knownAccounts: allKnownIds.size,
+            missingCustomers: missingList,
+            missingCount: missingList.length,
+            totalMissingSales: totalMissingSales,
+            addedCount: autoAdd ? addedCount : undefined,
+            message: autoAdd && addedCount > 0
+                ? `Added ${addedCount} missing customers to House Accounts`
+                : `Found ${missingList.length} customers with $${totalMissingSales.toFixed(2)} in sales not in any account list`
+        });
+    } catch (error) {
+        console.error('Error reconciling accounts:', error.message);
+        res.status(500).json({ success: false, error: 'Failed to reconcile accounts' });
+    }
+});
+
 // GET /api/house-accounts/:id - Get single account by ID_Customer
 router.get('/house-accounts/:id', async (req, res) => {
     const { id } = req.params;
