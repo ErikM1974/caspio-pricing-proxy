@@ -23,6 +23,25 @@ const errorHandler = (err, req, res, next) => {
   res.status(500).json({ error: 'Internal server error' });
 };
 
+// CRM API Secret authentication middleware
+// Protects sensitive CRM endpoints - only allows requests from authorized servers
+const requireCrmApiSecret = (req, res, next) => {
+  const providedSecret = req.headers['x-crm-api-secret'];
+  const expectedSecret = process.env.CRM_API_SECRET;
+
+  if (!expectedSecret) {
+    console.error('[CRM Auth] CRM_API_SECRET environment variable not set');
+    return res.status(500).json({ error: 'Server configuration error' });
+  }
+
+  if (!providedSecret || providedSecret !== expectedSecret) {
+    console.warn('[CRM Auth] Unauthorized access attempt to CRM endpoint:', req.originalUrl);
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  next();
+};
+
 // Apply all middleware to an Express app
 const applyMiddleware = (app) => {
   app.use(express.json()); // Parse JSON bodies
@@ -33,5 +52,6 @@ const applyMiddleware = (app) => {
 module.exports = {
   corsMiddleware,
   errorHandler,
-  applyMiddleware
+  applyMiddleware,
+  requireCrmApiSecret
 };

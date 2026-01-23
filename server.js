@@ -4,6 +4,7 @@ const express = require('express');
 const axios = require('axios');
 const rateLimit = require('express-rate-limit');
 const config = require('./config'); // Use unified configuration
+const { requireCrmApiSecret } = require('./src/middleware');
 
 const app = express();
 
@@ -405,9 +406,11 @@ app.use('/api', quoteSequenceRoutes);
 console.log('✓ Quote Sequence routes loaded');
 
 // Taneisha Accounts Routes (CRM for Taneisha's 800 customer accounts)
+// Protected by requireCrmApiSecret - only authorized servers can access
 const taneishaAccountsRoutes = require('./src/routes/taneisha-accounts');
+app.use('/api/taneisha-accounts', requireCrmApiSecret);  // Auth middleware
 app.use('/api', taneishaAccountsRoutes);
-console.log('✓ Taneisha Accounts routes loaded');
+console.log('✓ Taneisha Accounts routes loaded (protected)');
 
 // Taneisha Daily Sales Archive Routes (YTD tracking beyond ManageOrders 60-day limit)
 const taneishaDailySalesRoutes = require('./src/routes/taneisha-daily-sales');
@@ -415,9 +418,11 @@ app.use('/api/taneisha', taneishaDailySalesRoutes);
 console.log('✓ Taneisha Daily Sales Archive routes loaded');
 
 // Nika Accounts Routes (CRM for Nika's customer accounts)
+// Protected by requireCrmApiSecret - only authorized servers can access
 const nikaAccountsRoutes = require('./src/routes/nika-accounts');
+app.use('/api/nika-accounts', requireCrmApiSecret);  // Auth middleware
 app.use('/api', nikaAccountsRoutes);
-console.log('✓ Nika Accounts routes loaded');
+console.log('✓ Nika Accounts routes loaded (protected)');
 
 // Nika Daily Sales Archive Routes (YTD tracking beyond ManageOrders 60-day limit)
 const nikaDailySalesRoutes = require('./src/routes/nika-daily-sales');
@@ -430,9 +435,11 @@ app.use('/api', repAuditRoutes);
 console.log('✓ Rep Audit routes loaded');
 
 // House Accounts Routes (catch-all for non-sales-rep customers: Ruthie, House, Erik, Jim, Web)
+// Protected by requireCrmApiSecret - only authorized servers can access
 const houseAccountsRoutes = require('./src/routes/house-accounts');
+app.use('/api/house-accounts', requireCrmApiSecret);  // Auth middleware
 app.use('/api', houseAccountsRoutes);
-console.log('✓ House Accounts routes loaded');
+console.log('✓ House Accounts routes loaded (protected)');
 
 // House Daily Sales Archive Routes (YTD tracking beyond ManageOrders 60-day limit)
 const houseDailySalesRoutes = require('./src/routes/house-daily-sales');
