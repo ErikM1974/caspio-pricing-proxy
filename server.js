@@ -446,6 +446,13 @@ const houseDailySalesRoutes = require('./src/routes/house-daily-sales');
 app.use('/api/house', houseDailySalesRoutes);
 console.log('✓ House Daily Sales Archive routes loaded');
 
+// Sales Reps 2026 Routes (master list of customer-to-sales-rep assignments)
+// Protected by requireCrmApiSecret - only authorized servers can access
+const salesReps2026Routes = require('./src/routes/sales-reps-2026');
+app.use('/api/sales-reps-2026', requireCrmApiSecret);  // Auth middleware
+app.use('/api', salesReps2026Routes);
+console.log('✓ Sales Reps 2026 routes loaded (protected)');
+
 // --- Admin Metrics Endpoint ---
 const apiTracker = require('./src/utils/api-tracker');
 
