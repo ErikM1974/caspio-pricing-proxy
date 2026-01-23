@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "test": "echo \"Error: no test specified\" && exit 1",
+    "sync-sales": "node scripts/sync-all-sales.js",
     "update-postman": "node scripts/update-postman-collection.js",
     "deploy-status": "node scripts/update-endpoint-status.js",
     "postman-test": "node scripts/postman-api-client.js test",
