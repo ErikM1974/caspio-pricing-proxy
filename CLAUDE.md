@@ -68,6 +68,7 @@ Detailed documentation organized by topic:
 - **[Nika Accounts API](memory/NIKA_ACCOUNTS_API.md)** - CRM for Nika's 407 customer accounts (v1.0.0 - 2026-01-22)
 - **[Rep Account Management & Audit](memory/REP_ACCOUNT_MANAGEMENT.md)** - Reconcile, sync, and audit system for sales rep accounts (v1.0.0 - 2026-01-22)
 - **[House Accounts API](memory/HOUSE_ACCOUNTS_API.md)** - Catch-all for non-sales-rep customers: Ruthie, House, Erik, Jim, Web (v1.0.0 - 2026-01-22)
+- **[CRM Security](memory/CRM_SECURITY.md)** - Server-to-server authentication for CRM endpoints (v1.0.0 - 2026-01-23)
 - **[MCP Servers for Claude Desktop](memory/MCP_SERVERS.md)** - Setup guide and tools for chatting with account data (v1.1.0 - 2026-01-22)
 
 ## Quick Reference
