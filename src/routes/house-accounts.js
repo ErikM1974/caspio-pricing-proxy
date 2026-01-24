@@ -171,17 +171,31 @@ router.get('/house-accounts/reconcile', async (req, res) => {
                         rep: order.CustomerServiceRep || '',
                         orderCount: 0,
                         totalSales: 0,
-                        lastOrderDate: null
+                        lastOrderDate: null,
+                        orders: []  // Array of individual order details
                     });
                 }
                 const cust = missingCustomers.get(order.id_Customer);
                 cust.orderCount++;
-                cust.totalSales += parseFloat(order.cur_SubTotal) || 0;
+                const orderAmount = parseFloat(order.cur_SubTotal) || 0;
+                cust.totalSales += orderAmount;
                 const orderDate = order.date_Invoiced?.split('T')[0];
                 if (!cust.lastOrderDate || orderDate > cust.lastOrderDate) {
                     cust.lastOrderDate = orderDate;
                 }
+                // Add individual order details
+                cust.orders.push({
+                    orderNumber: order.Order_ID || order.id_Order || 'N/A',
+                    amount: orderAmount,
+                    date: orderDate,
+                    rep: order.CustomerServiceRep || ''
+                });
             }
+        });
+
+        // Sort orders within each customer by date (most recent first)
+        missingCustomers.forEach(cust => {
+            cust.orders.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
         });
 
         const missingList = [...missingCustomers.values()].sort((a, b) => b.totalSales - a.totalSales);
