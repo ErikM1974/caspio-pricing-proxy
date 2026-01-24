@@ -454,11 +454,9 @@ app.use('/api', salesReps2026Routes);
 console.log('✓ Sales Reps 2026 routes loaded (protected)');
 
 // Assignment History Routes (audit trail for account assignments)
-// Protected by requireCrmApiSecret - only authorized servers can access
 const assignmentHistoryRoutes = require('./src/routes/assignment-history');
-app.use('/api/assignment-history', requireCrmApiSecret);  // Auth middleware
 app.use('/api', assignmentHistoryRoutes);
-console.log('✓ Assignment History routes loaded (protected)');
+console.log('✓ Assignment History routes loaded');
 
 // --- Admin Metrics Endpoint ---
 const apiTracker = require('./src/utils/api-tracker');
