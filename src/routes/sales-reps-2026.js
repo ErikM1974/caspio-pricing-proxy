@@ -277,6 +277,51 @@ router.delete('/sales-reps-2026/:id', async (req, res) => {
     }
 });
 
+// POST /api/sales-reps-2026/batch - Fetch multiple records by IDs (single API call)
+router.post('/sales-reps-2026/batch', express.json(), async (req, res) => {
+    try {
+        const { ids } = req.body;
+
+        if (!ids || !Array.isArray(ids) || ids.length === 0) {
+            return res.status(400).json({
+                success: false,
+                error: 'Request body must contain "ids" array'
+            });
+        }
+
+        // Sanitize IDs (integers only)
+        const sanitizedIds = ids.filter(id => Number.isInteger(Number(id)));
+
+        if (sanitizedIds.length === 0) {
+            return res.status(400).json({ success: false, error: 'No valid IDs provided' });
+        }
+
+        console.log(`[Batch] Fetching ${sanitizedIds.length} records from Sales_Reps_2026...`);
+
+        // Build WHERE clause: ID_Customer=123 OR ID_Customer=456 OR ...
+        const whereClause = sanitizedIds.map(id => `${PRIMARY_KEY}=${id}`).join(' OR ');
+
+        const resource = `/tables/${TABLE_NAME}/records`;
+        const params = {
+            'q.where': whereClause,
+            'q.limit': 1000
+        };
+
+        const result = await fetchAllCaspioPages(resource, params);
+
+        console.log(`[Batch] Found ${result.length} of ${sanitizedIds.length} requested records`);
+
+        res.json({
+            success: true,
+            count: result.length,
+            records: result
+        });
+    } catch (error) {
+        console.error('Batch fetch error:', error.message);
+        res.status(500).json({ success: false, error: 'Failed to fetch records' });
+    }
+});
+
 // POST /api/sales-reps-2026/bulk - Add multiple records at once
 router.post('/sales-reps-2026/bulk', express.json(), async (req, res) => {
     try {
