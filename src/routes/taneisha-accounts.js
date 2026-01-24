@@ -261,6 +261,92 @@ router.get('/taneisha-accounts/reconcile', async (req, res) => {
     }
 });
 
+// GET /api/taneisha-accounts/gap-report - Find orders by Taneisha for customers NOT in her CRM list
+// This shows the detailed orders causing the gap between "processed" and "accounts" totals
+router.get('/taneisha-accounts/gap-report', async (req, res) => {
+    try {
+        console.log('Generating Taneisha gap report...');
+        const { fetchOrders, getDateDaysAgo } = require('../utils/manageorders');
+
+        // Get Taneisha's account list from Caspio
+        const accounts = await fetchAllCaspioPages(`/tables/${TABLE_NAME}/records`, {
+            'q.select': 'ID_Customer'
+        });
+        const taneishaCustomerIds = new Set(accounts.map(a => a.ID_Customer));
+        console.log(`Taneisha has ${taneishaCustomerIds.size} accounts in her CRM`);
+
+        // Fetch recent orders from ManageOrders (last 60 days) in chunks
+        let allOrders = [];
+        for (let chunk = 0; chunk < 3; chunk++) {
+            const chunkEnd = getDateDaysAgo(chunk * 20);
+            const chunkStart = getDateDaysAgo((chunk + 1) * 20);
+            try {
+                const chunkOrders = await fetchOrders({
+                    date_Invoiced_start: chunkStart,
+                    date_Invoiced_end: chunkEnd
+                });
+                allOrders = allOrders.concat(chunkOrders);
+            } catch (e) {
+                console.warn(`Gap report chunk ${chunk + 1} failed: ${e.message}`);
+            }
+        }
+
+        // Filter to Taneisha's orders only
+        const taneishaOrders = allOrders.filter(o => o.CustomerServiceRep === 'Taneisha Clark');
+        console.log(`Found ${taneishaOrders.length} orders by Taneisha`);
+
+        // Find orders for customers NOT in her CRM list (these cause the gap)
+        const gapCustomers = new Map();
+        taneishaOrders.forEach(order => {
+            if (!taneishaCustomerIds.has(order.id_Customer)) {
+                // This customer is NOT in Taneisha's CRM - their orders cause the gap
+                if (!gapCustomers.has(order.id_Customer)) {
+                    gapCustomers.set(order.id_Customer, {
+                        ID_Customer: order.id_Customer,
+                        companyName: order.CustomerName || `ID: ${order.id_Customer}`,
+                        orders: [],
+                        totalSales: 0,
+                        orderCount: 0
+                    });
+                }
+                const cust = gapCustomers.get(order.id_Customer);
+                const orderAmount = parseFloat(order.cur_SubTotal) || 0;
+                cust.orders.push({
+                    orderNumber: order.Order_ID || order.id_Order || 'N/A',
+                    amount: orderAmount,
+                    date: order.date_Invoiced?.split('T')[0] || 'N/A'
+                });
+                cust.totalSales += orderAmount;
+                cust.orderCount++;
+            }
+        });
+
+        // Sort orders within each customer by date (most recent first)
+        gapCustomers.forEach(cust => {
+            cust.orders.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+        });
+
+        // Convert to sorted array (by total sales descending)
+        const gapList = [...gapCustomers.values()].sort((a, b) => b.totalSales - a.totalSales);
+        const totalGapAmount = gapList.reduce((sum, c) => sum + c.totalSales, 0);
+        const totalGapOrders = gapList.reduce((sum, c) => sum + c.orderCount, 0);
+
+        console.log(`Gap report: ${gapList.length} customers, ${totalGapOrders} orders, $${totalGapAmount.toFixed(2)}`);
+
+        res.json({
+            success: true,
+            rep: 'Taneisha Clark',
+            gapAmount: totalGapAmount,
+            gapOrderCount: totalGapOrders,
+            gapCustomerCount: gapList.length,
+            customers: gapList
+        });
+    } catch (error) {
+        console.error('Error generating Taneisha gap report:', error.message);
+        res.status(500).json({ success: false, error: 'Failed to generate gap report' });
+    }
+});
+
 // GET /api/taneisha-accounts/:id - Get single account by ID_Customer
 router.get('/taneisha-accounts/:id', async (req, res) => {
     const { id } = req.params;
