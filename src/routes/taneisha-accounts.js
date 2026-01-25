@@ -347,6 +347,99 @@ router.get('/taneisha-accounts/gap-report', async (req, res) => {
     }
 });
 
+// GET /api/taneisha-accounts/reverse-gap-report - Find orders by OTHER reps for customers IN Taneisha's CRM
+// This shows orders that inflate her CRM total but weren't processed by her
+router.get('/taneisha-accounts/reverse-gap-report', async (req, res) => {
+    try {
+        console.log('Generating Taneisha reverse gap report (orders by OTHER reps for HER customers)...');
+        const { fetchOrders, getDateDaysAgo } = require('../utils/manageorders');
+
+        // Get Taneisha's account list from Caspio
+        const accounts = await fetchAllCaspioPages(`/tables/${TABLE_NAME}/records`, {
+            'q.select': 'ID_Customer'
+        });
+        const taneishaCustomerIds = new Set(accounts.map(a => a.ID_Customer));
+        console.log(`Taneisha has ${taneishaCustomerIds.size} accounts in her CRM`);
+
+        // Fetch recent orders from ManageOrders (last 60 days) in chunks
+        let allOrders = [];
+        for (let chunk = 0; chunk < 3; chunk++) {
+            const chunkEnd = getDateDaysAgo(chunk * 20);
+            const chunkStart = getDateDaysAgo((chunk + 1) * 20);
+            try {
+                const chunkOrders = await fetchOrders({
+                    date_Invoiced_start: chunkStart,
+                    date_Invoiced_end: chunkEnd
+                });
+                allOrders = allOrders.concat(chunkOrders);
+            } catch (e) {
+                console.warn(`Reverse gap report chunk ${chunk + 1} failed: ${e.message}`);
+            }
+        }
+
+        console.log(`Found ${allOrders.length} total orders`);
+
+        // Find orders for Taneisha's customers BUT written by OTHER reps
+        const reverseGapCustomers = new Map();
+        allOrders.forEach(order => {
+            // Must be a customer IN Taneisha's list
+            if (taneishaCustomerIds.has(order.id_Customer)) {
+                // BUT the order must be written by a DIFFERENT rep
+                if (order.CustomerServiceRep !== 'Taneisha Clark') {
+                    if (!reverseGapCustomers.has(order.id_Customer)) {
+                        reverseGapCustomers.set(order.id_Customer, {
+                            ID_Customer: order.id_Customer,
+                            companyName: order.CustomerName || `ID: ${order.id_Customer}`,
+                            orders: [],
+                            totalSales: 0,
+                            orderCount: 0,
+                            repNames: new Set()
+                        });
+                    }
+                    const cust = reverseGapCustomers.get(order.id_Customer);
+                    const orderAmount = parseFloat(order.cur_SubTotal) || 0;
+                    cust.orders.push({
+                        orderNumber: order.Order_ID || order.id_Order || 'N/A',
+                        amount: orderAmount,
+                        date: order.date_Invoiced?.split('T')[0] || 'N/A',
+                        rep: order.CustomerServiceRep || 'Unknown'
+                    });
+                    cust.totalSales += orderAmount;
+                    cust.orderCount++;
+                    cust.repNames.add(order.CustomerServiceRep || 'Unknown');
+                }
+            }
+        });
+
+        // Convert Set to Array for JSON serialization
+        reverseGapCustomers.forEach(cust => {
+            cust.repNames = [...cust.repNames];
+            // Sort orders by date (most recent first)
+            cust.orders.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+        });
+
+        // Convert to sorted array (by total sales descending)
+        const reverseGapList = [...reverseGapCustomers.values()].sort((a, b) => b.totalSales - a.totalSales);
+        const totalReverseGapAmount = reverseGapList.reduce((sum, c) => sum + c.totalSales, 0);
+        const totalReverseGapOrders = reverseGapList.reduce((sum, c) => sum + c.orderCount, 0);
+
+        console.log(`Reverse gap: ${reverseGapList.length} customers, ${totalReverseGapOrders} orders, $${totalReverseGapAmount.toFixed(2)}`);
+
+        res.json({
+            success: true,
+            rep: 'Taneisha Clark',
+            reverseGapAmount: totalReverseGapAmount,
+            reverseGapOrderCount: totalReverseGapOrders,
+            reverseGapCustomerCount: reverseGapList.length,
+            explanation: 'Orders by OTHER reps for customers in Taneisha\'s CRM. These inflate her accounts total but weren\'t processed by her.',
+            customers: reverseGapList
+        });
+    } catch (error) {
+        console.error('Error generating Taneisha reverse gap report:', error.message);
+        res.status(500).json({ success: false, error: 'Failed to generate reverse gap report' });
+    }
+});
+
 // GET /api/taneisha-accounts/:id - Get single account by ID_Customer
 router.get('/taneisha-accounts/:id', async (req, res) => {
     const { id } = req.params;
