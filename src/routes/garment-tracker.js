@@ -421,10 +421,13 @@ router.post('/garment-tracker/archive-from-live', express.json(), async (req, re
                     created++;
                 }
             } catch (err) {
+                const errorDetail = err.response?.data?.Message || err.response?.data || err.message;
+                console.error(`[GarmentArchive] Archive error for order ${record.OrderNumber}/${record.PartNumber}:`, errorDetail);
                 errors.push({
                     orderNumber: record.OrderNumber,
                     partNumber: record.PartNumber,
-                    error: err.message
+                    error: err.message,
+                    detail: errorDetail
                 });
             }
         }
@@ -592,10 +595,13 @@ router.post('/garment-tracker/archive-range', express.json(), async (req, res) =
                     created++;
                 }
             } catch (err) {
+                const errorDetail = err.response?.data?.Message || err.response?.data || err.message;
+                console.error(`[GarmentArchive] Archive range error for order ${record.OrderNumber}/${record.PartNumber}:`, errorDetail);
                 errors.push({
                     orderNumber: record.OrderNumber,
                     partNumber: record.PartNumber,
-                    error: err.message
+                    error: err.message,
+                    detail: errorDetail
                 });
             }
         }
@@ -704,10 +710,13 @@ router.post('/garment-tracker/import', express.json(), async (req, res) => {
                     created++;
                 }
             } catch (err) {
+                const errorDetail = err.response?.data?.Message || err.response?.data || err.message;
+                console.error(`[GarmentArchive] Import error for order ${item.orderNumber}/${item.partNumber}:`, errorDetail);
                 errors.push({
                     orderNumber: item.orderNumber,
                     partNumber: item.partNumber,
-                    error: err.message
+                    error: err.message,
+                    detail: errorDetail
                 });
             }
         }
