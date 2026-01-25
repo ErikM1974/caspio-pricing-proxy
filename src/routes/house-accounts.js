@@ -264,6 +264,200 @@ router.get('/house-accounts/reconcile', async (req, res) => {
     }
 });
 
+// GET /api/house-accounts/full-reconciliation - Find ALL authority conflicts across ALL reps
+// Shows orders where the writer doesn't match the customer's CRM owner
+// Returns conflicts grouped by rep with fix instructions
+router.get('/house-accounts/full-reconciliation', async (req, res) => {
+    try {
+        console.log('Running full reconciliation report...');
+        const { fetchOrders, getDateDaysAgo } = require('../utils/manageorders');
+
+        // 1. Get all CRM lists
+        const [nikaAccounts, taneishaAccounts, houseAccounts] = await Promise.all([
+            fetchAllCaspioPages('/tables/Nika_All_Accounts_Caspio/records', {
+                'q.select': 'ID_Customer,CompanyName'
+            }),
+            fetchAllCaspioPages('/tables/Taneisha_All_Accounts_Caspio/records', {
+                'q.select': 'ID_Customer,CompanyName'
+            }),
+            fetchAllCaspioPages('/tables/House_Accounts/records', {
+                'q.select': 'ID_Customer,CompanyName'
+            })
+        ]);
+
+        console.log(`CRM Lists: Nika=${nikaAccounts.length}, Taneisha=${taneishaAccounts.length}, House=${houseAccounts.length}`);
+
+        // 2. Build customer->owner lookup
+        const customerOwner = new Map();
+        const customerName = new Map();
+
+        nikaAccounts.forEach(a => {
+            customerOwner.set(a.ID_Customer, 'Nika Lao');
+            customerName.set(a.ID_Customer, a.CompanyName);
+        });
+        taneishaAccounts.forEach(a => {
+            customerOwner.set(a.ID_Customer, 'Taneisha Clark');
+            customerName.set(a.ID_Customer, a.CompanyName);
+        });
+        houseAccounts.forEach(a => {
+            customerOwner.set(a.ID_Customer, 'House');
+            customerName.set(a.ID_Customer, a.CompanyName);
+        });
+
+        // 3. Fetch recent orders (60 days in 3 chunks)
+        let allOrders = [];
+        for (let chunk = 0; chunk < 3; chunk++) {
+            const chunkEnd = getDateDaysAgo(chunk * 20);
+            const chunkStart = getDateDaysAgo((chunk + 1) * 20);
+            try {
+                const chunkOrders = await fetchOrders({
+                    date_Invoiced_start: chunkStart,
+                    date_Invoiced_end: chunkEnd
+                });
+                allOrders = allOrders.concat(chunkOrders);
+            } catch (e) {
+                console.warn(`Chunk ${chunk + 1} failed: ${e.message}`);
+            }
+        }
+
+        console.log(`Fetched ${allOrders.length} orders for reconciliation`);
+
+        // 4. Find all conflicts - group by rep
+        // Track reps we care about: Nika and Taneisha
+        const trackedReps = ['Nika Lao', 'Taneisha Clark'];
+        const conflicts = {};
+        trackedReps.forEach(rep => {
+            conflicts[rep] = {
+                outbound: new Map(), // Orders BY this rep for customers NOT in their CRM
+                inbound: new Map()   // Orders by OTHER reps for customers IN this rep's CRM
+            };
+        });
+
+        // Build sets for faster lookup
+        const nikaCustomerIds = new Set(nikaAccounts.map(a => a.ID_Customer));
+        const taneishaCustomerIds = new Set(taneishaAccounts.map(a => a.ID_Customer));
+
+        allOrders.forEach(order => {
+            const customerId = order.id_Customer;
+            const writer = order.CustomerServiceRep || '';
+            const owner = customerOwner.get(customerId) || null;
+            const orderAmount = parseFloat(order.cur_SubTotal) || 0;
+            const orderDate = order.date_Invoiced?.split('T')[0];
+            const orderNumber = order.Order_ID || order.id_Order || 'N/A';
+            const companyName = order.CustomerName || customerName.get(customerId) || `ID: ${customerId}`;
+
+            // Helper to add conflict to a rep's list
+            const addConflict = (repName, type, custId, orderData) => {
+                const map = conflicts[repName][type];
+                if (!map.has(custId)) {
+                    map.set(custId, {
+                        ID_Customer: custId,
+                        companyName: companyName,
+                        owner: owner,
+                        orders: [],
+                        totalSales: 0,
+                        orderCount: 0,
+                        repNames: new Set() // For inbound: who wrote the orders
+                    });
+                }
+                const cust = map.get(custId);
+                cust.orders.push(orderData);
+                cust.totalSales += orderData.amount;
+                cust.orderCount++;
+                if (type === 'inbound' && orderData.writer) {
+                    cust.repNames.add(orderData.writer);
+                }
+            };
+
+            // Check Nika
+            if (writer === 'Nika Lao') {
+                // Outbound: Nika wrote for customer NOT in her CRM
+                if (!nikaCustomerIds.has(customerId)) {
+                    addConflict('Nika Lao', 'outbound', customerId, {
+                        orderNumber,
+                        amount: orderAmount,
+                        date: orderDate,
+                        writer: writer
+                    });
+                }
+            } else if (nikaCustomerIds.has(customerId) && writer && writer !== 'Nika Lao') {
+                // Inbound: Someone else wrote for Nika's customer
+                addConflict('Nika Lao', 'inbound', customerId, {
+                    orderNumber,
+                    amount: orderAmount,
+                    date: orderDate,
+                    writer: writer
+                });
+            }
+
+            // Check Taneisha
+            if (writer === 'Taneisha Clark') {
+                // Outbound: Taneisha wrote for customer NOT in her CRM
+                if (!taneishaCustomerIds.has(customerId)) {
+                    addConflict('Taneisha Clark', 'outbound', customerId, {
+                        orderNumber,
+                        amount: orderAmount,
+                        date: orderDate,
+                        writer: writer
+                    });
+                }
+            } else if (taneishaCustomerIds.has(customerId) && writer && writer !== 'Taneisha Clark') {
+                // Inbound: Someone else wrote for Taneisha's customer
+                addConflict('Taneisha Clark', 'inbound', customerId, {
+                    orderNumber,
+                    amount: orderAmount,
+                    date: orderDate,
+                    writer: writer
+                });
+            }
+        });
+
+        // 5. Format response
+        const formatConflicts = (map, type) => {
+            return [...map.values()]
+                .map(c => ({
+                    ...c,
+                    repNames: c.repNames ? [...c.repNames] : [],
+                    conflictType: type,
+                    fixInstruction: type === 'outbound'
+                        ? `Add customer to CRM OR change orders to "${c.owner || 'House'}"`
+                        : `Change orders to match CRM owner`
+                }))
+                .sort((a, b) => b.totalSales - a.totalSales);
+        };
+
+        const result = trackedReps.map(rep => {
+            const outbound = formatConflicts(conflicts[rep].outbound, 'outbound');
+            const inbound = formatConflicts(conflicts[rep].inbound, 'inbound');
+            const allConflicts = [...outbound, ...inbound];
+
+            return {
+                rep,
+                conflictCount: allConflicts.length,
+                totalAmount: allConflicts.reduce((sum, c) => sum + c.totalSales, 0),
+                outboundCount: outbound.length,
+                outboundAmount: outbound.reduce((sum, c) => sum + c.totalSales, 0),
+                inboundCount: inbound.length,
+                inboundAmount: inbound.reduce((sum, c) => sum + c.totalSales, 0),
+                conflicts: allConflicts
+            };
+        });
+
+        console.log(`Full reconciliation complete: ${result.reduce((sum, r) => sum + r.conflictCount, 0)} total conflicts`);
+
+        res.json({
+            success: true,
+            generatedAt: new Date().toISOString(),
+            ordersPeriod: '60 days',
+            totalOrdersChecked: allOrders.length,
+            reps: result
+        });
+    } catch (error) {
+        console.error('Error running full reconciliation:', error.message);
+        res.status(500).json({ success: false, error: 'Failed to run full reconciliation' });
+    }
+});
+
 // GET /api/house-accounts/:id - Get single account by ID_Customer
 router.get('/house-accounts/:id', async (req, res) => {
     const { id } = req.params;
