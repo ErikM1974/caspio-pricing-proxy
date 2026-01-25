@@ -106,7 +106,7 @@ router.get('/house-accounts/stats', async (req, res) => {
 });
 
 // GET /api/house-accounts/reconcile - Find customers with orders not in ANY account list
-// Checks Taneisha_All_Accounts_Caspio, Nika_All_Accounts_Caspio, and House_Accounts
+// NOW USES Sales_Reps_2026 (SOURCE OF TRUTH from ShopWorks) + House_Accounts
 // Query params:
 //   - autoAdd=true: Automatically add missing customers to House_Accounts
 router.get('/house-accounts/reconcile', async (req, res) => {
@@ -116,28 +116,28 @@ router.get('/house-accounts/reconcile', async (req, res) => {
 
         const { fetchOrders, getDateDaysAgo } = require('../utils/manageorders');
 
-        // Get all customer IDs from all three tables
-        const [taneishaAccounts, nikaAccounts, houseAccounts] = await Promise.all([
-            fetchAllCaspioPages('/tables/Taneisha_All_Accounts_Caspio/records', {
-                'q.select': 'ID_Customer'
-            }),
-            fetchAllCaspioPages('/tables/Nika_All_Accounts_Caspio/records', {
-                'q.select': 'ID_Customer'
+        // Get all customer IDs from Sales_Reps_2026 (Nika + Taneisha) + House_Accounts
+        const [salesRepsData, houseAccounts] = await Promise.all([
+            fetchAllCaspioPages('/tables/Sales_Reps_2026/records', {
+                'q.select': 'ID_Customer,CustomerServiceRep'
             }),
             fetchAllCaspioPages('/tables/House_Accounts/records', {
                 'q.select': 'ID_Customer'
             })
         ]);
 
+        // Count by rep for logging
+        const nikaCount = salesRepsData.filter(a => a.CustomerServiceRep === 'Nika Lao').length;
+        const taneishaCount = salesRepsData.filter(a => a.CustomerServiceRep === 'Taneisha Clark').length;
+        const otherRepsCount = salesRepsData.length - nikaCount - taneishaCount;
+
         const allKnownIds = new Set([
-            ...taneishaAccounts.map(a => a.ID_Customer),
-            ...nikaAccounts.map(a => a.ID_Customer),
+            ...salesRepsData.map(a => a.ID_Customer),
             ...houseAccounts.map(a => a.ID_Customer)
         ]);
 
-        console.log(`Found ${allKnownIds.size} total known customers across all tables`);
-        console.log(`  - Taneisha: ${taneishaAccounts.length}`);
-        console.log(`  - Nika: ${nikaAccounts.length}`);
+        console.log(`Found ${allKnownIds.size} total known customers`);
+        console.log(`  - Sales_Reps_2026: ${salesRepsData.length} (Nika=${nikaCount}, Taneisha=${taneishaCount}, Other=${otherRepsCount})`);
         console.log(`  - House: ${houseAccounts.length}`);
 
         // Fetch recent orders from ManageOrders (last 60 days in 3 chunks)
@@ -267,38 +267,39 @@ router.get('/house-accounts/reconcile', async (req, res) => {
 // GET /api/house-accounts/full-reconciliation - Find ALL authority conflicts across ALL reps
 // Shows orders where the writer doesn't match the customer's CRM owner
 // Returns conflicts grouped by rep with fix instructions
+// NOW USES Sales_Reps_2026 as SOURCE OF TRUTH (syncs from ShopWorks)
 router.get('/house-accounts/full-reconciliation', async (req, res) => {
     try {
         console.log('Running full reconciliation report...');
         const { fetchOrders, getDateDaysAgo } = require('../utils/manageorders');
 
-        // 1. Get all CRM lists
-        const [nikaAccounts, taneishaAccounts, houseAccounts] = await Promise.all([
-            fetchAllCaspioPages('/tables/Nika_All_Accounts_Caspio/records', {
-                'q.select': 'ID_Customer,CompanyName'
-            }),
-            fetchAllCaspioPages('/tables/Taneisha_All_Accounts_Caspio/records', {
-                'q.select': 'ID_Customer,CompanyName'
+        // 1. Get customer assignments from Sales_Reps_2026 (SOURCE OF TRUTH from ShopWorks)
+        // Plus House_Accounts for non-rep customers (Ruthie, Erik, Jim, Web, House)
+        const [salesRepsData, houseAccounts] = await Promise.all([
+            fetchAllCaspioPages('/tables/Sales_Reps_2026/records', {
+                'q.where': `CustomerServiceRep='Nika Lao' OR CustomerServiceRep='Taneisha Clark'`,
+                'q.select': 'ID_Customer,CompanyName,CustomerServiceRep'
             }),
             fetchAllCaspioPages('/tables/House_Accounts/records', {
                 'q.select': 'ID_Customer,CompanyName'
             })
         ]);
 
-        console.log(`CRM Lists: Nika=${nikaAccounts.length}, Taneisha=${taneishaAccounts.length}, House=${houseAccounts.length}`);
+        // Count by rep for logging
+        const nikaCount = salesRepsData.filter(a => a.CustomerServiceRep === 'Nika Lao').length;
+        const taneishaCount = salesRepsData.filter(a => a.CustomerServiceRep === 'Taneisha Clark').length;
+        console.log(`Sales_Reps_2026: Nika=${nikaCount}, Taneisha=${taneishaCount}, House=${houseAccounts.length}`);
 
-        // 2. Build customer->owner lookup
+        // 2. Build customer->owner lookup directly from CustomerServiceRep field
         const customerOwner = new Map();
         const customerName = new Map();
 
-        nikaAccounts.forEach(a => {
-            customerOwner.set(a.ID_Customer, 'Nika Lao');
+        // Sales reps from Sales_Reps_2026 (Nika & Taneisha)
+        salesRepsData.forEach(a => {
+            customerOwner.set(a.ID_Customer, a.CustomerServiceRep);
             customerName.set(a.ID_Customer, a.CompanyName);
         });
-        taneishaAccounts.forEach(a => {
-            customerOwner.set(a.ID_Customer, 'Taneisha Clark');
-            customerName.set(a.ID_Customer, a.CompanyName);
-        });
+        // House accounts (non-rep customers)
         houseAccounts.forEach(a => {
             customerOwner.set(a.ID_Customer, 'House');
             customerName.set(a.ID_Customer, a.CompanyName);
@@ -333,9 +334,13 @@ router.get('/house-accounts/full-reconciliation', async (req, res) => {
             };
         });
 
-        // Build sets for faster lookup
-        const nikaCustomerIds = new Set(nikaAccounts.map(a => a.ID_Customer));
-        const taneishaCustomerIds = new Set(taneishaAccounts.map(a => a.ID_Customer));
+        // Build sets for faster lookup (filter from single Sales_Reps_2026 dataset)
+        const nikaCustomerIds = new Set(
+            salesRepsData.filter(a => a.CustomerServiceRep === 'Nika Lao').map(a => a.ID_Customer)
+        );
+        const taneishaCustomerIds = new Set(
+            salesRepsData.filter(a => a.CustomerServiceRep === 'Taneisha Clark').map(a => a.ID_Customer)
+        );
 
         allOrders.forEach(order => {
             const customerId = order.id_Customer;
