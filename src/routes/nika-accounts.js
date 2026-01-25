@@ -784,6 +784,116 @@ router.post('/nika-accounts/sync-sales', express.json(), async (req, res) => {
     }
 });
 
+// POST /api/nika-accounts/sync-ownership - Sync customer list from Sales_Reps_2026 (ShopWorks source of truth)
+// This keeps Nika's CRM table in sync with ShopWorks customer assignments
+router.post('/nika-accounts/sync-ownership', express.json(), async (req, res) => {
+    try {
+        const REP_NAME = 'Nika Lao';
+        console.log('Starting Nika accounts ownership sync from Sales_Reps_2026...');
+
+        // 1. Get truth from Sales_Reps_2026 (ShopWorks source of truth)
+        const salesRepsData = await fetchAllCaspioPages('/tables/Sales_Reps_2026/records', {
+            'q.where': `CustomerServiceRep='${REP_NAME}'`,
+            'q.select': 'ID_Customer,CompanyName,Account_Tier,date_LastOrdered'
+        });
+        console.log(`Found ${salesRepsData.length} customers assigned to ${REP_NAME} in Sales_Reps_2026`);
+
+        // Build truth set
+        const truthMap = new Map();
+        salesRepsData.forEach(r => truthMap.set(r.ID_Customer, r));
+        const truthIds = new Set(truthMap.keys());
+
+        // 2. Get current CRM list
+        const crmData = await fetchAllCaspioPages(`/tables/${TABLE_NAME}/records`, {
+            'q.select': 'ID_Customer,CompanyName'
+        });
+        console.log(`Found ${crmData.length} customers in ${TABLE_NAME}`);
+        const crmIds = new Set(crmData.map(r => r.ID_Customer));
+
+        // 3. Calculate differences
+        const toAdd = salesRepsData.filter(r => !crmIds.has(r.ID_Customer));
+        const toRemove = crmData.filter(r => !truthIds.has(r.ID_Customer));
+        const unchanged = salesRepsData.filter(r => crmIds.has(r.ID_Customer));
+
+        console.log(`Sync plan: Add ${toAdd.length}, Remove ${toRemove.length}, Keep ${unchanged.length}`);
+
+        const token = await getCaspioAccessToken();
+        let addedCount = 0;
+        let removedCount = 0;
+        const errors = [];
+
+        // 4. Add new customers (customers now assigned to Nika in ShopWorks)
+        for (const customer of toAdd) {
+            try {
+                await axios({
+                    method: 'post',
+                    url: `${caspioApiBaseUrl}/tables/${TABLE_NAME}/records`,
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    data: {
+                        ID_Customer: customer.ID_Customer,
+                        CompanyName: customer.CompanyName,
+                        Account_Tier: customer.Account_Tier || "BRONZE '26-NIKA",
+                        Is_Active: 1
+                    },
+                    timeout: 10000
+                });
+                addedCount++;
+                console.log(`  Added: ${customer.ID_Customer} - ${customer.CompanyName}`);
+            } catch (addError) {
+                console.error(`  Failed to add ${customer.ID_Customer}:`, addError.message);
+                errors.push({ action: 'add', id: customer.ID_Customer, name: customer.CompanyName, error: addError.message });
+            }
+        }
+
+        // 5. Remove customers no longer assigned to Nika (reassigned in ShopWorks)
+        for (const customer of toRemove) {
+            try {
+                await axios({
+                    method: 'delete',
+                    url: `${caspioApiBaseUrl}/tables/${TABLE_NAME}/records?q.where=${PRIMARY_KEY}=${customer.ID_Customer}`,
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    },
+                    timeout: 10000
+                });
+                removedCount++;
+                console.log(`  Removed: ${customer.ID_Customer} - ${customer.CompanyName}`);
+            } catch (removeError) {
+                console.error(`  Failed to remove ${customer.ID_Customer}:`, removeError.message);
+                errors.push({ action: 'remove', id: customer.ID_Customer, name: customer.CompanyName, error: removeError.message });
+            }
+        }
+
+        console.log(`Ownership sync complete: Added ${addedCount}, Removed ${removedCount}, Errors ${errors.length}`);
+
+        res.json({
+            success: true,
+            rep: REP_NAME,
+            sourceTable: 'Sales_Reps_2026',
+            targetTable: TABLE_NAME,
+            summary: {
+                inShopWorks: truthIds.size,
+                inCrmBefore: crmIds.size,
+                added: addedCount,
+                removed: removedCount,
+                unchanged: unchanged.length,
+                errors: errors.length
+            },
+            details: {
+                added: toAdd.map(c => ({ id: c.ID_Customer, name: c.CompanyName })),
+                removed: toRemove.map(c => ({ id: c.ID_Customer, name: c.CompanyName })),
+                errors: errors.length > 0 ? errors : undefined
+            }
+        });
+    } catch (error) {
+        console.error('Error syncing Nika ownership:', error.message);
+        res.status(500).json({ success: false, error: 'Failed to sync ownership from Sales_Reps_2026' });
+    }
+});
+
 // DELETE /api/nika-accounts/:id - Delete account
 router.delete('/nika-accounts/:id', async (req, res) => {
     const { id } = req.params;
