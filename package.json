@@ -10,7 +10,8 @@
     "update-postman": "node scripts/update-postman-collection.js",
     "deploy-status": "node scripts/update-endpoint-status.js",
     "postman-test": "node scripts/postman-api-client.js test",
-    "postman-list": "node scripts/postman-api-client.js list"
+    "postman-list": "node scripts/postman-api-client.js list",
+    "archive-daily-sales": "node scripts/archive-daily-sales.js"
   },
   "keywords": [
     "caspio",
