@@ -11,7 +11,8 @@
     "deploy-status": "node scripts/update-endpoint-status.js",
     "postman-test": "node scripts/postman-api-client.js test",
     "postman-list": "node scripts/postman-api-client.js list",
-    "archive-daily-sales": "node scripts/archive-daily-sales.js"
+    "archive-daily-sales": "node scripts/archive-daily-sales.js",
+    "archive-garment-tracker": "node scripts/archive-garment-tracker.js"
   },
   "keywords": [
     "caspio",
