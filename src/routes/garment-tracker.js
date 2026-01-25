@@ -175,208 +175,9 @@ router.delete('/garment-tracker/bulk', express.json(), async (req, res) => {
     }
 });
 
-// GET /api/garment-tracker/:id - Get single record by ID_Garment
-router.get('/garment-tracker/:id', async (req, res) => {
-    const { id } = req.params;
-
-    if (!id) {
-        return res.status(400).json({ success: false, error: 'Missing required parameter: id' });
-    }
-
-    try {
-        console.log(`Fetching garment tracker record with ID_Garment: ${id}`);
-        const resource = `/tables/${TABLE_NAME}/records`;
-        const params = {
-            'q.where': `ID_Garment=${id}`,
-            'q.limit': 1
-        };
-
-        const result = await fetchAllCaspioPages(resource, params);
-
-        if (result.length === 0) {
-            return res.status(404).json({ success: false, error: 'Record not found' });
-        }
-
-        res.json({
-            success: true,
-            record: result[0]
-        });
-    } catch (error) {
-        console.error('Error fetching garment tracker record:', error.message);
-        res.status(500).json({ success: false, error: 'Failed to fetch record' });
-    }
-});
-
-// POST /api/garment-tracker - Create or update record (UPSERT)
-// Checks if OrderNumber + PartNumber already exists. If so, updates; otherwise creates.
-// Body: { OrderNumber, DateInvoiced, RepName, CustomerName, CompanyName, PartNumber, StyleCategory, Quantity, BonusAmount, TrackedAt }
-router.post('/garment-tracker', express.json(), async (req, res) => {
-    try {
-        const requestData = { ...req.body };
-
-        // Validate required fields (both needed for uniqueness check)
-        if (!requestData.OrderNumber) {
-            return res.status(400).json({ success: false, error: 'Missing required field: OrderNumber' });
-        }
-        if (!requestData.PartNumber) {
-            return res.status(400).json({ success: false, error: 'Missing required field: PartNumber' });
-        }
-
-        const token = await getCaspioAccessToken();
-
-        // Check if record already exists (OrderNumber + PartNumber combination)
-        const escapedPartNumber = String(requestData.PartNumber).replace(/'/g, "''");
-        const whereClause = `OrderNumber=${requestData.OrderNumber} AND PartNumber='${escapedPartNumber}'`;
-        const checkUrl = `${caspioApiBaseUrl}/tables/${TABLE_NAME}/records?q.where=${encodeURIComponent(whereClause)}&q.limit=1`;
-
-        console.log(`[GarmentTracker] Checking for existing: Order=${requestData.OrderNumber}, Part=${requestData.PartNumber}`);
-
-        const checkResponse = await axios({
-            method: 'get',
-            url: checkUrl,
-            headers: { 'Authorization': `Bearer ${token}` },
-            timeout: 15000
-        });
-
-        const existingRecords = checkResponse.data?.Result || [];
-
-        if (existingRecords.length > 0) {
-            // UPDATE existing record
-            const existingId = existingRecords[0].ID_Garment;
-            console.log(`[GarmentTracker] Record exists (ID=${existingId}), updating...`);
-
-            // Update TrackedAt to current time
-            requestData.TrackedAt = new Date().toISOString();
-
-            const updateUrl = `${caspioApiBaseUrl}/tables/${TABLE_NAME}/records?q.where=ID_Garment=${existingId}`;
-            await axios({
-                method: 'put',
-                url: updateUrl,
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                },
-                data: requestData,
-                timeout: 15000
-            });
-
-            return res.status(200).json({
-                success: true,
-                action: 'updated',
-                ID_Garment: existingId,
-                record: { ID_Garment: existingId, ...requestData }
-            });
-        }
-
-        // CREATE new record
-        console.log(`[GarmentTracker] Creating new record for Order=${requestData.OrderNumber}, Part=${requestData.PartNumber}`);
-
-        // Auto-set TrackedAt if not provided
-        if (!requestData.TrackedAt) {
-            requestData.TrackedAt = new Date().toISOString();
-        }
-
-        const createUrl = `${caspioApiBaseUrl}/tables/${TABLE_NAME}/records`;
-        const response = await axios({
-            method: 'post',
-            url: createUrl,
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
-            },
-            data: requestData,
-            timeout: 15000
-        });
-
-        // Extract ID_Garment from Location header
-        let newId = null;
-        if (response.headers.location) {
-            newId = parseInt(response.headers.location.split('/').pop());
-        }
-
-        console.log(`[GarmentTracker] Created new record with ID_Garment: ${newId}`);
-
-        res.status(201).json({
-            success: true,
-            action: 'created',
-            ID_Garment: newId,
-            record: { ID_Garment: newId, ...requestData }
-        });
-    } catch (error) {
-        console.error('[GarmentTracker] Error creating/updating record:',
-            error.response ? JSON.stringify(error.response.data) : error.message);
-        res.status(500).json({ success: false, error: 'Failed to create/update record' });
-    }
-});
-
-// PUT /api/garment-tracker/:id - Update record by ID_Garment
-router.put('/garment-tracker/:id', express.json(), async (req, res) => {
-    const { id } = req.params;
-
-    if (!id) {
-        return res.status(400).json({ success: false, error: 'Missing required parameter: id' });
-    }
-
-    try {
-        console.log(`Updating garment tracker record with ID_Garment: ${id}`);
-
-        const updateData = { ...req.body };
-
-        const token = await getCaspioAccessToken();
-        const url = `${caspioApiBaseUrl}/tables/${TABLE_NAME}/records?q.where=ID_Garment=${id}`;
-
-        await axios({
-            method: 'put',
-            url: url,
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
-            },
-            data: updateData,
-            timeout: 15000
-        });
-
-        res.json({ success: true, message: 'Record updated successfully' });
-    } catch (error) {
-        console.error('Error updating garment tracker record:',
-            error.response ? JSON.stringify(error.response.data) : error.message);
-        res.status(500).json({ success: false, error: 'Failed to update record' });
-    }
-});
-
-// DELETE /api/garment-tracker/:id - Delete record by ID_Garment
-router.delete('/garment-tracker/:id', async (req, res) => {
-    const { id } = req.params;
-
-    if (!id) {
-        return res.status(400).json({ success: false, error: 'Missing required parameter: id' });
-    }
-
-    try {
-        console.log(`Deleting garment tracker record with ID_Garment: ${id}`);
-
-        const token = await getCaspioAccessToken();
-        const url = `${caspioApiBaseUrl}/tables/${TABLE_NAME}/records?q.where=ID_Garment=${id}`;
-
-        await axios({
-            method: 'delete',
-            url: url,
-            headers: {
-                'Authorization': `Bearer ${token}`
-            },
-            timeout: 15000
-        });
-
-        res.json({ success: true, message: 'Record deleted successfully' });
-    } catch (error) {
-        console.error('Error deleting garment tracker record:',
-            error.response ? JSON.stringify(error.response.data) : error.message);
-        res.status(500).json({ success: false, error: 'Failed to delete record' });
-    }
-});
-
 // ============================================================================
 // ARCHIVE ENDPOINTS - GarmentTrackerArchive table
+// IMPORTANT: These must be defined BEFORE /:id routes to prevent "archive" being matched as an ID
 // For permanent quarterly storage of garment tracking data
 // ============================================================================
 
@@ -923,6 +724,210 @@ router.post('/garment-tracker/import', express.json(), async (req, res) => {
     } catch (error) {
         console.error('[GarmentArchive] Error importing:', error.message);
         res.status(500).json({ success: false, error: 'Failed to import data' });
+    }
+});
+
+// ============================================================================
+// LIVE TABLE CRUD ENDPOINTS (/:id routes must be AFTER /archive routes)
+// ============================================================================
+
+// GET /api/garment-tracker/:id - Get single record by ID_Garment
+router.get('/garment-tracker/:id', async (req, res) => {
+    const { id } = req.params;
+
+    if (!id) {
+        return res.status(400).json({ success: false, error: 'Missing required parameter: id' });
+    }
+
+    try {
+        console.log(`Fetching garment tracker record with ID_Garment: ${id}`);
+        const resource = `/tables/${TABLE_NAME}/records`;
+        const params = {
+            'q.where': `ID_Garment=${id}`,
+            'q.limit': 1
+        };
+
+        const result = await fetchAllCaspioPages(resource, params);
+
+        if (result.length === 0) {
+            return res.status(404).json({ success: false, error: 'Record not found' });
+        }
+
+        res.json({
+            success: true,
+            record: result[0]
+        });
+    } catch (error) {
+        console.error('Error fetching garment tracker record:', error.message);
+        res.status(500).json({ success: false, error: 'Failed to fetch record' });
+    }
+});
+
+// POST /api/garment-tracker - Create or update record (UPSERT)
+// Checks if OrderNumber + PartNumber already exists. If so, updates; otherwise creates.
+// Body: { OrderNumber, DateInvoiced, RepName, CustomerName, CompanyName, PartNumber, StyleCategory, Quantity, BonusAmount, TrackedAt }
+router.post('/garment-tracker', express.json(), async (req, res) => {
+    try {
+        const requestData = { ...req.body };
+
+        // Validate required fields (both needed for uniqueness check)
+        if (!requestData.OrderNumber) {
+            return res.status(400).json({ success: false, error: 'Missing required field: OrderNumber' });
+        }
+        if (!requestData.PartNumber) {
+            return res.status(400).json({ success: false, error: 'Missing required field: PartNumber' });
+        }
+
+        const token = await getCaspioAccessToken();
+
+        // Check if record already exists (OrderNumber + PartNumber combination)
+        const escapedPartNumber = String(requestData.PartNumber).replace(/'/g, "''");
+        const whereClause = `OrderNumber=${requestData.OrderNumber} AND PartNumber='${escapedPartNumber}'`;
+        const checkUrl = `${caspioApiBaseUrl}/tables/${TABLE_NAME}/records?q.where=${encodeURIComponent(whereClause)}&q.limit=1`;
+
+        console.log(`[GarmentTracker] Checking for existing: Order=${requestData.OrderNumber}, Part=${requestData.PartNumber}`);
+
+        const checkResponse = await axios({
+            method: 'get',
+            url: checkUrl,
+            headers: { 'Authorization': `Bearer ${token}` },
+            timeout: 15000
+        });
+
+        const existingRecords = checkResponse.data?.Result || [];
+
+        if (existingRecords.length > 0) {
+            // UPDATE existing record
+            const existingId = existingRecords[0].ID_Garment;
+            console.log(`[GarmentTracker] Record exists (ID=${existingId}), updating...`);
+
+            // Update TrackedAt to current time
+            requestData.TrackedAt = new Date().toISOString();
+
+            const updateUrl = `${caspioApiBaseUrl}/tables/${TABLE_NAME}/records?q.where=ID_Garment=${existingId}`;
+            await axios({
+                method: 'put',
+                url: updateUrl,
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                data: requestData,
+                timeout: 15000
+            });
+
+            return res.status(200).json({
+                success: true,
+                action: 'updated',
+                ID_Garment: existingId,
+                record: { ID_Garment: existingId, ...requestData }
+            });
+        }
+
+        // CREATE new record
+        console.log(`[GarmentTracker] Creating new record for Order=${requestData.OrderNumber}, Part=${requestData.PartNumber}`);
+
+        // Auto-set TrackedAt if not provided
+        if (!requestData.TrackedAt) {
+            requestData.TrackedAt = new Date().toISOString();
+        }
+
+        const createUrl = `${caspioApiBaseUrl}/tables/${TABLE_NAME}/records`;
+        const response = await axios({
+            method: 'post',
+            url: createUrl,
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            data: requestData,
+            timeout: 15000
+        });
+
+        // Extract ID_Garment from Location header
+        let newId = null;
+        if (response.headers.location) {
+            newId = parseInt(response.headers.location.split('/').pop());
+        }
+
+        console.log(`[GarmentTracker] Created new record with ID_Garment: ${newId}`);
+
+        res.status(201).json({
+            success: true,
+            action: 'created',
+            ID_Garment: newId,
+            record: { ID_Garment: newId, ...requestData }
+        });
+    } catch (error) {
+        console.error('[GarmentTracker] Error creating/updating record:',
+            error.response ? JSON.stringify(error.response.data) : error.message);
+        res.status(500).json({ success: false, error: 'Failed to create/update record' });
+    }
+});
+
+// PUT /api/garment-tracker/:id - Update record by ID_Garment
+router.put('/garment-tracker/:id', express.json(), async (req, res) => {
+    const { id } = req.params;
+
+    if (!id) {
+        return res.status(400).json({ success: false, error: 'Missing required parameter: id' });
+    }
+
+    try {
+        console.log(`Updating garment tracker record with ID_Garment: ${id}`);
+
+        const updateData = { ...req.body };
+
+        const token = await getCaspioAccessToken();
+        const url = `${caspioApiBaseUrl}/tables/${TABLE_NAME}/records?q.where=ID_Garment=${id}`;
+
+        await axios({
+            method: 'put',
+            url: url,
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            data: updateData,
+            timeout: 15000
+        });
+
+        res.json({ success: true, message: 'Record updated successfully' });
+    } catch (error) {
+        console.error('Error updating garment tracker record:',
+            error.response ? JSON.stringify(error.response.data) : error.message);
+        res.status(500).json({ success: false, error: 'Failed to update record' });
+    }
+});
+
+// DELETE /api/garment-tracker/:id - Delete record by ID_Garment
+router.delete('/garment-tracker/:id', async (req, res) => {
+    const { id } = req.params;
+
+    if (!id) {
+        return res.status(400).json({ success: false, error: 'Missing required parameter: id' });
+    }
+
+    try {
+        console.log(`Deleting garment tracker record with ID_Garment: ${id}`);
+
+        const token = await getCaspioAccessToken();
+        const url = `${caspioApiBaseUrl}/tables/${TABLE_NAME}/records?q.where=ID_Garment=${id}`;
+
+        await axios({
+            method: 'delete',
+            url: url,
+            headers: {
+                'Authorization': `Bearer ${token}`
+            },
+            timeout: 15000
+        });
+
+        res.json({ success: true, message: 'Record deleted successfully' });
+    } catch (error) {
+        console.error('Error deleting garment tracker record:',
+            error.response ? JSON.stringify(error.response.data) : error.message);
+        res.status(500).json({ success: false, error: 'Failed to delete record' });
     }
 });
 
