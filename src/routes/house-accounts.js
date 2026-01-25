@@ -347,13 +347,14 @@ router.get('/house-accounts/full-reconciliation', async (req, res) => {
             const companyName = order.CustomerName || customerName.get(customerId) || `ID: ${customerId}`;
 
             // Helper to add conflict to a rep's list
-            const addConflict = (repName, type, custId, orderData) => {
+            // explicitOwner: For inbound conflicts, use the rep name (not from Map which may be overwritten)
+            const addConflict = (repName, type, custId, orderData, explicitOwner = null) => {
                 const map = conflicts[repName][type];
                 if (!map.has(custId)) {
                     map.set(custId, {
                         ID_Customer: custId,
                         companyName: companyName,
-                        owner: owner,
+                        owner: explicitOwner || owner, // Use explicit owner for inbound
                         orders: [],
                         totalSales: 0,
                         orderCount: 0,
@@ -382,12 +383,13 @@ router.get('/house-accounts/full-reconciliation', async (req, res) => {
                 }
             } else if (nikaCustomerIds.has(customerId) && writer && writer !== 'Nika Lao') {
                 // Inbound: Someone else wrote for Nika's customer
+                // Pass 'Nika Lao' as explicit owner (customer is in HER CRM)
                 addConflict('Nika Lao', 'inbound', customerId, {
                     orderNumber,
                     amount: orderAmount,
                     date: orderDate,
                     writer: writer
-                });
+                }, 'Nika Lao');
             }
 
             // Check Taneisha
@@ -403,12 +405,13 @@ router.get('/house-accounts/full-reconciliation', async (req, res) => {
                 }
             } else if (taneishaCustomerIds.has(customerId) && writer && writer !== 'Taneisha Clark') {
                 // Inbound: Someone else wrote for Taneisha's customer
+                // Pass 'Taneisha Clark' as explicit owner (customer is in HER CRM)
                 addConflict('Taneisha Clark', 'inbound', customerId, {
                     orderNumber,
                     amount: orderAmount,
                     date: orderDate,
                     writer: writer
-                });
+                }, 'Taneisha Clark');
             }
         });
 
