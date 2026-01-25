@@ -143,7 +143,14 @@ router.get('/house-accounts/sales', async (req, res) => {
             }
         }
 
-        console.log(`Fetched ${allOrders.length} orders to filter`);
+        // Deduplicate orders by ID (chunk boundaries can cause duplicates)
+        const seenOrderIds = new Set();
+        const uniqueOrders = allOrders.filter(order => {
+            if (seenOrderIds.has(order.id_Order)) return false;
+            seenOrderIds.add(order.id_Order);
+            return true;
+        });
+        console.log(`Fetched ${allOrders.length} orders, deduplicated to ${uniqueOrders.length}`);
 
         // 3. Calculate sales by Assigned_To
         const salesByAssignee = {
@@ -159,7 +166,7 @@ router.get('/house-accounts/sales', async (req, res) => {
         let totalRevenue = 0;
         let totalOrders = 0;
 
-        allOrders.forEach(order => {
+        uniqueOrders.forEach(order => {
             const customerId = order.id_Customer;
 
             // Only count orders for House Account customers
@@ -254,12 +261,19 @@ router.get('/house-accounts/reconcile', async (req, res) => {
             }
         }
 
-        console.log(`Fetched ${allOrders.length} total orders from last 60 days`);
+        // Deduplicate orders by ID (chunk boundaries can cause duplicates)
+        const seenOrderIds2 = new Set();
+        const uniqueOrders2 = allOrders.filter(order => {
+            if (seenOrderIds2.has(order.id_Order)) return false;
+            seenOrderIds2.add(order.id_Order);
+            return true;
+        });
+        console.log(`Fetched ${allOrders.length} orders, deduplicated to ${uniqueOrders2.length}`);
 
         // Find orders for customers NOT in any list
         const missingCustomers = new Map();
 
-        allOrders.forEach(order => {
+        uniqueOrders2.forEach(order => {
             if (!allKnownIds.has(order.id_Customer)) {
                 if (!missingCustomers.has(order.id_Customer)) {
                     missingCustomers.set(order.id_Customer, {
@@ -419,7 +433,14 @@ router.get('/house-accounts/full-reconciliation', async (req, res) => {
             }
         }
 
-        console.log(`Fetched ${allOrders.length} orders for reconciliation`);
+        // Deduplicate orders by ID (chunk boundaries can cause duplicates)
+        const seenOrderIds3 = new Set();
+        const uniqueOrders3 = allOrders.filter(order => {
+            if (seenOrderIds3.has(order.id_Order)) return false;
+            seenOrderIds3.add(order.id_Order);
+            return true;
+        });
+        console.log(`Fetched ${allOrders.length} orders, deduplicated to ${uniqueOrders3.length}`);
 
         // 4. Find all conflicts - group by rep
         // Track reps we care about: Nika and Taneisha
@@ -440,7 +461,7 @@ router.get('/house-accounts/full-reconciliation', async (req, res) => {
             salesRepsData.filter(a => a.CustomerServiceRep === 'Taneisha Clark').map(a => a.ID_Customer)
         );
 
-        allOrders.forEach(order => {
+        uniqueOrders3.forEach(order => {
             const customerId = order.id_Customer;
             const writer = order.CustomerServiceRep || '';
             const owner = customerOwner.get(customerId) || null;

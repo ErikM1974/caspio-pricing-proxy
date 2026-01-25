@@ -679,11 +679,20 @@ router.post('/nika-accounts/sync-sales', express.json(), async (req, res) => {
             accountMap.set(account.ID_Customer, account);
         });
 
+        // Deduplicate orders by ID (chunk boundaries can cause duplicates)
+        const seenOrderIds = new Set();
+        const uniqueOrders = orders.filter(order => {
+            if (seenOrderIds.has(order.id_Order)) return false;
+            seenOrderIds.add(order.id_Order);
+            return true;
+        });
+        console.log(`Deduplicated: ${orders.length} -> ${uniqueOrders.length} unique orders`);
+
         // Aggregate sales by customer ID
         const salesByCustomer = new Map();
         const currentYear = new Date().getFullYear();
 
-        orders.forEach(order => {
+        uniqueOrders.forEach(order => {
             const customerId = order.id_Customer;
 
             // Only process orders for Nika's customers

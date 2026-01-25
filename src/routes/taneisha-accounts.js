@@ -694,9 +694,14 @@ router.post('/taneisha-accounts/sync-sales', express.json(), async (req, res) =>
             }
         }
 
-        const orders = allOrders;
-
-        console.log(`Fetched ${orders.length} orders from ManageOrders`);
+        // Deduplicate orders by ID (chunk boundaries can cause duplicates)
+        const seenOrderIds = new Set();
+        const orders = allOrders.filter(order => {
+            if (seenOrderIds.has(order.id_Order)) return false;
+            seenOrderIds.add(order.id_Order);
+            return true;
+        });
+        console.log(`Fetched ${allOrders.length} orders, deduplicated to ${orders.length} unique orders`);
 
         // Step 3: Get all Taneisha accounts
         const resource = `/tables/${TABLE_NAME}/records`;
