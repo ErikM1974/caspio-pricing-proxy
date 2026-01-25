@@ -105,6 +105,104 @@ router.get('/house-accounts/stats', async (req, res) => {
     }
 });
 
+// GET /api/house-accounts/sales - Calculate YTD sales for House Account customers
+// Groups sales by Assigned_To field (Ruthie, Erik, Web, Jim, House)
+// Uses ManageOrders data for orders where customer is in House_Accounts table
+router.get('/house-accounts/sales', async (req, res) => {
+    try {
+        console.log('Calculating House Accounts YTD sales...');
+
+        const { fetchOrders, getDateDaysAgo } = require('../utils/manageorders');
+
+        // 1. Get all House Account customer IDs with their Assigned_To
+        const accounts = await fetchAllCaspioPages(`/tables/${TABLE_NAME}/records`, {
+            'q.select': 'ID_Customer,CompanyName,Assigned_To'
+        });
+
+        // Create map of customer ID -> Assigned_To
+        const customerAssignee = new Map();
+        accounts.forEach(account => {
+            customerAssignee.set(account.ID_Customer, account.Assigned_To || 'House');
+        });
+
+        console.log(`Found ${accounts.length} House accounts to check`);
+
+        // 2. Fetch 2026 orders from ManageOrders (last 60 days in chunks)
+        let allOrders = [];
+        for (let chunk = 0; chunk < 3; chunk++) {
+            const chunkEnd = getDateDaysAgo(chunk * 20);
+            const chunkStart = getDateDaysAgo((chunk + 1) * 20);
+            try {
+                const chunkOrders = await fetchOrders({
+                    date_Invoiced_start: chunkStart,
+                    date_Invoiced_end: chunkEnd
+                });
+                allOrders = allOrders.concat(chunkOrders);
+            } catch (e) {
+                console.warn(`Chunk ${chunk + 1} failed: ${e.message}`);
+            }
+        }
+
+        console.log(`Fetched ${allOrders.length} orders to filter`);
+
+        // 3. Calculate sales by Assigned_To
+        const salesByAssignee = {
+            'Ruthie': { revenue: 0, orderCount: 0 },
+            'Erik': { revenue: 0, orderCount: 0 },
+            'Web': { revenue: 0, orderCount: 0 },
+            'Jim': { revenue: 0, orderCount: 0 },
+            'House': { revenue: 0, orderCount: 0 },
+            'Other': { revenue: 0, orderCount: 0 }
+        };
+
+        const currentYear = new Date().getFullYear();
+        let totalRevenue = 0;
+        let totalOrders = 0;
+
+        allOrders.forEach(order => {
+            const customerId = order.id_Customer;
+
+            // Only count orders for House Account customers
+            if (!customerAssignee.has(customerId)) return;
+
+            // Only count current year invoiced orders
+            const invoiceDate = new Date(order.date_Invoiced);
+            if (invoiceDate.getFullYear() !== currentYear) return;
+
+            const orderTotal = parseFloat(order.cur_SubTotal) || 0;
+            const assignee = customerAssignee.get(customerId);
+
+            // Map to known assignees or 'Other'
+            if (salesByAssignee[assignee]) {
+                salesByAssignee[assignee].revenue += orderTotal;
+                salesByAssignee[assignee].orderCount += 1;
+            } else {
+                salesByAssignee['Other'].revenue += orderTotal;
+                salesByAssignee['Other'].orderCount += 1;
+            }
+
+            totalRevenue += orderTotal;
+            totalOrders += 1;
+        });
+
+        console.log(`House Accounts YTD: $${totalRevenue.toFixed(2)} from ${totalOrders} orders`);
+
+        res.json({
+            success: true,
+            year: currentYear,
+            totalRevenue,
+            totalOrders,
+            byAssignee: salesByAssignee,
+            accountsTracked: accounts.length,
+            ordersChecked: allOrders.length
+        });
+
+    } catch (error) {
+        console.error('Error calculating House Accounts sales:', error.message);
+        res.status(500).json({ success: false, error: 'Failed to calculate sales' });
+    }
+});
+
 // GET /api/house-accounts/reconcile - Find customers with orders not in ANY account list
 // NOW USES Sales_Reps_2026 (SOURCE OF TRUTH from ShopWorks) + House_Accounts
 // Query params:
