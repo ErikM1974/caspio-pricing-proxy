@@ -378,6 +378,7 @@ router.post('/garment-tracker/archive-from-live', express.json(), async (req, re
 
                 const existing = checkResponse.data?.Result || [];
 
+                // Note: ArchivedAt is auto-set by Caspio (Timestamp field) - don't send it
                 const archiveData = {
                     OrderNumber: record.OrderNumber,
                     DateInvoiced: record.DateInvoiced,
@@ -387,8 +388,7 @@ router.post('/garment-tracker/archive-from-live', express.json(), async (req, re
                     PartNumber: record.PartNumber,
                     StyleCategory: record.StyleCategory,
                     Quantity: record.Quantity,
-                    BonusAmount: record.BonusAmount,
-                    ArchivedAt: new Date().toISOString()
+                    BonusAmount: record.BonusAmount
                 };
 
                 if (existing.length > 0) {
@@ -565,7 +565,7 @@ router.post('/garment-tracker/archive-range', express.json(), async (req, res) =
                 });
 
                 const existing = checkResponse.data?.Result || [];
-                record.ArchivedAt = new Date().toISOString();
+                // Note: ArchivedAt is auto-set by Caspio (Timestamp field) - don't send it
 
                 if (existing.length > 0) {
                     const updateUrl = `${caspioApiBaseUrl}/tables/${ARCHIVE_TABLE_NAME}/records?q.where=${encodeURIComponent(whereClause)}`;
@@ -656,6 +656,7 @@ router.post('/garment-tracker/import', express.json(), async (req, res) => {
                 const bonus = calculateBonus(item.partNumber, quantity);
                 const category = getStyleCategory(item.partNumber);
 
+                // Note: ArchivedAt is auto-set by Caspio (Timestamp field) - don't send it
                 const archiveData = {
                     OrderNumber: item.orderNumber,
                     DateInvoiced: item.dateInvoiced,
@@ -665,8 +666,7 @@ router.post('/garment-tracker/import', express.json(), async (req, res) => {
                     PartNumber: item.partNumber,
                     StyleCategory: category,
                     Quantity: quantity,
-                    BonusAmount: bonus,
-                    ArchivedAt: new Date().toISOString()
+                    BonusAmount: bonus
                 };
 
                 const escapedPart = String(item.partNumber).replace(/'/g, "''");
