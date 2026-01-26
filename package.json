@@ -12,7 +12,8 @@
     "postman-test": "node scripts/postman-api-client.js test",
     "postman-list": "node scripts/postman-api-client.js list",
     "archive-daily-sales": "node scripts/archive-daily-sales.js",
-    "archive-garment-tracker": "node scripts/archive-garment-tracker.js"
+    "archive-garment-tracker": "node scripts/archive-garment-tracker.js",
+    "sync-crm-dashboards": "node scripts/sync-crm-dashboards.js"
   },
   "keywords": [
     "caspio",
