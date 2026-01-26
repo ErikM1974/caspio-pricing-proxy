@@ -210,6 +210,244 @@ router.get('/house-accounts/sales', async (req, res) => {
     }
 });
 
+// POST /api/house-accounts/sync-sales - Hybrid YTD sales sync with archive support
+// HYBRID PATTERN: Archive (pre-60 days) + Fresh ManageOrders (last 60 days) = True YTD
+// Archives to House_Daily_Sales_By_Account table with AssignedTo field
+router.post('/house-accounts/sync-sales', express.json(), async (req, res) => {
+    try {
+        console.log('Starting House Accounts HYBRID sales sync...');
+
+        const { fetchOrders, getDateDaysAgo, getTodayDate } = require('../utils/manageorders');
+        const currentYear = new Date().getFullYear();
+
+        // Step 1: Get all House Account customers with their Assigned_To
+        console.log('Step 1: Getting House Account customers...');
+        const accounts = await fetchAllCaspioPages(`/tables/${TABLE_NAME}/records`, {
+            'q.select': 'ID_Customer,CompanyName,Assigned_To'
+        });
+
+        const customerAssignee = new Map();
+        const customerCompany = new Map();
+        accounts.forEach(account => {
+            customerAssignee.set(account.ID_Customer, account.Assigned_To || 'House');
+            customerCompany.set(account.ID_Customer, account.CompanyName || '');
+        });
+
+        console.log(`Found ${accounts.length} House accounts`);
+
+        // Step 2: Get archived YTD totals per customer (pre-60 day boundary)
+        console.log('Step 2: Fetching archived YTD totals per customer...');
+        const ARCHIVE_TABLE = 'House_Daily_Sales_By_Account';
+        const archiveBoundary = getDateDaysAgo(60);
+        let archivedByCustomer = new Map();
+
+        try {
+            const archivedRecords = await fetchAllCaspioPages(`/tables/${ARCHIVE_TABLE}/records`, {
+                'q.where': `SalesDate>='${currentYear}-01-01' AND SalesDate<'${archiveBoundary}'`,
+                'q.limit': 5000
+            });
+
+            // Aggregate archived data by CustomerID
+            for (const record of archivedRecords) {
+                const customerId = parseInt(record.CustomerID) || record.CustomerID;
+                if (!archivedByCustomer.has(customerId)) {
+                    archivedByCustomer.set(customerId, { totalSales: 0, orderCount: 0 });
+                }
+                const archived = archivedByCustomer.get(customerId);
+                archived.totalSales += parseFloat(record.Revenue) || 0;
+                archived.orderCount += parseInt(record.OrderCount) || 0;
+            }
+            console.log(`Found archived data for ${archivedByCustomer.size} customers`);
+        } catch (archiveError) {
+            console.warn('Could not fetch archived data (table may not exist yet):', archiveError.message);
+            // Continue without archived data
+        }
+
+        // Step 3: Fetch fresh ManageOrders data (last 60 days in chunks)
+        console.log('Step 3: Fetching fresh ManageOrders data (last 60 days in chunks)...');
+        let allOrders = [];
+
+        for (let chunk = 0; chunk < 3; chunk++) {
+            const chunkEnd = getDateDaysAgo(chunk * 20);
+            const chunkStart = getDateDaysAgo((chunk + 1) * 20);
+            console.log(`  Fetching chunk ${chunk + 1}/3: ${chunkStart} to ${chunkEnd}`);
+
+            try {
+                const chunkOrders = await fetchOrders({
+                    date_Invoiced_start: chunkStart,
+                    date_Invoiced_end: chunkEnd
+                });
+                allOrders = allOrders.concat(chunkOrders);
+                console.log(`  Chunk ${chunk + 1}: ${chunkOrders.length} orders`);
+            } catch (chunkError) {
+                console.warn(`  Chunk ${chunk + 1} failed: ${chunkError.message}`);
+            }
+        }
+
+        // Deduplicate orders by ID
+        const seenOrderIds = new Set();
+        const orders = allOrders.filter(order => {
+            if (seenOrderIds.has(order.id_Order)) return false;
+            seenOrderIds.add(order.id_Order);
+            return true;
+        });
+        console.log(`Fetched ${allOrders.length} orders, deduplicated to ${orders.length} unique orders`);
+
+        // Step 4: Aggregate fresh sales by customer (and by date for archiving)
+        const freshSalesByCustomer = new Map();
+        const salesByDateAndCustomer = new Map(); // For archiving: date -> Map(customerId -> {revenue, orderCount, customerName, assignedTo})
+
+        orders.forEach(order => {
+            const customerId = order.id_Customer;
+
+            // Only count orders for House Account customers
+            if (!customerAssignee.has(customerId)) return;
+
+            // Only count current year invoiced orders
+            const invoiceDate = new Date(order.date_Invoiced);
+            if (invoiceDate.getFullYear() !== currentYear) return;
+
+            const orderTotal = parseFloat(order.cur_SubTotal) || 0;
+            const invoiceDateStr = order.date_Invoiced.split('T')[0];
+            const assignedTo = customerAssignee.get(customerId);
+            const companyName = customerCompany.get(customerId);
+
+            // Aggregate for customer totals
+            if (!freshSalesByCustomer.has(customerId)) {
+                freshSalesByCustomer.set(customerId, {
+                    totalSales: 0,
+                    orderCount: 0,
+                    assignedTo: assignedTo
+                });
+            }
+            const customerSales = freshSalesByCustomer.get(customerId);
+            customerSales.totalSales += orderTotal;
+            customerSales.orderCount += 1;
+
+            // Track by date for archiving
+            if (!salesByDateAndCustomer.has(invoiceDateStr)) {
+                salesByDateAndCustomer.set(invoiceDateStr, new Map());
+            }
+            const dateMap = salesByDateAndCustomer.get(invoiceDateStr);
+            if (!dateMap.has(customerId)) {
+                dateMap.set(customerId, {
+                    revenue: 0,
+                    orderCount: 0,
+                    customerName: companyName,
+                    assignedTo: assignedTo
+                });
+            }
+            const dayCustomer = dateMap.get(customerId);
+            dayCustomer.revenue += orderTotal;
+            dayCustomer.orderCount += 1;
+        });
+
+        console.log(`Aggregated fresh sales for ${freshSalesByCustomer.size} House Account customers`);
+
+        // Step 5: Combine archived + fresh for true YTD by Assignee
+        const salesByAssignee = {
+            'Ruthie': { revenue: 0, orderCount: 0 },
+            'Erik': { revenue: 0, orderCount: 0 },
+            'Web': { revenue: 0, orderCount: 0 },
+            'Jim': { revenue: 0, orderCount: 0 },
+            'House': { revenue: 0, orderCount: 0 },
+            'Other': { revenue: 0, orderCount: 0 }
+        };
+
+        // Add archived data
+        for (const [customerId, data] of archivedByCustomer) {
+            const assignedTo = customerAssignee.get(customerId) || 'House';
+            const targetBucket = salesByAssignee[assignedTo] || salesByAssignee['Other'];
+            targetBucket.revenue += data.totalSales;
+            targetBucket.orderCount += data.orderCount;
+        }
+
+        // Add fresh data
+        for (const [customerId, data] of freshSalesByCustomer) {
+            const assignedTo = data.assignedTo || 'House';
+            const targetBucket = salesByAssignee[assignedTo] || salesByAssignee['Other'];
+            targetBucket.revenue += data.totalSales;
+            targetBucket.orderCount += data.orderCount;
+        }
+
+        const totalRevenue = Object.values(salesByAssignee).reduce((sum, b) => sum + b.revenue, 0);
+        const totalOrders = Object.values(salesByAssignee).reduce((sum, b) => sum + b.orderCount, 0);
+
+        // Step 6: Archive days 55-60 (soon to expire from ManageOrders)
+        let daysArchived = 0;
+        let customersArchived = 0;
+        console.log('Step 6: Archiving days 55-60 (before they expire from ManageOrders)...');
+
+        try {
+            const token = await getCaspioAccessToken();
+
+            for (let daysAgo = 55; daysAgo <= 60; daysAgo++) {
+                const archiveDate = getDateDaysAgo(daysAgo);
+                const customersForDay = salesByDateAndCustomer.get(archiveDate);
+
+                if (customersForDay && customersForDay.size > 0) {
+                    for (const [custId, data] of customersForDay) {
+                        try {
+                            // Check if already archived
+                            const existing = await fetchAllCaspioPages(`/tables/${ARCHIVE_TABLE}/records`, {
+                                'q.where': `SalesDate='${archiveDate}' AND CustomerID='${custId}'`,
+                                'q.limit': 1
+                            });
+
+                            if (existing.length === 0) {
+                                await axios({
+                                    method: 'post',
+                                    url: `${caspioApiBaseUrl}/tables/${ARCHIVE_TABLE}/records`,
+                                    headers: {
+                                        'Authorization': `Bearer ${token}`,
+                                        'Content-Type': 'application/json'
+                                    },
+                                    data: {
+                                        SalesDate: archiveDate,
+                                        CustomerID: String(custId),
+                                        CustomerName: data.customerName,
+                                        AssignedTo: data.assignedTo,
+                                        Revenue: data.revenue,
+                                        OrderCount: data.orderCount
+                                    },
+                                    timeout: 10000
+                                });
+                                customersArchived++;
+                            }
+                        } catch (archivePostError) {
+                            console.warn(`Could not archive ${archiveDate}/${custId}:`, archivePostError.message);
+                        }
+                    }
+                    daysArchived++;
+                    console.log(`Archived ${archiveDate}: ${customersForDay.size} customers`);
+                }
+            }
+        } catch (archiveError) {
+            console.warn('Error during archiving (continuing):', archiveError.message);
+        }
+
+        console.log(`HYBRID Sales sync complete: ${daysArchived} days archived (${customersArchived} customer records)`);
+
+        res.json({
+            success: true,
+            message: 'Hybrid sales sync completed (Archive + Fresh = True YTD)',
+            year: currentYear,
+            totalRevenue,
+            totalOrders,
+            byAssignee: salesByAssignee,
+            accountsTracked: accounts.length,
+            archivedCustomers: archivedByCustomer.size,
+            freshCustomers: freshSalesByCustomer.size,
+            daysArchived,
+            customerRecordsArchived: customersArchived,
+            syncDate: getTodayDate()
+        });
+    } catch (error) {
+        console.error('Error syncing House Accounts sales:', error.message);
+        res.status(500).json({ success: false, error: 'Failed to sync sales data' });
+    }
+});
+
 // GET /api/house-accounts/reconcile - Find customers with orders not in ANY account list
 // NOW USES Sales_Reps_2026 (SOURCE OF TRUTH from ShopWorks) + House_Accounts
 // Query params:

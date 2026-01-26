@@ -1,5 +1,5 @@
 // House Daily Sales Archive routes - For YTD tracking beyond ManageOrders 60-day limit
-// Table: House_Daily_Sales_By_Account (SalesDate, CustomerID, CustomerName, Revenue, OrderCount, ArchivedAt)
+// Table: House_Daily_Sales_By_Account (SalesDate, CustomerID, CustomerName, AssignedTo, Revenue, OrderCount, ArchivedAt)
 
 const express = require('express');
 const router = express.Router();
@@ -66,6 +66,7 @@ router.get('/daily-sales-by-account', async (req, res) => {
       dayMap.get(dateStr).push({
         customerId: record.CustomerID,
         customerName: record.CustomerName,
+        assignedTo: record.AssignedTo || 'House',
         revenue: revenue,
         orderCount: orderCount
       });
@@ -74,6 +75,7 @@ router.get('/daily-sales-by-account', async (req, res) => {
       if (!customerTotals.has(record.CustomerID)) {
         customerTotals.set(record.CustomerID, {
           customerName: record.CustomerName,
+          assignedTo: record.AssignedTo || 'House',
           totalRevenue: 0,
           totalOrders: 0
         });
@@ -96,6 +98,7 @@ router.get('/daily-sales-by-account', async (req, res) => {
       .map(([customerId, totals]) => ({
         customerId,
         customerName: totals.customerName,
+        assignedTo: totals.assignedTo,
         totalRevenue: totals.totalRevenue,
         totalOrders: totals.totalOrders
       }))
@@ -123,7 +126,7 @@ router.get('/daily-sales-by-account', async (req, res) => {
     if (error.message.includes('404') || error.message.includes('not found')) {
       return res.status(404).json({
         error: `${TABLE_NAME} table not found in Caspio`,
-        message: `Please create the ${TABLE_NAME} table in Caspio with fields: SalesDate, CustomerID, CustomerName, Revenue, OrderCount, ArchivedAt`
+        message: `Please create the ${TABLE_NAME} table in Caspio with fields: SalesDate, CustomerID, CustomerName, AssignedTo, Revenue, OrderCount, ArchivedAt`
       });
     }
 
@@ -168,6 +171,7 @@ router.get('/daily-sales-by-account/ytd', async (req, res) => {
       if (!customerTotals.has(record.CustomerID)) {
         customerTotals.set(record.CustomerID, {
           customerName: record.CustomerName,
+          assignedTo: record.AssignedTo || 'House',
           totalRevenue: 0,
           totalOrders: 0
         });
@@ -190,6 +194,7 @@ router.get('/daily-sales-by-account/ytd', async (req, res) => {
       .map(([customerId, totals]) => ({
         customerId: parseInt(customerId),
         customerName: totals.customerName,
+        assignedTo: totals.assignedTo,
         totalRevenue: totals.totalRevenue,
         totalOrders: totals.totalOrders
       }))
@@ -231,7 +236,7 @@ router.get('/daily-sales-by-account/ytd', async (req, res) => {
  *
  * Body:
  *   - date: The sales date (YYYY-MM-DD) - required
- *   - customers: Array of { customerId, customerName, revenue, orderCount } - required
+ *   - customers: Array of { customerId, customerName, assignedTo, revenue, orderCount } - required
  *
  * Returns: { success: true, date, customersArchived, message }
  */
@@ -243,7 +248,7 @@ router.post('/daily-sales-by-account', async (req, res) => {
   if (!date) {
     return res.status(400).json({
       error: 'date is required (YYYY-MM-DD format)',
-      example: { date: '2026-01-15', customers: [{ customerId: 12345, customerName: 'ACME Corp', revenue: 5234.50, orderCount: 2 }] }
+      example: { date: '2026-01-15', customers: [{ customerId: 12345, customerName: 'ACME Corp', assignedTo: 'Ruthie', revenue: 5234.50, orderCount: 2 }] }
     });
   }
 
@@ -259,7 +264,7 @@ router.post('/daily-sales-by-account', async (req, res) => {
   if (!Array.isArray(customers) || customers.length === 0) {
     return res.status(400).json({
       error: 'customers array is required and must not be empty',
-      example: { date: '2026-01-15', customers: [{ customerId: 12345, customerName: 'ACME Corp', revenue: 5234.50, orderCount: 2 }] }
+      example: { date: '2026-01-15', customers: [{ customerId: 12345, customerName: 'ACME Corp', assignedTo: 'Ruthie', revenue: 5234.50, orderCount: 2 }] }
     });
   }
 
@@ -297,7 +302,8 @@ router.post('/daily-sales-by-account', async (req, res) => {
             {
               Revenue: parseFloat(customer.revenue),
               OrderCount: parseInt(customer.orderCount),
-              CustomerName: customer.customerName || existing[0].CustomerName
+              CustomerName: customer.customerName || existing[0].CustomerName,
+              AssignedTo: customer.assignedTo || existing[0].AssignedTo || 'House'
             }
           );
           results.updated++;
@@ -311,6 +317,7 @@ router.post('/daily-sales-by-account', async (req, res) => {
               SalesDate: date,
               CustomerID: String(customer.customerId),
               CustomerName: customer.customerName || '',
+              AssignedTo: customer.assignedTo || 'House',
               Revenue: parseFloat(customer.revenue),
               OrderCount: parseInt(customer.orderCount)
             }
@@ -341,7 +348,7 @@ router.post('/daily-sales-by-account', async (req, res) => {
     if (error.message.includes('404') || error.message.includes('not found')) {
       return res.status(404).json({
         error: `${TABLE_NAME} table not found in Caspio`,
-        message: `Please create the ${TABLE_NAME} table in Caspio with fields: SalesDate, CustomerID, CustomerName, Revenue, OrderCount, ArchivedAt`
+        message: `Please create the ${TABLE_NAME} table in Caspio with fields: SalesDate, CustomerID, CustomerName, AssignedTo, Revenue, OrderCount, ArchivedAt`
       });
     }
 
@@ -407,7 +414,8 @@ router.post('/daily-sales-by-account/bulk', async (req, res) => {
             {
               Revenue: parseFloat(customer.revenue),
               OrderCount: parseInt(customer.orderCount) || 0,
-              CustomerName: customer.customerName || existing[0].CustomerName
+              CustomerName: customer.customerName || existing[0].CustomerName,
+              AssignedTo: customer.assignedTo || existing[0].AssignedTo || 'House'
             }
           );
           results.updated++;
@@ -420,6 +428,7 @@ router.post('/daily-sales-by-account/bulk', async (req, res) => {
               SalesDate: date,
               CustomerID: String(customer.customerId),
               CustomerName: customer.customerName || '',
+              AssignedTo: customer.assignedTo || 'House',
               Revenue: parseFloat(customer.revenue),
               OrderCount: parseInt(customer.orderCount) || 0
             }
