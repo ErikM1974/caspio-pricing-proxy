@@ -17,6 +17,7 @@
  *
  * Environment:
  *   BASE_URL - API base URL (defaults to Heroku production)
+ *   CRM_API_SECRET - Required authentication secret (set as Heroku config var)
  *
  * Heroku Scheduler:
  *   Run daily at 6 AM Pacific (14:00 UTC): npm run sync-crm-dashboards
@@ -25,7 +26,21 @@
 const axios = require('axios');
 
 const BASE_URL = process.env.BASE_URL || 'https://caspio-pricing-proxy-ab30a049961a.herokuapp.com';
+const CRM_API_SECRET = process.env.CRM_API_SECRET;
 const TIMEOUT = 300000; // 5 minutes for sync operations
+
+// Validate CRM_API_SECRET is set
+if (!CRM_API_SECRET) {
+    console.error('ERROR: CRM_API_SECRET environment variable is required');
+    console.error('This should be set as a Heroku config var.');
+    process.exit(1);
+}
+
+// Common headers for authenticated requests
+const AUTH_HEADERS = {
+    'Content-Type': 'application/json',
+    'x-crm-api-secret': CRM_API_SECRET
+};
 
 /**
  * Sync ownership for a rep dashboard
@@ -38,7 +53,7 @@ async function syncOwnership(repName, endpoint) {
             `${BASE_URL}${endpoint}`,
             {},
             {
-                headers: { 'Content-Type': 'application/json' },
+                headers: AUTH_HEADERS,
                 timeout: TIMEOUT
             }
         );
@@ -70,7 +85,7 @@ async function syncSales(dashboardName, endpoint) {
             `${BASE_URL}${endpoint}`,
             {},
             {
-                headers: { 'Content-Type': 'application/json' },
+                headers: AUTH_HEADERS,
                 timeout: TIMEOUT
             }
         );
