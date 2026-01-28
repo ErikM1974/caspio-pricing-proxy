@@ -775,6 +775,7 @@ router.post('/nika-accounts/sync-sales', express.json(), async (req, res) => {
         // Step 5: Combine archived + fresh for true YTD and update accounts
         const token = await getCaspioAccessToken();
         const today = getTodayDate();
+        const syncTimestamp = new Date().toISOString(); // Full timestamp for Last_Sync_Date
         let updatedCount = 0;
         let errorCount = 0;
 
@@ -806,7 +807,7 @@ router.post('/nika-accounts/sync-sales', express.json(), async (req, res) => {
                 const updateData = {
                     YTD_Sales_2026: trueYTDSales,
                     Order_Count_2026: trueYTDOrders,
-                    Last_Sync_Date: today
+                    Last_Sync_Date: syncTimestamp
                 };
 
                 // Only update last order date if we have fresh data
@@ -899,16 +900,21 @@ router.post('/nika-accounts/sync-sales', express.json(), async (req, res) => {
 
         console.log(`HYBRID Sales sync complete: ${updatedCount} accounts updated, ${daysArchived} days archived (${customersArchived} customer records), ${errorCount} errors`);
 
+        // Return success: false if there were any errors (improved error handling)
+        const hasErrors = errorCount > 0;
         res.json({
-            success: true,
-            message: 'Hybrid sales sync completed (Archive + Fresh = True YTD)',
+            success: !hasErrors,
+            status: hasErrors ? 'partial_failure' : 'complete',
+            message: hasErrors
+                ? `Sync completed with ${errorCount} failures. Re-run recommended.`
+                : 'Hybrid sales sync completed (Archive + Fresh = True YTD)',
             ordersProcessed: orders.length,
             accountsUpdated: updatedCount,
+            accountsFailed: errorCount,
             archivedCustomers: archivedByCustomer.size,
             freshCustomers: freshSalesByCustomer.size,
             daysArchived: daysArchived,
             customerRecordsArchived: customersArchived,
-            errors: errorCount,
             syncDate: today
         });
     } catch (error) {
