@@ -458,6 +458,11 @@ const assignmentHistoryRoutes = require('./src/routes/assignment-history');
 app.use('/api', assignmentHistoryRoutes);
 console.log('✓ Assignment History routes loaded');
 
+// Company Contacts Routes (customer lookup for quote builders)
+const companyContactsRoutes = require('./src/routes/company-contacts');
+app.use('/api', companyContactsRoutes);
+console.log('✓ Company Contacts routes loaded');
+
 // --- Admin Metrics Endpoint ---
 const apiTracker = require('./src/utils/api-tracker');
 
