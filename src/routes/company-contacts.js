@@ -401,6 +401,16 @@ router.post('/company-contacts/sync', express.json(), async (req, res) => {
     const orders = ordersResponse.data?.result || [];
     console.log(`Found ${orders.length} orders to process`);
 
+    // Pre-fetch Sales_Reps_2026 to get Account_Owner (account executive) for each customer
+    const salesReps2026 = await fetchAllCaspioPages('/tables/Sales_Reps_2026/records', {});
+    const salesRepsMap = new Map();
+    salesReps2026.forEach(r => {
+      if (r.ID_Customer && r.CustomerServiceRep) {
+        salesRepsMap.set(r.ID_Customer, r.CustomerServiceRep);
+      }
+    });
+    console.log(`Loaded ${salesRepsMap.size} account owner mappings from Sales_Reps_2026`);
+
     // Process each order - extract unique contacts by id_Customer
     const contactsToSync = new Map();
 
@@ -426,6 +436,7 @@ router.post('/company-contacts/sync', express.json(), async (req, res) => {
           ct_NameFull: [order.ContactFirstName, order.ContactLastName].filter(Boolean).join(' ') || '',
           ContactNumbersEmail: order.ContactEmail || '',
           CustomerCustomerServiceRep: order.CustomerServiceRepName || '',
+          Account_Owner: salesRepsMap.get(order.id_Customer) || '', // Account executive from Sales_Reps_2026
           Address: order.ShipAddress || '',
           City: order.ShipCity || '',
           State: order.ShipState || '',
@@ -472,7 +483,12 @@ router.post('/company-contacts/sync', express.json(), async (req, res) => {
             updates.NameLast = contactData.NameLast;
           }
 
-          // Check if company-wide fields changed (rep or company name)
+          // Update Account_Owner if we have one
+          if (contactData.Account_Owner) {
+            updates.Account_Owner = contactData.Account_Owner;
+          }
+
+          // Check if company-wide fields changed (rep, company name, or account owner)
           if (contactData.CustomerCustomerServiceRep &&
               existing.CustomerCustomerServiceRep !== contactData.CustomerCustomerServiceRep) {
             companyUpdates.set(existing.id_Customer, {
@@ -485,6 +501,13 @@ router.post('/company-contacts/sync', express.json(), async (req, res) => {
             companyUpdates.set(existing.id_Customer, {
               ...(companyUpdates.get(existing.id_Customer) || {}),
               CustomerCompanyName: contactData.CustomerCompanyName
+            });
+          }
+          if (contactData.Account_Owner &&
+              existing.Account_Owner !== contactData.Account_Owner) {
+            companyUpdates.set(existing.id_Customer, {
+              ...(companyUpdates.get(existing.id_Customer) || {}),
+              Account_Owner: contactData.Account_Owner
             });
           }
 
