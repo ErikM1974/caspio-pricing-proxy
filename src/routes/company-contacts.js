@@ -438,33 +438,54 @@ router.post('/company-contacts/sync', express.json(), async (req, res) => {
 
     console.log(`Processing ${contactsToSync.size} unique contacts`);
 
-    // Upsert each contact to Caspio
+    // Track which companies need company-wide updates (rep or company name changed)
+    const companyUpdates = new Map(); // id_Customer -> { CustomerCompanyName, CustomerCustomerServiceRep }
+
+    // Upsert each contact to Caspio (using EMAIL as unique key)
     for (const [key, contactData] of contactsToSync) {
       try {
-        // Check if contact exists by id_Customer
+        // Skip if no email - can't uniquely identify contact
+        if (!contactData.ContactNumbersEmail) {
+          console.log(`Skipping contact without email for customer ${contactData.id_Customer}`);
+          stats.contactsSkipped++;
+          continue;
+        }
+
+        // Check if contact exists by EMAIL (unique key)
         const existingRecords = await fetchAllCaspioPages('/tables/Company_Contacts_Merge_ODBC/records', {
-          'q.where': `id_Customer=${contactData.id_Customer}`
+          'q.where': `ContactNumbersEmail='${contactData.ContactNumbersEmail}'`
         }, { maxPages: 1 });
 
         if (existingRecords.length > 0) {
-          // Update existing contact - only update last ordered date and rep if newer
+          // Update existing contact - update last ordered date for THIS specific contact
           const existing = existingRecords[0];
           const updates = {
             Customerdate_LastOrdered: contactData.Customerdate_LastOrdered,
+            DateLastOrderEmail: contactData.Customerdate_LastOrdered,
             Customersts_Active: 1
           };
 
-          // Update other fields if they're empty in existing record
-          if (!existing.CustomerCompanyName && contactData.CustomerCompanyName) {
-            updates.CustomerCompanyName = contactData.CustomerCompanyName;
-          }
+          // Update name if empty in existing record
           if (!existing.ct_NameFull && contactData.ct_NameFull) {
             updates.ct_NameFull = contactData.ct_NameFull;
             updates.NameFirst = contactData.NameFirst;
             updates.NameLast = contactData.NameLast;
           }
-          if (!existing.ContactNumbersEmail && contactData.ContactNumbersEmail) {
-            updates.ContactNumbersEmail = contactData.ContactNumbersEmail;
+
+          // Check if company-wide fields changed (rep or company name)
+          if (contactData.CustomerCustomerServiceRep &&
+              existing.CustomerCustomerServiceRep !== contactData.CustomerCustomerServiceRep) {
+            companyUpdates.set(existing.id_Customer, {
+              ...(companyUpdates.get(existing.id_Customer) || {}),
+              CustomerCustomerServiceRep: contactData.CustomerCustomerServiceRep
+            });
+          }
+          if (contactData.CustomerCompanyName &&
+              existing.CustomerCompanyName !== contactData.CustomerCompanyName) {
+            companyUpdates.set(existing.id_Customer, {
+              ...(companyUpdates.get(existing.id_Customer) || {}),
+              CustomerCompanyName: contactData.CustomerCompanyName
+            });
           }
 
           await makeCaspioRequest('put', '/tables/Company_Contacts_Merge_ODBC/records',
@@ -473,21 +494,41 @@ router.post('/company-contacts/sync', express.json(), async (req, res) => {
           );
 
           stats.contactsUpdated++;
-          console.log(`Updated contact: ${contactData.CustomerCompanyName || contactData.ct_NameFull} (id_Customer: ${contactData.id_Customer})`);
+          console.log(`Updated contact: ${contactData.ContactNumbersEmail} (${contactData.ct_NameFull})`);
 
         } else {
           // Create new contact
           await makeCaspioRequest('post', '/tables/Company_Contacts_Merge_ODBC/records', {}, contactData);
           stats.contactsCreated++;
-          console.log(`Created contact: ${contactData.CustomerCompanyName || contactData.ct_NameFull} (id_Customer: ${contactData.id_Customer})`);
+          console.log(`Created contact: ${contactData.ContactNumbersEmail} (${contactData.ct_NameFull}) for customer ${contactData.id_Customer}`);
         }
 
       } catch (contactError) {
         stats.errors.push({
-          contact: contactData.CustomerCompanyName || contactData.id_Customer,
+          contact: contactData.ContactNumbersEmail || contactData.id_Customer,
           error: contactError.message
         });
-        console.error(`Error syncing contact ${contactData.id_Customer}:`, contactError.message);
+        console.error(`Error syncing contact ${contactData.ContactNumbersEmail}:`, contactError.message);
+      }
+    }
+
+    // Apply company-wide updates (rep or company name changes affect ALL contacts for that company)
+    stats.companyWideUpdates = 0;
+    for (const [customerId, updates] of companyUpdates) {
+      try {
+        console.log(`Applying company-wide update for id_Customer ${customerId}:`, updates);
+        await makeCaspioRequest('put', '/tables/Company_Contacts_Merge_ODBC/records',
+          { 'q.where': `id_Customer=${customerId}` },
+          updates
+        );
+        stats.companyWideUpdates++;
+        console.log(`Updated all contacts for company ${customerId} with:`, updates);
+      } catch (err) {
+        stats.errors.push({
+          contact: `Company ${customerId}`,
+          error: `Company-wide update failed: ${err.message}`
+        });
+        console.error(`Error updating company ${customerId}:`, err.message);
       }
     }
 
@@ -498,7 +539,7 @@ router.post('/company-contacts/sync', express.json(), async (req, res) => {
 
     res.json({
       success: true,
-      message: `Synced ${stats.contactsCreated + stats.contactsUpdated} contacts (${stats.contactsCreated} new, ${stats.contactsUpdated} updated)`,
+      message: `Synced ${stats.contactsCreated + stats.contactsUpdated} contacts (${stats.contactsCreated} new, ${stats.contactsUpdated} updated, ${stats.companyWideUpdates || 0} company-wide updates)`,
       stats
     });
 
