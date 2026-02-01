@@ -585,7 +585,8 @@ router.put('/service-codes/:id', async (req, res) => {
 
     try {
         console.log(`[Service Codes] Updating record PK_ID=${id}:`, updates);
-        await makeCaspioRequest('put', `/tables/Service_Codes/records/${id}`, {}, updates);
+        // Caspio REST API uses query params for targeting records to update
+        await makeCaspioRequest('put', '/tables/Service_Codes/records', { 'q.where': `PK_ID=${id}` }, updates);
 
         // Clear cache after updating
         serviceCodesCache.clear();
@@ -630,8 +631,9 @@ router.delete('/service-codes/:id', async (req, res) => {
     try {
         if (hard === 'true') {
             // Hard delete - actually remove from database
+            // Caspio REST API uses query params for targeting records to delete
             console.log(`[Service Codes] HARD DELETE record PK_ID=${id}`);
-            await makeCaspioRequest('delete', `/tables/Service_Codes/records/${id}`);
+            await makeCaspioRequest('delete', '/tables/Service_Codes/records', { 'q.where': `PK_ID=${id}` });
 
             serviceCodesCache.clear();
 
@@ -642,7 +644,7 @@ router.delete('/service-codes/:id', async (req, res) => {
         } else {
             // Soft delete - set IsActive = false
             console.log(`[Service Codes] Soft delete (deactivate) record PK_ID=${id}`);
-            await makeCaspioRequest('put', `/tables/Service_Codes/records/${id}`, {}, { IsActive: false });
+            await makeCaspioRequest('put', '/tables/Service_Codes/records', { 'q.where': `PK_ID=${id}` }, { IsActive: false });
 
             serviceCodesCache.clear();
 
