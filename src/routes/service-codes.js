@@ -282,11 +282,9 @@ const SERVICE_CODES_DATA = [
     { ServiceCode: 'AL', ServiceType: 'EMBROIDERY', DisplayName: 'Apparel Left Chest 48-71 pcs', Category: 'Apparel Left Chest', PricingMethod: 'TIERED', TierLabel: '48-71', UnitCost: 5.25, SellPrice: 10.50, PerUnit: 'each', QuoteBuilderField: 'leftChest', Position: 'LC', StitchBase: 8000, IsActive: true },
     { ServiceCode: 'AL', ServiceType: 'EMBROIDERY', DisplayName: 'Apparel Left Chest 72+ pcs', Category: 'Apparel Left Chest', PricingMethod: 'TIERED', TierLabel: '72+', UnitCost: 4.75, SellPrice: 9.50, PerUnit: 'each', QuoteBuilderField: 'leftChest', Position: 'LC', StitchBase: 8000, IsActive: true },
 
-    // Full Back (FB) - 4 tiers (prices TBD)
-    { ServiceCode: 'FB', ServiceType: 'EMBROIDERY', DisplayName: 'Full Back 1-11 pcs', Category: 'Full Back', PricingMethod: 'TIERED', TierLabel: '1-11', UnitCost: 0, SellPrice: 0, PerUnit: 'each', QuoteBuilderField: 'fullBack', Position: 'FB', StitchBase: 15000, IsActive: true },
-    { ServiceCode: 'FB', ServiceType: 'EMBROIDERY', DisplayName: 'Full Back 12-23 pcs', Category: 'Full Back', PricingMethod: 'TIERED', TierLabel: '12-23', UnitCost: 0, SellPrice: 0, PerUnit: 'each', QuoteBuilderField: 'fullBack', Position: 'FB', StitchBase: 15000, IsActive: true },
-    { ServiceCode: 'FB', ServiceType: 'EMBROIDERY', DisplayName: 'Full Back 24-47 pcs', Category: 'Full Back', PricingMethod: 'TIERED', TierLabel: '24-47', UnitCost: 0, SellPrice: 0, PerUnit: 'each', QuoteBuilderField: 'fullBack', Position: 'FB', StitchBase: 15000, IsActive: true },
-    { ServiceCode: 'FB', ServiceType: 'EMBROIDERY', DisplayName: 'Full Back 48+ pcs', Category: 'Full Back', PricingMethod: 'TIERED', TierLabel: '48+', UnitCost: 0, SellPrice: 0, PerUnit: 'each', QuoteBuilderField: 'fullBack', Position: 'FB', StitchBase: 15000, IsActive: true },
+    // Full Back (FB) - STITCH-BASED pricing (not tiered)
+    // ALL stitches charged at $1.25/1K, minimum 25K stitches = $31.25 minimum
+    { ServiceCode: 'FB', ServiceType: 'EMBROIDERY', DisplayName: 'Full Back (Stitch-Based)', Category: 'Full Back', PricingMethod: 'STITCH_BASED', TierLabel: 'ALL', UnitCost: 0.625, SellPrice: 1.25, PerUnit: 'per 1000 stitches', QuoteBuilderField: 'fullBack', Position: 'FB', StitchBase: 25000, IsActive: true },
 
     // Cap Back (CB) - 4 tiers
     { ServiceCode: 'CB', ServiceType: 'EMBROIDERY', DisplayName: 'Cap Back 1-23 pcs', Category: 'Cap Back', PricingMethod: 'TIERED', TierLabel: '1-23', UnitCost: 3.40, SellPrice: 6.75, PerUnit: 'each', QuoteBuilderField: 'capBack', Position: 'CB', StitchBase: 8000, IsActive: true },
@@ -402,6 +400,86 @@ router.post('/service-codes/seed', async (req, res) => {
         res.status(500).json({
             success: false,
             error: 'Seed operation failed',
+            details: error.message,
+            results
+        });
+    }
+});
+
+// POST /api/service-codes/update-fb
+// Updates the FB (Full Back) records in Caspio to use stitch-based pricing
+// Deletes old tiered FB records and inserts the new stitch-based record
+router.post('/service-codes/update-fb', async (req, res) => {
+    console.log('[Service Codes] Updating FB records to stitch-based pricing...');
+
+    const results = {
+        deleted: 0,
+        inserted: 0,
+        errors: []
+    };
+
+    try {
+        // 1. Fetch existing FB records
+        console.log('[Service Codes] Fetching existing FB records...');
+        const existingRecords = await fetchAllCaspioPages('/tables/Service_Codes/records', {
+            'q.where': "ServiceCode='FB'"
+        });
+        console.log(`[Service Codes] Found ${existingRecords.length} existing FB records`);
+
+        // 2. Delete old FB records (they have PK_ID field)
+        for (const record of existingRecords) {
+            if (record.PK_ID) {
+                try {
+                    await makeCaspioRequest('delete', `/tables/Service_Codes/records/${record.PK_ID}`);
+                    results.deleted++;
+                    console.log(`[Service Codes] Deleted FB record: PK_ID=${record.PK_ID}, TierLabel=${record.TierLabel}`);
+                } catch (err) {
+                    results.errors.push({ action: 'delete', id: record.PK_ID, error: err.message });
+                    console.error(`[Service Codes] Failed to delete FB record ${record.PK_ID}:`, err.message);
+                }
+            }
+        }
+
+        // 3. Insert the new stitch-based FB record
+        const newFBRecord = {
+            ServiceCode: 'FB',
+            ServiceType: 'EMBROIDERY',
+            DisplayName: 'Full Back (Stitch-Based)',
+            Category: 'Full Back',
+            PricingMethod: 'STITCH_BASED',
+            TierLabel: 'ALL',
+            UnitCost: 0.625,
+            SellPrice: 1.25,
+            PerUnit: 'per 1000 stitches',
+            QuoteBuilderField: 'fullBack',
+            Position: 'FB',
+            StitchBase: 25000,
+            IsActive: true
+        };
+
+        try {
+            await makeCaspioRequest('post', '/tables/Service_Codes/records', {}, newFBRecord);
+            results.inserted++;
+            console.log('[Service Codes] Inserted new stitch-based FB record');
+        } catch (err) {
+            results.errors.push({ action: 'insert', error: err.message });
+            console.error('[Service Codes] Failed to insert new FB record:', err.message);
+        }
+
+        // 4. Clear cache
+        serviceCodesCache.clear();
+
+        res.json({
+            success: results.inserted > 0,
+            message: `FB update complete: ${results.deleted} old records deleted, ${results.inserted} new record inserted`,
+            results,
+            newRecord: newFBRecord
+        });
+    } catch (error) {
+        console.error('[Service Codes] FB update failed:', error);
+        res.status(500).json({
+            success: false,
+            error: 'FB update failed',
             details: error.message,
             results
         });
