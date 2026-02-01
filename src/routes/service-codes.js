@@ -267,7 +267,13 @@ router.get('/service-codes/cache/clear', (req, res) => {
     });
 });
 
-// All 38 service codes data (used by seed and sync endpoints)
+// ============================================
+// SEED DATA - Initial database population
+// ============================================
+// NOTE: This is for initial seeding only. All pricing should be managed
+// via the database using the CRUD endpoints (POST, PUT, DELETE).
+// After seeding, changes should be made in Caspio directly or via API.
+// ============================================
 const SERVICE_CODES_DATA = [
     // Digitizing Services (5)
     { ServiceCode: 'DD', ServiceType: 'DIGITIZING', DisplayName: 'Digitizing (Legacy)', Category: 'Digitizing', PricingMethod: 'FLAT', TierLabel: '', UnitCost: 0, SellPrice: 0, PerUnit: 'per order', QuoteBuilderField: 'digitizing', Position: '', StitchBase: 0, IsActive: true },
@@ -319,7 +325,13 @@ const SERVICE_CODES_DATA = [
     { ServiceCode: 'GRT-75', ServiceType: 'FEE', DisplayName: 'Design Prep Fee', Category: 'Fees', PricingMethod: 'FLAT', TierLabel: '', UnitCost: 37.50, SellPrice: 75.00, PerUnit: 'per hour', QuoteBuilderField: 'designPrepFee', Position: '', StitchBase: 0, IsActive: true },
     { ServiceCode: 'RUSH', ServiceType: 'RUSH', DisplayName: 'Rush Order Fee', Category: 'Fees', PricingMethod: 'FLAT', TierLabel: '', UnitCost: 0, SellPrice: 50.00, PerUnit: 'per order', QuoteBuilderField: 'rushFee', Position: '', StitchBase: 0, IsActive: true },
     { ServiceCode: 'LTM', ServiceType: 'FEE', DisplayName: 'Less Than Minimum Fee', Category: 'Fees', PricingMethod: 'FLAT', TierLabel: '', UnitCost: 25.00, SellPrice: 50.00, PerUnit: 'per order', QuoteBuilderField: 'ltmFee', Position: '', StitchBase: 0, IsActive: true },
-    { ServiceCode: 'ART', ServiceType: 'FEE', DisplayName: 'Art Charge', Category: 'Fees', PricingMethod: 'FLAT', TierLabel: '', UnitCost: 0, SellPrice: 0, PerUnit: 'varies', QuoteBuilderField: 'artCharge', Position: '', StitchBase: 0, IsActive: true }
+    { ServiceCode: 'ART', ServiceType: 'FEE', DisplayName: 'Art Charge', Category: 'Fees', PricingMethod: 'FLAT', TierLabel: '', UnitCost: 0, SellPrice: 0, PerUnit: 'varies', QuoteBuilderField: 'artCharge', Position: '', StitchBase: 0, IsActive: true },
+
+    // Configuration values (used by pricing calculator - fetch from API instead of hardcoding)
+    { ServiceCode: 'STITCH-RATE', ServiceType: 'CONFIG', DisplayName: 'Garment Stitch Rate', Category: 'Config', PricingMethod: 'CONFIG', TierLabel: '', UnitCost: 0.625, SellPrice: 1.25, PerUnit: 'per 1000 stitches', QuoteBuilderField: 'additionalStitchRate', Position: '', StitchBase: 8000, IsActive: true },
+    { ServiceCode: 'CAP-STITCH-RATE', ServiceType: 'CONFIG', DisplayName: 'Cap Stitch Rate', Category: 'Config', PricingMethod: 'CONFIG', TierLabel: '', UnitCost: 0.50, SellPrice: 1.00, PerUnit: 'per 1000 stitches', QuoteBuilderField: 'capAdditionalStitchRate', Position: '', StitchBase: 5000, IsActive: true },
+    { ServiceCode: 'PUFF-UPCHARGE', ServiceType: 'CONFIG', DisplayName: '3D Puff Upcharge', Category: 'Config', PricingMethod: 'CONFIG', TierLabel: '', UnitCost: 2.50, SellPrice: 5.00, PerUnit: 'per cap', QuoteBuilderField: 'puffUpchargePerCap', Position: '', StitchBase: 0, IsActive: true },
+    { ServiceCode: 'PATCH-UPCHARGE', ServiceType: 'CONFIG', DisplayName: 'Laser Patch Upcharge', Category: 'Config', PricingMethod: 'CONFIG', TierLabel: '', UnitCost: 2.50, SellPrice: 5.00, PerUnit: 'per cap', QuoteBuilderField: 'patchUpchargePerCap', Position: '', StitchBase: 0, IsActive: true }
 ];
 
 /**
@@ -482,6 +494,224 @@ router.post('/service-codes/update-fb', async (req, res) => {
             error: 'FB update failed',
             details: error.message,
             results
+        });
+    }
+});
+
+// ============================================
+// CRUD OPERATIONS - Full database management
+// ============================================
+
+// POST /api/service-codes (Create single record)
+// Creates a new service code in the database
+router.post('/service-codes', async (req, res) => {
+    const record = req.body;
+
+    // Validate required fields
+    if (!record.ServiceCode) {
+        return res.status(400).json({
+            success: false,
+            error: 'ServiceCode is required'
+        });
+    }
+    if (!record.ServiceType) {
+        return res.status(400).json({
+            success: false,
+            error: 'ServiceType is required'
+        });
+    }
+
+    // Set defaults for optional fields
+    const newRecord = {
+        ServiceCode: record.ServiceCode,
+        ServiceType: record.ServiceType,
+        DisplayName: record.DisplayName || record.ServiceCode,
+        Category: record.Category || 'Other',
+        PricingMethod: record.PricingMethod || 'FLAT',
+        TierLabel: record.TierLabel || '',
+        UnitCost: record.UnitCost || 0,
+        SellPrice: record.SellPrice || 0,
+        PerUnit: record.PerUnit || 'each',
+        QuoteBuilderField: record.QuoteBuilderField || '',
+        Position: record.Position || '',
+        StitchBase: record.StitchBase || 0,
+        IsActive: record.IsActive !== false // Default to true
+    };
+
+    try {
+        console.log(`[Service Codes] Creating new record: ${newRecord.ServiceCode}`);
+        const result = await makeCaspioRequest('post', '/tables/Service_Codes/records', {}, newRecord);
+
+        // Clear cache after creating
+        serviceCodesCache.clear();
+
+        res.status(201).json({
+            success: true,
+            message: `Service code '${newRecord.ServiceCode}' created successfully`,
+            data: { ...newRecord, PK_ID: result.PK_ID }
+        });
+    } catch (error) {
+        console.error('[Service Codes] Create failed:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to create service code',
+            details: error.message
+        });
+    }
+});
+
+// PUT /api/service-codes/:id (Update record by PK_ID)
+// Updates an existing service code
+router.put('/service-codes/:id', async (req, res) => {
+    const { id } = req.params;
+    const updates = req.body;
+
+    if (!id || isNaN(parseInt(id))) {
+        return res.status(400).json({
+            success: false,
+            error: 'Valid numeric ID (PK_ID) is required'
+        });
+    }
+
+    // Remove PK_ID from updates if present (can't update primary key)
+    delete updates.PK_ID;
+
+    if (Object.keys(updates).length === 0) {
+        return res.status(400).json({
+            success: false,
+            error: 'No fields to update'
+        });
+    }
+
+    try {
+        console.log(`[Service Codes] Updating record PK_ID=${id}:`, updates);
+        await makeCaspioRequest('put', `/tables/Service_Codes/records/${id}`, {}, updates);
+
+        // Clear cache after updating
+        serviceCodesCache.clear();
+
+        res.json({
+            success: true,
+            message: `Service code PK_ID=${id} updated successfully`,
+            updatedFields: Object.keys(updates)
+        });
+    } catch (error) {
+        console.error(`[Service Codes] Update failed for PK_ID=${id}:`, error);
+
+        // Check if it's a 404 (record not found)
+        if (error.message && error.message.includes('404')) {
+            return res.status(404).json({
+                success: false,
+                error: `Service code with PK_ID=${id} not found`
+            });
+        }
+
+        res.status(500).json({
+            success: false,
+            error: 'Failed to update service code',
+            details: error.message
+        });
+    }
+});
+
+// DELETE /api/service-codes/:id (Soft delete by PK_ID)
+// Sets IsActive = false instead of hard delete (preserves history)
+router.delete('/service-codes/:id', async (req, res) => {
+    const { id } = req.params;
+    const { hard } = req.query; // ?hard=true for actual deletion
+
+    if (!id || isNaN(parseInt(id))) {
+        return res.status(400).json({
+            success: false,
+            error: 'Valid numeric ID (PK_ID) is required'
+        });
+    }
+
+    try {
+        if (hard === 'true') {
+            // Hard delete - actually remove from database
+            console.log(`[Service Codes] HARD DELETE record PK_ID=${id}`);
+            await makeCaspioRequest('delete', `/tables/Service_Codes/records/${id}`);
+
+            serviceCodesCache.clear();
+
+            res.json({
+                success: true,
+                message: `Service code PK_ID=${id} permanently deleted`
+            });
+        } else {
+            // Soft delete - set IsActive = false
+            console.log(`[Service Codes] Soft delete (deactivate) record PK_ID=${id}`);
+            await makeCaspioRequest('put', `/tables/Service_Codes/records/${id}`, {}, { IsActive: false });
+
+            serviceCodesCache.clear();
+
+            res.json({
+                success: true,
+                message: `Service code PK_ID=${id} deactivated (soft delete)`,
+                note: 'Use ?hard=true to permanently delete'
+            });
+        }
+    } catch (error) {
+        console.error(`[Service Codes] Delete failed for PK_ID=${id}:`, error);
+
+        if (error.message && error.message.includes('404')) {
+            return res.status(404).json({
+                success: false,
+                error: `Service code with PK_ID=${id} not found`
+            });
+        }
+
+        res.status(500).json({
+            success: false,
+            error: 'Failed to delete service code',
+            details: error.message
+        });
+    }
+});
+
+// GET /api/service-codes/:id (Get single record by PK_ID)
+// Fetch a specific service code by its primary key
+router.get('/service-codes/:id', async (req, res) => {
+    const { id } = req.params;
+
+    // Skip if id matches other routes
+    if (['aliases', 'cache', 'tier'].includes(id)) {
+        return res.status(400).json({
+            success: false,
+            error: 'Invalid ID format'
+        });
+    }
+
+    if (!id || isNaN(parseInt(id))) {
+        return res.status(400).json({
+            success: false,
+            error: 'Valid numeric ID (PK_ID) is required'
+        });
+    }
+
+    try {
+        const records = await fetchAllCaspioPages('/tables/Service_Codes/records', {
+            'q.where': `PK_ID=${id}`
+        });
+
+        if (records.length === 0) {
+            return res.status(404).json({
+                success: false,
+                error: `Service code with PK_ID=${id} not found`
+            });
+        }
+
+        res.json({
+            success: true,
+            data: records[0]
+        });
+    } catch (error) {
+        console.error(`[Service Codes] Get by ID failed for PK_ID=${id}:`, error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to fetch service code',
+            details: error.message
         });
     }
 });
