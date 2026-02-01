@@ -6,7 +6,7 @@
 
 const express = require('express');
 const router = express.Router();
-const { fetchAllCaspioPages } = require('../utils/caspio');
+const { fetchAllCaspioPages, makeCaspioRequest } = require('../utils/caspio');
 
 // Cache (5 min TTL - service codes don't change frequently)
 const serviceCodesCache = new Map();
@@ -265,6 +265,111 @@ router.get('/service-codes/cache/clear', (req, res) => {
         success: true,
         message: 'Service codes cache cleared'
     });
+});
+
+// POST /api/service-codes/seed
+// Seeds the Caspio Service_Codes table with initial data
+// WARNING: Only run once! This will create duplicate records if run multiple times.
+router.post('/service-codes/seed', async (req, res) => {
+    console.log('[Service Codes] Starting seed operation...');
+
+    // All 38 service codes to insert
+    const SERVICE_CODES_DATA = [
+        // Digitizing Services (5)
+        { ServiceCode: 'DD', ServiceType: 'DIGITIZING', DisplayName: 'Digitizing (Legacy)', Category: 'Digitizing', PricingMethod: 'FLAT', TierLabel: '', UnitCost: 0, SellPrice: 0, PerUnit: 'per order', QuoteBuilderField: 'digitizing', Position: '', StitchBase: 0, IsActive: true },
+        { ServiceCode: 'DGT-001', ServiceType: 'DIGITIZING', DisplayName: 'Small Design (<5K stitches)', Category: 'Digitizing', PricingMethod: 'FLAT', TierLabel: '', UnitCost: 25, SellPrice: 50, PerUnit: 'per design', QuoteBuilderField: 'digitizing', Position: '', StitchBase: 5000, IsActive: true },
+        { ServiceCode: 'DGT-002', ServiceType: 'DIGITIZING', DisplayName: 'Medium Design (5K-10K stitches)', Category: 'Digitizing', PricingMethod: 'FLAT', TierLabel: '', UnitCost: 35, SellPrice: 75, PerUnit: 'per design', QuoteBuilderField: 'digitizing', Position: '', StitchBase: 10000, IsActive: true },
+        { ServiceCode: 'DGT-003', ServiceType: 'DIGITIZING', DisplayName: 'Large Design (10K-15K stitches)', Category: 'Digitizing', PricingMethod: 'FLAT', TierLabel: '', UnitCost: 50, SellPrice: 100, PerUnit: 'per design', QuoteBuilderField: 'digitizing', Position: '', StitchBase: 15000, IsActive: true },
+        { ServiceCode: 'DGT-004', ServiceType: 'DIGITIZING', DisplayName: 'Extra Large Design (15K+ stitches)', Category: 'Digitizing', PricingMethod: 'FLAT', TierLabel: '', UnitCost: 75, SellPrice: 150, PerUnit: 'per design', QuoteBuilderField: 'digitizing', Position: '', StitchBase: 20000, IsActive: true },
+
+        // Apparel Left Chest (AL) - 4 tiers
+        { ServiceCode: 'AL', ServiceType: 'EMBROIDERY', DisplayName: 'Apparel Left Chest 1-23 pcs', Category: 'Apparel Left Chest', PricingMethod: 'TIERED', TierLabel: '1-23', UnitCost: 6.75, SellPrice: 13.50, PerUnit: 'each', QuoteBuilderField: 'leftChest', Position: 'LC', StitchBase: 8000, IsActive: true },
+        { ServiceCode: 'AL', ServiceType: 'EMBROIDERY', DisplayName: 'Apparel Left Chest 24-47 pcs', Category: 'Apparel Left Chest', PricingMethod: 'TIERED', TierLabel: '24-47', UnitCost: 6.25, SellPrice: 12.50, PerUnit: 'each', QuoteBuilderField: 'leftChest', Position: 'LC', StitchBase: 8000, IsActive: true },
+        { ServiceCode: 'AL', ServiceType: 'EMBROIDERY', DisplayName: 'Apparel Left Chest 48-71 pcs', Category: 'Apparel Left Chest', PricingMethod: 'TIERED', TierLabel: '48-71', UnitCost: 5.25, SellPrice: 10.50, PerUnit: 'each', QuoteBuilderField: 'leftChest', Position: 'LC', StitchBase: 8000, IsActive: true },
+        { ServiceCode: 'AL', ServiceType: 'EMBROIDERY', DisplayName: 'Apparel Left Chest 72+ pcs', Category: 'Apparel Left Chest', PricingMethod: 'TIERED', TierLabel: '72+', UnitCost: 4.75, SellPrice: 9.50, PerUnit: 'each', QuoteBuilderField: 'leftChest', Position: 'LC', StitchBase: 8000, IsActive: true },
+
+        // Full Back (FB) - 4 tiers (prices TBD)
+        { ServiceCode: 'FB', ServiceType: 'EMBROIDERY', DisplayName: 'Full Back 1-11 pcs', Category: 'Full Back', PricingMethod: 'TIERED', TierLabel: '1-11', UnitCost: 0, SellPrice: 0, PerUnit: 'each', QuoteBuilderField: 'fullBack', Position: 'FB', StitchBase: 15000, IsActive: true },
+        { ServiceCode: 'FB', ServiceType: 'EMBROIDERY', DisplayName: 'Full Back 12-23 pcs', Category: 'Full Back', PricingMethod: 'TIERED', TierLabel: '12-23', UnitCost: 0, SellPrice: 0, PerUnit: 'each', QuoteBuilderField: 'fullBack', Position: 'FB', StitchBase: 15000, IsActive: true },
+        { ServiceCode: 'FB', ServiceType: 'EMBROIDERY', DisplayName: 'Full Back 24-47 pcs', Category: 'Full Back', PricingMethod: 'TIERED', TierLabel: '24-47', UnitCost: 0, SellPrice: 0, PerUnit: 'each', QuoteBuilderField: 'fullBack', Position: 'FB', StitchBase: 15000, IsActive: true },
+        { ServiceCode: 'FB', ServiceType: 'EMBROIDERY', DisplayName: 'Full Back 48+ pcs', Category: 'Full Back', PricingMethod: 'TIERED', TierLabel: '48+', UnitCost: 0, SellPrice: 0, PerUnit: 'each', QuoteBuilderField: 'fullBack', Position: 'FB', StitchBase: 15000, IsActive: true },
+
+        // Cap Back (CB) - 4 tiers
+        { ServiceCode: 'CB', ServiceType: 'EMBROIDERY', DisplayName: 'Cap Back 1-23 pcs', Category: 'Cap Back', PricingMethod: 'TIERED', TierLabel: '1-23', UnitCost: 3.40, SellPrice: 6.75, PerUnit: 'each', QuoteBuilderField: 'capBack', Position: 'CB', StitchBase: 8000, IsActive: true },
+        { ServiceCode: 'CB', ServiceType: 'EMBROIDERY', DisplayName: 'Cap Back 24-47 pcs', Category: 'Cap Back', PricingMethod: 'TIERED', TierLabel: '24-47', UnitCost: 2.90, SellPrice: 5.75, PerUnit: 'each', QuoteBuilderField: 'capBack', Position: 'CB', StitchBase: 8000, IsActive: true },
+        { ServiceCode: 'CB', ServiceType: 'EMBROIDERY', DisplayName: 'Cap Back 48-71 pcs', Category: 'Cap Back', PricingMethod: 'TIERED', TierLabel: '48-71', UnitCost: 2.75, SellPrice: 5.50, PerUnit: 'each', QuoteBuilderField: 'capBack', Position: 'CB', StitchBase: 8000, IsActive: true },
+        { ServiceCode: 'CB', ServiceType: 'EMBROIDERY', DisplayName: 'Cap Back 72+ pcs', Category: 'Cap Back', PricingMethod: 'TIERED', TierLabel: '72+', UnitCost: 2.65, SellPrice: 5.25, PerUnit: 'each', QuoteBuilderField: 'capBack', Position: 'CB', StitchBase: 8000, IsActive: true },
+
+        // Monogram/Name (2)
+        { ServiceCode: 'Monogram', ServiceType: 'EMBROIDERY', DisplayName: 'Monogram (3 letters)', Category: 'Special', PricingMethod: 'FLAT', TierLabel: '', UnitCost: 6.25, SellPrice: 12.50, PerUnit: 'each', QuoteBuilderField: 'monogram', Position: 'OTHER', StitchBase: 2000, IsActive: true },
+        { ServiceCode: 'Name', ServiceType: 'EMBROIDERY', DisplayName: 'Name Personalization', Category: 'Special', PricingMethod: 'FLAT', TierLabel: '', UnitCost: 6.25, SellPrice: 12.50, PerUnit: 'each', QuoteBuilderField: 'name', Position: 'OTHER', StitchBase: 3500, IsActive: true },
+
+        // DECG (Customer-Supplied Garments) - 7 tiers
+        { ServiceCode: 'DECG', ServiceType: 'DECORATION', DisplayName: 'Garment Decoration 1-2 pcs', Category: 'Decoration Garments', PricingMethod: 'TIERED', TierLabel: '1-2', UnitCost: 22.50, SellPrice: 45.00, PerUnit: 'each', QuoteBuilderField: 'decorationGarment', Position: 'FULL', StitchBase: 10000, IsActive: true },
+        { ServiceCode: 'DECG', ServiceType: 'DECORATION', DisplayName: 'Garment Decoration 3-5 pcs', Category: 'Decoration Garments', PricingMethod: 'TIERED', TierLabel: '3-5', UnitCost: 20.00, SellPrice: 40.00, PerUnit: 'each', QuoteBuilderField: 'decorationGarment', Position: 'FULL', StitchBase: 10000, IsActive: true },
+        { ServiceCode: 'DECG', ServiceType: 'DECORATION', DisplayName: 'Garment Decoration 6-11 pcs', Category: 'Decoration Garments', PricingMethod: 'TIERED', TierLabel: '6-11', UnitCost: 19.00, SellPrice: 38.00, PerUnit: 'each', QuoteBuilderField: 'decorationGarment', Position: 'FULL', StitchBase: 10000, IsActive: true },
+        { ServiceCode: 'DECG', ServiceType: 'DECORATION', DisplayName: 'Garment Decoration 12-23 pcs', Category: 'Decoration Garments', PricingMethod: 'TIERED', TierLabel: '12-23', UnitCost: 16.00, SellPrice: 32.00, PerUnit: 'each', QuoteBuilderField: 'decorationGarment', Position: 'FULL', StitchBase: 10000, IsActive: true },
+        { ServiceCode: 'DECG', ServiceType: 'DECORATION', DisplayName: 'Garment Decoration 24-71 pcs', Category: 'Decoration Garments', PricingMethod: 'TIERED', TierLabel: '24-71', UnitCost: 15.00, SellPrice: 30.00, PerUnit: 'each', QuoteBuilderField: 'decorationGarment', Position: 'FULL', StitchBase: 10000, IsActive: true },
+        { ServiceCode: 'DECG', ServiceType: 'DECORATION', DisplayName: 'Garment Decoration 72-143 pcs', Category: 'Decoration Garments', PricingMethod: 'TIERED', TierLabel: '72-143', UnitCost: 12.50, SellPrice: 25.00, PerUnit: 'each', QuoteBuilderField: 'decorationGarment', Position: 'FULL', StitchBase: 10000, IsActive: true },
+        { ServiceCode: 'DECG', ServiceType: 'DECORATION', DisplayName: 'Garment Decoration 144+ pcs', Category: 'Decoration Garments', PricingMethod: 'TIERED', TierLabel: '144+', UnitCost: 7.50, SellPrice: 15.00, PerUnit: 'each', QuoteBuilderField: 'decorationGarment', Position: 'FULL', StitchBase: 10000, IsActive: true },
+
+        // DECC (Customer-Supplied Caps) - 7 tiers
+        { ServiceCode: 'DECC', ServiceType: 'DECORATION', DisplayName: 'Cap Decoration 1-2 pcs', Category: 'Decoration Caps', PricingMethod: 'TIERED', TierLabel: '1-2', UnitCost: 18.00, SellPrice: 36.00, PerUnit: 'each', QuoteBuilderField: 'decorationCap', Position: 'CAP', StitchBase: 8000, IsActive: true },
+        { ServiceCode: 'DECC', ServiceType: 'DECORATION', DisplayName: 'Cap Decoration 3-5 pcs', Category: 'Decoration Caps', PricingMethod: 'TIERED', TierLabel: '3-5', UnitCost: 16.00, SellPrice: 32.00, PerUnit: 'each', QuoteBuilderField: 'decorationCap', Position: 'CAP', StitchBase: 8000, IsActive: true },
+        { ServiceCode: 'DECC', ServiceType: 'DECORATION', DisplayName: 'Cap Decoration 6-11 pcs', Category: 'Decoration Caps', PricingMethod: 'TIERED', TierLabel: '6-11', UnitCost: 15.00, SellPrice: 30.00, PerUnit: 'each', QuoteBuilderField: 'decorationCap', Position: 'CAP', StitchBase: 8000, IsActive: true },
+        { ServiceCode: 'DECC', ServiceType: 'DECORATION', DisplayName: 'Cap Decoration 12-23 pcs', Category: 'Decoration Caps', PricingMethod: 'TIERED', TierLabel: '12-23', UnitCost: 12.50, SellPrice: 25.00, PerUnit: 'each', QuoteBuilderField: 'decorationCap', Position: 'CAP', StitchBase: 8000, IsActive: true },
+        { ServiceCode: 'DECC', ServiceType: 'DECORATION', DisplayName: 'Cap Decoration 24-71 pcs', Category: 'Decoration Caps', PricingMethod: 'TIERED', TierLabel: '24-71', UnitCost: 12.00, SellPrice: 24.00, PerUnit: 'each', QuoteBuilderField: 'decorationCap', Position: 'CAP', StitchBase: 8000, IsActive: true },
+        { ServiceCode: 'DECC', ServiceType: 'DECORATION', DisplayName: 'Cap Decoration 72-143 pcs', Category: 'Decoration Caps', PricingMethod: 'TIERED', TierLabel: '72-143', UnitCost: 10.00, SellPrice: 20.00, PerUnit: 'each', QuoteBuilderField: 'decorationCap', Position: 'CAP', StitchBase: 8000, IsActive: true },
+        { ServiceCode: 'DECC', ServiceType: 'DECORATION', DisplayName: 'Cap Decoration 144+ pcs', Category: 'Decoration Caps', PricingMethod: 'TIERED', TierLabel: '144+', UnitCost: 6.00, SellPrice: 12.00, PerUnit: 'each', QuoteBuilderField: 'decorationCap', Position: 'CAP', StitchBase: 8000, IsActive: true },
+
+        // Fees (5)
+        { ServiceCode: 'GRT-50', ServiceType: 'FEE', DisplayName: 'Setup Fee (Standard)', Category: 'Fees', PricingMethod: 'FLAT', TierLabel: '', UnitCost: 25.00, SellPrice: 50.00, PerUnit: 'per order', QuoteBuilderField: 'setupFee', Position: '', StitchBase: 0, IsActive: true },
+        { ServiceCode: 'GRT-75', ServiceType: 'FEE', DisplayName: 'Design Prep Fee', Category: 'Fees', PricingMethod: 'FLAT', TierLabel: '', UnitCost: 37.50, SellPrice: 75.00, PerUnit: 'per hour', QuoteBuilderField: 'designPrepFee', Position: '', StitchBase: 0, IsActive: true },
+        { ServiceCode: 'RUSH', ServiceType: 'RUSH', DisplayName: 'Rush Order Fee', Category: 'Fees', PricingMethod: 'FLAT', TierLabel: '', UnitCost: 0, SellPrice: 50.00, PerUnit: 'per order', QuoteBuilderField: 'rushFee', Position: '', StitchBase: 0, IsActive: true },
+        { ServiceCode: 'LTM', ServiceType: 'FEE', DisplayName: 'Less Than Minimum Fee', Category: 'Fees', PricingMethod: 'FLAT', TierLabel: '', UnitCost: 25.00, SellPrice: 50.00, PerUnit: 'per order', QuoteBuilderField: 'ltmFee', Position: '', StitchBase: 0, IsActive: true },
+        { ServiceCode: 'ART', ServiceType: 'FEE', DisplayName: 'Art Charge', Category: 'Fees', PricingMethod: 'FLAT', TierLabel: '', UnitCost: 0, SellPrice: 0, PerUnit: 'varies', QuoteBuilderField: 'artCharge', Position: '', StitchBase: 0, IsActive: true }
+    ];
+
+    const results = {
+        success: 0,
+        failed: 0,
+        errors: []
+    };
+
+    try {
+        for (const record of SERVICE_CODES_DATA) {
+            try {
+                await makeCaspioRequest('post', '/tables/Service_Codes/records', {}, record);
+                results.success++;
+                console.log(`[Service Codes] Inserted: ${record.ServiceCode} - ${record.TierLabel || 'FLAT'}`);
+            } catch (err) {
+                results.failed++;
+                results.errors.push({
+                    code: record.ServiceCode,
+                    tier: record.TierLabel,
+                    error: err.message
+                });
+                console.error(`[Service Codes] Failed to insert ${record.ServiceCode}:`, err.message);
+            }
+        }
+
+        // Clear cache after seeding
+        serviceCodesCache.clear();
+
+        res.json({
+            success: true,
+            message: `Seeded ${results.success} records, ${results.failed} failed`,
+            results
+        });
+    } catch (error) {
+        console.error('[Service Codes] Seed operation failed:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Seed operation failed',
+            details: error.message,
+            results
+        });
+    }
 });
 
 module.exports = router;
