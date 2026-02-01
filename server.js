@@ -463,6 +463,11 @@ const companyContactsRoutes = require('./src/routes/company-contacts');
 app.use('/api', companyContactsRoutes);
 console.log('✓ Company Contacts routes loaded');
 
+// Service Codes Routes (embroidery service codes, pricing tiers, fee structures)
+const serviceCodesRoutes = require('./src/routes/service-codes');
+app.use('/api', serviceCodesRoutes);
+console.log('✓ Service Codes routes loaded');
+
 // --- Admin Metrics Endpoint ---
 const apiTracker = require('./src/utils/api-tracker');
 
