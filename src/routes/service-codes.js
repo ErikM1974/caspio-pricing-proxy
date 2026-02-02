@@ -13,17 +13,20 @@ const serviceCodesCache = new Map();
 const CACHE_TTL = 5 * 60 * 1000;
 
 // Service code aliases for typo handling (kept in code per Erik's decision)
+// Must stay in sync with shared_components/js/shopworks-import-parser.js
 const SERVICE_CODE_ALIASES = {
     'AONOGRAM': 'Monogram',
     'NNAME': 'Name',
     'NNAMES': 'Name',
-    'NAMES': 'Name',
-    'EJB': 'FB',           // Embroidered Jacket Back → Full Back
-    'FLAG': 'AL',          // Legacy code
+    'NAMES': 'Monogram',       // Plural "names" = monogramming
+    'EJB': 'FB',               // Embroidered Jacket Back → Full Back
+    'FLAG': 'AL',              // Legacy code
     'SETUP': 'GRT-50',
-    'SETUP FEE': 'GRT-50',
+    'SETUP FEE': 'DD',         // Maps to digitizing setup
     'DESIGN PREP': 'GRT-75',
-    'EXCESS STITCH': 'ART'
+    'EXCESS STITCH': 'AS-GARM', // Additional stitches (garment)
+    'SECC': 'DECC',            // Typo for DECC (customer-supplied caps)
+    'SEW': 'SEG'               // Alias Sew → SEG (sewing)
 };
 
 /**
@@ -275,12 +278,8 @@ router.get('/service-codes/cache/clear', (req, res) => {
 // After seeding, changes should be made in Caspio directly or via API.
 // ============================================
 const SERVICE_CODES_DATA = [
-    // Digitizing Services (5)
-    { ServiceCode: 'DD', ServiceType: 'DIGITIZING', DisplayName: 'Digitizing (Legacy)', Category: 'Digitizing', PricingMethod: 'FLAT', TierLabel: '', UnitCost: 0, SellPrice: 0, PerUnit: 'per order', QuoteBuilderField: 'digitizing', Position: '', StitchBase: 0, IsActive: true },
-    { ServiceCode: 'DGT-001', ServiceType: 'DIGITIZING', DisplayName: 'Small Design (<5K stitches)', Category: 'Digitizing', PricingMethod: 'FLAT', TierLabel: '', UnitCost: 25, SellPrice: 50, PerUnit: 'per design', QuoteBuilderField: 'digitizing', Position: '', StitchBase: 5000, IsActive: true },
-    { ServiceCode: 'DGT-002', ServiceType: 'DIGITIZING', DisplayName: 'Medium Design (5K-10K stitches)', Category: 'Digitizing', PricingMethod: 'FLAT', TierLabel: '', UnitCost: 35, SellPrice: 75, PerUnit: 'per design', QuoteBuilderField: 'digitizing', Position: '', StitchBase: 10000, IsActive: true },
-    { ServiceCode: 'DGT-003', ServiceType: 'DIGITIZING', DisplayName: 'Large Design (10K-15K stitches)', Category: 'Digitizing', PricingMethod: 'FLAT', TierLabel: '', UnitCost: 50, SellPrice: 100, PerUnit: 'per design', QuoteBuilderField: 'digitizing', Position: '', StitchBase: 15000, IsActive: true },
-    { ServiceCode: 'DGT-004', ServiceType: 'DIGITIZING', DisplayName: 'Extra Large Design (15K+ stitches)', Category: 'Digitizing', PricingMethod: 'FLAT', TierLabel: '', UnitCost: 75, SellPrice: 150, PerUnit: 'per design', QuoteBuilderField: 'digitizing', Position: '', StitchBase: 20000, IsActive: true },
+    // Digitizing (1 record - flat fee, handled manually per order)
+    { ServiceCode: 'DD', ServiceType: 'DIGITIZING', DisplayName: 'Digitizing', Category: 'Digitizing', PricingMethod: 'FLAT', TierLabel: '', UnitCost: 0, SellPrice: 0, PerUnit: 'per order', QuoteBuilderField: 'digitizing', Position: '', StitchBase: 0, IsActive: true },
 
     // Apparel Left Chest (AL) - 4 tiers
     { ServiceCode: 'AL', ServiceType: 'EMBROIDERY', DisplayName: 'Apparel Left Chest 1-23 pcs', Category: 'Apparel Left Chest', PricingMethod: 'TIERED', TierLabel: '1-23', UnitCost: 6.75, SellPrice: 13.50, PerUnit: 'each', QuoteBuilderField: 'leftChest', Position: 'LC', StitchBase: 8000, IsActive: true },
@@ -331,7 +330,12 @@ const SERVICE_CODES_DATA = [
     { ServiceCode: 'STITCH-RATE', ServiceType: 'CONFIG', DisplayName: 'Garment Stitch Rate', Category: 'Config', PricingMethod: 'CONFIG', TierLabel: '', UnitCost: 0.625, SellPrice: 1.25, PerUnit: 'per 1000 stitches', QuoteBuilderField: 'additionalStitchRate', Position: '', StitchBase: 8000, IsActive: true },
     { ServiceCode: 'CAP-STITCH-RATE', ServiceType: 'CONFIG', DisplayName: 'Cap Stitch Rate', Category: 'Config', PricingMethod: 'CONFIG', TierLabel: '', UnitCost: 0.50, SellPrice: 1.00, PerUnit: 'per 1000 stitches', QuoteBuilderField: 'capAdditionalStitchRate', Position: '', StitchBase: 5000, IsActive: true },
     { ServiceCode: 'PUFF-UPCHARGE', ServiceType: 'CONFIG', DisplayName: '3D Puff Upcharge', Category: 'Config', PricingMethod: 'CONFIG', TierLabel: '', UnitCost: 2.50, SellPrice: 5.00, PerUnit: 'per cap', QuoteBuilderField: 'puffUpchargePerCap', Position: '', StitchBase: 0, IsActive: true },
-    { ServiceCode: 'PATCH-UPCHARGE', ServiceType: 'CONFIG', DisplayName: 'Laser Patch Upcharge', Category: 'Config', PricingMethod: 'CONFIG', TierLabel: '', UnitCost: 2.50, SellPrice: 5.00, PerUnit: 'per cap', QuoteBuilderField: 'patchUpchargePerCap', Position: '', StitchBase: 0, IsActive: true }
+    { ServiceCode: 'PATCH-UPCHARGE', ServiceType: 'CONFIG', DisplayName: 'Laser Patch Upcharge', Category: 'Config', PricingMethod: 'CONFIG', TierLabel: '', UnitCost: 2.50, SellPrice: 5.00, PerUnit: 'per cap', QuoteBuilderField: 'patchUpchargePerCap', Position: '', StitchBase: 0, IsActive: true },
+
+    // Additional service codes (added 2026-02-01 pricing audit)
+    { ServiceCode: 'SEG', ServiceType: 'FEE', DisplayName: 'Sew Emblems to Garments', Category: 'Fees', PricingMethod: 'FLAT', TierLabel: '', UnitCost: 2.50, SellPrice: 5.00, PerUnit: 'per emblem', QuoteBuilderField: 'sewingFee', Position: '', StitchBase: 0, IsActive: true },
+    { ServiceCode: 'CAP-DISCOUNT', ServiceType: 'CONFIG', DisplayName: 'Cap Discount Percentage', Category: 'Config', PricingMethod: 'CONFIG', TierLabel: '', UnitCost: 0, SellPrice: 0.20, PerUnit: 'multiplier', QuoteBuilderField: 'capDiscount', Position: '', StitchBase: 0, IsActive: true },
+    { ServiceCode: 'HEAVYWEIGHT-SURCHARGE', ServiceType: 'CONFIG', DisplayName: 'Heavyweight Garment Surcharge', Category: 'Config', PricingMethod: 'CONFIG', TierLabel: '', UnitCost: 5.00, SellPrice: 10.00, PerUnit: 'per garment', QuoteBuilderField: 'heavyweightSurcharge', Position: '', StitchBase: 0, IsActive: true }
 ];
 
 /**
