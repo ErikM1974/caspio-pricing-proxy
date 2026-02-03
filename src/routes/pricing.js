@@ -167,9 +167,7 @@ router.get('/decg-pricing', async (req, res) => {
     // ItemType can be: DECG-Garmt, DECG-Cap, DECG-FB (Full Back)
     // Note: Caspio REST API doesn't support LIKE with wildcards, so use explicit OR conditions
     const records = await fetchAllCaspioPages('/tables/Embroidery_Costs/records', {
-      'q.where': "ItemType='DECG-Garmt' OR ItemType='DECG-Cap' OR ItemType='DECG-FB'",
-      'q.select': 'ItemType,TierLabel,EmbroideryCost,LTM_Fee,StitchCountRange',
-      'q.orderBy': 'ItemType ASC, TierLabel ASC'
+      'q.where': "ItemType='DECG-Garmt' OR ItemType='DECG-Cap' OR ItemType='DECG-FB'"
     });
 
     // If no DECG records exist in Caspio, return 404 error (no silent fallbacks!)
