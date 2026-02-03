@@ -157,6 +157,64 @@ router.delete('/embroidery-costs/:id', async (req, res) => {
   }
 });
 
+// GET /api/decg-pricing - Customer Supplied Embroidery pricing (DECG = Di. Embroider Customer Garments)
+// Returns tiered pricing for garments, caps, and full back embroidery on customer-supplied items
+router.get('/decg-pricing', async (req, res) => {
+  console.log('GET /api/decg-pricing requested');
+
+  try {
+    // Fetch DECG pricing from Embroidery_Costs table
+    // ItemType can be: DECG-Garmt, DECG-Cap, DECG-FB (Full Back)
+    const records = await fetchAllCaspioPages('/tables/Embroidery_Costs/records', {
+      'q.where': "ItemType LIKE 'DECG%'",
+      'q.select': 'ItemType,TierLabel,EmbroideryCost,LTM_Fee,StitchCountRange',
+      'q.orderBy': 'ItemType ASC, TierLabel ASC'
+    });
+
+    // If no DECG records exist in Caspio, return 404 error (no silent fallbacks!)
+    if (records.length === 0) {
+      console.error('No DECG records found in Caspio Embroidery_Costs table');
+      return res.status(404).json({
+        error: 'DECG pricing not configured',
+        message: 'No DECG records found in Embroidery_Costs table. Please add records with ItemType: DECG-Garmt, DECG-Cap, DECG-FB'
+      });
+    }
+
+    // Process Caspio records into structured pricing object
+    const pricing = {
+      garments: { basePrices: {}, perThousandUpcharge: 1.25, ltmFee: 50.00, ltmThreshold: 7 },
+      caps: { basePrices: {}, perThousandUpcharge: 1.00, ltmFee: 50.00, ltmThreshold: 7 },
+      fullBack: { ratesPerThousand: {}, minStitches: 25000, minQuantity: 8 },
+      heavyweightSurcharge: 10.00,
+      source: 'caspio'
+    };
+
+    records.forEach(record => {
+      const itemType = record.ItemType;
+      const tier = record.TierLabel;
+      const cost = parseFloat(record.EmbroideryCost) || 0;
+      const ltmFee = parseFloat(record.LTM_Fee) || 0;
+
+      if (itemType === 'DECG-Garmt') {
+        pricing.garments.basePrices[tier] = cost;
+        if (ltmFee > 0) pricing.garments.ltmFee = ltmFee;
+      } else if (itemType === 'DECG-Cap') {
+        pricing.caps.basePrices[tier] = cost;
+        if (ltmFee > 0) pricing.caps.ltmFee = ltmFee;
+      } else if (itemType === 'DECG-FB') {
+        pricing.fullBack.ratesPerThousand[tier] = cost;
+        if (ltmFee > 0) pricing.fullBack.ltmFee = ltmFee;
+      }
+    });
+
+    console.log(`DECG pricing: ${records.length} record(s) found`);
+    res.json(pricing);
+  } catch (error) {
+    console.error('Error fetching DECG pricing:', error.message);
+    res.status(500).json({ error: 'Failed to fetch DECG pricing', details: error.message });
+  }
+});
+
 // GET /api/dtg-costs
 router.get('/dtg-costs', async (req, res) => {
   console.log('GET /api/dtg-costs requested');
