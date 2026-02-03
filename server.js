@@ -468,6 +468,11 @@ const serviceCodesRoutes = require('./src/routes/service-codes');
 app.use('/api', serviceCodesRoutes);
 console.log('✓ Service Codes routes loaded');
 
+// Non-SanMar Products Routes (Brooks Brothers, Carhartt direct, specialty items)
+const nonSanmarProductsRoutes = require('./src/routes/non-sanmar-products');
+app.use('/api', nonSanmarProductsRoutes);
+console.log('✓ Non-SanMar Products routes loaded');
+
 // --- Admin Metrics Endpoint ---
 const apiTracker = require('./src/utils/api-tracker');
 
