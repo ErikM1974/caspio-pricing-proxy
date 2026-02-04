@@ -157,6 +157,74 @@ router.delete('/embroidery-costs/:id', async (req, res) => {
   }
 });
 
+// GET /api/contract-pricing - Contract Embroidery pricing (CTR = Contract)
+// Returns stitch-based pricing for production embroidery on customer-supplied items
+// Target: $100-$125/hour billing rate (for internal pricing guidance)
+router.get('/contract-pricing', async (req, res) => {
+  console.log('GET /api/contract-pricing requested');
+
+  try {
+    // Fetch CTR pricing from Embroidery_Costs table
+    // ItemType: CTR-Garmt (garments), CTR-Cap (caps), CTR-FB (full back)
+    const records = await fetchAllCaspioPages('/tables/Embroidery_Costs/records', {
+      'q.where': "ItemType='CTR-Garmt' OR ItemType='CTR-Cap' OR ItemType='CTR-FB'"
+    });
+
+    // If no CTR records exist in Caspio, return 404 error (no silent fallbacks!)
+    if (records.length === 0) {
+      console.error('No CTR records found in Caspio Embroidery_Costs table');
+      return res.status(404).json({
+        error: 'Contract pricing not configured',
+        message: 'No CTR records found in Embroidery_Costs table. Please run the update-embroidery-feb-2026.js script.'
+      });
+    }
+
+    // Process Caspio records into structured pricing object
+    // Structure: garments[stitchCount][tier] = price
+    const pricing = {
+      garments: {},
+      caps: {},
+      fullBack: {
+        ratesPerThousand: {},
+        minStitches: 25000,
+        minPrice: 20.00
+      },
+      ltmFee: 50,
+      ltmThreshold: 7,
+      source: 'caspio'
+    };
+
+    records.forEach(record => {
+      const itemType = record.ItemType;
+      const tier = record.TierLabel;
+      const cost = parseFloat(record.EmbroideryCost) || 0;
+      const stitchCount = parseInt(record.StitchCount) || 0;
+      const ltmFee = parseFloat(record.LTM) || 0;
+
+      if (itemType === 'CTR-Garmt') {
+        if (!pricing.garments[stitchCount]) {
+          pricing.garments[stitchCount] = {};
+        }
+        pricing.garments[stitchCount][tier] = cost;
+        if (ltmFee > 0) pricing.ltmFee = ltmFee;
+      } else if (itemType === 'CTR-Cap') {
+        if (!pricing.caps[stitchCount]) {
+          pricing.caps[stitchCount] = {};
+        }
+        pricing.caps[stitchCount][tier] = cost;
+      } else if (itemType === 'CTR-FB') {
+        pricing.fullBack.ratesPerThousand[tier] = cost;
+      }
+    });
+
+    console.log(`Contract pricing: ${records.length} record(s) found - ${Object.keys(pricing.garments).length} garment stitch counts, ${Object.keys(pricing.caps).length} cap stitch counts, ${Object.keys(pricing.fullBack.ratesPerThousand).length} FB tiers`);
+    res.json(pricing);
+  } catch (error) {
+    console.error('Error fetching contract pricing:', error.message);
+    res.status(500).json({ error: 'Failed to fetch contract pricing', details: error.message });
+  }
+});
+
 // GET /api/decg-pricing - Customer Supplied Embroidery pricing (DECG = Di. Embroider Customer Garments)
 // Returns tiered pricing for garments, caps, and full back embroidery on customer-supplied items
 router.get('/decg-pricing', async (req, res) => {
