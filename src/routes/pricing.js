@@ -214,6 +214,95 @@ router.get('/decg-pricing', async (req, res) => {
   }
 });
 
+// GET /api/al-pricing - Additional Logo / Contract Embroidery pricing (unified)
+// Returns tiered pricing for AL garments, AL-CAP/CB/CS caps, and FB full back
+// Used by: Embroidery Pricing All page, Quote Builders, Contract Embroidery Calculator
+router.get('/al-pricing', async (req, res) => {
+  console.log('GET /api/al-pricing requested');
+
+  try {
+    // Fetch AL pricing from Embroidery_Costs table
+    // ItemType can be: AL, AL-CAP, CB, CS, FB
+    const records = await fetchAllCaspioPages('/tables/Embroidery_Costs/records', {
+      'q.where': "ItemType='AL' OR ItemType='AL-CAP' OR ItemType='CB' OR ItemType='CS' OR ItemType='FB'"
+    });
+
+    // If no AL records exist in Caspio, return 404 error (no silent fallbacks!)
+    if (records.length === 0) {
+      console.error('No AL records found in Caspio Embroidery_Costs table');
+      return res.status(404).json({
+        error: 'AL pricing not configured',
+        message: 'No AL records found in Embroidery_Costs table. Please run: node tests/scripts/update-embroidery-costs.js'
+      });
+    }
+
+    // Process Caspio records into structured pricing object
+    const pricing = {
+      garments: {
+        basePrices: {},
+        perThousandUpcharge: 1.00,
+        baseStitches: 5000,
+        ltmFee: 50.00,
+        ltmThreshold: 7
+      },
+      caps: {
+        basePrices: {},
+        perThousandUpcharge: 1.00,
+        baseStitches: 5000,
+        ltmFee: 50.00,
+        ltmThreshold: 7
+      },
+      fullBack: {
+        ratePerThousand: 1.25,
+        minStitches: 25000
+      },
+      fees: {
+        ltm: { threshold: 7, amount: 50.00 },
+        extraColors: { threshold: 5, perColorPerPiece: 1.00 }
+      },
+      source: 'caspio'
+    };
+
+    records.forEach(record => {
+      const itemType = record.ItemType;
+      const tier = record.TierLabel;
+      const cost = parseFloat(record.EmbroideryCost) || 0;
+      const ltmFee = parseFloat(record.LTM_Fee) || 0;
+      const additionalRate = parseFloat(record.AdditionalStitchRate) || 0;
+      const baseStitches = parseInt(record.BaseStitchCount) || 0;
+
+      if (itemType === 'AL') {
+        pricing.garments.basePrices[tier] = cost;
+        if (ltmFee > 0) pricing.garments.ltmFee = ltmFee;
+        if (additionalRate > 0) pricing.garments.perThousandUpcharge = additionalRate;
+        if (baseStitches > 0) pricing.garments.baseStitches = baseStitches;
+      } else if (itemType === 'AL-CAP' || itemType === 'CB' || itemType === 'CS') {
+        // All cap locations use same pricing - use AL-CAP as primary
+        if (itemType === 'AL-CAP' || !pricing.caps.basePrices[tier]) {
+          pricing.caps.basePrices[tier] = cost;
+        }
+        if (ltmFee > 0) pricing.caps.ltmFee = ltmFee;
+        if (additionalRate > 0) pricing.caps.perThousandUpcharge = additionalRate;
+        if (baseStitches > 0) pricing.caps.baseStitches = baseStitches;
+      } else if (itemType === 'FB') {
+        pricing.fullBack.ratePerThousand = cost;
+        if (baseStitches > 0) pricing.fullBack.minStitches = baseStitches;
+      }
+    });
+
+    // Update fee structure from actual data
+    if (pricing.garments.ltmFee) {
+      pricing.fees.ltm.amount = pricing.garments.ltmFee;
+    }
+
+    console.log(`AL pricing: ${records.length} record(s) found`);
+    res.json(pricing);
+  } catch (error) {
+    console.error('Error fetching AL pricing:', error.message);
+    res.status(500).json({ error: 'Failed to fetch AL pricing', details: error.message });
+  }
+});
+
 // GET /api/dtg-costs
 router.get('/dtg-costs', async (req, res) => {
   console.log('GET /api/dtg-costs requested');
