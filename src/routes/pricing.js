@@ -148,7 +148,7 @@ router.delete('/embroidery-costs/:id', async (req, res) => {
 
   try {
     const result = await makeCaspioRequest('delete', '/tables/Embroidery_Costs/records',
-      { 'q.where': `PK_ID=${id}` });
+      { 'q.where': `EmbroideryCostID=${id}` });
     console.log('Embroidery cost record deleted:', result);
     res.json({ message: 'Embroidery cost record deleted successfully', recordsAffected: result.RecordsAffected || 0 });
   } catch (error) {
@@ -158,8 +158,10 @@ router.delete('/embroidery-costs/:id', async (req, res) => {
 });
 
 // GET /api/contract-pricing - Contract Embroidery pricing (CTR = Contract)
-// Returns stitch-based pricing for production embroidery on customer-supplied items
-// Target: $100-$125/hour billing rate (for internal pricing guidance)
+// Returns linear $/1K rates for production embroidery on customer-supplied items
+// Feb 2026 Update: Simplified to perThousandRates structure
+// Formula: price = (stitchCount / 1000) * perThousandRate
+// Target Revenue: $128/hr (garments) | $112/hr (caps) at 72+ tier
 router.get('/contract-pricing', async (req, res) => {
   console.log('GET /api/contract-pricing requested');
 
@@ -175,49 +177,69 @@ router.get('/contract-pricing', async (req, res) => {
       console.error('No CTR records found in Caspio Embroidery_Costs table');
       return res.status(404).json({
         error: 'Contract pricing not configured',
-        message: 'No CTR records found in Embroidery_Costs table. Please run the update-embroidery-feb-2026.js script.'
+        message: 'No CTR records found in Embroidery_Costs table. Please run: node tests/scripts/update-ctr-pricing-linear.js'
       });
     }
 
-    // Process Caspio records into structured pricing object
-    // Structure: garments[stitchCount][tier] = price
+    // Extract $/1K rates from records (using PerThousandRate or calculating from EmbroideryCost/StitchCount)
+    // New structure returns perThousandRates by tier for easy frontend calculations
     const pricing = {
-      garments: {},
-      caps: {},
-      fullBack: {
-        ratesPerThousand: {},
-        minStitches: 25000,
-        minPrice: 20.00
+      garments: {
+        perThousandRates: {},
+        ltmFee: 50.00,
+        ltmThreshold: 7
       },
-      ltmFee: 50,
-      ltmThreshold: 7,
-      source: 'caspio'
+      caps: {
+        perThousandRates: {},
+        ltmFee: 50.00,
+        ltmThreshold: 7
+      },
+      fullBack: {
+        perThousandRates: {},
+        minStitches: 25000,
+        ltmFee: 50.00,
+        ltmThreshold: 7
+      },
+      source: 'caspio',
+      pricingModel: 'linear-per-thousand'
+    };
+
+    // Process records to extract $/1K rates (one rate per tier)
+    // We only need one record per ItemType+TierLabel to get the rate
+    const processedTiers = {
+      garments: new Set(),
+      caps: new Set(),
+      fullBack: new Set()
     };
 
     records.forEach(record => {
       const itemType = record.ItemType;
       const tier = record.TierLabel;
-      const cost = parseFloat(record.EmbroideryCost) || 0;
-      const stitchCount = parseInt(record.StitchCount) || 0;
       const ltmFee = parseFloat(record.LTM) || 0;
 
-      if (itemType === 'CTR-Garmt') {
-        if (!pricing.garments[stitchCount]) {
-          pricing.garments[stitchCount] = {};
-        }
-        pricing.garments[stitchCount][tier] = cost;
-        if (ltmFee > 0) pricing.ltmFee = ltmFee;
-      } else if (itemType === 'CTR-Cap') {
-        if (!pricing.caps[stitchCount]) {
-          pricing.caps[stitchCount] = {};
-        }
-        pricing.caps[stitchCount][tier] = cost;
-      } else if (itemType === 'CTR-FB') {
-        pricing.fullBack.ratesPerThousand[tier] = cost;
+      // Get the $/1K rate - prefer PerThousandRate field, fallback to calculation
+      let perThousandRate = parseFloat(record.PerThousandRate) || 0;
+      if (!perThousandRate && record.EmbroideryCost && record.StitchCount) {
+        // Calculate from EmbroideryCost / (StitchCount/1000)
+        perThousandRate = parseFloat(record.EmbroideryCost) / (parseInt(record.StitchCount) / 1000);
+      }
+
+      if (itemType === 'CTR-Garmt' && !processedTiers.garments.has(tier)) {
+        pricing.garments.perThousandRates[tier] = parseFloat(perThousandRate.toFixed(2));
+        processedTiers.garments.add(tier);
+        if (ltmFee > 0) pricing.garments.ltmFee = ltmFee;
+      } else if (itemType === 'CTR-Cap' && !processedTiers.caps.has(tier)) {
+        pricing.caps.perThousandRates[tier] = parseFloat(perThousandRate.toFixed(2));
+        processedTiers.caps.add(tier);
+        if (ltmFee > 0) pricing.caps.ltmFee = ltmFee;
+      } else if (itemType === 'CTR-FB' && !processedTiers.fullBack.has(tier)) {
+        pricing.fullBack.perThousandRates[tier] = parseFloat(perThousandRate.toFixed(2));
+        processedTiers.fullBack.add(tier);
+        if (ltmFee > 0) pricing.fullBack.ltmFee = ltmFee;
       }
     });
 
-    console.log(`Contract pricing: ${records.length} record(s) found - ${Object.keys(pricing.garments).length} garment stitch counts, ${Object.keys(pricing.caps).length} cap stitch counts, ${Object.keys(pricing.fullBack.ratesPerThousand).length} FB tiers`);
+    console.log(`Contract pricing: ${records.length} record(s) found - Garment tiers: ${Object.keys(pricing.garments.perThousandRates).length}, Cap tiers: ${Object.keys(pricing.caps.perThousandRates).length}, FB tiers: ${Object.keys(pricing.fullBack.perThousandRates).length}`);
     res.json(pricing);
   } catch (error) {
     console.error('Error fetching contract pricing:', error.message);
