@@ -72,6 +72,7 @@ Detailed documentation organized by topic:
 - **[API Security Guidelines](memory/API_SECURITY_GUIDELINES.md)** - When to use auth vs open endpoints (v1.0.0 - 2026-01-24)
 - **[Sales Reps 2026 API](memory/SALES_REPS_2026_API.md)** - Master customer-to-sales-rep assignments (v1.0.0 - 2026-01-23)
 - **[MCP Servers for Claude Desktop](memory/MCP_SERVERS.md)** - Setup guide and tools for chatting with account data (v1.1.0 - 2026-01-22)
+- **[Non-SanMar Products API](memory/NON_SANMAR_PRODUCTS_API.md)** - CRUD for Brooks Brothers, Carhartt direct, specialty items (v1.0.0 - 2026-02-03)
 
 ## Quick Reference
 

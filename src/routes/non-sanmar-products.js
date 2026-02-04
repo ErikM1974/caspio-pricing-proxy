@@ -388,86 +388,16 @@ router.delete('/non-sanmar-products/:id', async (req, res) => {
 // ============================================
 // SEED DATA - Initial database population
 // ============================================
-// Products from non-SanMar vendors (Brooks Brothers, Carhartt direct, specialty)
-// Richardson removed - now in SanMar 2026
+// Products from non-SanMar vendors that are NOT available through SanMar
+//
+// CLEANUP (Feb 2026): Removed 6 products now available in SanMar 2026 catalog:
+//   - BB18200, BB18201, BB18202, BB18203 (Brooks Brothers - all now in SanMar)
+//   - CTK87 (Carhartt - now in SanMar)
+//   - CSV400 (CornerStone - now in SanMar)
+//
+// Only CTJ140 remains - not found in SanMar 2026 catalog
 const PRODUCTS_SEED_DATA = [
-    // Brooks Brothers
-    {
-        StyleNumber: 'BB18201',
-        Brand: 'Brooks Brothers',
-        ProductName: 'BB Mens Mid-Layer 1/2-Button',
-        Category: 'Jackets',
-        DefaultCost: 45.00,
-        DefaultSellPrice: 95.00,
-        PricingMethod: 'FIXED',
-        VendorCode: 'BB',
-        AvailableSizes: 'S,M,L,XL,2XL',
-        SizeUpchargeXL: 0,
-        SizeUpcharge2XL: 5,
-        SizeUpcharge3XL: 5,
-        IsActive: true
-    },
-    {
-        StyleNumber: 'BB18203',
-        Brand: 'Brooks Brothers',
-        ProductName: 'BB Womens Mid-Layer 1/2-Button',
-        Category: 'Jackets',
-        DefaultCost: 45.00,
-        DefaultSellPrice: 95.00,
-        PricingMethod: 'FIXED',
-        VendorCode: 'BB',
-        AvailableSizes: 'XS,S,M,L,XL,2XL',
-        SizeUpchargeXL: 0,
-        SizeUpcharge2XL: 5,
-        SizeUpcharge3XL: 5,
-        IsActive: true
-    },
-    {
-        StyleNumber: 'BB18200',
-        Brand: 'Brooks Brothers',
-        ProductName: 'BB Mens Mesh Pique Polo',
-        Category: 'Polos',
-        DefaultCost: 38.00,
-        DefaultSellPrice: 80.00,
-        PricingMethod: 'FIXED',
-        VendorCode: 'BB',
-        AvailableSizes: 'S,M,L,XL,2XL,3XL',
-        SizeUpchargeXL: 0,
-        SizeUpcharge2XL: 5,
-        SizeUpcharge3XL: 5,
-        IsActive: true
-    },
-    {
-        StyleNumber: 'BB18202',
-        Brand: 'Brooks Brothers',
-        ProductName: 'BB Womens Mesh Pique Polo',
-        Category: 'Polos',
-        DefaultCost: 38.00,
-        DefaultSellPrice: 80.00,
-        PricingMethod: 'FIXED',
-        VendorCode: 'BB',
-        AvailableSizes: 'XS,S,M,L,XL,2XL',
-        SizeUpchargeXL: 0,
-        SizeUpcharge2XL: 5,
-        SizeUpcharge3XL: 5,
-        IsActive: true
-    },
-    // Carhartt (when ordered direct, not via SanMar)
-    {
-        StyleNumber: 'CTK87',
-        Brand: 'Carhartt',
-        ProductName: 'Workwear Pocket T-Shirt',
-        Category: 'T-Shirts',
-        DefaultCost: 18.00,
-        DefaultSellPrice: 38.00,
-        PricingMethod: 'FIXED',
-        VendorCode: 'CARH',
-        AvailableSizes: 'S,M,L,XL,2XL,3XL,4XL',
-        SizeUpchargeXL: 0,
-        SizeUpcharge2XL: 3,
-        SizeUpcharge3XL: 5,
-        IsActive: true
-    },
+    // Carhartt - NOT in SanMar as of Feb 2026
     {
         StyleNumber: 'CTJ140',
         Brand: 'Carhartt',
@@ -481,22 +411,6 @@ const PRODUCTS_SEED_DATA = [
         SizeUpchargeXL: 0,
         SizeUpcharge2XL: 5,
         SizeUpcharge3XL: 10,
-        IsActive: true
-    },
-    // Safety/Specialty
-    {
-        StyleNumber: 'CSV400',
-        Brand: 'CornerStone',
-        ProductName: 'ANSI Class 2 Safety Vest',
-        Category: 'Safety',
-        DefaultCost: 12.00,
-        DefaultSellPrice: 25.00,
-        PricingMethod: 'FIXED',
-        VendorCode: 'CS',
-        AvailableSizes: 'S/M,L/XL,2XL/3XL,4XL/5XL',
-        SizeUpchargeXL: 0,
-        SizeUpcharge2XL: 0,
-        SizeUpcharge3XL: 0,
         IsActive: true
     }
 ];
