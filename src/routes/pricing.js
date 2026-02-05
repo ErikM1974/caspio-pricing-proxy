@@ -187,18 +187,18 @@ router.get('/contract-pricing', async (req, res) => {
       garments: {
         perThousandRates: {},
         ltmFee: 50.00,
-        ltmThreshold: 7
+        ltmThreshold: 23
       },
       caps: {
         perThousandRates: {},
         ltmFee: 50.00,
-        ltmThreshold: 7
+        ltmThreshold: 23
       },
       fullBack: {
         perThousandRates: {},
         minStitches: 25000,
         ltmFee: 50.00,
-        ltmThreshold: 7
+        ltmThreshold: 23
       },
       source: 'caspio',
       pricingModel: 'linear-per-thousand'
