@@ -97,8 +97,20 @@ router.get('/embroidery-costs', async (req, res) => {
     return res.status(400).json({ error: 'Both itemType and stitchCount are required' });
   }
 
+  // Input sanitization: whitelist itemType values
+  const allowedItemTypes = ['Shirt', 'Cap', 'AL', 'AL-CAP', '3D-Puff', 'Patch', 'DECG-Garmt', 'DECG-Cap', 'DECG-FB'];
+  if (!allowedItemTypes.includes(itemType)) {
+    return res.status(400).json({ error: `Invalid itemType. Allowed: ${allowedItemTypes.join(', ')}` });
+  }
+
+  // Validate stitchCount is a positive integer
+  const stitchCountInt = parseInt(stitchCount, 10);
+  if (isNaN(stitchCountInt) || stitchCountInt < 0) {
+    return res.status(400).json({ error: 'stitchCount must be a non-negative integer' });
+  }
+
   try {
-    const whereClause = `ItemType='${itemType}' AND StitchCountRange='${stitchCount}'`;
+    const whereClause = `ItemType='${itemType}' AND StitchCount=${stitchCountInt}`;
     const records = await fetchAllCaspioPages('/tables/Embroidery_Costs/records', {
       'q.where': whereClause
     });
