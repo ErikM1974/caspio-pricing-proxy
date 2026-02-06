@@ -6,14 +6,14 @@
  * Preserves quarterly garment sales by rep beyond ManageOrders' 60-day window.
  *
  * Modes:
- *   1. Daily mode (default): Archives yesterday's garment data
- *   2. Range mode: Archives a date range (--start YYYY-MM-DD --end YYYY-MM-DD)
- *   3. Live mode: Archives from existing GarmentTracker table (--from-live)
+ *   1. Daily mode (default): Archives from live GarmentTracker table to archive
+ *   2. Range mode: Archives a date range from ManageOrders (--start YYYY-MM-DD --end YYYY-MM-DD)
+ *   3. Live mode (explicit): Archives from existing GarmentTracker table (--from-live)
  *
  * Usage:
- *   npm run archive-garment-tracker                                    # Archive yesterday
- *   npm run archive-garment-tracker -- --start 2026-01-01 --end 2026-01-31  # Archive range
- *   npm run archive-garment-tracker -- --from-live                     # Archive from live table
+ *   npm run archive-garment-tracker                                    # Archive from live table (default)
+ *   npm run archive-garment-tracker -- --start 2026-01-01 --end 2026-01-31  # Archive range from ManageOrders
+ *   npm run archive-garment-tracker -- --from-live                     # Archive from live table (explicit)
  *
  * Environment:
  *   BASE_URL - API base URL (defaults to Heroku production)
@@ -158,10 +158,9 @@ async function main() {
         console.log(`Mode: Archive range ${options.start} to ${options.end}`);
         result = await archiveRange(options.start, options.end);
     } else {
-        // Default: archive yesterday
-        const yesterday = getYesterday();
-        console.log(`Mode: Daily (archiving yesterday: ${yesterday})`);
-        result = await archiveRange(yesterday, yesterday);
+        // Default: archive from live table (copies all current GarmentTracker records to archive)
+        console.log('Mode: Daily (archiving from live table)');
+        result = await archiveFromLive();
     }
 
     console.log('\n' + '='.repeat(60));

@@ -7,7 +7,7 @@ const axios = require('axios');
 const router = express.Router();
 const config = require('../../config');
 const { getCaspioAccessToken, fetchAllCaspioPages } = require('../utils/caspio');
-const { fetchOrders } = require('../utils/manageorders');
+const { fetchOrders, fetchLineItems } = require('../utils/manageorders');
 
 const caspioApiBaseUrl = config.caspio.apiBaseUrl;
 const TABLE_NAME = 'GarmentTracker';
@@ -45,24 +45,48 @@ function getQuarterFromDate(date) {
 }
 
 /**
- * Check if a part number is a premium item
+ * Check if a part number matches a tracked style (handles size variants)
+ * e.g., "CT104670_2X" matches "CT104670", "112_OSFA" matches "112"
  */
-function getPremiumItem(partNumber) {
-    return PREMIUM_ITEMS[partNumber] || null;
+function matchesTrackedStyle(partNumber, trackedStyle) {
+    if (!partNumber) return false;
+    return partNumber === trackedStyle || partNumber.startsWith(trackedStyle + '_');
 }
 
 /**
- * Check if a part number is a Richardson cap
+ * Check if a part number is a premium item (with size variant support)
+ * Returns { key, item } if matched, null otherwise
+ */
+function getPremiumMatch(partNumber) {
+    for (const [key, item] of Object.entries(PREMIUM_ITEMS)) {
+        if (matchesTrackedStyle(partNumber, key)) {
+            return { key, ...item };
+        }
+    }
+    return null;
+}
+
+/**
+ * Check if a part number is a Richardson cap (with size variant support)
  */
 function isRichardsonCap(partNumber) {
-    return RICHARDSON_CAPS.includes(partNumber);
+    return RICHARDSON_CAPS.some(style => matchesTrackedStyle(partNumber, style));
+}
+
+/**
+ * Calculate total quantity from size fields on a line item
+ */
+function calculateLineItemQuantity(item) {
+    return (parseInt(item.Size01) || 0) + (parseInt(item.Size02) || 0) +
+           (parseInt(item.Size03) || 0) + (parseInt(item.Size04) || 0) +
+           (parseInt(item.Size05) || 0) + (parseInt(item.Size06) || 0);
 }
 
 /**
  * Calculate bonus for an item
  */
 function calculateBonus(partNumber, quantity) {
-    const premium = getPremiumItem(partNumber);
+    const premium = getPremiumMatch(partNumber);
     if (premium) {
         return premium.bonus * quantity;
     }
@@ -76,7 +100,7 @@ function calculateBonus(partNumber, quantity) {
  * Determine style category
  */
 function getStyleCategory(partNumber) {
-    if (getPremiumItem(partNumber)) return 'Premium';
+    if (getPremiumMatch(partNumber)) return 'Premium';
     if (isRichardsonCap(partNumber)) return 'Richardson';
     return 'Other';
 }
@@ -448,7 +472,7 @@ router.post('/garment-tracker/archive-from-live', express.json(), async (req, re
 });
 
 // POST /api/garment-tracker/archive-range - Archive date range directly from ManageOrders
-// For backfilling or re-archiving specific date ranges
+// Fetches orders then line items per order (same approach as frontend sync)
 // Body: { start: "YYYY-MM-DD", end: "YYYY-MM-DD" }
 router.post('/garment-tracker/archive-range', express.json(), async (req, res) => {
     try {
@@ -485,52 +509,59 @@ router.post('/garment-tracker/archive-range', express.json(), async (req, res) =
 
         console.log(`[GarmentArchive] Fetched ${orders.length} orders from ManageOrders`);
 
-        // Process orders to find qualifying garments
+        // Process orders by fetching line items (same approach as frontend sync)
         const garmentRecords = [];
         const processedOrderParts = new Set();
+        const REQUEST_DELAY = 1000; // 1s between line item requests to avoid rate limits
 
-        for (const order of orders) {
+        for (let i = 0; i < orders.length; i++) {
+            const order = orders[i];
             const repName = order.CustomerServiceRep;
             if (!repName) continue;
 
-            // Check each premium item and Richardson caps
-            const allParts = [...Object.keys(PREMIUM_ITEMS), ...RICHARDSON_CAPS];
+            try {
+                const lineItems = await fetchLineItems(order.id_Order);
 
-            for (const partNum of allParts) {
-                // ManageOrders stores quantities in Part01, Part02, etc. fields
-                // We need to check if this part number exists in the order
-                const partFields = ['Part01', 'Part02', 'Part03', 'Part04', 'Part05', 'Part06', 'Part07', 'Part08', 'Part09', 'Part10'];
-                const qtyFields = ['Qty01', 'Qty02', 'Qty03', 'Qty04', 'Qty05', 'Qty06', 'Qty07', 'Qty08', 'Qty09', 'Qty10'];
+                for (const item of lineItems) {
+                    const qty = calculateLineItemQuantity(item);
+                    if (qty === 0) continue;
 
-                let totalQty = 0;
-                for (let i = 0; i < partFields.length; i++) {
-                    if (order[partFields[i]] === partNum) {
-                        totalQty += parseInt(order[qtyFields[i]]) || 0;
-                    }
+                    const partNumber = item.PartNumber;
+                    if (!partNumber) continue;
+
+                    // Check if this is a premium item or Richardson cap
+                    const premiumMatch = getPremiumMatch(partNumber);
+                    const isRichardson = !premiumMatch && isRichardsonCap(partNumber);
+
+                    if (!premiumMatch && !isRichardson) continue;
+
+                    const key = `${order.id_Order}-${partNumber}`;
+                    if (processedOrderParts.has(key)) continue;
+                    processedOrderParts.add(key);
+
+                    const quarterInfo = getQuarterFromDate(order.date_Invoiced);
+                    const bonus = calculateBonus(partNumber, qty);
+                    const category = premiumMatch ? 'Premium' : 'Richardson';
+
+                    garmentRecords.push({
+                        OrderNumber: order.id_Order,
+                        DateInvoiced: order.date_Invoiced ? order.date_Invoiced.split('T')[0] : '',
+                        Quarter: quarterInfo.quarter,
+                        Year: quarterInfo.year,
+                        RepName: repName,
+                        PartNumber: partNumber,
+                        StyleCategory: category,
+                        Quantity: qty,
+                        BonusAmount: bonus
+                    });
                 }
+            } catch (lineItemErr) {
+                console.warn(`[GarmentArchive] Failed to fetch line items for order ${order.id_Order}:`, lineItemErr.message);
+            }
 
-                if (totalQty > 0) {
-                    const key = `${order.OrderNo}-${partNum}`;
-                    if (!processedOrderParts.has(key)) {
-                        processedOrderParts.add(key);
-
-                        const quarterInfo = getQuarterFromDate(order.date_Invoiced);
-                        const bonus = calculateBonus(partNum, totalQty);
-                        const category = getStyleCategory(partNum);
-
-                        garmentRecords.push({
-                            OrderNumber: order.OrderNo,
-                            DateInvoiced: order.date_Invoiced.split('T')[0],
-                            Quarter: quarterInfo.quarter,
-                            Year: quarterInfo.year,
-                            RepName: repName,
-                            PartNumber: partNum,
-                            StyleCategory: category,
-                            Quantity: totalQty,
-                            BonusAmount: bonus
-                        });
-                    }
-                }
+            // Rate limit between orders
+            if (i < orders.length - 1) {
+                await new Promise(r => setTimeout(r, REQUEST_DELAY));
             }
         }
 
