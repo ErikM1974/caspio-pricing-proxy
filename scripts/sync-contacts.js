@@ -60,6 +60,10 @@ async function syncContacts() {
             });
         }
 
+        if ((result.stats?.ordersProcessed || 0) === 0 && (result.stats?.contactsCreated || 0) === 0 && (result.stats?.contactsUpdated || 0) === 0) {
+            console.warn('WARNING: Zero contacts processed — verify ManageOrders API is returning data');
+        }
+
         console.log('='.repeat(60));
         console.log(`Finished: ${new Date().toISOString()}`);
 

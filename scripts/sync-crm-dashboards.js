@@ -205,6 +205,18 @@ async function main() {
         console.log(`Sales syncs: ${salesSuccess}/${results.sales.length} successful`);
     }
 
+    // Warn if everything succeeded but nothing was actually synced
+    const totalOwnershipChanges = results.ownership.reduce((sum, r) => {
+        const s = r.result?.summary;
+        return sum + (s?.added || 0) + (s?.removed || 0);
+    }, 0);
+    const totalSalesUpdated = results.sales.reduce((sum, r) => {
+        return sum + (r.result?.accountsUpdated || r.result?.results?.updated || 0);
+    }, 0);
+    if (totalOwnershipChanges === 0 && totalSalesUpdated === 0 && results.errors.length === 0) {
+        console.warn('WARNING: All syncs succeeded but zero records were changed — verify ManageOrders API is returning data');
+    }
+
     if (results.errors.length > 0) {
         console.log(`\nErrors (${results.errors.length}):`);
         results.errors.forEach(e => console.log(`  - ${e}`));

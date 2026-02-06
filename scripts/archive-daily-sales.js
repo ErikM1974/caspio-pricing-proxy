@@ -58,6 +58,10 @@ async function archiveDate(date) {
     console.log(`  - Total orders: ${result.totalOrders || 0}`);
     console.log(`  - Created: ${result.archived?.created || 0}, Updated: ${result.archived?.updated || 0}`);
 
+    if ((result.totalOrders || 0) === 0 && (result.archived?.created || 0) === 0 && (result.archived?.updated || 0) === 0) {
+      console.warn('WARNING: Zero records processed for this date — verify ManageOrders API is returning data');
+    }
+
     return { success: true, date, result };
   } catch (error) {
     const errorMsg = error.response?.data?.error || error.message;
