@@ -47,57 +47,98 @@ const SUFFIX_TO_FIELD_MAP = {
   '_YXL': 'Size06'
 };
 
+// Map extended sizes to ShopWorks SKU suffixes
+const SIZE_TO_SUFFIX = {
+  '2XL': '_2X', '3XL': '_3X', '4XL': '_4X', '5XL': '_5X', '6XL': '_6X',
+  'XS': '_XS', 'XXL': '_XXL', 'OSFA': '_OSFA', 'OSFM': '_OSFM',
+  'LT': '_LT', 'XLT': '_XLT', '2XLT': '_2XLT', '3XLT': '_3XLT', '4XLT': '_4XLT',
+  'ST': '_ST', 'MT': '_MT', 'XST': '_XST',
+  'YXS': '_YXS', 'YS': '_YS', 'YM': '_YM', 'YL': '_YL', 'YXL': '_YXL',
+  '2T': '_2T', '3T': '_3T', '4T': '_4T', '5T': '_5T', '6T': '_6T',
+  'LB': '_LB', 'XLB': '_XLB', '2XLB': '_2XLB',
+  'S/M': '_SM', 'M/L': '_ML', 'L/XL': '_LXL', 'XS/S': '_XSS', 'X/2X': '_X2X', 'S/XL': '_SXL'
+};
+
+// Standard sizes that go into base SKU (Size01-Size04)
+const STANDARD_SIZES = ['S', 'M', 'L', 'XL'];
+
 /**
- * Detect SKU pattern for a product by querying Shopworks_Integration table
+ * Get available sizes for a product from Sanmar_Bulk table
+ * Returns map of size → CASE_PRICE
+ */
+async function getAvailableSizesFromBulk(styleNumber, catalogColor) {
+  let whereClause = `STYLE='${styleNumber}'`;
+  if (catalogColor) {
+    whereClause += ` AND CATALOG_COLOR='${catalogColor}'`;
+  }
+
+  const records = await fetchAllCaspioPages(
+    '/tables/Sanmar_Bulk_251816_Feb2024/records',
+    {
+      'q.where': whereClause,
+      'q.select': 'SIZE, CASE_PRICE',
+      'q.limit': 200
+    }
+  );
+
+  // Build size→price map (deduplicate, take first price per size)
+  const sizePricing = {};
+  records.forEach(r => {
+    if (r.SIZE && r.CASE_PRICE != null && sizePricing[r.SIZE] === undefined) {
+      sizePricing[r.SIZE] = r.CASE_PRICE;
+    }
+  });
+
+  return sizePricing;
+}
+
+/**
+ * Detect SKU pattern for a product by querying available sizes from Sanmar_Bulk
  * Returns: single-sku, standard-multi-sku (2-3 SKUs), or extended-multi-sku (4+ SKUs)
  */
 async function detectSKUPattern(styleNumber) {
   try {
-    console.log(`[detectSKUPattern] Querying Shopworks_Integration for ${styleNumber}`);
+    const sizePricing = await getAvailableSizesFromBulk(styleNumber, null);
+    const availableSizes = Object.keys(sizePricing);
 
-    // Query Shopworks_Integration table for all SKU variants
-    // This is the authoritative source for SKU structure
-    // Match exact style or style with underscore suffix (PC850 or PC850_2XL, but not PC850H)
-    const records = await fetchAllCaspioPages(
-      '/tables/Shopworks_Integration/records',
-      {
-        'q.where': `ID_Product='${styleNumber}' OR ID_Product LIKE '${styleNumber}[_]%'`,
-        'q.select': 'ID_Product',
-        'q.limit': 50
-      }
-    );
-
-    if (records.length === 0) {
-      console.log(`[detectSKUPattern] No records found in Shopworks_Integration for ${styleNumber}`);
+    if (availableSizes.length === 0) {
       return {
         type: 'not-found',
         skus: [],
-        description: 'Product not found in ShopWorks integration table'
+        description: 'Product not found in Sanmar catalog'
       };
     }
 
-    // Extract SKU IDs
-    const existingSKUs = records.map(r => r.ID_Product);
-    console.log(`[detectSKUPattern] Found ${existingSKUs.length} SKUs:`, existingSKUs);
+    // Derive SKU list from available sizes
+    const skus = [];
+    const hasStandardSizes = availableSizes.some(s => STANDARD_SIZES.includes(s));
+    if (hasStandardSizes) {
+      skus.push(styleNumber);
+    }
 
-    // Determine pattern type based on number of SKUs
-    if (existingSKUs.length === 1) {
+    const extendedSizes = availableSizes.filter(s => !STANDARD_SIZES.includes(s));
+    extendedSizes.forEach(size => {
+      const suffix = SIZE_TO_SUFFIX[size] || `_${size}`;
+      skus.push(`${styleNumber}${suffix}`);
+    });
+
+    if (skus.length === 1) {
       return {
         type: 'single-sku',
-        skus: existingSKUs,
+        skus,
         description: 'All sizes in one SKU (e.g., hoodies, jackets)'
       };
-    } else if (existingSKUs.length <= 3) {
+    } else if (skus.length <= 3) {
       return {
         type: 'standard-multi-sku',
-        skus: existingSKUs,
-        description: 'Base + _2XL + _3XL pattern (e.g., PC54)'
+        skus,
+        description: 'Base + extended size pattern (e.g., PC54)'
       };
     } else {
       return {
         type: 'extended-multi-sku',
-        skus: existingSKUs,
-        description: `Extended pattern with ${existingSKUs.length} SKUs (e.g., PC61, J790)`
+        skus,
+        description: `Extended pattern with ${skus.length} SKUs (e.g., PC61, J790)`
       };
     }
   } catch (error) {
@@ -107,52 +148,52 @@ async function detectSKUPattern(styleNumber) {
 }
 
 /**
- * Get ShopWorks size field mapping from Shopworks_Integration table
- * Returns the actual size field configuration for each SKU
+ * Get ShopWorks size field mapping derived from available sizes
+ * Returns the size field configuration for each SKU
  */
-async function getShopWorksSizeMapping(skus) {
-  try {
-    const skuList = skus.map(s => `'${s}'`).join(',');
-    const records = await fetchAllCaspioPages(
-      '/tables/Shopworks_Integration/records',
-      {
-        'q.where': `ID_Product IN (${skuList})`,
-        'q.select': 'ID_Product, sts_LimitSize01, sts_LimitSize02, sts_LimitSize03, sts_LimitSize04, sts_LimitSize05, sts_LimitSize06, Price_Unit_Case, Description',
-        'q.limit': 100
-      }
-    );
+function getShopWorksSizeMappingFromSizes(skus, styleNumber, availableSizes, productTitle) {
+  const sizeMap = {};
 
-    // Create a map of SKU to size fields
-    // NOTE: sts_LimitSizeXX = 1 means BLOCKED, null means ENABLED
-    // So we use single negation: !1 = false (blocked), !null = true (enabled)
-    const sizeMap = {};
-    records.forEach(record => {
-      sizeMap[record.ID_Product] = {
-        Size01: !record.sts_LimitSize01,
-        Size02: !record.sts_LimitSize02,
-        Size03: !record.sts_LimitSize03,
-        Size04: !record.sts_LimitSize04,
-        Size05: !record.sts_LimitSize05,
-        Size06: !record.sts_LimitSize06,
-        pricing: {
-          case: record.Price_Unit_Case
-        },
-        description: record.Description
+  skus.forEach(sku => {
+    if (sku === styleNumber) {
+      // Base SKU: standard sizes in Size01-Size04
+      sizeMap[sku] = {
+        Size01: availableSizes.includes('S'),
+        Size02: availableSizes.includes('M'),
+        Size03: availableSizes.includes('L'),
+        Size04: availableSizes.includes('XL'),
+        Size05: false,
+        Size06: false,
+        pricing: { case: null },
+        description: productTitle
       };
-    });
+    } else {
+      // Extended SKU: determine which size field based on suffix
+      const suffix = sku.replace(styleNumber, '');
+      const field = SUFFIX_TO_FIELD_MAP[suffix] || 'Size06';
+      const isTwoXL = suffix === '_2X' || suffix === '_2XL';
 
-    return sizeMap;
-  } catch (error) {
-    console.error('[getShopWorksSizeMapping] Error:', error);
-    throw error;
-  }
+      sizeMap[sku] = {
+        Size01: false,
+        Size02: false,
+        Size03: false,
+        Size04: false,
+        Size05: isTwoXL,
+        Size06: !isTwoXL,
+        pricing: { case: null },
+        description: productTitle
+      };
+    }
+  });
+
+  return sizeMap;
 }
 
 /**
- * Map SKU to ShopWorks fields using actual Shopworks_Integration data
+ * Map SKU to ShopWorks fields using derived size data
  */
-async function mapSKUToFieldsEnhanced(skus) {
-  const sizeMapping = await getShopWorksSizeMapping(skus);
+function mapSKUToFieldsEnhanced(skus, styleNumber, availableSizes, productTitle) {
+  const sizeMapping = getShopWorksSizeMappingFromSizes(skus, styleNumber, availableSizes, productTitle);
 
   return skus.map(sku => {
     const mapping = sizeMapping[sku];
@@ -166,7 +207,6 @@ async function mapSKUToFieldsEnhanced(skus) {
       };
     }
 
-    // Determine which size fields are enabled
     const enabledFields = Object.entries(mapping)
       .filter(([key, value]) => key.startsWith('Size') && value === true)
       .map(([key]) => key);
@@ -344,18 +384,22 @@ router.get('/sanmar-shopworks/mapping', async (req, res) => {
     // Get product info from Sanmar_Bulk
     const productInfo = await getProductInfo(styleNumber);
 
-    // Detect SKU pattern from Shopworks_Integration
+    // Detect SKU pattern from Sanmar_Bulk sizes
     const skuPattern = await detectSKUPattern(styleNumber);
 
     if (skuPattern.type === 'not-found') {
       return res.status(404).json({
-        error: `Product ${styleNumber} not found in ShopWorks integration table`,
-        suggestion: 'This product may not be configured for ShopWorks import yet'
+        error: `Product ${styleNumber} not found in Sanmar catalog`,
+        suggestion: 'This product may not exist in the current catalog data'
       });
     }
 
-    // Get enhanced SKU mappings with actual size fields and pricing
-    const shopworksInventoryEntries = await mapSKUToFieldsEnhanced(skuPattern.skus);
+    // Get all available sizes for deriving field mappings
+    const allSizePricing = await getAvailableSizesFromBulk(styleNumber, null);
+    const allAvailableSizes = Object.keys(allSizePricing);
+
+    // Get enhanced SKU mappings with derived size fields
+    const shopworksInventoryEntries = mapSKUToFieldsEnhanced(skuPattern.skus, styleNumber, allAvailableSizes, productInfo.productTitle);
 
     // Get color mappings from Sanmar_Bulk
     const availableColors = await getColorMappings(styleNumber);
@@ -497,6 +541,7 @@ router.get('/sanmar-shopworks/color-mapping', async (req, res) => {
  *
  * Returns flat JSON array with one entry per SKU, ready for ShopWorks import
  * Each entry includes all size fields with actual size values where enabled
+ * Color is optional — when omitted, returns sizes across all colors
  */
 router.get('/sanmar-shopworks/import-format', async (req, res) => {
   try {
@@ -506,115 +551,85 @@ router.get('/sanmar-shopworks/import-format', async (req, res) => {
       return res.status(400).json({ error: 'styleNumber parameter is required' });
     }
 
-    if (!color) {
-      return res.status(400).json({ error: 'color parameter is required for import format' });
-    }
-
-    console.log(`[Import Format] Generating ShopWorks import data for ${styleNumber} ${color}`);
+    console.log(`[Import Format] Generating ShopWorks import data for ${styleNumber} ${color || '(all colors)'}`);
 
     // Get product info
     const productInfo = await getProductInfo(styleNumber);
 
-    // Detect SKU pattern
-    const skuPattern = await detectSKUPattern(styleNumber);
+    // Resolve color to CATALOG_COLOR if provided
+    let catalogColor = null;
+    let displayColor = color || null;
+    if (color) {
+      const availableColors = await getColorMappings(styleNumber);
+      const selectedColor = availableColors.find(c =>
+        c.displayName.toLowerCase().includes(color.toLowerCase()) ||
+        c.catalogName.toLowerCase().includes(color.toLowerCase())
+      );
 
-    if (skuPattern.type === 'not-found') {
+      if (!selectedColor) {
+        return res.status(404).json({
+          error: `Color "${color}" not found for ${styleNumber}`,
+          availableColors: availableColors.map(c => c.displayName)
+        });
+      }
+
+      catalogColor = selectedColor.catalogName;
+      displayColor = selectedColor.displayName;
+    }
+
+    // Get available sizes and pricing from Sanmar_Bulk
+    const sizePricing = await getAvailableSizesFromBulk(styleNumber, catalogColor);
+    const availableSizes = Object.keys(sizePricing);
+
+    if (availableSizes.length === 0) {
       return res.status(404).json({
-        error: `Product ${styleNumber} not found in ShopWorks integration table`
+        error: `No sizes found for ${styleNumber}${catalogColor ? ` in ${catalogColor}` : ''}`
       });
     }
 
-    // Get size mappings
-    const sizeMapping = await getShopWorksSizeMapping(skuPattern.skus);
+    // Build import-ready entries from available sizes
+    const importEntries = [];
 
-    // Get color mapping
-    const availableColors = await getColorMappings(styleNumber);
-    const selectedColor = availableColors.find(c =>
-      c.displayName.toLowerCase().includes(color.toLowerCase()) ||
-      c.catalogName.toLowerCase().includes(color.toLowerCase())
-    );
-
-    if (!selectedColor) {
-      return res.status(404).json({
-        error: `Color "${color}" not found for ${styleNumber}`,
-        availableColors: availableColors.map(c => c.displayName)
-      });
-    }
-
-    // Get current pricing
-    const currentPricing = await getSanmarPricing(styleNumber, selectedColor.catalogName);
-
-    // Map of size abbreviations to size field names
-    const sizeFieldMap = {
-      'XS': 'Size06',
-      'S': 'Size01',
-      'M': 'Size02',
-      'L': 'Size03',
-      'XL': 'Size04',
-      '2XL': 'Size05',
-      '3XL': 'Size06',
-      '4XL': 'Size06'
-    };
-
-    // Build import-ready entries
-    const importEntries = skuPattern.skus.map(sku => {
-      const mapping = sizeMapping[sku];
-      if (!mapping) return null;
-
-      // Determine which sizes this SKU handles
-      const sizes = {};
-      if (mapping.Size01) sizes.Size01 = 'S';
-      if (mapping.Size02) sizes.Size02 = 'M';
-      if (mapping.Size03) sizes.Size03 = 'L';
-      if (mapping.Size04) sizes.Size04 = 'XL';
-      if (mapping.Size05) sizes.Size05 = '2XL';
-      if (mapping.Size06) {
-        // Size06 is the catch-all for extended sizes (XS, 3XL, 4XL, 5XL, 6XL, LT, XLT, etc.)
-        // Extract the suffix from the SKU (e.g., PC61_5XL -> 5XL)
-        const suffix = sku.split('_')[1];
-        if (suffix) sizes.Size06 = suffix;
-      }
-
-      // Get the correct price for this SKU
-      // Determine which size key to use for pricing lookup
-      let casePrice = null;
-      if (currentPricing) {
-        let sizeKey = null;
-
-        // Map ShopWorks size columns to pricing size keys
-        if (sizes.Size01) sizeKey = 'S';
-        else if (sizes.Size02) sizeKey = 'M';
-        else if (sizes.Size03) sizeKey = 'L';
-        else if (sizes.Size04) sizeKey = 'XL';
-        else if (sizes.Size05) sizeKey = '2XL';
-        else if (sizes.Size06) sizeKey = sizes.Size06; // Use actual extracted size (XS, 3XL, 4XL, 5XL, 6XL, LT, XLT, etc.)
-
-        // Lookup price for the size, or fallback to first available price
-        if (sizeKey) {
-          casePrice = currentPricing[sizeKey] || null;
-        }
-
-        // If no price found for specific size, fall back to base size
-        if (casePrice === null) {
-          casePrice = currentPricing['S'] || currentPricing['M'] || currentPricing['L'] || Object.values(currentPricing)[0];
-        }
-      }
-
-      return {
-        ID_Product: sku,
-        CATALOG_COLOR: selectedColor.catalogName,  // ShopWorks uses this field
-        COLOR_NAME: selectedColor.displayName,     // Display name from Sanmar
-        Description: mapping.description || productInfo.productTitle,
+    // Base SKU for standard sizes (S, M, L, XL)
+    const hasStandardSizes = availableSizes.some(s => STANDARD_SIZES.includes(s));
+    if (hasStandardSizes) {
+      importEntries.push({
+        ID_Product: styleNumber,
+        CATALOG_COLOR: catalogColor,
+        COLOR_NAME: displayColor,
+        Description: productInfo.productTitle,
         Brand: productInfo.brand,
-        CASE_PRICE: casePrice,
-        Size01: sizes.Size01 || null,
-        Size02: sizes.Size02 || null,
-        Size03: sizes.Size03 || null,
-        Size04: sizes.Size04 || null,
-        Size05: sizes.Size05 || null,
-        Size06: sizes.Size06 || null
-      };
-    }).filter(Boolean);
+        CASE_PRICE: sizePricing['S'] || sizePricing['M'] || sizePricing['L'] || sizePricing['XL'],
+        Size01: availableSizes.includes('S') ? 'S' : null,
+        Size02: availableSizes.includes('M') ? 'M' : null,
+        Size03: availableSizes.includes('L') ? 'L' : null,
+        Size04: availableSizes.includes('XL') ? 'XL' : null,
+        Size05: null,
+        Size06: null
+      });
+    }
+
+    // Extended sizes: each gets its own SKU entry
+    const extendedSizes = availableSizes.filter(s => !STANDARD_SIZES.includes(s));
+    extendedSizes.forEach(size => {
+      const suffix = SIZE_TO_SUFFIX[size] || `_${size}`;
+      const isTwoXL = size === '2XL';
+
+      importEntries.push({
+        ID_Product: `${styleNumber}${suffix}`,
+        CATALOG_COLOR: catalogColor,
+        COLOR_NAME: displayColor,
+        Description: `${productInfo.productTitle} (${size})`,
+        Brand: productInfo.brand,
+        CASE_PRICE: sizePricing[size],
+        Size01: null,
+        Size02: null,
+        Size03: null,
+        Size04: null,
+        Size05: isTwoXL ? size : null,
+        Size06: !isTwoXL ? size : null
+      });
+    });
 
     // Sort by CASE_PRICE ascending (lowest to highest)
     importEntries.sort((a, b) => {
@@ -623,6 +638,7 @@ router.get('/sanmar-shopworks/import-format', async (req, res) => {
       return a.CASE_PRICE - b.CASE_PRICE;
     });
 
+    console.log(`[Import Format] Returning ${importEntries.length} entries for ${styleNumber} (${availableSizes.length} sizes)`);
     res.json(importEntries);
   } catch (error) {
     console.error('[Import Format] Error:', error);
