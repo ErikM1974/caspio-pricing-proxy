@@ -391,9 +391,20 @@ app.use('/api', threadColorsRoutes);
 console.log('✓ Thread Colors routes loaded');
 
 // Monograms Routes (CRUD for monogram orders)
+const monogramsLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 30, // Max 30 requests per minute
+  message: {
+    error: 'Too many requests to Monograms endpoints',
+    retryAfter: '60 seconds'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  trustProxy: true
+});
 const monogramsRoutes = require('./src/routes/monograms');
-app.use('/api', monogramsRoutes);
-console.log('✓ Monograms routes loaded');
+app.use('/api', monogramsLimiter, monogramsRoutes);
+console.log('✓ Monograms routes loaded (rate limited: 30 req/min)');
 
 // Garment Tracker Routes (staff dashboard tracking optimization)
 const garmentTrackerRoutes = require('./src/routes/garment-tracker');

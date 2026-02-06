@@ -10,6 +10,53 @@ const { getCaspioAccessToken, fetchAllCaspioPages } = require('../utils/caspio')
 const caspioApiBaseUrl = config.caspio.apiBaseUrl;
 const TABLE_NAME = 'Monograms';
 
+// =====================
+// Input Sanitization
+// =====================
+
+const VALID_STATUSES = ['Submitted', 'Printed', 'Complete', 'Cancelled'];
+
+const ALLOWED_FIELDS = [
+    'OrderNumber', 'CompanyName', 'SalesRepEmail', 'FontStyle',
+    'ThreadColors', 'Locations', 'ImportedNames', 'NotesToProduction',
+    'ItemsJSON', 'TotalItems', 'Status', 'CreatedAt', 'CreatedBy',
+    'ModifiedAt', 'PrintedAt'
+];
+
+/** Strip characters that could be used in SQL injection */
+function sanitizeSearchQuery(str) {
+    if (!str || typeof str !== 'string') return '';
+    return str.replace(/['"\\\-%_]/g, '').trim().substring(0, 200);
+}
+
+/** Validate and return positive integer, or null */
+function sanitizeOrderNumber(val) {
+    const num = parseInt(val, 10);
+    return (Number.isInteger(num) && num > 0) ? num : null;
+}
+
+/** Validate YYYY-MM-DD format */
+function sanitizeDateString(str) {
+    if (!str || typeof str !== 'string') return null;
+    return /^\d{4}-\d{2}-\d{2}$/.test(str) ? str : null;
+}
+
+/** Validate status against whitelist */
+function sanitizeStatus(str) {
+    return VALID_STATUSES.includes(str) ? str : null;
+}
+
+/** Filter request body to only allowed fields */
+function filterAllowedFields(body) {
+    const filtered = {};
+    for (const key of ALLOWED_FIELDS) {
+        if (body[key] !== undefined) {
+            filtered[key] = body[key];
+        }
+    }
+    return filtered;
+}
+
 // GET /api/monograms - List all monograms with optional filters
 router.get('/monograms', async (req, res) => {
     try {
@@ -18,21 +65,26 @@ router.get('/monograms', async (req, res) => {
         const params = {};
         const whereConditions = [];
 
-        // Build WHERE clause based on query parameters
+        // Build WHERE clause based on sanitized query parameters
         if (req.query.orderNumber) {
-            whereConditions.push(`OrderNumber=${req.query.orderNumber}`);
+            const orderNum = sanitizeOrderNumber(req.query.orderNumber);
+            if (orderNum) whereConditions.push(`OrderNumber=${orderNum}`);
         }
         if (req.query.companyName) {
-            whereConditions.push(`CompanyName LIKE '%${req.query.companyName}%'`);
+            const name = sanitizeSearchQuery(req.query.companyName);
+            if (name) whereConditions.push(`CompanyName LIKE '%${name}%'`);
         }
         if (req.query.status) {
-            whereConditions.push(`Status='${req.query.status}'`);
+            const status = sanitizeStatus(req.query.status);
+            if (status) whereConditions.push(`Status='${status}'`);
         }
         if (req.query.dateFrom) {
-            whereConditions.push(`CreatedAt>='${req.query.dateFrom}'`);
+            const dateFrom = sanitizeDateString(req.query.dateFrom);
+            if (dateFrom) whereConditions.push(`CreatedAt>='${dateFrom}'`);
         }
         if (req.query.dateTo) {
-            whereConditions.push(`CreatedAt<='${req.query.dateTo}'`);
+            const dateTo = sanitizeDateString(req.query.dateTo);
+            if (dateTo) whereConditions.push(`CreatedAt<='${dateTo}'`);
         }
 
         // Apply WHERE clause if conditions exist
@@ -59,10 +111,10 @@ router.get('/monograms', async (req, res) => {
 
 // GET /api/monograms/:orderNumber - Get single monogram by OrderNumber
 router.get('/monograms/:orderNumber', async (req, res) => {
-    const { orderNumber } = req.params;
+    const orderNumber = sanitizeOrderNumber(req.params.orderNumber);
 
     if (!orderNumber) {
-        return res.status(400).json({ success: false, error: 'Missing required parameter: orderNumber' });
+        return res.status(400).json({ success: false, error: 'Invalid order number' });
     }
 
     try {
@@ -92,7 +144,7 @@ router.get('/monograms/:orderNumber', async (req, res) => {
 // POST /api/monograms - Create new monogram (with upsert support)
 router.post('/monograms', express.json(), async (req, res) => {
     try {
-        const requestData = { ...req.body };
+        const requestData = filterAllowedFields(req.body);
 
         // Validate required field
         if (!requestData.OrderNumber) {
@@ -188,16 +240,16 @@ router.post('/monograms', express.json(), async (req, res) => {
 
 // PUT /api/monograms/:id_monogram - Update monogram by ID
 router.put('/monograms/:id_monogram', express.json(), async (req, res) => {
-    const { id_monogram } = req.params;
+    const id_monogram = sanitizeOrderNumber(req.params.id_monogram);
 
     if (!id_monogram) {
-        return res.status(400).json({ success: false, error: 'Missing required parameter: id_monogram' });
+        return res.status(400).json({ success: false, error: 'Invalid monogram ID' });
     }
 
     try {
         console.log(`Updating monogram with ID_Monogram: ${id_monogram}`);
 
-        const updateData = { ...req.body };
+        const updateData = filterAllowedFields(req.body);
 
         // Set ModifiedAt timestamp
         updateData.ModifiedAt = new Date().toISOString();
@@ -226,10 +278,10 @@ router.put('/monograms/:id_monogram', express.json(), async (req, res) => {
 
 // DELETE /api/monograms/:id_monogram - Delete monogram by ID
 router.delete('/monograms/:id_monogram', async (req, res) => {
-    const { id_monogram } = req.params;
+    const id_monogram = sanitizeOrderNumber(req.params.id_monogram);
 
     if (!id_monogram) {
-        return res.status(400).json({ success: false, error: 'Missing required parameter: id_monogram' });
+        return res.status(400).json({ success: false, error: 'Invalid monogram ID' });
     }
 
     try {
