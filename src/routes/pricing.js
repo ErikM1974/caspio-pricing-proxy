@@ -4,6 +4,14 @@ const express = require('express');
 const router = express.Router();
 const { makeCaspioRequest, fetchAllCaspioPages } = require('../utils/caspio');
 
+// Sanitize style number input to prevent Caspio WHERE clause injection
+function sanitizeStyleNumber(input) {
+  if (!input || typeof input !== 'string') return null;
+  // Allow alphanumeric, hyphens, and periods only (valid SanMar style format)
+  const sanitized = input.replace(/[^a-zA-Z0-9\-\.]/g, '').trim();
+  return (sanitized.length > 0 && sanitized.length <= 30) ? sanitized : null;
+}
+
 // Cache for pricing bundle (15 minute TTL) - HIGH IMPACT
 const pricingBundleCache = new Map();
 const PRICING_BUNDLE_CACHE_TTL = 15 * 60 * 1000; // 15 minutes
@@ -98,7 +106,7 @@ router.get('/embroidery-costs', async (req, res) => {
   }
 
   // Input sanitization: whitelist itemType values
-  const allowedItemTypes = ['Shirt', 'Cap', 'AL', 'AL-CAP', '3D-Puff', 'Patch', 'DECG-Garmt', 'DECG-Cap', 'DECG-FB'];
+  const allowedItemTypes = ['Shirt', 'Cap', 'AL', 'AL-CAP', '3D-Puff', 'Patch', 'DECG-Garmt', 'DECG-Cap', 'DECG-FB', 'AS-Garm', 'AS-Cap'];
   if (!allowedItemTypes.includes(itemType)) {
     return res.status(400).json({ error: `Invalid itemType. Allowed: ${allowedItemTypes.join(', ')}` });
   }
@@ -472,7 +480,9 @@ router.get('/base-item-costs', async (req, res) => {
   }
 
   try {
-    const whereClause = `STYLE='${styleNumber}'`;
+    const safeStyle = sanitizeStyleNumber(styleNumber);
+    if (!safeStyle) return res.status(400).json({ error: 'Invalid style number format' });
+    const whereClause = `STYLE='${safeStyle}'`;
     const records = await fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
       'q.where': whereClause,
       'q.select': 'SIZE, CASE_PRICE'
@@ -511,9 +521,12 @@ router.get('/size-pricing', async (req, res) => {
   }
 
   try {
-    let whereClause = `STYLE='${styleNumber}'`;
+    const safeStyle = sanitizeStyleNumber(styleNumber);
+    if (!safeStyle) return res.status(400).json({ error: 'Invalid style number format' });
+    let whereClause = `STYLE='${safeStyle}'`;
     if (color) {
-      whereClause += ` AND COLOR_NAME='${color}'`;
+      const safeColor = color.replace(/'/g, "''").substring(0, 100);
+      whereClause += ` AND COLOR_NAME='${safeColor}'`;
     }
 
     // Fetch pricing data and size upcharges in parallel
@@ -607,7 +620,9 @@ router.get('/max-prices-by-style', async (req, res) => {
     }
 
     // 2. Fetch Inventory Data from Sanmar table (using STYLE field to match catalog_no)
-    const inventoryWhereClause = `STYLE='${styleNumber}'`;
+    const safeStyle = sanitizeStyleNumber(styleNumber);
+    if (!safeStyle) return res.status(400).json({ error: 'Invalid style number format' });
+    const inventoryWhereClause = `STYLE='${safeStyle}'`;
     const inventoryParams = {
       'q.where': inventoryWhereClause,
       'q.select': 'SIZE,CASE_PRICE',
@@ -762,7 +777,7 @@ router.get('/pricing-bundle', async (req, res) => {
         break;
       case 'EMB':
         costTableQuery = fetchAllCaspioPages('/tables/Embroidery_Costs/records', {
-          'q.where': "ItemType='Shirt'"
+          'q.where': "ItemType='Shirt' OR ItemType='AS-Garm' OR ItemType='AS-Cap'"
         }).catch(err => {
           console.error('Failed to fetch embroidery costs:', err.message);
           return [];
@@ -859,7 +874,7 @@ router.get('/pricing-bundle', async (req, res) => {
       // Add the Sanmar query for sizes with error handling
       baseQueries.push(
         fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
-          'q.where': `STYLE='${styleNumber}'`,
+          'q.where': `STYLE='${sanitizeStyleNumber(styleNumber) || styleNumber}'`,
           'q.select': 'SIZE, MAX(CASE_PRICE) AS MAX_PRICE',
           'q.groupBy': 'SIZE',
           'q.limit': 100
@@ -1141,47 +1156,10 @@ router.get('/pricing-bundle', async (req, res) => {
     res.json(finalResponse);
   } catch (error) {
     console.error('Error fetching pricing bundle:', error.message);
-    
-    // Even on error, return the expected structure
-    const errorResponse = {
-      tiersR: [],
-      rulesR: {},
-      locations: []
-    };
-    
-    // Add method-specific cost field
-    switch (method) {
-      case 'DTG':
-        errorResponse.allDtgCostsR = [];
-        break;
-      case 'EMB':
-      case 'CAP':
-      case 'EMB-AL':
-      case 'CAP-AL':
-      case 'CAP-PUFF':
-        errorResponse.allEmbroideryCostsR = [];
-        break;
-      case 'PATCH':
-        errorResponse.allPatchCostsR = [];
-        break;
-      case 'ScreenPrint':
-        errorResponse.allScreenprintCostsR = [];
-        break;
-      case 'DTF':
-        errorResponse.allDtfCostsR = [];
-        errorResponse.freightR = [];
-        break;
-      case 'BLANK':
-        // Blank products don't need cost fields
-        break;
-    }
-
-    if (styleNumber) {
-      errorResponse.sizes = [];
-      errorResponse.sellingPriceDisplayAddOns = {};
-    }
-
-    res.json(errorResponse);
+    res.status(500).json({
+      error: 'Failed to load pricing data from Caspio',
+      message: error.message
+    });
   }
 });
 

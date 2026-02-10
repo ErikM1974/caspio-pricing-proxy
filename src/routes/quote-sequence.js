@@ -2,6 +2,34 @@ const express = require('express');
 const router = express.Router();
 const { makeCaspioRequest, fetchAllCaspioPages } = require('../utils/caspio');
 
+// In-memory mutex locks per prefix to prevent duplicate sequence numbers
+// from concurrent requests (Caspio doesn't support atomic increment)
+const locks = {};
+
+function acquireLock(prefix) {
+    if (!locks[prefix]) {
+        locks[prefix] = { queue: [], locked: false };
+    }
+    return new Promise(resolve => {
+        if (!locks[prefix].locked) {
+            locks[prefix].locked = true;
+            resolve();
+        } else {
+            locks[prefix].queue.push(resolve);
+        }
+    });
+}
+
+function releaseLock(prefix) {
+    if (!locks[prefix]) return;
+    if (locks[prefix].queue.length > 0) {
+        const next = locks[prefix].queue.shift();
+        next();
+    } else {
+        locks[prefix].locked = false;
+    }
+}
+
 // GET /api/quote-sequence/:prefix
 // Atomic get-and-increment for quote sequence numbers
 // Supports prefixes like EMB, DTG, DTF, SPC for quote IDs (e.g., EMB-2026-001)
@@ -19,6 +47,9 @@ router.get('/quote-sequence/:prefix', async (req, res) => {
     }
 
     const normalizedPrefix = prefix.toUpperCase();
+
+    // Serialize concurrent requests for same prefix to prevent duplicate sequences
+    await acquireLock(normalizedPrefix);
 
     try {
         // Query for existing record with this prefix and year
@@ -77,6 +108,8 @@ router.get('/quote-sequence/:prefix', async (req, res) => {
             error: 'Failed to get quote sequence',
             details: error.message
         });
+    } finally {
+        releaseLock(normalizedPrefix);
     }
 });
 

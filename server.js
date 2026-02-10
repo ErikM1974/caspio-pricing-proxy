@@ -253,9 +253,20 @@ app.use('/api', miscRoutes);
 console.log('✓ Misc routes loaded');
 
 // Pricing Routes
+const pricingLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 100, // Max 100 requests per minute per IP
+  message: {
+    error: 'Too many requests to pricing endpoints',
+    retryAfter: '60 seconds'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  trustProxy: true
+});
 const pricingRoutes = require('./src/routes/pricing');
-app.use('/api', pricingRoutes);
-console.log('✓ Pricing routes loaded');
+app.use('/api', pricingLimiter, pricingRoutes);
+console.log('✓ Pricing routes loaded (rate limited: 100 req/min)');
 
 // Inventory Routes
 const inventoryRoutes = require('./src/routes/inventory');
