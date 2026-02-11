@@ -401,6 +401,11 @@ const threadColorsRoutes = require('./src/routes/thread-colors');
 app.use('/api', threadColorsRoutes);
 console.log('✓ Thread Colors routes loaded');
 
+// Tax Rate Routes (WA DOR + Caspio sales_tax_accounts_2026)
+const taxRateRoutes = require('./src/routes/tax-rate');
+app.use('/api', taxRateRoutes);
+console.log('✓ Tax Rate routes loaded');
+
 // Monograms Routes (CRUD for monogram orders)
 const monogramsLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
