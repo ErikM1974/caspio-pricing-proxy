@@ -16,7 +16,15 @@ const pricingLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false
 });
-router.use(pricingLimiter);
+// Apply rate limiter ONLY to pricing-specific routes
+// router.use() without a path runs on ALL /api requests (including quote_items, inventory, etc.)
+const pricingPaths = [
+  '/pricing-tiers', '/embroidery-costs', '/contract-pricing',
+  '/decg-pricing', '/al-pricing', '/dtg-costs', '/screenprint-costs',
+  '/pricing-rules', '/base-item-costs', '/size-pricing',
+  '/max-prices-by-style', '/pricing-bundle'
+];
+pricingPaths.forEach(path => router.use(path, pricingLimiter));
 
 // Sanitize style number input to prevent Caspio WHERE clause injection
 function sanitizeStyleNumber(input) {
