@@ -2,7 +2,21 @@
 
 const express = require('express');
 const router = express.Router();
+const rateLimit = require('express-rate-limit');
 const { makeCaspioRequest, fetchAllCaspioPages } = require('../utils/caspio');
+
+// Rate limiter scoped to pricing routes only (not all /api routes)
+const pricingLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 100, // Max 100 requests per minute per IP
+  message: {
+    error: 'Too many requests to pricing endpoints',
+    retryAfter: '60 seconds'
+  },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+router.use(pricingLimiter);
 
 // Sanitize style number input to prevent Caspio WHERE clause injection
 function sanitizeStyleNumber(input) {
