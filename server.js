@@ -489,6 +489,11 @@ const nonSanmarProductsRoutes = require('./src/routes/non-sanmar-products');
 app.use('/api', nonSanmarProductsRoutes);
 console.log('✓ Non-SanMar Products routes loaded');
 
+// Digitized Designs Routes (design lookup for stitch count auto-detection)
+const digitizedDesignsRoutes = require('./src/routes/digitized-designs');
+app.use('/api', digitizedDesignsRoutes);
+console.log('✓ Digitized Designs routes loaded');
+
 // --- Admin Metrics Endpoint ---
 const apiTracker = require('./src/utils/api-tracker');
 
