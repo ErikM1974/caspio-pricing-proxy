@@ -16,8 +16,9 @@ const CACHE_TTL = 5 * 60 * 1000;
 // Must stay in sync with shared_components/js/shopworks-import-parser.js
 const SERVICE_CODE_ALIASES = {
     'AONOGRAM': 'Monogram',
-    'NNAME': 'Name',
-    'NNAMES': 'Name',
+    'NNAME': 'Name/Number',    // Common typo → Name/Number ($15)
+    'NNAMES': 'Name/Number',   // Common typo → Name/Number ($15)
+    'NAME': 'Name/Number',     // Legacy NAME → Name/Number ($15)
     'NAMES': 'Monogram',       // Plural "names" = monogramming
     'EJB': 'FB',               // Embroidered Jacket Back → Full Back
     'FLAG': 'AL',              // Legacy code
@@ -31,7 +32,13 @@ const SERVICE_CODE_ALIASES = {
     'NAME_DROP': 'Monogram',   // Reps manually typing — normalize to Monogram
     'NAME_DROP_BIG': 'Monogram', // Reps manually typing — normalize to Monogram
     'NAME DROP': 'Monogram',   // Space variant
-    'NAMEDROP': 'Monogram'     // No separator variant
+    'NAMEDROP': 'Monogram',    // No separator variant
+    'HEAVYWEIGHT-SURCHARGE': 'HW-SURCHG', // Renamed for ShopWorks compat
+    'CDP 5x5': 'CDP',         // Consolidated → CDP
+    'CDP 5x5-10': 'CDP',      // Consolidated → CDP
+    'DGT-001': 'DD',          // Legacy → DD
+    'DGT-002': 'DDE',         // Legacy → DDE
+    'DGT-003': 'DDT'          // Legacy → DDT
 };
 
 /**
@@ -304,7 +311,7 @@ const SERVICE_CODES_DATA = [
 
     // Monogram/Name (2)
     { ServiceCode: 'Monogram', ServiceType: 'EMBROIDERY', DisplayName: 'Monogram (3 letters)', Category: 'Special', PricingMethod: 'FLAT', TierLabel: '', UnitCost: 6.25, SellPrice: 12.50, PerUnit: 'each', QuoteBuilderField: 'monogram', Position: 'OTHER', StitchBase: 2000, IsActive: true },
-    { ServiceCode: 'Name', ServiceType: 'EMBROIDERY', DisplayName: 'Name Personalization', Category: 'Special', PricingMethod: 'FLAT', TierLabel: '', UnitCost: 6.25, SellPrice: 12.50, PerUnit: 'each', QuoteBuilderField: 'name', Position: 'OTHER', StitchBase: 3500, IsActive: true },
+    { ServiceCode: 'Name/Number', ServiceType: 'EMBROIDERY', DisplayName: 'Name & Number', Category: 'Special', PricingMethod: 'FLAT', TierLabel: '', UnitCost: 7.50, SellPrice: 15.00, PerUnit: 'each', QuoteBuilderField: 'nameNumber', Position: 'OTHER', StitchBase: 3500, IsActive: true },
 
     // DECG (Customer-Supplied Garments) - 7 tiers
     { ServiceCode: 'DECG', ServiceType: 'DECORATION', DisplayName: 'Garment Decoration 1-2 pcs', Category: 'Decoration Garments', PricingMethod: 'TIERED', TierLabel: '1-2', UnitCost: 22.50, SellPrice: 45.00, PerUnit: 'each', QuoteBuilderField: 'decorationGarment', Position: 'FULL', StitchBase: 10000, IsActive: true },
