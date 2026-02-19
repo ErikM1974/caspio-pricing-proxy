@@ -25,8 +25,13 @@ const SERVICE_CODE_ALIASES = {
     'SETUP FEE': 'DD',         // Maps to digitizing setup
     'DESIGN PREP': 'GRT-75',
     'EXCESS STITCH': 'AS-GARM', // Additional stitches (garment)
-    'SECC': 'DECC',            // Typo for DECC (customer-supplied caps)
-    'SEW': 'SEG'               // Alias Sew → SEG (sewing)
+    // SECC is cap sewing (NOT DECC) — separate service from customer-supplied caps
+    'SEW': 'SEG',              // Alias Sew → SEG (sewing)
+    'SEW-ON': 'SEG',           // Alias Sew-on → SEG (sewing)
+    'NAME_DROP': 'Monogram',   // Reps manually typing — normalize to Monogram
+    'NAME_DROP_BIG': 'Monogram', // Reps manually typing — normalize to Monogram
+    'NAME DROP': 'Monogram',   // Space variant
+    'NAMEDROP': 'Monogram'     // No separator variant
 };
 
 /**
