@@ -3,7 +3,7 @@
 // ==========================================
 // Provides centralized mapping logic for:
 // - SKU pattern detection (single-SKU vs multi-SKU variants)
-// - Suffix-to-field mapping (_2XL → Size05, others → Size06)
+// - Suffix-to-field mapping (_2XL/_XXL → Size05, all others → Size06)
 // - Color normalization (COLOR_NAME ↔ CATALOG_COLOR)
 // - Optional real-time inventory aggregation
 
@@ -18,45 +18,147 @@ const sanmarMappingCache = new Map();
 const MAPPING_CACHE_TTL = 60 * 60 * 1000; // 1 hour
 
 // Suffix to ShopWorks field mapping
-// CRITICAL: _2XL and _2X use Size05 (ONLY exceptions)
-// All other suffixes use Size06 (reuse pattern)
+// CRITICAL: _2XL and _XXL use Size05 (ladies 2XL equivalent)
+// All other extended suffixes use Size06 (reuse pattern)
 const SUFFIX_TO_FIELD_MAP = {
-  '_2XL': 'Size05',  // Standard 2XL
-  '_2X': 'Size05',   // Alternate format
-  '_3XL': 'Size06',  // First use of Size06
-  '_3X': 'Size06',
-  '_4XL': 'Size06',  // Reuses Size06
-  '_4X': 'Size06',
-  '_5XL': 'Size06',  // Reuses Size06
-  '_5X': 'Size06',
-  '_6XL': 'Size06',  // Reuses Size06
-  '_6X': 'Size06',
-  '_XXL': 'Size06',  // Women's 2XL (different from _2XL!)
-  '_OSFA': 'Size06', // One size fits all
-  '_XS': 'Size06',   // Extra small (tall variants)
-  '_LT': 'Size06',   // Large tall
-  '_XLT': 'Size06',  // XL tall
-  '_2XLT': 'Size06', // 2XL tall
-  '_3XLT': 'Size06', // 3XL tall
-  '_4XLT': 'Size06', // 4XL tall
-  // Youth sizes also use Size06
+  // Size05 — 2XL and its ladies equivalent XXL
+  '_2XL': 'Size05',  // Standard 2XL (2,125 products)
+  '_XXL': 'Size05',  // Ladies/Womens 2XL (589 products, distinct from _2XL)
+  // Size06 — all other extended sizes
+  '_3XL': 'Size06',
+  '_4XL': 'Size06',
+  '_5XL': 'Size06',
+  '_6XL': 'Size06',
+  '_7XL': 'Size06',
+  '_8XL': 'Size06',
+  '_9XL': 'Size06',
+  '_10XL': 'Size06',
+  '_XXXL': 'Size06', // 6 Outdoor Research products
+  '_OSFA': 'Size06',
+  '_OSFM': 'Size06',
+  '_XS': 'Size06',
+  '_XXS': 'Size06',
+  '_2XS': 'Size06',
+  // Tall sizes
+  '_LT': 'Size06',
+  '_MT': 'Size06',
+  '_ST': 'Size06',
+  '_XST': 'Size06',
+  '_XLT': 'Size06',
+  '_2XLT': 'Size06',
+  '_3XLT': 'Size06',
+  '_4XLT': 'Size06',
+  '_5XLT': 'Size06',
+  // Regular fit
+  '_SR': 'Size06',
+  '_MR': 'Size06',
+  '_LR': 'Size06',
+  '_XLR': 'Size06',
+  '_2XLR': 'Size06',
+  '_3XLR': 'Size06',
+  '_4XLR': 'Size06',
+  '_5XLR': 'Size06',
+  '_6XLR': 'Size06',
+  // Long inseam
+  '_ML': 'Size06',
+  '_LL': 'Size06',
+  '_XLL': 'Size06',
+  '_2XLL': 'Size06',
+  '_3XLL': 'Size06',
+  // Short inseam
+  '_SS': 'Size06',
+  '_MS': 'Size06',
+  '_LS': 'Size06',
+  '_XLS': 'Size06',
+  '_2XLS': 'Size06',
+  '_3XLS': 'Size06',
+  // Petite
+  '_SP': 'Size06',
+  '_MP': 'Size06',
+  '_LP': 'Size06',
+  '_XLP': 'Size06',
+  '_2XLP': 'Size06',
+  '_XSP': 'Size06',
+  '_2XSP': 'Size06',
+  // Big sizes
+  '_LB': 'Size06',
+  '_XLB': 'Size06',
+  '_2XLB': 'Size06',
+  // Youth sizes
   '_YXS': 'Size06',
   '_YS': 'Size06',
   '_YM': 'Size06',
   '_YL': 'Size06',
-  '_YXL': 'Size06'
+  '_YXL': 'Size06',
+  // Toddler sizes
+  '_2T': 'Size06',
+  '_3T': 'Size06',
+  '_4T': 'Size06',
+  '_5T': 'Size06',
+  '_5/6T': 'Size06',
+  '_6T': 'Size06',
+  // Infant sizes
+  '_NB': 'Size06',
+  '_06M': 'Size06',
+  '_12M': 'Size06',
+  '_18M': 'Size06',
+  '_24M': 'Size06',
+  '_0306': 'Size06',
+  '_0612': 'Size06',
+  '_1218': 'Size06',
+  '_1824': 'Size06',
+  // Combo sizes
+  '_S/M': 'Size06',
+  '_M/L': 'Size06',
+  '_L/XL': 'Size06',
+  '_XS/S': 'Size06',
+  '_X/2X': 'Size06',
+  '_S/XL': 'Size06',
+  '_2/3X': 'Size06',
+  '_3/4X': 'Size06',
+  '_4/5X': 'Size06',
+  '_2-5X': 'Size06',
+  '_SM': 'Size06',
+  '_C/Y': 'Size06',
+  '_T/C': 'Size06'
 };
 
 // Map extended sizes to ShopWorks SKU suffixes
+// Full forms per ShopWorks pricelist (Feb 2026) — _2X/_3X/_4X do NOT exist
 const SIZE_TO_SUFFIX = {
-  '2XL': '_2X', '3XL': '_3X', '4XL': '_4X', '5XL': '_5X', '6XL': '_6X',
-  'XS': '_XS', 'XXL': '_XXL', 'OSFA': '_OSFA', 'OSFM': '_OSFM',
+  // Plus sizes (full form)
+  '2XL': '_2XL', '3XL': '_3XL', '4XL': '_4XL', '5XL': '_5XL', '6XL': '_6XL',
+  '7XL': '_7XL', '8XL': '_8XL', '9XL': '_9XL', '10XL': '_10XL',
+  'XXL': '_XXL', 'XXXL': '_XXXL',
+  // Extra small
+  'XS': '_XS', 'XXS': '_XXS', '2XS': '_2XS',
+  // One size
+  'OSFA': '_OSFA', 'OSFM': '_OSFM',
+  // Tall sizes
   'LT': '_LT', 'XLT': '_XLT', '2XLT': '_2XLT', '3XLT': '_3XLT', '4XLT': '_4XLT',
-  'ST': '_ST', 'MT': '_MT', 'XST': '_XST',
-  'YXS': '_YXS', 'YS': '_YS', 'YM': '_YM', 'YL': '_YL', 'YXL': '_YXL',
-  '2T': '_2T', '3T': '_3T', '4T': '_4T', '5T': '_5T', '6T': '_6T',
+  'ST': '_ST', 'MT': '_MT', 'XST': '_XST', '5XLT': '_5XLT',
+  // Regular fit
+  'SR': '_SR', 'MR': '_MR', 'LR': '_LR', 'XLR': '_XLR',
+  '2XLR': '_2XLR', '3XLR': '_3XLR', '4XLR': '_4XLR', '5XLR': '_5XLR', '6XLR': '_6XLR',
+  // Long inseam
+  'ML': '_ML', 'LL': '_LL', 'XLL': '_XLL', '2XLL': '_2XLL', '3XLL': '_3XLL',
+  // Short inseam
+  'SS': '_SS', 'MS': '_MS', 'LS': '_LS', 'XLS': '_XLS', '2XLS': '_2XLS', '3XLS': '_3XLS',
+  // Petite
+  'SP': '_SP', 'MP': '_MP', 'LP': '_LP', 'XLP': '_XLP', '2XLP': '_2XLP', 'XSP': '_XSP', '2XSP': '_2XSP',
+  // Big sizes
   'LB': '_LB', 'XLB': '_XLB', '2XLB': '_2XLB',
-  'S/M': '_SM', 'M/L': '_ML', 'L/XL': '_LXL', 'XS/S': '_XSS', 'X/2X': '_X2X', 'S/XL': '_SXL'
+  // Youth sizes
+  'YXS': '_YXS', 'YS': '_YS', 'YM': '_YM', 'YL': '_YL', 'YXL': '_YXL',
+  // Toddler sizes
+  '2T': '_2T', '3T': '_3T', '4T': '_4T', '5T': '_5T', '5/6T': '_5/6T', '6T': '_6T',
+  // Infant sizes
+  'NB': '_NB', '06M': '_06M', '12M': '_12M', '18M': '_18M', '24M': '_24M',
+  '0306': '_0306', '0612': '_0612', '1218': '_1218', '1824': '_1824',
+  // Combo sizes (with slashes per ShopWorks pricelist)
+  'S/M': '_S/M', 'M/L': '_M/L', 'L/XL': '_L/XL', 'XS/S': '_XS/S', 'X/2X': '_X/2X', 'S/XL': '_S/XL',
+  '2/3X': '_2/3X', '3/4X': '_3/4X', '4/5X': '_4/5X', '2-5X': '_2-5X',
+  'SM': '_SM', 'C/Y': '_C/Y', 'T/C': '_T/C'
 };
 
 // Standard sizes that go into base SKU (Size01-Size04)
