@@ -105,6 +105,115 @@ function groupByDesignNumber(records, requestedNumbers) {
 
 
 // ============================================
+// FALLBACK LOOKUP — ShopWorks_Designs table
+// ============================================
+
+const FALLBACK_TABLE = 'ShopWorks_Designs';
+const FALLBACK_RESOURCE = `/tables/${FALLBACK_TABLE}/records`;
+const FALLBACK_FIELDS = [
+    'Design_Number', 'Design_Name', 'Company_Name', 'Design_Code',
+    'Thread_Colors', 'Color_Count', 'Last_Order_Date', 'Order_Count',
+    'Design_Type_ID', 'Stitch_Count', 'Stitch_Tier', 'AS_Surcharge', 'Has_Stitch_Data'
+].join(',');
+
+/**
+ * GET /api/digitized-designs/fallback?designs=435,1363,5373
+ * Fallback lookup for designs NOT found in master table.
+ * Queries ShopWorks_Designs table — returns name, company, colors,
+ * and stitch data if enriched from master.
+ */
+router.get('/digitized-designs/fallback', async (req, res) => {
+    const { designs } = req.query;
+
+    if (!designs || typeof designs !== 'string') {
+        return res.status(400).json({
+            success: false,
+            error: 'Missing required query parameter: designs (comma-separated design numbers)'
+        });
+    }
+
+    const rawNumbers = designs.split(',').map(s => s.trim());
+    const designNumbers = rawNumbers.map(sanitizeDesignNumber).filter(Boolean);
+
+    if (designNumbers.length === 0) {
+        return res.status(400).json({
+            success: false,
+            error: 'No valid design numbers provided. Use digits only.'
+        });
+    }
+
+    if (designNumbers.length > 20) {
+        return res.status(400).json({
+            success: false,
+            error: 'Maximum 20 design numbers per fallback request'
+        });
+    }
+
+    try {
+        const cacheKey = `fallback:${designNumbers.sort().join(',')}`;
+        const cached = designsCache.get(cacheKey);
+        if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+            console.log(`[CACHE HIT] digitized-designs fallback: ${designNumbers.join(',')}`);
+            return res.json(cached.data);
+        }
+
+        console.log(`[Digitized Designs] Fallback lookup: ${designNumbers.join(', ')}`);
+
+        const inList = designNumbers.map(n => `'${n}'`).join(',');
+        const whereClause = `Design_Number IN (${inList})`;
+
+        const records = await fetchAllCaspioPages(FALLBACK_RESOURCE, {
+            'q.where': whereClause,
+            'q.select': FALLBACK_FIELDS
+        });
+
+        console.log(`[Digitized Designs] Fallback found ${records.length} records for ${designNumbers.length} design numbers`);
+
+        // Build response grouped by design number
+        const foundDesigns = {};
+        for (const rec of records) {
+            const dn = String(rec.Design_Number);
+            foundDesigns[dn] = {
+                designNumber: dn,
+                designName: rec.Design_Name || '',
+                companyName: rec.Company_Name || '',
+                designCode: rec.Design_Code || '',
+                threadColors: rec.Thread_Colors || '',
+                colorCount: parseInt(rec.Color_Count, 10) || 0,
+                lastOrderDate: rec.Last_Order_Date || '',
+                orderCount: parseInt(rec.Order_Count, 10) || 0,
+                designTypeId: parseInt(rec.Design_Type_ID, 10) || 0,
+                stitchCount: parseInt(rec.Stitch_Count, 10) || 0,
+                stitchTier: rec.Stitch_Tier || '',
+                asSurcharge: parseFloat(rec.AS_Surcharge) || 0,
+                hasStitchData: rec.Has_Stitch_Data === true || rec.Has_Stitch_Data === 'Yes' || rec.Has_Stitch_Data === 1
+            };
+        }
+
+        const foundNumbers = new Set(Object.keys(foundDesigns));
+        const notFound = designNumbers.filter(n => !foundNumbers.has(n));
+
+        const response = {
+            success: true,
+            designs: foundDesigns,
+            notFound,
+            count: Object.keys(foundDesigns).length
+        };
+
+        designsCache.set(cacheKey, { data: response, timestamp: Date.now() });
+        res.json(response);
+    } catch (error) {
+        console.error('[Digitized Designs] Fallback lookup failed:', error.message);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to look up designs from ShopWorks table',
+            details: error.message
+        });
+    }
+});
+
+
+// ============================================
 // LOOKUP ENDPOINT (primary - used by import)
 // ============================================
 
@@ -312,7 +421,7 @@ router.get('/digitized-designs/:id', async (req, res) => {
     const { id } = req.params;
 
     // Skip route collisions
-    if (['cache', 'lookup', 'design', 'seed'].includes(id)) return;
+    if (['cache', 'lookup', 'design', 'seed', 'fallback'].includes(id)) return;
 
     if (!id || typeof id !== 'string' || id.length > 20) {
         return res.status(400).json({
