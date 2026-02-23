@@ -330,6 +330,86 @@ router.get('/digitized-designs/search', async (req, res) => {
 // ============================================
 
 // Select fields for each table (avoid SELECT *)
+// ============================================
+// FUZZY SEARCH UTILITIES
+// ============================================
+
+/**
+ * Levenshtein distance between two strings (case-insensitive).
+ * Returns the minimum number of single-character edits needed.
+ */
+function levenshtein(a, b) {
+    a = a.toLowerCase();
+    b = b.toLowerCase();
+    if (a === b) return 0;
+    if (!a.length) return b.length;
+    if (!b.length) return a.length;
+    const matrix = [];
+    for (let i = 0; i <= b.length; i++) matrix[i] = [i];
+    for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
+    for (let i = 1; i <= b.length; i++) {
+        for (let j = 1; j <= a.length; j++) {
+            if (b[i - 1] === a[j - 1]) {
+                matrix[i][j] = matrix[i - 1][j - 1];
+            } else {
+                matrix[i][j] = Math.min(
+                    matrix[i - 1][j - 1] + 1, // substitution
+                    matrix[i][j - 1] + 1,       // insertion
+                    matrix[i - 1][j] + 1         // deletion
+                );
+            }
+        }
+    }
+    return matrix[b.length][a.length];
+}
+
+/**
+ * Compute a fuzzy relevance score (0–100) for a result against the search term.
+ * Higher = better match. Considers company name, design name, and substring containment.
+ */
+function fuzzyScore(searchTerm, company, designName) {
+    const term = searchTerm.toLowerCase();
+    const comp = (company || '').toLowerCase();
+    const name = (designName || '').toLowerCase();
+
+    // Exact substring match in company → high score
+    if (comp.includes(term)) {
+        // Bonus for shorter company names (more specific match)
+        const ratio = term.length / Math.max(comp.length, 1);
+        return Math.round(80 + ratio * 20); // 80–100
+    }
+    // Exact substring in design name
+    if (name.includes(term)) {
+        const ratio = term.length / Math.max(name.length, 1);
+        return Math.round(70 + ratio * 20); // 70–90
+    }
+
+    // Fuzzy: check each word in company/designName
+    const companyWords = comp.replace(/[''&.,\-/]/g, ' ').split(/\s+/).filter(w => w.length > 1);
+    const nameWords = name.replace(/[''&.,\-/]/g, ' ').split(/\s+/).filter(w => w.length > 1);
+    const allWords = [...companyWords, ...nameWords];
+
+    let bestWordScore = 0;
+    for (const word of allWords) {
+        // Levenshtein on the word vs search term
+        const dist = levenshtein(term, word);
+        const maxLen = Math.max(term.length, word.length);
+        const similarity = 1 - dist / maxLen; // 0–1
+        // Also check if word starts with the search term (prefix match)
+        const prefixBonus = word.startsWith(term) ? 0.15 : 0;
+        const wordScore = Math.min(1, similarity + prefixBonus);
+        if (wordScore > bestWordScore) bestWordScore = wordScore;
+    }
+
+    // Also check Levenshtein against full company name (for single-word companies)
+    const compDist = levenshtein(term, comp);
+    const compSim = 1 - compDist / Math.max(term.length, comp.length, 1);
+    if (compSim > bestWordScore) bestWordScore = compSim;
+
+    // Convert to 0–70 range (fuzzy matches cap at 70, below exact substring matches)
+    return Math.round(bestWordScore * 70);
+}
+
 const SEARCH_ALL_FIELDS = {
     shopworks: 'Design_Number,Design_Name,Company_Name,Stitch_Count,Stitch_Tier,Thread_Colors,Last_Order_Date,Order_Count',
     thumbnail: 'Thumb_DesLocid_Design,Thumb_DesLoc_DesDesignName,ExternalKey,FileUrl',
@@ -373,7 +453,11 @@ router.get('/digitized-designs/search-all', async (req, res) => {
         console.log(`[Search-All] Searching 4 tables for "${searchTerm}" (${isNumeric ? 'numeric' : 'text'})`);
 
         // Build WHERE clauses for each table
+        // For text searches 5+ chars, also broaden with a short prefix to catch misspellings
         let where1, where2, where3, where4;
+        const useFuzzy = !isNumeric && escaped.length >= 5;
+        const prefix = useFuzzy ? escaped.substring(0, 4).replace(/'/g, "''") : '';
+
         if (isNumeric) {
             const sanitized = sanitizeDesignNumber(searchTerm);
             if (!sanitized) {
@@ -383,11 +467,22 @@ router.get('/digitized-designs/search-all', async (req, res) => {
             where2 = `Design_Number='${sanitized}' OR Design_Number LIKE '${sanitized}%'`;
             where3 = `Thumb_DesLocid_Design='${sanitized}'`;
             where4 = `Design_Num_SW='${sanitized}' OR ID_Design=${sanitized}`;
+        } else if (useFuzzy) {
+            // Broader prefix search to catch misspellings (e.g., "aberg" → prefix "aber" catches "aaberg")
+            where1 = `Company LIKE '%${escaped}%' OR Company LIKE '%${prefix}%'`;
+            where2 = `Company_Name LIKE '%${escaped}%' OR Company_Name LIKE '%${prefix}%' OR Design_Name LIKE '%${escaped}%' OR Design_Name LIKE '%${prefix}%'`;
+            where3 = `Thumb_DesLoc_DesDesignName LIKE '%${escaped}%' OR Thumb_DesLoc_DesDesignName LIKE '%${prefix}%'`;
+            where4 = `CompanyName LIKE '%${escaped}%' OR CompanyName LIKE '%${prefix}%'`;
         } else {
+            // Short terms (2-4 chars): exact substring only
             where1 = `Company LIKE '%${escaped}%'`;
             where2 = `Company_Name LIKE '%${escaped}%' OR Design_Name LIKE '%${escaped}%'`;
             where3 = `Thumb_DesLoc_DesDesignName LIKE '%${escaped}%'`;
             where4 = `CompanyName LIKE '%${escaped}%'`;
+        }
+
+        if (useFuzzy) {
+            console.log(`[Search-All] Fuzzy mode: prefix="${prefix}" for broader match`);
         }
 
         // Query all 4 tables in parallel with timeout
@@ -568,18 +663,38 @@ router.get('/digitized-designs/search-all', async (req, res) => {
             }
         }
 
-        // Sort by design number (numeric) and limit
-        const results = Object.values(merged)
-            .sort((a, b) => parseInt(a.designNumber) - parseInt(b.designNumber))
-            .slice(0, resultLimit);
+        // Score and sort results by relevance
+        const allResults = Object.values(merged);
+        let results;
+        if (!isNumeric) {
+            // Compute fuzzy relevance score for each result
+            for (const entry of allResults) {
+                entry.relevanceScore = fuzzyScore(searchTerm, entry.company, entry.designName);
+            }
+            // Sort by relevance (highest first), then by design number for ties
+            allResults.sort((a, b) => {
+                const scoreDiff = (b.relevanceScore || 0) - (a.relevanceScore || 0);
+                if (scoreDiff !== 0) return scoreDiff;
+                return parseInt(a.designNumber) - parseInt(b.designNumber);
+            });
+            // Filter out very poor matches (score < 30) when fuzzy broadening was used
+            const MIN_FUZZY_SCORE = useFuzzy ? 30 : 0;
+            results = allResults.filter(r => (r.relevanceScore || 0) >= MIN_FUZZY_SCORE).slice(0, resultLimit);
+            console.log(`[Search-All] Top scores: ${results.slice(0, 5).map(r => `${r.company}:${r.relevanceScore}`).join(', ')}`);
+        } else {
+            // Numeric: sort by design number
+            allResults.sort((a, b) => parseInt(a.designNumber) - parseInt(b.designNumber));
+            results = allResults.slice(0, resultLimit);
+        }
 
         const response = {
             success: true,
             query: searchTerm,
             searchType: isNumeric ? 'design_number' : 'company',
+            fuzzyEnabled: useFuzzy || false,
             results,
             count: results.length,
-            totalMatches: Object.keys(merged).length,
+            totalMatches: allResults.length,
             tablesQueried: {
                 master: r1.status === 'fulfilled' ? masterRecords.length : 'failed',
                 shopworks: r2.status === 'fulfilled' ? shopworksRecords.length : 'failed',
