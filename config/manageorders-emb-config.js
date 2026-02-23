@@ -5,7 +5,7 @@
  * Separate from the 3-Day Tees /onsite integration.
  *
  * OnSite Integration: "Embroidery Quote NWCA"
- * URL: manageordersapi.com/embroidery
+ * URL: manageordersapi.com/onsite (same base URL as 3-Day Tees; differentiated by ExtSource/id_Customer)
  */
 
 const { translateSize, SIZE_MAPPING, NOTE_TYPES } = require('./manageorders-push-config');
@@ -30,7 +30,7 @@ const EMB_ONSITE_DEFAULTS = {
   ExtCustomerPref: 'NWCA-EMB',    // Customer preference prefix
 };
 
-const EMB_BASE_URL = 'https://manageordersapi.com/embroidery';
+const EMB_BASE_URL = 'https://manageordersapi.com/onsite';
 
 /**
  * Sales rep email → name mapping for CustomerServiceRep field
