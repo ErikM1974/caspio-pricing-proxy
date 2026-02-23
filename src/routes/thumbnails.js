@@ -100,7 +100,10 @@ router.get('/thumbnails/by-design/:designId', async (req, res) => {
       designNumber: record.Thumb_DesLocid_Design,
       fileName: record.FileName,
       externalKey: record.ExternalKey,
-      designName: record.Thumb_DesLoc_DesDesignName
+      designName: record.Thumb_DesLoc_DesDesignName,
+      imageUrl: record.ExternalKey
+        ? `https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/files/${record.ExternalKey}`
+        : (record.FileUrl || null)
     };
 
     console.log(`[Thumbnails] Found thumbnail ${record.ID_Serial} for design ${sanitizedId}`);
@@ -120,6 +123,114 @@ router.get('/thumbnails/by-design/:designId', async (req, res) => {
     console.error('[Thumbnails] Error fetching thumbnail:', error.message);
     res.status(500).json({
       error: 'Failed to fetch thumbnail',
+      details: error.message
+    });
+  }
+});
+
+/**
+ * GET /api/thumbnails/by-designs?ids=29988,39112
+ * Batch lookup of design thumbnails by multiple Design IDs
+ *
+ * @query {string} ids - Comma-separated design IDs (max 20)
+ * @query {boolean} refresh - Set to 'true' to bypass cache
+ *
+ * @returns {object} Map of design ID → thumbnail info
+ */
+router.get('/thumbnails/by-designs', async (req, res) => {
+  try {
+    const { ids, refresh } = req.query;
+    const bypassCache = refresh === 'true';
+
+    if (!ids || typeof ids !== 'string') {
+      return res.status(400).json({ error: 'Missing required query parameter: ids' });
+    }
+
+    // Parse and sanitize IDs
+    const rawIds = ids.split(',').map(s => s.trim()).filter(Boolean);
+    const sanitizedIds = rawIds.map(sanitizeDesignId).filter(Boolean);
+
+    if (sanitizedIds.length === 0) {
+      return res.status(400).json({ error: 'No valid design IDs provided' });
+    }
+    if (sanitizedIds.length > 20) {
+      return res.status(400).json({ error: 'Maximum 20 design IDs per request' });
+    }
+
+    // Check cache for each ID, collect uncached ones
+    const result = {};
+    const uncachedIds = [];
+
+    for (const id of sanitizedIds) {
+      const cacheKey = `thumbnail:${id}`;
+      if (!bypassCache) {
+        const cached = thumbnailCache.get(cacheKey);
+        if (cached && (Date.now() - cached.timestamp) < CACHE_TTL) {
+          result[id] = cached.data;
+          continue;
+        }
+      }
+      uncachedIds.push(id);
+    }
+
+    // Fetch uncached IDs from Caspio in one query
+    if (uncachedIds.length > 0) {
+      const whereClause = uncachedIds.map(id => `Thumb_DesLocid_Design='${id}'`).join(' OR ');
+      const params = {
+        'q.where': whereClause,
+        'q.limit': uncachedIds.length
+      };
+
+      const response = await makeCaspioRequest(
+        'get',
+        '/tables/Shopworks_Thumbnail_Report/records',
+        params
+      );
+
+      const records = Array.isArray(response) ? response : (response?.Result || []);
+
+      // Index found records by design ID
+      const foundMap = {};
+      for (const rec of records) {
+        const dn = String(rec.Thumb_DesLocid_Design);
+        foundMap[dn] = {
+          found: true,
+          thumbnailId: rec.ID_Serial,
+          designNumber: dn,
+          fileName: rec.FileName,
+          externalKey: rec.ExternalKey,
+          designName: rec.Thumb_DesLoc_DesDesignName,
+          imageUrl: rec.ExternalKey
+            ? `https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/files/${rec.ExternalKey}`
+            : (rec.FileUrl || null)
+        };
+      }
+
+      // Populate results and cache
+      for (const id of uncachedIds) {
+        const data = foundMap[id] || { found: false, designNumber: id };
+        result[id] = data;
+
+        // Cache each result
+        const cacheKey = `thumbnail:${id}`;
+        thumbnailCache.set(cacheKey, { data, timestamp: Date.now() });
+      }
+
+      // Limit cache size
+      while (thumbnailCache.size > 200) {
+        const firstKey = thumbnailCache.keys().next().value;
+        thumbnailCache.delete(firstKey);
+      }
+    }
+
+    console.log(`[Thumbnails] Batch lookup: ${sanitizedIds.length} requested, ${Object.values(result).filter(r => r.found).length} found`);
+
+    res.json({ thumbnails: result });
+
+  } catch (error) {
+    console.error('[Thumbnails] Batch lookup error:', error.message);
+    res.status(500).json({
+      error: 'Failed to batch fetch thumbnails',
       details: error.message
     });
   }

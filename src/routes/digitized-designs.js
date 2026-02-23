@@ -326,6 +326,282 @@ router.get('/digitized-designs/search', async (req, res) => {
 
 
 // ============================================
+// UNIFIED SEARCH — All 4 design tables
+// ============================================
+
+// Select fields for each table (avoid SELECT *)
+const SEARCH_ALL_FIELDS = {
+    shopworks: 'Design_Number,Design_Name,Company_Name,Stitch_Count,Stitch_Tier,Thread_Colors,Last_Order_Date,Order_Count',
+    thumbnail: 'Thumb_DesLocid_Design,Thumb_DesLoc_DesDesignName,ExternalKey,FileUrl',
+    artRequests: 'Design_Num_SW,ID_Design,CompanyName,CDN_Link,Garment_Placement,NOTES,Date_Created,Shopwork_customer_number'
+};
+
+/**
+ * GET /api/digitized-designs/search-all?q=<term>&limit=20
+ * Searches 4 design tables in parallel:
+ *   1. Digitized_Designs_Master_2026 (stitch data)
+ *   2. ShopWorks_Designs (design names, colors, order history)
+ *   3. Shopworks_Thumbnail_Report (design images)
+ *   4. ArtRequests (artwork mockups, placement notes)
+ *
+ * Results merged & deduplicated by design number. Master table wins for stitch data.
+ */
+router.get('/digitized-designs/search-all', async (req, res) => {
+    const { q, limit: limitParam } = req.query;
+
+    if (!q || typeof q !== 'string' || q.trim().length < 2) {
+        return res.status(400).json({
+            success: false,
+            error: 'Search query must be at least 2 characters'
+        });
+    }
+
+    const searchTerm = q.trim();
+    const resultLimit = Math.min(Math.max(parseInt(limitParam, 10) || 20, 1), 50);
+    const isNumeric = /^\d+$/.test(searchTerm);
+    const escaped = searchTerm.replace(/'/g, "''");
+
+    try {
+        // Check cache
+        const cacheKey = `search-all:${searchTerm.toLowerCase()}:${resultLimit}`;
+        const cached = designsCache.get(cacheKey);
+        if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+            console.log(`[CACHE HIT] search-all: "${searchTerm}"`);
+            return res.json(cached.data);
+        }
+
+        console.log(`[Search-All] Searching 4 tables for "${searchTerm}" (${isNumeric ? 'numeric' : 'text'})`);
+
+        // Build WHERE clauses for each table
+        let where1, where2, where3, where4;
+        if (isNumeric) {
+            const sanitized = sanitizeDesignNumber(searchTerm);
+            if (!sanitized) {
+                return res.status(400).json({ success: false, error: 'Invalid design number' });
+            }
+            where1 = `Design_Number='${sanitized}' OR Design_Number LIKE '${sanitized}%'`;
+            where2 = `Design_Number='${sanitized}' OR Design_Number LIKE '${sanitized}%'`;
+            where3 = `Thumb_DesLocid_Design='${sanitized}'`;
+            where4 = `Design_Num_SW='${sanitized}' OR ID_Design=${sanitized}`;
+        } else {
+            where1 = `Company LIKE '%${escaped}%'`;
+            where2 = `Company_Name LIKE '%${escaped}%' OR Design_Name LIKE '%${escaped}%'`;
+            where3 = `Thumb_DesLoc_DesDesignName LIKE '%${escaped}%'`;
+            where4 = `CompanyName LIKE '%${escaped}%'`;
+        }
+
+        // Query all 4 tables in parallel with timeout
+        const QUERY_TIMEOUT = 8000;
+        const withTimeout = (promise, label) => Promise.race([
+            promise,
+            new Promise((_, reject) => setTimeout(() => reject(new Error(`${label} timeout`)), QUERY_TIMEOUT))
+        ]);
+
+        const [r1, r2, r3, r4] = await Promise.allSettled([
+            withTimeout(
+                fetchAllCaspioPages(RESOURCE_PATH, { 'q.where': where1, 'q.select': LOOKUP_FIELDS, 'q.limit': '200' }),
+                'Master'
+            ),
+            withTimeout(
+                fetchAllCaspioPages(`/tables/${FALLBACK_TABLE}/records`, { 'q.where': where2, 'q.select': SEARCH_ALL_FIELDS.shopworks, 'q.limit': '100' }),
+                'ShopWorks'
+            ),
+            withTimeout(
+                fetchAllCaspioPages('/tables/Shopworks_Thumbnail_Report/records', { 'q.where': where3, 'q.select': SEARCH_ALL_FIELDS.thumbnail, 'q.limit': '100' }),
+                'Thumbnails'
+            ),
+            withTimeout(
+                fetchAllCaspioPages('/tables/ArtRequests/records', { 'q.where': where4, 'q.select': SEARCH_ALL_FIELDS.artRequests, 'q.limit': '100' }),
+                'ArtRequests'
+            )
+        ]);
+
+        const masterRecords = r1.status === 'fulfilled' ? r1.value : [];
+        const shopworksRecords = r2.status === 'fulfilled' ? r2.value : [];
+        const thumbnailRecords = r3.status === 'fulfilled' ? r3.value : [];
+        const artRecords = r4.status === 'fulfilled' ? r4.value : [];
+
+        // Log any failures
+        if (r1.status === 'rejected') console.warn(`[Search-All] Master table failed: ${r1.reason.message}`);
+        if (r2.status === 'rejected') console.warn(`[Search-All] ShopWorks table failed: ${r2.reason.message}`);
+        if (r3.status === 'rejected') console.warn(`[Search-All] Thumbnail table failed: ${r3.reason.message}`);
+        if (r4.status === 'rejected') console.warn(`[Search-All] ArtRequests table failed: ${r4.reason.message}`);
+
+        console.log(`[Search-All] Raw hits: Master=${masterRecords.length}, ShopWorks=${shopworksRecords.length}, Thumbnails=${thumbnailRecords.length}, ArtRequests=${artRecords.length}`);
+
+        // Merge into unified results keyed by design number
+        const merged = {};
+
+        // 1. Master table (highest priority for stitch data)
+        for (const rec of masterRecords) {
+            const dn = String(rec.Design_Number);
+            if (!merged[dn]) {
+                merged[dn] = {
+                    designNumber: dn,
+                    company: rec.Company || '',
+                    designName: '',
+                    customerId: rec.Customer_ID || '',
+                    maxStitchCount: 0,
+                    maxStitchTier: 'Standard',
+                    maxAsSurcharge: 0,
+                    variantCount: 0,
+                    dstFilenames: [],
+                    hasImage: false,
+                    artworkUrl: null,
+                    placement: '',
+                    sources: []
+                };
+            }
+            const entry = merged[dn];
+            if (!entry.sources.includes('master')) entry.sources.push('master');
+
+            const stitchCount = parseInt(rec.Stitch_Count, 10) || 0;
+            entry.variantCount++;
+            entry.dstFilenames.push(rec.DST_Filename || '');
+            if (stitchCount > entry.maxStitchCount) {
+                entry.maxStitchCount = stitchCount;
+                entry.maxStitchTier = rec.Stitch_Tier || 'Standard';
+                entry.maxAsSurcharge = parseFloat(rec.AS_Surcharge) || 0;
+            }
+        }
+
+        // 2. ShopWorks_Designs (fills design name, colors, order history)
+        for (const rec of shopworksRecords) {
+            const dn = String(rec.Design_Number || '').trim();
+            if (!dn) continue;
+            if (!merged[dn]) {
+                merged[dn] = {
+                    designNumber: dn,
+                    company: rec.Company_Name || '',
+                    designName: rec.Design_Name || '',
+                    customerId: '',
+                    maxStitchCount: parseInt(rec.Stitch_Count, 10) || 0,
+                    maxStitchTier: rec.Stitch_Tier || '',
+                    maxAsSurcharge: 0,
+                    variantCount: 1,
+                    dstFilenames: [],
+                    hasImage: false,
+                    artworkUrl: null,
+                    placement: '',
+                    sources: []
+                };
+            }
+            const entry = merged[dn];
+            if (!entry.sources.includes('shopworks')) entry.sources.push('shopworks');
+            if (!entry.company && rec.Company_Name) entry.company = rec.Company_Name;
+            if (!entry.designName && rec.Design_Name) entry.designName = rec.Design_Name;
+            if (rec.Thread_Colors) entry.threadColors = rec.Thread_Colors;
+            if (rec.Last_Order_Date) entry.lastOrderDate = rec.Last_Order_Date;
+            if (rec.Order_Count) entry.orderCount = parseInt(rec.Order_Count, 10) || 0;
+        }
+
+        // 3. Thumbnail table (adds hasImage + designName)
+        for (const rec of thumbnailRecords) {
+            const dn = String(rec.Thumb_DesLocid_Design || '').replace(/\.\d+$/, '').trim();
+            if (!dn) continue;
+            if (!merged[dn]) {
+                merged[dn] = {
+                    designNumber: dn,
+                    company: '',
+                    designName: (rec.Thumb_DesLoc_DesDesignName || '').trim(),
+                    customerId: '',
+                    maxStitchCount: 0,
+                    maxStitchTier: '',
+                    maxAsSurcharge: 0,
+                    variantCount: 0,
+                    dstFilenames: [],
+                    hasImage: false,
+                    artworkUrl: null,
+                    placement: '',
+                    sources: []
+                };
+            }
+            const entry = merged[dn];
+            if (!entry.sources.includes('thumbnail')) entry.sources.push('thumbnail');
+            if (!entry.designName && rec.Thumb_DesLoc_DesDesignName) {
+                entry.designName = rec.Thumb_DesLoc_DesDesignName.trim();
+            }
+            // Build image URL from ExternalKey or FileUrl
+            const imageUrl = rec.ExternalKey
+                ? `https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/files/${rec.ExternalKey}`
+                : (rec.FileUrl || null);
+            if (imageUrl) {
+                entry.hasImage = true;
+                if (!entry.thumbnailUrl) entry.thumbnailUrl = imageUrl;
+            }
+        }
+
+        // 4. ArtRequests (adds artwork CDN URL, placement, notes)
+        for (const rec of artRecords) {
+            // Use Design_Num_SW if available, fall back to ID_Design
+            const dn = String(rec.Design_Num_SW || '').trim() || String(rec.ID_Design || '').trim();
+            if (!dn) continue;
+            if (!merged[dn]) {
+                merged[dn] = {
+                    designNumber: dn,
+                    company: rec.CompanyName || '',
+                    designName: '',
+                    customerId: rec.Shopwork_customer_number ? String(rec.Shopwork_customer_number) : '',
+                    maxStitchCount: 0,
+                    maxStitchTier: '',
+                    maxAsSurcharge: 0,
+                    variantCount: 0,
+                    dstFilenames: [],
+                    hasImage: false,
+                    artworkUrl: null,
+                    placement: '',
+                    sources: []
+                };
+            }
+            const entry = merged[dn];
+            if (!entry.sources.includes('artrequests')) entry.sources.push('artrequests');
+            if (!entry.company && rec.CompanyName) entry.company = rec.CompanyName;
+            if (!entry.customerId && rec.Shopwork_customer_number) {
+                entry.customerId = String(rec.Shopwork_customer_number);
+            }
+            // Use most recent CDN link (ArtRequests sorted by Date_Created DESC)
+            if (!entry.artworkUrl && rec.CDN_Link && rec.CDN_Link.length > 30) {
+                entry.artworkUrl = rec.CDN_Link;
+            }
+            if (!entry.placement && rec.Garment_Placement) {
+                entry.placement = rec.Garment_Placement;
+            }
+        }
+
+        // Sort by design number (numeric) and limit
+        const results = Object.values(merged)
+            .sort((a, b) => parseInt(a.designNumber) - parseInt(b.designNumber))
+            .slice(0, resultLimit);
+
+        const response = {
+            success: true,
+            query: searchTerm,
+            searchType: isNumeric ? 'design_number' : 'company',
+            results,
+            count: results.length,
+            totalMatches: Object.keys(merged).length,
+            tablesQueried: {
+                master: r1.status === 'fulfilled' ? masterRecords.length : 'failed',
+                shopworks: r2.status === 'fulfilled' ? shopworksRecords.length : 'failed',
+                thumbnails: r3.status === 'fulfilled' ? thumbnailRecords.length : 'failed',
+                artRequests: r4.status === 'fulfilled' ? artRecords.length : 'failed'
+            }
+        };
+
+        designsCache.set(cacheKey, { data: response, timestamp: Date.now() });
+        res.json(response);
+    } catch (error) {
+        console.error(`[Search-All] Failed for "${searchTerm}":`, error.message);
+        res.status(500).json({
+            success: false,
+            error: 'Search failed',
+            details: error.message
+        });
+    }
+});
+
+
+// ============================================
 // LOOKUP ENDPOINT (primary - used by import)
 // ============================================
 
