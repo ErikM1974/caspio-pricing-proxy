@@ -17,7 +17,7 @@ const { translateSize, SIZE_MAPPING, NOTE_TYPES } = require('./manageorders-push
 const EMB_ONSITE_DEFAULTS = {
   id_Customer: 3739,              // Embroidery quote customer (all quotes go here)
   id_CompanyLocation: 2,          // Company location ID
-  id_OrderType: 6,                // Order type for API orders
+  id_OrderType: 21,               // 21 = Custom Embroidery
   id_EmpCreatedBy: 2,             // Employee who "creates" the order
   AutoHold: 0,                    // Don't put orders on hold
 

@@ -22,7 +22,8 @@ const MAPPING_CACHE_TTL = 60 * 60 * 1000; // 1 hour
 // All other extended suffixes use Size06 (reuse pattern)
 const SUFFIX_TO_FIELD_MAP = {
   // Size05 — 2XL and its ladies equivalent XXL
-  '_2XL': 'Size05',  // Standard 2XL (2,125 products)
+  '_2X': 'Size05',   // Standard 2XL uses _2X suffix (2,123 products)
+  '_2XL': 'Size05',  // Legacy alias — kept for backward compat
   '_XXL': 'Size05',  // Ladies/Womens 2XL (589 products, distinct from _2XL)
   // Size06 — all other extended sizes
   '_3XL': 'Size06',
@@ -124,10 +125,10 @@ const SUFFIX_TO_FIELD_MAP = {
 };
 
 // Map extended sizes to ShopWorks SKU suffixes
-// Full forms per ShopWorks pricelist (Feb 2026) — _2X/_3X/_4X do NOT exist
+// Matches ShopWorks pricelist — 2XL uses short form _2X (corrected 2026-02-23)
 const SIZE_TO_SUFFIX = {
-  // Plus sizes (full form)
-  '2XL': '_2XL', '3XL': '_3XL', '4XL': '_4XL', '5XL': '_5XL', '6XL': '_6XL',
+  // Plus sizes
+  '2XL': '_2X', '3XL': '_3XL', '4XL': '_4XL', '5XL': '_5XL', '6XL': '_6XL',
   '7XL': '_7XL', '8XL': '_8XL', '9XL': '_9XL', '10XL': '_10XL',
   'XXL': '_XXL', 'XXXL': '_XXXL',
   // Extra small
