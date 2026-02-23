@@ -62,6 +62,87 @@ const KNOWN_FEE_PNS = new Set([
 ]);
 
 /**
+ * Tax Account Lookup — Maps WA tax rate percentages to GL account codes.
+ * Mirrors Python InkSoft's TAX_ACCOUNT_LOOKUP (transform.py:79-112).
+ * Key = tax rate as percentage (e.g., 10.1), Value = GL account number.
+ */
+const TAX_ACCOUNT_LOOKUP = {
+  7.7: '2200.77',
+  7.8: '2200.78',
+  7.9: '2200.79',
+  8.0: '2200.80',
+  8.1: '2200.81',
+  8.2: '2200.82',
+  8.3: '2200.83',
+  8.4: '2200.84',
+  8.5: '2200.85',
+  8.6: '2200.86',
+  8.7: '2200.87',
+  8.8: '2200.88',
+  8.9: '2200.89',
+  9.0: '2200.90',
+  9.1: '2200.91',
+  9.2: '2200.92',
+  9.3: '2200.93',
+  9.4: '2200.94',
+  9.5: '2200.95',
+  9.6: '2200.96',
+  9.7: '2200.97',
+  9.8: '2200.98',
+  9.9: '2200.99',
+  10.0: '2200.100',
+  10.1: '2200',
+  10.2: '2200.102',
+  10.25: '2200.302',
+  10.3: '2200.103',
+  10.35: '2200.303',
+  10.4: '2200.104',
+  10.5: '2200.105',
+  10.6: '2200.106',
+};
+
+/**
+ * Get GL tax account code from tax rate and ship state.
+ * Mirrors Python InkSoft's get_tax_account() (transform.py:361-374).
+ *
+ * @param {number} taxRate - Tax rate as decimal (e.g., 0.101)
+ * @param {string} shipState - Ship-to state code (e.g., 'WA', 'OR')
+ * @returns {{ accountCode: string, description: string }}
+ */
+function getTaxAccount(taxRate, shipState) {
+  // Out of state → account 2202
+  if (shipState && shipState.toUpperCase() !== 'WA') {
+    return { accountCode: '2202', description: 'Out of State Sales' };
+  }
+
+  // No tax rate and no state → default to customer pickup (WA 10.1%)
+  if (!taxRate && !shipState) {
+    return { accountCode: '2200', description: 'Customer Pickup - Milton, WA 10.1%' };
+  }
+
+  // Convert decimal to percentage for lookup (0.101 → 10.1)
+  const taxPct = Math.round(taxRate * 1000) / 10;
+
+  if (TAX_ACCOUNT_LOOKUP[taxPct]) {
+    return {
+      accountCode: TAX_ACCOUNT_LOOKUP[taxPct],
+      description: `WA Sales Tax ${taxPct}%`,
+    };
+  }
+
+  // Fallback: if rate is ~10.1% (within 0.1%), use default 2200
+  if (Math.abs(taxPct - 10.1) < 0.1) {
+    return { accountCode: '2200', description: `WA Sales Tax ${taxPct}% (default)` };
+  }
+
+  // Unknown rate — flag for manual review
+  return {
+    accountCode: '',
+    description: `MANUAL REVIEW: Tax rate ${taxPct}% not in lookup table`,
+  };
+}
+
+/**
  * Extract the sequence number from a QuoteID.
  * "EMB-2026-250" → "250"
  *
@@ -124,6 +205,8 @@ module.exports = {
   SALES_REP_MAP,
   ORDER_LEVEL_FEES,
   KNOWN_FEE_PNS,
+  TAX_ACCOUNT_LOOKUP,
+  getTaxAccount,
   extractSequence,
   generateEmbExtOrderID,
   getSalesRepName,
