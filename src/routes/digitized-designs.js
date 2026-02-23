@@ -214,6 +214,118 @@ router.get('/digitized-designs/fallback', async (req, res) => {
 
 
 // ============================================
+// SEARCH ENDPOINT — by design number or company
+// ============================================
+
+/**
+ * GET /api/digitized-designs/search?q=<term>&limit=20
+ * Searches Digitized_Designs_Master_2026 by design number or company name.
+ * If q is all digits → exact/starts-with match on Design_Number
+ * If q has letters → contains match on Company
+ * Returns results grouped by design number with stitch info.
+ */
+router.get('/digitized-designs/search', async (req, res) => {
+    const { q, limit: limitParam } = req.query;
+
+    if (!q || typeof q !== 'string' || q.trim().length < 2) {
+        return res.status(400).json({
+            success: false,
+            error: 'Search query must be at least 2 characters'
+        });
+    }
+
+    const searchTerm = q.trim();
+    const resultLimit = Math.min(Math.max(parseInt(limitParam, 10) || 20, 1), 50);
+    const isNumeric = /^\d+$/.test(searchTerm);
+
+    try {
+        const cacheKey = `search:${searchTerm.toLowerCase()}:${resultLimit}`;
+        const cached = designsCache.get(cacheKey);
+        if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+            console.log(`[CACHE HIT] digitized-designs search: "${searchTerm}"`);
+            return res.json(cached.data);
+        }
+
+        console.log(`[Digitized Designs] Search: "${searchTerm}" (${isNumeric ? 'numeric' : 'text'})`);
+
+        let whereClause;
+        if (isNumeric) {
+            // Exact match or starts-with for design numbers
+            const sanitized = sanitizeDesignNumber(searchTerm);
+            if (!sanitized) {
+                return res.status(400).json({ success: false, error: 'Invalid design number' });
+            }
+            whereClause = `Design_Number='${sanitized}' OR Design_Number LIKE '${sanitized}%'`;
+        } else {
+            // Company name contains (escape single quotes)
+            const escaped = searchTerm.replace(/'/g, "''");
+            whereClause = `Company LIKE '%${escaped}%'`;
+        }
+
+        const records = await fetchAllCaspioPages(RESOURCE_PATH, {
+            'q.where': whereClause,
+            'q.select': LOOKUP_FIELDS,
+            'q.limit': String(200) // Fetch enough to group, then limit
+        });
+
+        console.log(`[Digitized Designs] Search found ${records.length} raw records for "${searchTerm}"`);
+
+        // Group by design number
+        const grouped = {};
+        for (const rec of records) {
+            const dn = String(rec.Design_Number);
+            if (!grouped[dn]) {
+                grouped[dn] = {
+                    designNumber: dn,
+                    company: rec.Company || '',
+                    customerId: rec.Customer_ID || '',
+                    maxStitchCount: 0,
+                    maxStitchTier: 'Standard',
+                    maxAsSurcharge: 0,
+                    variantCount: 0,
+                    dstFilenames: []
+                };
+            }
+
+            const stitchCount = parseInt(rec.Stitch_Count, 10) || 0;
+            grouped[dn].variantCount++;
+            grouped[dn].dstFilenames.push(rec.DST_Filename || '');
+
+            if (stitchCount > grouped[dn].maxStitchCount) {
+                grouped[dn].maxStitchCount = stitchCount;
+                grouped[dn].maxStitchTier = rec.Stitch_Tier || 'Standard';
+                grouped[dn].maxAsSurcharge = parseFloat(rec.AS_Surcharge) || 0;
+            }
+        }
+
+        // Convert to array, sort by design number, limit results
+        const results = Object.values(grouped)
+            .sort((a, b) => parseInt(a.designNumber) - parseInt(b.designNumber))
+            .slice(0, resultLimit);
+
+        const response = {
+            success: true,
+            query: searchTerm,
+            searchType: isNumeric ? 'design_number' : 'company',
+            results,
+            count: results.length,
+            totalMatches: Object.keys(grouped).length
+        };
+
+        designsCache.set(cacheKey, { data: response, timestamp: Date.now() });
+        res.json(response);
+    } catch (error) {
+        console.error(`[Digitized Designs] Search failed for "${searchTerm}":`, error.message);
+        res.status(500).json({
+            success: false,
+            error: 'Search failed',
+            details: error.message
+        });
+    }
+});
+
+
+// ============================================
 // LOOKUP ENDPOINT (primary - used by import)
 // ============================================
 
