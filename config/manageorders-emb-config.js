@@ -62,15 +62,28 @@ const KNOWN_FEE_PNS = new Set([
 ]);
 
 /**
+ * Extract the sequence number from a QuoteID.
+ * "EMB-2026-250" → "250"
+ *
+ * @param {string} quoteId - Quote ID (e.g., 'EMB-2026-250')
+ * @returns {string} Sequence number (e.g., '250')
+ */
+function extractSequence(quoteId) {
+  if (!quoteId) return '0';
+  const parts = String(quoteId).split('-');
+  return parts[parts.length - 1] || '0';
+}
+
+/**
  * Generate ExtOrderID for embroidery quotes
  *
  * @param {string} quoteId - Quote ID (e.g., 'EMB-2026-177')
  * @param {boolean} isTest - Whether this is a test push
- * @returns {string} ExtOrderID (e.g., 'NWCA-EMB-EMB-2026-177' or 'NWCA-EMB-TEST-EMB-2026-177')
+ * @returns {string} ExtOrderID (e.g., 'EMB-177' or 'EMB-TEST-177')
  */
 function generateEmbExtOrderID(quoteId, isTest = false) {
-  const prefix = isTest ? 'NWCA-EMB-TEST-' : 'NWCA-EMB-';
-  return `${prefix}${quoteId}`;
+  const seq = extractSequence(quoteId);
+  return isTest ? `EMB-TEST-${seq}` : `EMB-${seq}`;
 }
 
 /**
@@ -111,6 +124,7 @@ module.exports = {
   SALES_REP_MAP,
   ORDER_LEVEL_FEES,
   KNOWN_FEE_PNS,
+  extractSequence,
   generateEmbExtOrderID,
   getSalesRepName,
   formatDateForAPI,
