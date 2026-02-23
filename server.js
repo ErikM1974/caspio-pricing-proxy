@@ -494,6 +494,11 @@ const digitizedDesignsRoutes = require('./src/routes/digitized-designs');
 app.use('/api', digitizedDesignsRoutes);
 console.log('✓ Digitized Designs routes loaded');
 
+// Embroidery Push Routes (push saved quotes to ShopWorks via ManageOrders PUSH API)
+const embroideryPushRoutes = require('./src/routes/embroidery-push');
+app.use('/api', embroideryPushRoutes);
+console.log('✓ Embroidery Push routes loaded');
+
 // --- Admin Metrics Endpoint ---
 const apiTracker = require('./src/utils/api-tracker');
 
