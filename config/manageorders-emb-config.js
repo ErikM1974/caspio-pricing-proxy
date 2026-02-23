@@ -49,6 +49,19 @@ const SALES_REP_MAP = {
 const ORDER_LEVEL_FEES = ['TAX', 'SHIP', 'DISCOUNT'];
 
 /**
+ * All recognized fee/service part numbers that should become LinesOE entries.
+ * Fee items with PNs NOT in this set are treated as order notes, not line items.
+ * (ORDER_LEVEL_FEES are excluded separately — they become order-level fields.)
+ */
+const KNOWN_FEE_PNS = new Set([
+  'AS-GARM', 'AS-CAP', 'DD', 'DDE', 'DDT', 'GRT-50', 'GRT-75',
+  'RUSH', 'SAMPLE', '3D-EMB', 'LASER PATCH', 'MONOGRAM', 'NAME',
+  'WEIGHT', 'SEG', 'SECC', 'DT', 'CTR-GARMT', 'CTR-CAP',
+  'AL', 'AL-CAP', 'CB', 'CS', 'DECG', 'DECG-FB', 'DECC',
+  'DGT-001', 'DGT-002', 'DGT-003',
+]);
+
+/**
  * Generate ExtOrderID for embroidery quotes
  *
  * @param {string} quoteId - Quote ID (e.g., 'EMB-2026-177')
@@ -97,6 +110,7 @@ module.exports = {
   EMB_BASE_URL,
   SALES_REP_MAP,
   ORDER_LEVEL_FEES,
+  KNOWN_FEE_PNS,
   generateEmbExtOrderID,
   getSalesRepName,
   formatDateForAPI,
