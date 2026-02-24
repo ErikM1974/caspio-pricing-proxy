@@ -1,34 +1,48 @@
-// Digitized Designs API
-// Queries Caspio Digitized_Designs_Master_2026 table for design lookups
-// Primary use: auto-detect stitch counts during ShopWorks import in embroidery quote builder
+// Digitized Designs API — Unified Table Version
+// Queries single Design_Lookup_2026 table (pre-merged from 4 source tables via sync script)
 //
-// Key endpoint: GET /api/digitized-designs/lookup?designs=29988,39112
-// Returns stitch counts, tiers, surcharges grouped by design number
+// Endpoints:
+//   GET /lookup?designs=29988,39112       — Batch lookup by design numbers (import flow)
+//   GET /fallback?designs=...             — Same table, fallback response shape
+//   GET /search-all?q=<term>&limit=20     — Fuzzy search by company/design name
+//   GET /by-customer?customerId=12025     — Customer design gallery
+//   GET /cache/clear                      — Clear in-memory cache
 
 const express = require('express');
 const router = express.Router();
-const { fetchAllCaspioPages, makeCaspioRequest } = require('../utils/caspio');
+const { fetchAllCaspioPages } = require('../utils/caspio');
 
-const TABLE = 'Digitized_Designs_Master_2026';
-const RESOURCE_PATH = `/tables/${TABLE}/records`;
+// ============================================
+// Configuration
+// ============================================
 
-// Cache (15 min TTL - designs rarely change)
-const designsCache = new Map();
-const CACHE_TTL = 15 * 60 * 1000;
+const UNIFIED_TABLE = 'Design_Lookup_2026';
+const RESOURCE_PATH = `/tables/${UNIFIED_TABLE}/records`;
 
-// Fields to return in lookup responses (skip large/unnecessary fields)
-const LOOKUP_FIELDS = [
-    'ID_Unique', 'Design_Number', 'Design_Description', 'Company', 'Customer_ID',
+// All fields in the unified table
+const ALL_FIELDS = [
+    'ID_Unique', 'Design_Number', 'Design_Name', 'Company', 'Customer_ID',
     'Stitch_Count', 'Stitch_Tier', 'AS_Surcharge', 'DST_Filename',
     'Color_Changes', 'Extra_Colors', 'Extra_Color_Surcharge',
     'FB_Price_1_7', 'FB_Price_8_23', 'FB_Price_24_47', 'FB_Price_48_71', 'FB_Price_72plus',
-    'DST_Preview_URL', 'Thumbnail_URL'
+    'Thumbnail_URL', 'Artwork_URL', 'Placement', 'Thread_Colors',
+    'Last_Order_Date', 'Order_Count', 'Art_Notes', 'Is_Active', 'Date_Updated'
 ].join(',');
+
+// Cache (15 min TTL)
+const designsCache = new Map();
+const CACHE_TTL = 15 * 60 * 1000;
+
+// Active-only filter for all queries
+const ACTIVE_FILTER = "Is_Active='true'";
+
+
+// ============================================
+// Shared Helpers
+// ============================================
 
 /**
  * Sanitize a design number — digits only
- * @param {string} input
- * @returns {string|null}
  */
 function sanitizeDesignNumber(input) {
     if (!input || typeof input !== 'string') return null;
@@ -37,10 +51,8 @@ function sanitizeDesignNumber(input) {
 }
 
 /**
- * Group raw Caspio records by Design_Number and compute max stitch info
- * @param {Array} records - Raw Caspio records
- * @param {string[]} requestedNumbers - Original requested design numbers
- * @returns {{ designs: Object, notFound: string[] }}
+ * Group raw unified records by Design_Number, compute max stitch info.
+ * Returns the /lookup response shape: { designs: { "29988": {...} }, notFound: [] }
  */
 function groupByDesignNumber(records, requestedNumbers) {
     const grouped = {};
@@ -51,12 +63,20 @@ function groupByDesignNumber(records, requestedNumbers) {
             grouped[dn] = {
                 designNumber: dn,
                 company: rec.Company || '',
-                customerId: rec.Customer_ID || '',
+                designName: rec.Design_Name || '',
+                customerId: rec.Customer_ID != null ? String(rec.Customer_ID) : '',
                 variants: [],
                 maxStitchCount: 0,
                 maxStitchTier: 'Standard',
                 maxAsSurcharge: 0,
-                hasFBPricing: false
+                hasFBPricing: false,
+                thumbnailUrl: '',
+                artworkUrl: '',
+                threadColors: '',
+                placement: '',
+                lastOrderDate: null,
+                orderCount: 0,
+                artNotes: ''
             };
         }
 
@@ -66,7 +86,7 @@ function groupByDesignNumber(records, requestedNumbers) {
         grouped[dn].variants.push({
             idUnique: rec.ID_Unique,
             dstFilename: rec.DST_Filename || '',
-            designDescription: rec.Design_Description || '',
+            designDescription: rec.Design_Name || '',
             stitchCount,
             stitchTier: rec.Stitch_Tier || 'Standard',
             asSurcharge,
@@ -78,265 +98,117 @@ function groupByDesignNumber(records, requestedNumbers) {
             fbPrice24_47: parseFloat(rec.FB_Price_24_47) || 0,
             fbPrice48_71: parseFloat(rec.FB_Price_48_71) || 0,
             fbPrice72plus: parseFloat(rec.FB_Price_72plus) || 0,
-            dstPreviewUrl: rec.DST_Preview_URL || '',
+            dstPreviewUrl: '',
             thumbnailUrl: rec.Thumbnail_URL || ''
         });
 
-        // Track maximums
         if (stitchCount > grouped[dn].maxStitchCount) {
             grouped[dn].maxStitchCount = stitchCount;
             grouped[dn].maxStitchTier = rec.Stitch_Tier || 'Standard';
             grouped[dn].maxAsSurcharge = asSurcharge;
         }
 
-        // Check if any variant has FB pricing
         const fbPrice = parseFloat(rec.FB_Price_1_7) || 0;
         if (fbPrice > 0) {
             grouped[dn].hasFBPricing = true;
         }
+
+        // Pick best metadata from variants (first non-empty wins)
+        const g = grouped[dn];
+        if (rec.Thumbnail_URL && !g.thumbnailUrl) g.thumbnailUrl = rec.Thumbnail_URL;
+        if (rec.Artwork_URL && rec.Artwork_URL.length > 10 && !g.artworkUrl) g.artworkUrl = rec.Artwork_URL;
+        if (rec.Thread_Colors && !g.threadColors) g.threadColors = rec.Thread_Colors;
+        if (rec.Placement && !g.placement) g.placement = rec.Placement;
+        if (rec.Last_Order_Date && !g.lastOrderDate) g.lastOrderDate = rec.Last_Order_Date;
+        const recOrderCount = parseInt(rec.Order_Count, 10) || 0;
+        if (recOrderCount > g.orderCount) g.orderCount = recOrderCount;
+        if (rec.Art_Notes && !g.artNotes) g.artNotes = rec.Art_Notes;
     }
 
-    // Find design numbers that weren't in the database
     const foundNumbers = new Set(Object.keys(grouped));
     const notFound = requestedNumbers.filter(n => !foundNumbers.has(n));
 
     return { designs: grouped, notFound };
 }
 
-
-// ============================================
-// FALLBACK LOOKUP — ShopWorks_Designs table
-// ============================================
-
-const FALLBACK_TABLE = 'ShopWorks_Designs';
-const FALLBACK_RESOURCE = `/tables/${FALLBACK_TABLE}/records`;
-const FALLBACK_FIELDS = [
-    'Design_Number', 'Design_Name', 'Company_Name', 'Design_Code',
-    'Thread_Colors', 'Color_Count', 'Last_Order_Date', 'Order_Count',
-    'Design_Type_ID', 'Stitch_Count', 'Stitch_Tier', 'AS_Surcharge', 'Has_Stitch_Data'
-].join(',');
-
 /**
- * GET /api/digitized-designs/fallback?designs=435,1363,5373
- * Fallback lookup for designs NOT found in master table.
- * Queries ShopWorks_Designs table — returns name, company, colors,
- * and stitch data if enriched from master.
+ * Map unified records to the search-all/by-customer result shape.
+ * Groups variant rows by design number, picks best image, computes maxes.
  */
-router.get('/digitized-designs/fallback', async (req, res) => {
-    const { designs } = req.query;
+function groupToSearchResults(records) {
+    const grouped = {};
 
-    if (!designs || typeof designs !== 'string') {
-        return res.status(400).json({
-            success: false,
-            error: 'Missing required query parameter: designs (comma-separated design numbers)'
-        });
-    }
-
-    const rawNumbers = designs.split(',').map(s => s.trim());
-    const designNumbers = rawNumbers.map(sanitizeDesignNumber).filter(Boolean);
-
-    if (designNumbers.length === 0) {
-        return res.status(400).json({
-            success: false,
-            error: 'No valid design numbers provided. Use digits only.'
-        });
-    }
-
-    if (designNumbers.length > 20) {
-        return res.status(400).json({
-            success: false,
-            error: 'Maximum 20 design numbers per fallback request'
-        });
-    }
-
-    try {
-        const cacheKey = `fallback:${designNumbers.sort().join(',')}`;
-        const cached = designsCache.get(cacheKey);
-        if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-            console.log(`[CACHE HIT] digitized-designs fallback: ${designNumbers.join(',')}`);
-            return res.json(cached.data);
-        }
-
-        console.log(`[Digitized Designs] Fallback lookup: ${designNumbers.join(', ')}`);
-
-        const inList = designNumbers.map(n => `'${n}'`).join(',');
-        const whereClause = `Design_Number IN (${inList})`;
-
-        const records = await fetchAllCaspioPages(FALLBACK_RESOURCE, {
-            'q.where': whereClause,
-            'q.select': FALLBACK_FIELDS
-        });
-
-        console.log(`[Digitized Designs] Fallback found ${records.length} records for ${designNumbers.length} design numbers`);
-
-        // Build response grouped by design number
-        const foundDesigns = {};
-        for (const rec of records) {
-            const dn = String(rec.Design_Number);
-            foundDesigns[dn] = {
+    for (const rec of records) {
+        const dn = String(rec.Design_Number);
+        if (!grouped[dn]) {
+            grouped[dn] = {
                 designNumber: dn,
+                company: rec.Company || '',
                 designName: rec.Design_Name || '',
-                companyName: rec.Company_Name || '',
-                designCode: rec.Design_Code || '',
-                threadColors: rec.Thread_Colors || '',
-                colorCount: parseInt(rec.Color_Count, 10) || 0,
-                lastOrderDate: rec.Last_Order_Date || '',
-                orderCount: parseInt(rec.Order_Count, 10) || 0,
-                designTypeId: parseInt(rec.Design_Type_ID, 10) || 0,
-                stitchCount: parseInt(rec.Stitch_Count, 10) || 0,
-                stitchTier: rec.Stitch_Tier || '',
-                asSurcharge: parseFloat(rec.AS_Surcharge) || 0,
-                hasStitchData: rec.Has_Stitch_Data === true || rec.Has_Stitch_Data === 'Yes' || rec.Has_Stitch_Data === 1
+                customerId: rec.Customer_ID != null ? String(rec.Customer_ID) : '',
+                maxStitchCount: 0,
+                maxStitchTier: 'Standard',
+                maxAsSurcharge: 0,
+                variantCount: 0,
+                dstFilenames: [],
+                hasImage: false,
+                artworkUrl: null,
+                thumbnailUrl: null,
+                placement: '',
+                sources: ['unified'],
+                threadColors: '',
+                lastOrderDate: null,
+                orderCount: 0,
+                artNotes: ''
             };
         }
 
-        const foundNumbers = new Set(Object.keys(foundDesigns));
-        const notFound = designNumbers.filter(n => !foundNumbers.has(n));
+        const entry = grouped[dn];
+        const stitchCount = parseInt(rec.Stitch_Count, 10) || 0;
+        entry.variantCount++;
+        if (rec.DST_Filename) entry.dstFilenames.push(rec.DST_Filename);
 
-        const response = {
-            success: true,
-            designs: foundDesigns,
-            notFound,
-            count: Object.keys(foundDesigns).length
-        };
+        if (stitchCount > entry.maxStitchCount) {
+            entry.maxStitchCount = stitchCount;
+            entry.maxStitchTier = rec.Stitch_Tier || 'Standard';
+            entry.maxAsSurcharge = parseFloat(rec.AS_Surcharge) || 0;
+        }
 
-        designsCache.set(cacheKey, { data: response, timestamp: Date.now() });
-        res.json(response);
-    } catch (error) {
-        console.error('[Digitized Designs] Fallback lookup failed:', error.message);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to look up designs from ShopWorks table',
-            details: error.message
-        });
+        // Best image wins
+        if (rec.Artwork_URL && rec.Artwork_URL.length > 10 && !entry.artworkUrl) {
+            entry.artworkUrl = rec.Artwork_URL;
+            entry.hasImage = true;
+        }
+        if (rec.Thumbnail_URL && rec.Thumbnail_URL.length > 10 && !entry.thumbnailUrl) {
+            entry.thumbnailUrl = rec.Thumbnail_URL;
+            entry.hasImage = true;
+        }
+
+        // First non-empty values win
+        if (!entry.placement && rec.Placement) entry.placement = rec.Placement;
+        if (!entry.threadColors && rec.Thread_Colors) entry.threadColors = rec.Thread_Colors;
+        if (!entry.lastOrderDate && rec.Last_Order_Date) entry.lastOrderDate = rec.Last_Order_Date;
+        if (rec.Order_Count && parseInt(rec.Order_Count, 10) > entry.orderCount) {
+            entry.orderCount = parseInt(rec.Order_Count, 10);
+        }
+
+        if (!entry.artNotes && rec.Art_Notes) entry.artNotes = rec.Art_Notes;
+
+        // Build sources list based on available data
+        if (stitchCount > 0 && !entry.sources.includes('master')) entry.sources.push('master');
+        if (entry.artworkUrl && !entry.sources.includes('artrequests')) entry.sources.push('artrequests');
     }
-});
+
+    return grouped;
+}
 
 
 // ============================================
-// SEARCH ENDPOINT — by design number or company
+// Fuzzy Search Utilities
 // ============================================
 
 /**
- * GET /api/digitized-designs/search?q=<term>&limit=20
- * Searches Digitized_Designs_Master_2026 by design number or company name.
- * If q is all digits → exact/starts-with match on Design_Number
- * If q has letters → contains match on Company
- * Returns results grouped by design number with stitch info.
- */
-router.get('/digitized-designs/search', async (req, res) => {
-    const { q, limit: limitParam } = req.query;
-
-    if (!q || typeof q !== 'string' || q.trim().length < 2) {
-        return res.status(400).json({
-            success: false,
-            error: 'Search query must be at least 2 characters'
-        });
-    }
-
-    const searchTerm = q.trim();
-    const resultLimit = Math.min(Math.max(parseInt(limitParam, 10) || 20, 1), 50);
-    const isNumeric = /^\d+$/.test(searchTerm);
-
-    try {
-        const cacheKey = `search:${searchTerm.toLowerCase()}:${resultLimit}`;
-        const cached = designsCache.get(cacheKey);
-        if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-            console.log(`[CACHE HIT] digitized-designs search: "${searchTerm}"`);
-            return res.json(cached.data);
-        }
-
-        console.log(`[Digitized Designs] Search: "${searchTerm}" (${isNumeric ? 'numeric' : 'text'})`);
-
-        let whereClause;
-        if (isNumeric) {
-            // Exact match or starts-with for design numbers
-            const sanitized = sanitizeDesignNumber(searchTerm);
-            if (!sanitized) {
-                return res.status(400).json({ success: false, error: 'Invalid design number' });
-            }
-            whereClause = `Design_Number='${sanitized}' OR Design_Number LIKE '${sanitized}%'`;
-        } else {
-            // Company name contains (escape single quotes)
-            const escaped = searchTerm.replace(/'/g, "''");
-            whereClause = `Company LIKE '%${escaped}%'`;
-        }
-
-        const records = await fetchAllCaspioPages(RESOURCE_PATH, {
-            'q.where': whereClause,
-            'q.select': LOOKUP_FIELDS,
-            'q.limit': String(200) // Fetch enough to group, then limit
-        });
-
-        console.log(`[Digitized Designs] Search found ${records.length} raw records for "${searchTerm}"`);
-
-        // Group by design number
-        const grouped = {};
-        for (const rec of records) {
-            const dn = String(rec.Design_Number);
-            if (!grouped[dn]) {
-                grouped[dn] = {
-                    designNumber: dn,
-                    company: rec.Company || '',
-                    customerId: rec.Customer_ID || '',
-                    maxStitchCount: 0,
-                    maxStitchTier: 'Standard',
-                    maxAsSurcharge: 0,
-                    variantCount: 0,
-                    dstFilenames: []
-                };
-            }
-
-            const stitchCount = parseInt(rec.Stitch_Count, 10) || 0;
-            grouped[dn].variantCount++;
-            grouped[dn].dstFilenames.push(rec.DST_Filename || '');
-
-            if (stitchCount > grouped[dn].maxStitchCount) {
-                grouped[dn].maxStitchCount = stitchCount;
-                grouped[dn].maxStitchTier = rec.Stitch_Tier || 'Standard';
-                grouped[dn].maxAsSurcharge = parseFloat(rec.AS_Surcharge) || 0;
-            }
-        }
-
-        // Convert to array, sort by design number, limit results
-        const results = Object.values(grouped)
-            .sort((a, b) => parseInt(a.designNumber) - parseInt(b.designNumber))
-            .slice(0, resultLimit);
-
-        const response = {
-            success: true,
-            query: searchTerm,
-            searchType: isNumeric ? 'design_number' : 'company',
-            results,
-            count: results.length,
-            totalMatches: Object.keys(grouped).length
-        };
-
-        designsCache.set(cacheKey, { data: response, timestamp: Date.now() });
-        res.json(response);
-    } catch (error) {
-        console.error(`[Digitized Designs] Search failed for "${searchTerm}":`, error.message);
-        res.status(500).json({
-            success: false,
-            error: 'Search failed',
-            details: error.message
-        });
-    }
-});
-
-
-// ============================================
-// UNIFIED SEARCH — All 4 design tables
-// ============================================
-
-// Select fields for each table (avoid SELECT *)
-// ============================================
-// FUZZY SEARCH UTILITIES
-// ============================================
-
-/**
- * Levenshtein distance between two strings (case-insensitive).
- * Returns the minimum number of single-character edits needed.
+ * Levenshtein distance (case-insensitive)
  */
 function levenshtein(a, b) {
     a = a.toLowerCase();
@@ -353,9 +225,9 @@ function levenshtein(a, b) {
                 matrix[i][j] = matrix[i - 1][j - 1];
             } else {
                 matrix[i][j] = Math.min(
-                    matrix[i - 1][j - 1] + 1, // substitution
-                    matrix[i][j - 1] + 1,       // insertion
-                    matrix[i - 1][j] + 1         // deletion
+                    matrix[i - 1][j - 1] + 1,
+                    matrix[i][j - 1] + 1,
+                    matrix[i - 1][j] + 1
                 );
             }
         }
@@ -364,43 +236,40 @@ function levenshtein(a, b) {
 }
 
 /**
- * Compute a fuzzy relevance score (0–100) for a result against the search term.
- * Higher = better match. Considers company name, design name, and substring containment.
+ * Fuzzy relevance score (0–100). Higher = better match.
  */
 function fuzzyScore(searchTerm, company, designName) {
     const term = searchTerm.toLowerCase();
     const comp = (company || '').toLowerCase();
     const name = (designName || '').toLowerCase();
 
-    // Exact substring match in company → high score
+    // Exact substring in company → high score
     if (comp.includes(term)) {
         const ratio = term.length / Math.max(comp.length, 1);
-        return Math.round(80 + ratio * 20); // 80–100
+        return Math.round(80 + ratio * 20);
     }
     // Exact substring in design name
     if (name.includes(term)) {
         const ratio = term.length / Math.max(name.length, 1);
-        return Math.round(70 + ratio * 20); // 70–90
+        return Math.round(70 + ratio * 20);
     }
 
-    // Split company/design into individual words for word-level matching
+    // Word-level matching
     const companyWords = comp.replace(/[''&.,\-/]/g, ' ').split(/\s+/).filter(w => w.length > 1);
     const nameWords = name.replace(/[''&.,\-/]/g, ' ').split(/\s+/).filter(w => w.length > 1);
     const allWords = [...companyWords, ...nameWords];
 
-    // Multi-word search: score each search word separately, require ALL words to match
+    // Multi-word search
     const searchWords = term.split(/\s+/).filter(w => w.length >= 2);
     if (searchWords.length > 1) {
         let totalScore = 0;
         for (const sw of searchWords) {
             let bestForThisWord = 0;
-            // Check substring containment first (high confidence)
             if (comp.includes(sw)) {
                 bestForThisWord = 0.9;
             } else if (name.includes(sw)) {
                 bestForThisWord = 0.8;
             } else {
-                // Fuzzy match against individual words
                 for (const word of allWords) {
                     const dist = levenshtein(sw, word);
                     const maxLen = Math.max(sw.length, word.length);
@@ -413,10 +282,10 @@ function fuzzyScore(searchTerm, company, designName) {
             totalScore += bestForThisWord;
         }
         const avgScore = totalScore / searchWords.length;
-        return Math.round(avgScore * 85); // Multi-word exact match → ~76, partial → lower
+        return Math.round(avgScore * 85);
     }
 
-    // Single-word search: find best matching word
+    // Single-word: best matching word
     let bestWordScore = 0;
     for (const word of allWords) {
         const dist = levenshtein(term, word);
@@ -427,503 +296,17 @@ function fuzzyScore(searchTerm, company, designName) {
         if (wordScore > bestWordScore) bestWordScore = wordScore;
     }
 
-    // Also check Levenshtein against full company name (for single-word companies)
+    // Also check full company name (single-word companies)
     const compDist = levenshtein(term, comp);
     const compSim = 1 - compDist / Math.max(term.length, comp.length, 1);
     if (compSim > bestWordScore) bestWordScore = compSim;
 
-    // Convert to 0–70 range (fuzzy matches cap at 70, below exact substring matches)
     return Math.round(bestWordScore * 70);
 }
 
-const SEARCH_ALL_FIELDS = {
-    shopworks: 'Design_Number,Design_Name,Company_Name,Stitch_Count,Stitch_Tier,Thread_Colors,Last_Order_Date,Order_Count',
-    thumbnail: 'Thumb_DesLocid_Design,Thumb_DesLoc_DesDesignName,ExternalKey,FileUrl',
-    artRequests: 'Design_Num_SW,ID_Design,CompanyName,CDN_Link,Garment_Placement,NOTES,Date_Created,Shopwork_customer_number'
-};
-
-/**
- * Merge design results from all 4 tables into a unified map keyed by design number.
- * Master table has highest priority for stitch data.
- * Shared by search-all and by-customer endpoints.
- */
-function mergeDesignResults(masterRecords, shopworksRecords, thumbnailRecords, artRecords) {
-    const merged = {};
-
-    // 1. Master table (highest priority for stitch data)
-    for (const rec of masterRecords) {
-        const dn = String(rec.Design_Number);
-        if (!merged[dn]) {
-            merged[dn] = {
-                designNumber: dn, company: rec.Company || '', designName: '',
-                customerId: rec.Customer_ID || '', maxStitchCount: 0, maxStitchTier: 'Standard',
-                maxAsSurcharge: 0, variantCount: 0, dstFilenames: [],
-                hasImage: false, artworkUrl: null, placement: '', sources: []
-            };
-        }
-        const entry = merged[dn];
-        if (!entry.sources.includes('master')) entry.sources.push('master');
-        const stitchCount = parseInt(rec.Stitch_Count, 10) || 0;
-        entry.variantCount++;
-        entry.dstFilenames.push(rec.DST_Filename || '');
-        if (stitchCount > entry.maxStitchCount) {
-            entry.maxStitchCount = stitchCount;
-            entry.maxStitchTier = rec.Stitch_Tier || 'Standard';
-            entry.maxAsSurcharge = parseFloat(rec.AS_Surcharge) || 0;
-        }
-    }
-
-    // 2. ShopWorks_Designs (fills design name, colors, order history)
-    for (const rec of shopworksRecords) {
-        const dn = String(rec.Design_Number || '').trim();
-        if (!dn) continue;
-        if (!merged[dn]) {
-            merged[dn] = {
-                designNumber: dn, company: rec.Company_Name || '', designName: rec.Design_Name || '',
-                customerId: '', maxStitchCount: parseInt(rec.Stitch_Count, 10) || 0,
-                maxStitchTier: rec.Stitch_Tier || '', maxAsSurcharge: 0, variantCount: 1,
-                dstFilenames: [], hasImage: false, artworkUrl: null, placement: '', sources: []
-            };
-        }
-        const entry = merged[dn];
-        if (!entry.sources.includes('shopworks')) entry.sources.push('shopworks');
-        if (!entry.company && rec.Company_Name) entry.company = rec.Company_Name;
-        if (!entry.designName && rec.Design_Name) entry.designName = rec.Design_Name;
-        if (rec.Thread_Colors) entry.threadColors = rec.Thread_Colors;
-        if (rec.Last_Order_Date) entry.lastOrderDate = rec.Last_Order_Date;
-        if (rec.Order_Count) entry.orderCount = parseInt(rec.Order_Count, 10) || 0;
-    }
-
-    // 3. Thumbnail table (adds hasImage + designName)
-    for (const rec of thumbnailRecords) {
-        const dn = String(rec.Thumb_DesLocid_Design || '').replace(/\.\d+$/, '').trim();
-        if (!dn) continue;
-        if (!merged[dn]) {
-            merged[dn] = {
-                designNumber: dn, company: '', designName: (rec.Thumb_DesLoc_DesDesignName || '').trim(),
-                customerId: '', maxStitchCount: 0, maxStitchTier: '', maxAsSurcharge: 0,
-                variantCount: 0, dstFilenames: [], hasImage: false, artworkUrl: null,
-                placement: '', sources: []
-            };
-        }
-        const entry = merged[dn];
-        if (!entry.sources.includes('thumbnail')) entry.sources.push('thumbnail');
-        if (!entry.designName && rec.Thumb_DesLoc_DesDesignName) {
-            entry.designName = rec.Thumb_DesLoc_DesDesignName.trim();
-        }
-        const imageUrl = rec.ExternalKey
-            ? `https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/files/${rec.ExternalKey}`
-            : (rec.FileUrl || null);
-        if (imageUrl) {
-            entry.hasImage = true;
-            if (!entry.thumbnailUrl) entry.thumbnailUrl = imageUrl;
-        }
-    }
-
-    // 4. ArtRequests (adds artwork CDN URL, placement, notes)
-    for (const rec of artRecords) {
-        const dn = String(rec.Design_Num_SW || '').trim() || String(rec.ID_Design || '').trim();
-        if (!dn) continue;
-        if (!merged[dn]) {
-            merged[dn] = {
-                designNumber: dn, company: rec.CompanyName || '', designName: '',
-                customerId: rec.Shopwork_customer_number ? String(rec.Shopwork_customer_number) : '',
-                maxStitchCount: 0, maxStitchTier: '', maxAsSurcharge: 0, variantCount: 0,
-                dstFilenames: [], hasImage: false, artworkUrl: null, placement: '', sources: []
-            };
-        }
-        const entry = merged[dn];
-        if (!entry.sources.includes('artrequests')) entry.sources.push('artrequests');
-        if (!entry.company && rec.CompanyName) entry.company = rec.CompanyName;
-        if (!entry.customerId && rec.Shopwork_customer_number) {
-            entry.customerId = String(rec.Shopwork_customer_number);
-        }
-        if (!entry.artworkUrl && rec.CDN_Link && rec.CDN_Link.length > 30) {
-            entry.artworkUrl = rec.CDN_Link;
-        }
-        if (!entry.placement && rec.Garment_Placement) {
-            entry.placement = rec.Garment_Placement;
-        }
-    }
-
-    return merged;
-}
-
-/**
- * GET /api/digitized-designs/search-all?q=<term>&limit=20&customerId=<id>
- * Searches 4 design tables in parallel:
- *   1. Digitized_Designs_Master_2026 (stitch data)
- *   2. ShopWorks_Designs (design names, colors, order history)
- *   3. Shopworks_Thumbnail_Report (design images)
- *   4. ArtRequests (artwork mockups, placement notes)
- *
- * Results merged & deduplicated by design number. Master table wins for stitch data.
- *
- * Optional customerId param: When provided, also fetches designs belonging to that
- * customer (by Customer_ID in Master, Shopwork_customer_number in ArtRequests).
- * Customer-matching results are tagged with customerMatch:true and sorted to the top.
- */
-router.get('/digitized-designs/search-all', async (req, res) => {
-    const { q, limit: limitParam, customerId: customerIdParam } = req.query;
-
-    if (!q || typeof q !== 'string' || q.trim().length < 2) {
-        return res.status(400).json({
-            success: false,
-            error: 'Search query must be at least 2 characters'
-        });
-    }
-
-    const searchTerm = q.trim();
-    const resultLimit = Math.min(Math.max(parseInt(limitParam, 10) || 20, 1), 50);
-    const isNumeric = /^\d+$/.test(searchTerm);
-    const escaped = searchTerm.replace(/'/g, "''");
-    // Optional customer ID for prioritizing/filtering results
-    const customerId = (customerIdParam && typeof customerIdParam === 'string') ? customerIdParam.trim().replace(/'/g, "''") : '';
-
-    try {
-        // Check cache
-        const cacheKey = `search-all:${searchTerm.toLowerCase()}:${resultLimit}:${customerId}`;
-        const cached = designsCache.get(cacheKey);
-        if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-            console.log(`[CACHE HIT] search-all: "${searchTerm}"`);
-            return res.json(cached.data);
-        }
-
-        console.log(`[Search-All] Searching 4 tables for "${searchTerm}" (${isNumeric ? 'numeric' : 'text'})`);
-
-        // Build WHERE clauses for each table
-        // For text searches 5+ chars, also broaden with a short prefix to catch misspellings
-        let where1, where2, where3, where4;
-        const useFuzzy = !isNumeric && escaped.length >= 5;
-
-        // Split into words for multi-word aware queries
-        const searchWords = escaped.split(/\s+/).filter(w => w.length >= 2);
-        const isMultiWord = searchWords.length > 1;
-
-        // Helper: build WHERE for a field with multi-word AND logic + fuzzy prefix broadening
-        function buildFuzzyWhere(field, words, fullTerm) {
-            if (isMultiWord) {
-                // Exact path: all words must appear as substrings
-                const exactParts = words.map(w => `${field} LIKE '%${w}%'`);
-                // Fuzzy path: all word-prefixes must appear (catches misspellings)
-                const fuzzyParts = words.map(w => {
-                    const pfx = w.substring(0, Math.min(4, w.length));
-                    return `${field} LIKE '%${pfx}%'`;
-                });
-                return `(${exactParts.join(' AND ')}) OR (${fuzzyParts.join(' AND ')})`;
-            } else {
-                // Single word: full term + 4-char prefix broadening
-                const prefix = fullTerm.substring(0, 4);
-                return `${field} LIKE '%${fullTerm}%' OR ${field} LIKE '%${prefix}%'`;
-            }
-        }
-
-        if (isNumeric) {
-            const sanitized = sanitizeDesignNumber(searchTerm);
-            if (!sanitized) {
-                return res.status(400).json({ success: false, error: 'Invalid design number' });
-            }
-            where1 = `Design_Number='${sanitized}' OR Design_Number LIKE '${sanitized}%'`;
-            where2 = `Design_Number='${sanitized}' OR Design_Number LIKE '${sanitized}%'`;
-            where3 = `Thumb_DesLocid_Design='${sanitized}'`;
-            where4 = `Design_Num_SW='${sanitized}' OR ID_Design=${sanitized}`;
-        } else if (useFuzzy) {
-            // Multi-word or single-word fuzzy broadening
-            where1 = buildFuzzyWhere('Company', searchWords, escaped);
-            where2 = `(${buildFuzzyWhere('Company_Name', searchWords, escaped)}) OR (${buildFuzzyWhere('Design_Name', searchWords, escaped)})`;
-            where3 = buildFuzzyWhere('Thumb_DesLoc_DesDesignName', searchWords, escaped);
-            where4 = buildFuzzyWhere('CompanyName', searchWords, escaped);
-        } else {
-            // Short terms (2-4 chars): exact substring only
-            where1 = `Company LIKE '%${escaped}%'`;
-            where2 = `Company_Name LIKE '%${escaped}%' OR Design_Name LIKE '%${escaped}%'`;
-            where3 = `Thumb_DesLoc_DesDesignName LIKE '%${escaped}%'`;
-            where4 = `CompanyName LIKE '%${escaped}%'`;
-        }
-
-        if (useFuzzy) {
-            console.log(`[Search-All] Fuzzy mode: ${isMultiWord ? 'multi-word' : 'single-word'}, words=[${searchWords.join(',')}]`);
-        }
-
-        // When customerId is provided, broaden Master & ArtRequests queries to also fetch that customer's designs
-        if (customerId && !isNumeric) {
-            where1 = `(${where1}) OR (Customer_ID='${customerId}')`;
-            where4 = `(${where4}) OR (Shopwork_customer_number='${customerId}')`;
-            console.log(`[Search-All] Customer scope: customerId=${customerId}`);
-        }
-
-        // Query all 4 tables in parallel with timeout
-        const QUERY_TIMEOUT = 8000;
-        const withTimeout = (promise, label) => Promise.race([
-            promise,
-            new Promise((_, reject) => setTimeout(() => reject(new Error(`${label} timeout`)), QUERY_TIMEOUT))
-        ]);
-
-        const [r1, r2, r3, r4] = await Promise.allSettled([
-            withTimeout(
-                fetchAllCaspioPages(RESOURCE_PATH, { 'q.where': where1, 'q.select': LOOKUP_FIELDS, 'q.limit': '200' }),
-                'Master'
-            ),
-            withTimeout(
-                fetchAllCaspioPages(`/tables/${FALLBACK_TABLE}/records`, { 'q.where': where2, 'q.select': SEARCH_ALL_FIELDS.shopworks, 'q.limit': '100' }),
-                'ShopWorks'
-            ),
-            withTimeout(
-                fetchAllCaspioPages('/tables/Shopworks_Thumbnail_Report/records', { 'q.where': where3, 'q.select': SEARCH_ALL_FIELDS.thumbnail, 'q.limit': '100' }),
-                'Thumbnails'
-            ),
-            withTimeout(
-                fetchAllCaspioPages('/tables/ArtRequests/records', { 'q.where': where4, 'q.select': SEARCH_ALL_FIELDS.artRequests, 'q.limit': '100' }),
-                'ArtRequests'
-            )
-        ]);
-
-        const masterRecords = r1.status === 'fulfilled' ? r1.value : [];
-        const shopworksRecords = r2.status === 'fulfilled' ? r2.value : [];
-        const thumbnailRecords = r3.status === 'fulfilled' ? r3.value : [];
-        const artRecords = r4.status === 'fulfilled' ? r4.value : [];
-
-        // Log any failures
-        if (r1.status === 'rejected') console.warn(`[Search-All] Master table failed: ${r1.reason.message}`);
-        if (r2.status === 'rejected') console.warn(`[Search-All] ShopWorks table failed: ${r2.reason.message}`);
-        if (r3.status === 'rejected') console.warn(`[Search-All] Thumbnail table failed: ${r3.reason.message}`);
-        if (r4.status === 'rejected') console.warn(`[Search-All] ArtRequests table failed: ${r4.reason.message}`);
-
-        console.log(`[Search-All] Raw hits: Master=${masterRecords.length}, ShopWorks=${shopworksRecords.length}, Thumbnails=${thumbnailRecords.length}, ArtRequests=${artRecords.length}`);
-
-        // Merge all 4 tables into unified results (shared helper)
-        const merged = mergeDesignResults(masterRecords, shopworksRecords, thumbnailRecords, artRecords);
-
-        // Tag customer matches when customerId was provided
-        const allResults = Object.values(merged);
-        if (customerId) {
-            for (const entry of allResults) {
-                entry.customerMatch = (String(entry.customerId) === String(customerId));
-            }
-            const matchCount = allResults.filter(r => r.customerMatch).length;
-            console.log(`[Search-All] Customer matches: ${matchCount} of ${allResults.length} for customerId=${customerId}`);
-        }
-
-        // Score and sort results by relevance
-        let results;
-        if (!isNumeric) {
-            // Compute fuzzy relevance score for each result
-            for (const entry of allResults) {
-                entry.relevanceScore = fuzzyScore(searchTerm, entry.company, entry.designName);
-            }
-            // Sort: customer matches first, then by relevance (highest first), then by design number for ties
-            allResults.sort((a, b) => {
-                // Customer matches always come first
-                if (customerId) {
-                    if (a.customerMatch && !b.customerMatch) return -1;
-                    if (!a.customerMatch && b.customerMatch) return 1;
-                }
-                const scoreDiff = (b.relevanceScore || 0) - (a.relevanceScore || 0);
-                if (scoreDiff !== 0) return scoreDiff;
-                return parseInt(a.designNumber) - parseInt(b.designNumber);
-            });
-            // Filter out poor matches when fuzzy broadening was used
-            // Customer matches bypass the minimum score filter — they were explicitly requested
-            const MIN_FUZZY_SCORE = useFuzzy ? 45 : 0;
-            results = allResults.filter(r => r.customerMatch || (r.relevanceScore || 0) >= MIN_FUZZY_SCORE).slice(0, resultLimit);
-            console.log(`[Search-All] Top scores: ${results.slice(0, 5).map(r => `${r.company}:${r.relevanceScore}${r.customerMatch ? '*' : ''}`).join(', ')}`);
-        } else {
-            // Numeric: sort by design number
-            allResults.sort((a, b) => parseInt(a.designNumber) - parseInt(b.designNumber));
-            results = allResults.slice(0, resultLimit);
-        }
-
-        const response = {
-            success: true,
-            query: searchTerm,
-            searchType: isNumeric ? 'design_number' : 'company',
-            fuzzyEnabled: useFuzzy || false,
-            customerScoped: !!customerId,
-            results,
-            count: results.length,
-            totalMatches: allResults.length,
-            tablesQueried: {
-                master: r1.status === 'fulfilled' ? masterRecords.length : 'failed',
-                shopworks: r2.status === 'fulfilled' ? shopworksRecords.length : 'failed',
-                thumbnails: r3.status === 'fulfilled' ? thumbnailRecords.length : 'failed',
-                artRequests: r4.status === 'fulfilled' ? artRecords.length : 'failed'
-            }
-        };
-
-        designsCache.set(cacheKey, { data: response, timestamp: Date.now() });
-        res.json(response);
-    } catch (error) {
-        console.error(`[Search-All] Failed for "${searchTerm}":`, error.message);
-        res.status(500).json({
-            success: false,
-            error: 'Search failed',
-            details: error.message
-        });
-    }
-});
-
 
 // ============================================
-// BY-CUSTOMER ENDPOINT (gallery view)
-// ============================================
-
-/**
- * GET /api/digitized-designs/by-customer?customerId=12025
- * Fetches ALL designs belonging to a specific customer across Master + ArtRequests,
- * enriched with ShopWorks_Designs and Thumbnail data. Used for gallery view.
- */
-router.get('/digitized-designs/by-customer', async (req, res) => {
-    const { customerId: rawId } = req.query;
-
-    if (!rawId || typeof rawId !== 'string' || !/^\d+$/.test(rawId.trim())) {
-        return res.status(400).json({
-            success: false,
-            error: 'customerId must be a numeric string'
-        });
-    }
-
-    const customerId = rawId.trim();
-
-    try {
-        // Check cache
-        const cacheKey = `customer:${customerId}`;
-        const cached = designsCache.get(cacheKey);
-        if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-            console.log(`[CACHE HIT] by-customer: ${customerId}`);
-            return res.json(cached.data);
-        }
-
-        console.log(`[By-Customer] Fetching designs for customerId=${customerId}`);
-
-        const QUERY_TIMEOUT = 8000;
-        const withTimeout = (promise, label) => Promise.race([
-            promise,
-            new Promise((_, reject) => setTimeout(() => reject(new Error(`${label} timeout`)), QUERY_TIMEOUT))
-        ]);
-
-        // Step 1: Fetch customer's designs from Master + ArtRequests in parallel
-        const [r1, r4] = await Promise.allSettled([
-            withTimeout(
-                fetchAllCaspioPages(RESOURCE_PATH, {
-                    'q.where': `Customer_ID='${customerId}'`,
-                    'q.select': LOOKUP_FIELDS,
-                    'q.limit': '500'
-                }),
-                'Master'
-            ),
-            withTimeout(
-                fetchAllCaspioPages('/tables/ArtRequests/records', {
-                    'q.where': `Shopwork_customer_number='${customerId}'`,
-                    'q.select': SEARCH_ALL_FIELDS.artRequests,
-                    'q.limit': '200'
-                }),
-                'ArtRequests'
-            )
-        ]);
-
-        const masterRecords = r1.status === 'fulfilled' ? r1.value : [];
-        const artRecords = r4.status === 'fulfilled' ? r4.value : [];
-
-        if (r1.status === 'rejected') console.warn(`[By-Customer] Master failed: ${r1.reason.message}`);
-        if (r4.status === 'rejected') console.warn(`[By-Customer] ArtRequests failed: ${r4.reason.message}`);
-
-        // Collect all unique design numbers for enrichment queries
-        const designNums = new Set();
-        for (const rec of masterRecords) {
-            if (rec.Design_Number) designNums.add(String(rec.Design_Number));
-        }
-        for (const rec of artRecords) {
-            const dn = String(rec.Design_Num_SW || '').trim() || String(rec.ID_Design || '').trim();
-            if (dn) designNums.add(dn);
-        }
-
-        console.log(`[By-Customer] Found ${designNums.size} unique designs (Master=${masterRecords.length}, ArtRequests=${artRecords.length})`);
-
-        // Step 2: Enrich with ShopWorks_Designs + Thumbnails by design number
-        let shopworksRecords = [];
-        let thumbnailRecords = [];
-
-        if (designNums.size > 0) {
-            const dnArray = Array.from(designNums);
-            // Build IN clauses in batches of 50 to avoid query length limits
-            const batchSize = 50;
-            const swPromises = [];
-            const thumbPromises = [];
-
-            for (let i = 0; i < dnArray.length; i += batchSize) {
-                const batch = dnArray.slice(i, i + batchSize);
-                const inClause = batch.map(d => `'${d}'`).join(',');
-
-                swPromises.push(
-                    withTimeout(
-                        fetchAllCaspioPages(`/tables/${FALLBACK_TABLE}/records`, {
-                            'q.where': `Design_Number IN (${inClause})`,
-                            'q.select': SEARCH_ALL_FIELDS.shopworks,
-                            'q.limit': '500'
-                        }),
-                        'ShopWorks'
-                    ).catch(() => [])
-                );
-                thumbPromises.push(
-                    withTimeout(
-                        fetchAllCaspioPages('/tables/Shopworks_Thumbnail_Report/records', {
-                            'q.where': `Thumb_DesLocid_Design IN (${inClause})`,
-                            'q.select': SEARCH_ALL_FIELDS.thumbnail,
-                            'q.limit': '500'
-                        }),
-                        'Thumbnails'
-                    ).catch(() => [])
-                );
-            }
-
-            const [swResults, thumbResults] = await Promise.all([
-                Promise.all(swPromises),
-                Promise.all(thumbPromises)
-            ]);
-            shopworksRecords = swResults.flat();
-            thumbnailRecords = thumbResults.flat();
-        }
-
-        console.log(`[By-Customer] Enrichment: ShopWorks=${shopworksRecords.length}, Thumbnails=${thumbnailRecords.length}`);
-
-        // Step 3: Merge all data
-        const merged = mergeDesignResults(masterRecords, shopworksRecords, thumbnailRecords, artRecords);
-        const allResults = Object.values(merged);
-
-        // Tag all as customer matches and sort by design number
-        for (const entry of allResults) {
-            entry.customerMatch = true;
-        }
-        allResults.sort((a, b) => parseInt(a.designNumber) - parseInt(b.designNumber));
-
-        const response = {
-            success: true,
-            customerId,
-            results: allResults,
-            count: allResults.length,
-            tablesQueried: {
-                master: masterRecords.length,
-                shopworks: shopworksRecords.length,
-                thumbnails: thumbnailRecords.length,
-                artRequests: artRecords.length
-            }
-        };
-
-        designsCache.set(cacheKey, { data: response, timestamp: Date.now() });
-        res.json(response);
-    } catch (error) {
-        console.error(`[By-Customer] Failed for customerId=${customerId}:`, error.message);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to fetch customer designs',
-            details: error.message
-        });
-    }
-});
-
-
-// ============================================
-// LOOKUP ENDPOINT (primary - used by import)
+// LOOKUP ENDPOINT (primary — used by import)
 // ============================================
 
 /**
@@ -940,45 +323,33 @@ router.get('/digitized-designs/lookup', async (req, res) => {
         });
     }
 
-    // Parse and sanitize design numbers
     const rawNumbers = designs.split(',').map(s => s.trim());
     const designNumbers = rawNumbers.map(sanitizeDesignNumber).filter(Boolean);
 
     if (designNumbers.length === 0) {
-        return res.status(400).json({
-            success: false,
-            error: 'No valid design numbers provided. Use digits only.'
-        });
+        return res.status(400).json({ success: false, error: 'No valid design numbers provided.' });
     }
 
     if (designNumbers.length > 20) {
-        return res.status(400).json({
-            success: false,
-            error: 'Maximum 20 design numbers per lookup request'
-        });
+        return res.status(400).json({ success: false, error: 'Maximum 20 design numbers per lookup.' });
     }
 
     try {
-        // Check cache first
         const cacheKey = `lookup:${designNumbers.sort().join(',')}`;
         const cached = designsCache.get(cacheKey);
         if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-            console.log(`[CACHE HIT] digitized-designs lookup: ${designNumbers.join(',')}`);
             return res.json(cached.data);
         }
 
-        console.log(`[Digitized Designs] Looking up designs: ${designNumbers.join(', ')}`);
+        console.log(`[Designs] Lookup: ${designNumbers.join(', ')}`);
 
-        // Build WHERE clause: Design_Number IN ('29988','39112','39113')
         const inList = designNumbers.map(n => `'${n}'`).join(',');
-        const whereClause = `Design_Number IN (${inList})`;
-
         const records = await fetchAllCaspioPages(RESOURCE_PATH, {
-            'q.where': whereClause,
-            'q.select': LOOKUP_FIELDS
+            'q.where': `Design_Number IN (${inList}) AND ${ACTIVE_FILTER}`,
+            'q.select': ALL_FIELDS
         });
 
-        console.log(`[Digitized Designs] Found ${records.length} records for ${designNumbers.length} design numbers`);
+        console.log(`[Designs] Lookup found ${records.length} records for ${designNumbers.length} design numbers`);
 
         const result = groupByDesignNumber(records, designNumbers);
         const response = {
@@ -988,314 +359,303 @@ router.get('/digitized-designs/lookup', async (req, res) => {
             totalVariants: records.length
         };
 
-        // Cache the result
-        designsCache.set(cacheKey, {
-            data: response,
-            timestamp: Date.now()
-        });
-
+        designsCache.set(cacheKey, { data: response, timestamp: Date.now() });
         res.json(response);
     } catch (error) {
-        console.error('[Digitized Designs] Lookup failed:', error.message);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to look up designs',
-            details: error.message
-        });
+        console.error('[Designs] Lookup failed:', error.message);
+        res.status(500).json({ success: false, error: 'Failed to look up designs', details: error.message });
     }
 });
 
 
 // ============================================
-// SINGLE DESIGN LOOKUP
+// FALLBACK ENDPOINT (same table, different response shape)
 // ============================================
 
 /**
- * GET /api/digitized-designs/design/:designNumber
- * Returns all variants for a single design number
+ * GET /api/digitized-designs/fallback?designs=435,1363,5373
+ * Returns designs in the fallback response shape (companyName, designName fields).
+ * Now queries the same unified table — no separate ShopWorks_Designs lookup needed.
  */
-router.get('/digitized-designs/design/:designNumber', async (req, res) => {
-    const designNumber = sanitizeDesignNumber(req.params.designNumber);
+router.get('/digitized-designs/fallback', async (req, res) => {
+    const { designs } = req.query;
 
-    if (!designNumber) {
+    if (!designs || typeof designs !== 'string') {
         return res.status(400).json({
             success: false,
-            error: 'Valid numeric design number required'
+            error: 'Missing required query parameter: designs (comma-separated design numbers)'
         });
     }
 
-    try {
-        const records = await fetchAllCaspioPages(RESOURCE_PATH, {
-            'q.where': `Design_Number='${designNumber}'`,
-            'q.select': LOOKUP_FIELDS
-        });
+    const rawNumbers = designs.split(',').map(s => s.trim());
+    const designNumbers = rawNumbers.map(sanitizeDesignNumber).filter(Boolean);
 
-        if (records.length === 0) {
-            return res.status(404).json({
-                success: false,
-                error: `Design #${designNumber} not found`
-            });
-        }
-
-        const result = groupByDesignNumber(records, [designNumber]);
-        res.json({
-            success: true,
-            data: result.designs[designNumber]
-        });
-    } catch (error) {
-        console.error(`[Digitized Designs] Get design ${designNumber} failed:`, error.message);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to fetch design',
-            details: error.message
-        });
+    if (designNumbers.length === 0) {
+        return res.status(400).json({ success: false, error: 'No valid design numbers provided.' });
     }
-});
 
-
-// ============================================
-// LIST ALL (admin/reference)
-// ============================================
-
-/**
- * GET /api/digitized-designs
- * Fetch all designs with optional filters
- * Query params: company, tier, refresh
- */
-router.get('/digitized-designs', async (req, res) => {
-    const { company, tier, refresh } = req.query;
-    const forceRefresh = refresh === 'true';
+    if (designNumbers.length > 20) {
+        return res.status(400).json({ success: false, error: 'Maximum 20 design numbers per fallback.' });
+    }
 
     try {
-        const cacheKey = 'all-digitized-designs';
+        const cacheKey = `fallback:${designNumbers.sort().join(',')}`;
         const cached = designsCache.get(cacheKey);
-
-        let records;
-        if (!forceRefresh && cached && Date.now() - cached.timestamp < CACHE_TTL) {
-            console.log('[CACHE HIT] digitized-designs all');
-            records = cached.data;
-        } else {
-            console.log('[CACHE MISS] digitized-designs - fetching from Caspio');
-            records = await fetchAllCaspioPages(RESOURCE_PATH, {});
-
-            designsCache.set(cacheKey, {
-                data: records,
-                timestamp: Date.now()
-            });
-
-            console.log(`[Digitized Designs] Fetched ${records.length} records from Caspio`);
+        if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+            return res.json(cached.data);
         }
 
-        // Apply filters
-        let results = records;
-        if (company) {
-            const companyLower = company.toLowerCase();
-            results = results.filter(d =>
-                d.Company && d.Company.toLowerCase().includes(companyLower)
-            );
-        }
-        if (tier) {
-            const tierLower = tier.toLowerCase();
-            results = results.filter(d =>
-                d.Stitch_Tier && d.Stitch_Tier.toLowerCase() === tierLower
-            );
-        }
+        console.log(`[Designs] Fallback lookup: ${designNumbers.join(', ')}`);
 
-        res.json({
-            success: true,
-            data: results,
-            count: results.length,
-            source: 'caspio'
-        });
-    } catch (error) {
-        console.error('[Digitized Designs] List failed:', error.message);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to fetch digitized designs',
-            details: error.message
-        });
-    }
-});
-
-
-// ============================================
-// GET BY ID
-// ============================================
-
-/**
- * GET /api/digitized-designs/:id
- * Get single record by ID_Unique
- */
-router.get('/digitized-designs/:id', async (req, res) => {
-    const { id } = req.params;
-
-    // Skip route collisions
-    if (['cache', 'lookup', 'design', 'seed', 'fallback'].includes(id)) return;
-
-    if (!id || typeof id !== 'string' || id.length > 20) {
-        return res.status(400).json({
-            success: false,
-            error: 'Valid ID_Unique is required'
-        });
-    }
-
-    try {
+        const inList = designNumbers.map(n => `'${n}'`).join(',');
         const records = await fetchAllCaspioPages(RESOURCE_PATH, {
-            'q.where': `ID_Unique='${id.replace(/[^a-zA-Z0-9]/g, '')}'`
+            'q.where': `Design_Number IN (${inList}) AND ${ACTIVE_FILTER}`,
+            'q.select': ALL_FIELDS
         });
 
-        if (records.length === 0) {
-            return res.status(404).json({
-                success: false,
-                error: `Design with ID_Unique='${id}' not found`
-            });
+        // Build fallback response shape — one entry per design number (not per variant)
+        // Frontend expects: companyName, designName (NOT company, designDescription)
+        const foundDesigns = {};
+        for (const rec of records) {
+            const dn = String(rec.Design_Number);
+            const stitchCount = parseInt(rec.Stitch_Count, 10) || 0;
+
+            if (!foundDesigns[dn]) {
+                foundDesigns[dn] = {
+                    designNumber: dn,
+                    designName: rec.Design_Name || '',
+                    companyName: rec.Company || '',
+                    designCode: '',
+                    threadColors: rec.Thread_Colors || '',
+                    colorCount: parseInt(rec.Color_Changes, 10) || 0,
+                    lastOrderDate: rec.Last_Order_Date || '',
+                    orderCount: parseInt(rec.Order_Count, 10) || 0,
+                    designTypeId: 0,
+                    stitchCount,
+                    stitchTier: rec.Stitch_Tier || '',
+                    asSurcharge: parseFloat(rec.AS_Surcharge) || 0,
+                    hasStitchData: stitchCount > 0,
+                    maxStitchCount: stitchCount
+                };
+            } else if (stitchCount > foundDesigns[dn].maxStitchCount) {
+                // Track max stitch across variants
+                foundDesigns[dn].maxStitchCount = stitchCount;
+                foundDesigns[dn].stitchCount = stitchCount;
+                foundDesigns[dn].stitchTier = rec.Stitch_Tier || '';
+                foundDesigns[dn].asSurcharge = parseFloat(rec.AS_Surcharge) || 0;
+            }
         }
 
-        res.json({
+        const foundNumbers = new Set(Object.keys(foundDesigns));
+        const notFound = designNumbers.filter(n => !foundNumbers.has(n));
+
+        const response = {
             success: true,
-            data: records[0]
-        });
+            designs: foundDesigns,
+            notFound,
+            count: Object.keys(foundDesigns).length
+        };
+
+        designsCache.set(cacheKey, { data: response, timestamp: Date.now() });
+        res.json(response);
     } catch (error) {
-        console.error(`[Digitized Designs] Get by ID failed for ${id}:`, error.message);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to fetch design',
-            details: error.message
-        });
+        console.error('[Designs] Fallback lookup failed:', error.message);
+        res.status(500).json({ success: false, error: 'Fallback lookup failed', details: error.message });
     }
 });
 
 
 // ============================================
-// CREATE
+// SEARCH-ALL ENDPOINT (fuzzy search)
 // ============================================
 
 /**
- * POST /api/digitized-designs
- * Create a new design record
+ * GET /api/digitized-designs/search-all?q=<term>&limit=20&customerId=<id>
+ * Fuzzy search across Design_Lookup_2026 by company name or design number.
+ * Optional customerId: prioritize customer's designs in results.
  */
-router.post('/digitized-designs', async (req, res) => {
-    const record = req.body;
+router.get('/digitized-designs/search-all', async (req, res) => {
+    const { q, limit: limitParam, customerId: customerIdParam } = req.query;
 
-    if (!record.Design_Number) {
-        return res.status(400).json({
-            success: false,
-            error: 'Design_Number is required'
-        });
+    if (!q || typeof q !== 'string' || q.trim().length < 2) {
+        return res.status(400).json({ success: false, error: 'Search query must be at least 2 characters' });
     }
 
+    const searchTerm = q.trim();
+    const resultLimit = Math.min(Math.max(parseInt(limitParam, 10) || 20, 1), 50);
+    const isNumeric = /^\d+$/.test(searchTerm);
+    const escaped = searchTerm.replace(/'/g, "''");
+    const customerId = (customerIdParam && typeof customerIdParam === 'string') ? customerIdParam.trim().replace(/'/g, "''") : '';
+
     try {
-        console.log(`[Digitized Designs] Creating design: ${record.Design_Number}`);
-        const result = await makeCaspioRequest('post', RESOURCE_PATH, {}, record);
+        const cacheKey = `search-all:${searchTerm.toLowerCase()}:${resultLimit}:${customerId}`;
+        const cached = designsCache.get(cacheKey);
+        if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+            return res.json(cached.data);
+        }
 
-        designsCache.clear();
+        console.log(`[Designs] Search-all: "${searchTerm}" (${isNumeric ? 'numeric' : 'text'})`);
 
-        res.status(201).json({
+        // Build WHERE clause
+        const searchWords = escaped.split(/\s+/).filter(w => w.length >= 2);
+        const useFuzzy = !isNumeric && escaped.length >= 5;
+        let whereClause;
+
+        if (isNumeric) {
+            const sanitized = sanitizeDesignNumber(searchTerm);
+            if (!sanitized) return res.status(400).json({ success: false, error: 'Invalid design number' });
+            whereClause = `(Design_Number='${sanitized}' OR Design_Number LIKE '${sanitized}%')`;
+        } else if (useFuzzy) {
+            // Fuzzy: multi-word AND + prefix broadening
+            const isMultiWord = searchWords.length > 1;
+
+            function buildFuzzyWhere(field) {
+                if (isMultiWord) {
+                    const exactParts = searchWords.map(w => `${field} LIKE '%${w}%'`);
+                    const fuzzyParts = searchWords.map(w => {
+                        const pfx = w.substring(0, Math.min(4, w.length));
+                        return `${field} LIKE '%${pfx}%'`;
+                    });
+                    return `(${exactParts.join(' AND ')}) OR (${fuzzyParts.join(' AND ')})`;
+                } else {
+                    const prefix = escaped.substring(0, 4);
+                    return `${field} LIKE '%${escaped}%' OR ${field} LIKE '%${prefix}%'`;
+                }
+            }
+
+            whereClause = `(${buildFuzzyWhere('Company')}) OR (${buildFuzzyWhere('Design_Name')})`;
+        } else {
+            // Short terms: exact substring
+            whereClause = `Company LIKE '%${escaped}%' OR Design_Name LIKE '%${escaped}%'`;
+        }
+
+        // Broaden for customer scope
+        if (customerId && !isNumeric) {
+            whereClause = `(${whereClause}) OR (Customer_ID='${customerId}')`;
+        }
+
+        // Add active filter
+        whereClause = `(${whereClause}) AND ${ACTIVE_FILTER}`;
+
+        const records = await fetchAllCaspioPages(RESOURCE_PATH, {
+            'q.where': whereClause,
+            'q.select': ALL_FIELDS,
+            'q.limit': '500'
+        });
+
+        console.log(`[Designs] Search-all found ${records.length} raw records`);
+
+        // Group by design number
+        const merged = groupToSearchResults(records);
+
+        // Tag customer matches
+        const allResults = Object.values(merged);
+        if (customerId) {
+            for (const entry of allResults) {
+                entry.customerMatch = (String(entry.customerId) === String(customerId));
+            }
+        }
+
+        // Score and sort
+        let results;
+        if (!isNumeric) {
+            for (const entry of allResults) {
+                entry.relevanceScore = fuzzyScore(searchTerm, entry.company, entry.designName);
+            }
+            allResults.sort((a, b) => {
+                if (customerId) {
+                    if (a.customerMatch && !b.customerMatch) return -1;
+                    if (!a.customerMatch && b.customerMatch) return 1;
+                }
+                const scoreDiff = (b.relevanceScore || 0) - (a.relevanceScore || 0);
+                if (scoreDiff !== 0) return scoreDiff;
+                return parseInt(a.designNumber) - parseInt(b.designNumber);
+            });
+            const MIN_FUZZY_SCORE = useFuzzy ? 45 : 0;
+            results = allResults.filter(r => r.customerMatch || (r.relevanceScore || 0) >= MIN_FUZZY_SCORE).slice(0, resultLimit);
+        } else {
+            allResults.sort((a, b) => parseInt(a.designNumber) - parseInt(b.designNumber));
+            results = allResults.slice(0, resultLimit);
+        }
+
+        const response = {
             success: true,
-            message: `Design #${record.Design_Number} created successfully`,
-            data: result
-        });
+            query: searchTerm,
+            searchType: isNumeric ? 'design_number' : 'company',
+            fuzzyEnabled: useFuzzy || false,
+            customerScoped: !!customerId,
+            results,
+            count: results.length,
+            totalMatches: allResults.length,
+            tablesQueried: { unified: records.length }
+        };
+
+        designsCache.set(cacheKey, { data: response, timestamp: Date.now() });
+        res.json(response);
     } catch (error) {
-        console.error('[Digitized Designs] Create failed:', error.message);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to create design',
-            details: error.message
-        });
+        console.error(`[Designs] Search-all failed for "${searchTerm}":`, error.message);
+        res.status(500).json({ success: false, error: 'Search failed', details: error.message });
     }
 });
 
 
 // ============================================
-// UPDATE
+// BY-CUSTOMER ENDPOINT (gallery view)
 // ============================================
 
 /**
- * PUT /api/digitized-designs/:id
- * Update design by ID_Unique
+ * GET /api/digitized-designs/by-customer?customerId=12025
+ * Fetches ALL designs belonging to a specific customer. Used for gallery view.
  */
-router.put('/digitized-designs/:id', async (req, res) => {
-    const { id } = req.params;
-    const updates = req.body;
+router.get('/digitized-designs/by-customer', async (req, res) => {
+    const { customerId: rawId } = req.query;
 
-    if (!id) {
-        return res.status(400).json({
-            success: false,
-            error: 'ID_Unique is required'
-        });
+    if (!rawId || typeof rawId !== 'string' || !/^\d+$/.test(rawId.trim())) {
+        return res.status(400).json({ success: false, error: 'customerId must be a numeric string' });
     }
 
-    // Remove primary key from updates
-    delete updates.ID_Unique;
-
-    if (Object.keys(updates).length === 0) {
-        return res.status(400).json({
-            success: false,
-            error: 'No fields to update'
-        });
-    }
+    const customerId = rawId.trim();
 
     try {
-        const safeId = id.replace(/[^a-zA-Z0-9]/g, '');
-        console.log(`[Digitized Designs] Updating ID_Unique=${safeId}:`, Object.keys(updates));
-        await makeCaspioRequest('put', RESOURCE_PATH,
-            { 'q.where': `ID_Unique='${safeId}'` }, updates);
+        const cacheKey = `customer:${customerId}`;
+        const cached = designsCache.get(cacheKey);
+        if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+            return res.json(cached.data);
+        }
 
-        designsCache.clear();
+        console.log(`[Designs] By-customer: customerId=${customerId}`);
 
-        res.json({
+        const records = await fetchAllCaspioPages(RESOURCE_PATH, {
+            'q.where': `Customer_ID='${customerId}' AND ${ACTIVE_FILTER}`,
+            'q.select': ALL_FIELDS,
+            'q.limit': '500'
+        });
+
+        console.log(`[Designs] By-customer found ${records.length} records for customer ${customerId}`);
+
+        // Group and convert to search result shape
+        const merged = groupToSearchResults(records);
+        const allResults = Object.values(merged);
+
+        // Tag all as customer matches, sort by design number
+        for (const entry of allResults) {
+            entry.customerMatch = true;
+        }
+        allResults.sort((a, b) => parseInt(a.designNumber) - parseInt(b.designNumber));
+
+        const response = {
             success: true,
-            message: `Design ${safeId} updated successfully`,
-            updatedFields: Object.keys(updates)
-        });
+            customerId,
+            results: allResults,
+            count: allResults.length,
+            tablesQueried: { unified: records.length }
+        };
+
+        designsCache.set(cacheKey, { data: response, timestamp: Date.now() });
+        res.json(response);
     } catch (error) {
-        console.error(`[Digitized Designs] Update failed for ${id}:`, error.message);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to update design',
-            details: error.message
-        });
-    }
-});
-
-
-// ============================================
-// DELETE
-// ============================================
-
-/**
- * DELETE /api/digitized-designs/:id
- * Delete design by ID_Unique
- */
-router.delete('/digitized-designs/:id', async (req, res) => {
-    const { id } = req.params;
-
-    if (!id) {
-        return res.status(400).json({
-            success: false,
-            error: 'ID_Unique is required'
-        });
-    }
-
-    try {
-        const safeId = id.replace(/[^a-zA-Z0-9]/g, '');
-        console.log(`[Digitized Designs] Deleting ID_Unique=${safeId}`);
-        await makeCaspioRequest('delete', RESOURCE_PATH,
-            { 'q.where': `ID_Unique='${safeId}'` });
-
-        designsCache.clear();
-
-        res.json({
-            success: true,
-            message: `Design ${safeId} deleted successfully`
-        });
-    } catch (error) {
-        console.error(`[Digitized Designs] Delete failed for ${id}:`, error.message);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to delete design',
-            details: error.message
-        });
+        console.error(`[Designs] By-customer failed for customerId=${customerId}:`, error.message);
+        res.status(500).json({ success: false, error: 'Failed to fetch customer designs', details: error.message });
     }
 });
 
@@ -1306,11 +666,8 @@ router.delete('/digitized-designs/:id', async (req, res) => {
 
 router.get('/digitized-designs/cache/clear', (req, res) => {
     designsCache.clear();
-    console.log('[Digitized Designs] Cache cleared');
-    res.json({
-        success: true,
-        message: 'Digitized designs cache cleared'
-    });
+    console.log('[Designs] Cache cleared');
+    res.json({ success: true, message: 'Design lookup cache cleared' });
 });
 
 
