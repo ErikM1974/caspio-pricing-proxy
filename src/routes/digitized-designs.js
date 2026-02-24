@@ -374,7 +374,6 @@ function fuzzyScore(searchTerm, company, designName) {
 
     // Exact substring match in company → high score
     if (comp.includes(term)) {
-        // Bonus for shorter company names (more specific match)
         const ratio = term.length / Math.max(comp.length, 1);
         return Math.round(80 + ratio * 20); // 80–100
     }
@@ -384,18 +383,45 @@ function fuzzyScore(searchTerm, company, designName) {
         return Math.round(70 + ratio * 20); // 70–90
     }
 
-    // Fuzzy: check each word in company/designName
+    // Split company/design into individual words for word-level matching
     const companyWords = comp.replace(/[''&.,\-/]/g, ' ').split(/\s+/).filter(w => w.length > 1);
     const nameWords = name.replace(/[''&.,\-/]/g, ' ').split(/\s+/).filter(w => w.length > 1);
     const allWords = [...companyWords, ...nameWords];
 
+    // Multi-word search: score each search word separately, require ALL words to match
+    const searchWords = term.split(/\s+/).filter(w => w.length >= 2);
+    if (searchWords.length > 1) {
+        let totalScore = 0;
+        for (const sw of searchWords) {
+            let bestForThisWord = 0;
+            // Check substring containment first (high confidence)
+            if (comp.includes(sw)) {
+                bestForThisWord = 0.9;
+            } else if (name.includes(sw)) {
+                bestForThisWord = 0.8;
+            } else {
+                // Fuzzy match against individual words
+                for (const word of allWords) {
+                    const dist = levenshtein(sw, word);
+                    const maxLen = Math.max(sw.length, word.length);
+                    const sim = 1 - dist / maxLen;
+                    const prefixBonus = word.startsWith(sw) ? 0.15 : 0;
+                    const wordScore = Math.min(1, sim + prefixBonus);
+                    if (wordScore > bestForThisWord) bestForThisWord = wordScore;
+                }
+            }
+            totalScore += bestForThisWord;
+        }
+        const avgScore = totalScore / searchWords.length;
+        return Math.round(avgScore * 85); // Multi-word exact match → ~76, partial → lower
+    }
+
+    // Single-word search: find best matching word
     let bestWordScore = 0;
     for (const word of allWords) {
-        // Levenshtein on the word vs search term
         const dist = levenshtein(term, word);
         const maxLen = Math.max(term.length, word.length);
-        const similarity = 1 - dist / maxLen; // 0–1
-        // Also check if word starts with the search term (prefix match)
+        const similarity = 1 - dist / maxLen;
         const prefixBonus = word.startsWith(term) ? 0.15 : 0;
         const wordScore = Math.min(1, similarity + prefixBonus);
         if (wordScore > bestWordScore) bestWordScore = wordScore;
@@ -456,7 +482,28 @@ router.get('/digitized-designs/search-all', async (req, res) => {
         // For text searches 5+ chars, also broaden with a short prefix to catch misspellings
         let where1, where2, where3, where4;
         const useFuzzy = !isNumeric && escaped.length >= 5;
-        const prefix = useFuzzy ? escaped.substring(0, 4).replace(/'/g, "''") : '';
+
+        // Split into words for multi-word aware queries
+        const searchWords = escaped.split(/\s+/).filter(w => w.length >= 2);
+        const isMultiWord = searchWords.length > 1;
+
+        // Helper: build WHERE for a field with multi-word AND logic + fuzzy prefix broadening
+        function buildFuzzyWhere(field, words, fullTerm) {
+            if (isMultiWord) {
+                // Exact path: all words must appear as substrings
+                const exactParts = words.map(w => `${field} LIKE '%${w}%'`);
+                // Fuzzy path: all word-prefixes must appear (catches misspellings)
+                const fuzzyParts = words.map(w => {
+                    const pfx = w.substring(0, Math.min(4, w.length));
+                    return `${field} LIKE '%${pfx}%'`;
+                });
+                return `(${exactParts.join(' AND ')}) OR (${fuzzyParts.join(' AND ')})`;
+            } else {
+                // Single word: full term + 4-char prefix broadening
+                const prefix = fullTerm.substring(0, 4);
+                return `${field} LIKE '%${fullTerm}%' OR ${field} LIKE '%${prefix}%'`;
+            }
+        }
 
         if (isNumeric) {
             const sanitized = sanitizeDesignNumber(searchTerm);
@@ -468,11 +515,11 @@ router.get('/digitized-designs/search-all', async (req, res) => {
             where3 = `Thumb_DesLocid_Design='${sanitized}'`;
             where4 = `Design_Num_SW='${sanitized}' OR ID_Design=${sanitized}`;
         } else if (useFuzzy) {
-            // Broader prefix search to catch misspellings (e.g., "aberg" → prefix "aber" catches "aaberg")
-            where1 = `Company LIKE '%${escaped}%' OR Company LIKE '%${prefix}%'`;
-            where2 = `Company_Name LIKE '%${escaped}%' OR Company_Name LIKE '%${prefix}%' OR Design_Name LIKE '%${escaped}%' OR Design_Name LIKE '%${prefix}%'`;
-            where3 = `Thumb_DesLoc_DesDesignName LIKE '%${escaped}%' OR Thumb_DesLoc_DesDesignName LIKE '%${prefix}%'`;
-            where4 = `CompanyName LIKE '%${escaped}%' OR CompanyName LIKE '%${prefix}%'`;
+            // Multi-word or single-word fuzzy broadening
+            where1 = buildFuzzyWhere('Company', searchWords, escaped);
+            where2 = `(${buildFuzzyWhere('Company_Name', searchWords, escaped)}) OR (${buildFuzzyWhere('Design_Name', searchWords, escaped)})`;
+            where3 = buildFuzzyWhere('Thumb_DesLoc_DesDesignName', searchWords, escaped);
+            where4 = buildFuzzyWhere('CompanyName', searchWords, escaped);
         } else {
             // Short terms (2-4 chars): exact substring only
             where1 = `Company LIKE '%${escaped}%'`;
@@ -482,7 +529,7 @@ router.get('/digitized-designs/search-all', async (req, res) => {
         }
 
         if (useFuzzy) {
-            console.log(`[Search-All] Fuzzy mode: prefix="${prefix}" for broader match`);
+            console.log(`[Search-All] Fuzzy mode: ${isMultiWord ? 'multi-word' : 'single-word'}, words=[${searchWords.join(',')}]`);
         }
 
         // Query all 4 tables in parallel with timeout
@@ -677,8 +724,8 @@ router.get('/digitized-designs/search-all', async (req, res) => {
                 if (scoreDiff !== 0) return scoreDiff;
                 return parseInt(a.designNumber) - parseInt(b.designNumber);
             });
-            // Filter out very poor matches (score < 30) when fuzzy broadening was used
-            const MIN_FUZZY_SCORE = useFuzzy ? 30 : 0;
+            // Filter out poor matches when fuzzy broadening was used
+            const MIN_FUZZY_SCORE = useFuzzy ? 45 : 0;
             results = allResults.filter(r => (r.relevanceScore || 0) >= MIN_FUZZY_SCORE).slice(0, resultLimit);
             console.log(`[Search-All] Top scores: ${results.slice(0, 5).map(r => `${r.company}:${r.relevanceScore}`).join(', ')}`);
         } else {
