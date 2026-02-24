@@ -727,7 +727,7 @@ router.get('/digitized-designs/search-all', async (req, res) => {
         const allResults = Object.values(merged);
         if (customerId) {
             for (const entry of allResults) {
-                entry.customerMatch = (entry.customerId === customerId);
+                entry.customerMatch = (String(entry.customerId) === String(customerId));
             }
             const matchCount = allResults.filter(r => r.customerMatch).length;
             console.log(`[Search-All] Customer matches: ${matchCount} of ${allResults.length} for customerId=${customerId}`);
