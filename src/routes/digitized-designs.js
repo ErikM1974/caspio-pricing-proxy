@@ -443,6 +443,113 @@ const SEARCH_ALL_FIELDS = {
 };
 
 /**
+ * Merge design results from all 4 tables into a unified map keyed by design number.
+ * Master table has highest priority for stitch data.
+ * Shared by search-all and by-customer endpoints.
+ */
+function mergeDesignResults(masterRecords, shopworksRecords, thumbnailRecords, artRecords) {
+    const merged = {};
+
+    // 1. Master table (highest priority for stitch data)
+    for (const rec of masterRecords) {
+        const dn = String(rec.Design_Number);
+        if (!merged[dn]) {
+            merged[dn] = {
+                designNumber: dn, company: rec.Company || '', designName: '',
+                customerId: rec.Customer_ID || '', maxStitchCount: 0, maxStitchTier: 'Standard',
+                maxAsSurcharge: 0, variantCount: 0, dstFilenames: [],
+                hasImage: false, artworkUrl: null, placement: '', sources: []
+            };
+        }
+        const entry = merged[dn];
+        if (!entry.sources.includes('master')) entry.sources.push('master');
+        const stitchCount = parseInt(rec.Stitch_Count, 10) || 0;
+        entry.variantCount++;
+        entry.dstFilenames.push(rec.DST_Filename || '');
+        if (stitchCount > entry.maxStitchCount) {
+            entry.maxStitchCount = stitchCount;
+            entry.maxStitchTier = rec.Stitch_Tier || 'Standard';
+            entry.maxAsSurcharge = parseFloat(rec.AS_Surcharge) || 0;
+        }
+    }
+
+    // 2. ShopWorks_Designs (fills design name, colors, order history)
+    for (const rec of shopworksRecords) {
+        const dn = String(rec.Design_Number || '').trim();
+        if (!dn) continue;
+        if (!merged[dn]) {
+            merged[dn] = {
+                designNumber: dn, company: rec.Company_Name || '', designName: rec.Design_Name || '',
+                customerId: '', maxStitchCount: parseInt(rec.Stitch_Count, 10) || 0,
+                maxStitchTier: rec.Stitch_Tier || '', maxAsSurcharge: 0, variantCount: 1,
+                dstFilenames: [], hasImage: false, artworkUrl: null, placement: '', sources: []
+            };
+        }
+        const entry = merged[dn];
+        if (!entry.sources.includes('shopworks')) entry.sources.push('shopworks');
+        if (!entry.company && rec.Company_Name) entry.company = rec.Company_Name;
+        if (!entry.designName && rec.Design_Name) entry.designName = rec.Design_Name;
+        if (rec.Thread_Colors) entry.threadColors = rec.Thread_Colors;
+        if (rec.Last_Order_Date) entry.lastOrderDate = rec.Last_Order_Date;
+        if (rec.Order_Count) entry.orderCount = parseInt(rec.Order_Count, 10) || 0;
+    }
+
+    // 3. Thumbnail table (adds hasImage + designName)
+    for (const rec of thumbnailRecords) {
+        const dn = String(rec.Thumb_DesLocid_Design || '').replace(/\.\d+$/, '').trim();
+        if (!dn) continue;
+        if (!merged[dn]) {
+            merged[dn] = {
+                designNumber: dn, company: '', designName: (rec.Thumb_DesLoc_DesDesignName || '').trim(),
+                customerId: '', maxStitchCount: 0, maxStitchTier: '', maxAsSurcharge: 0,
+                variantCount: 0, dstFilenames: [], hasImage: false, artworkUrl: null,
+                placement: '', sources: []
+            };
+        }
+        const entry = merged[dn];
+        if (!entry.sources.includes('thumbnail')) entry.sources.push('thumbnail');
+        if (!entry.designName && rec.Thumb_DesLoc_DesDesignName) {
+            entry.designName = rec.Thumb_DesLoc_DesDesignName.trim();
+        }
+        const imageUrl = rec.ExternalKey
+            ? `https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/files/${rec.ExternalKey}`
+            : (rec.FileUrl || null);
+        if (imageUrl) {
+            entry.hasImage = true;
+            if (!entry.thumbnailUrl) entry.thumbnailUrl = imageUrl;
+        }
+    }
+
+    // 4. ArtRequests (adds artwork CDN URL, placement, notes)
+    for (const rec of artRecords) {
+        const dn = String(rec.Design_Num_SW || '').trim() || String(rec.ID_Design || '').trim();
+        if (!dn) continue;
+        if (!merged[dn]) {
+            merged[dn] = {
+                designNumber: dn, company: rec.CompanyName || '', designName: '',
+                customerId: rec.Shopwork_customer_number ? String(rec.Shopwork_customer_number) : '',
+                maxStitchCount: 0, maxStitchTier: '', maxAsSurcharge: 0, variantCount: 0,
+                dstFilenames: [], hasImage: false, artworkUrl: null, placement: '', sources: []
+            };
+        }
+        const entry = merged[dn];
+        if (!entry.sources.includes('artrequests')) entry.sources.push('artrequests');
+        if (!entry.company && rec.CompanyName) entry.company = rec.CompanyName;
+        if (!entry.customerId && rec.Shopwork_customer_number) {
+            entry.customerId = String(rec.Shopwork_customer_number);
+        }
+        if (!entry.artworkUrl && rec.CDN_Link && rec.CDN_Link.length > 30) {
+            entry.artworkUrl = rec.CDN_Link;
+        }
+        if (!entry.placement && rec.Garment_Placement) {
+            entry.placement = rec.Garment_Placement;
+        }
+    }
+
+    return merged;
+}
+
+/**
  * GET /api/digitized-designs/search-all?q=<term>&limit=20&customerId=<id>
  * Searches 4 design tables in parallel:
  *   1. Digitized_Designs_Master_2026 (stitch data)
@@ -584,144 +691,8 @@ router.get('/digitized-designs/search-all', async (req, res) => {
 
         console.log(`[Search-All] Raw hits: Master=${masterRecords.length}, ShopWorks=${shopworksRecords.length}, Thumbnails=${thumbnailRecords.length}, ArtRequests=${artRecords.length}`);
 
-        // Merge into unified results keyed by design number
-        const merged = {};
-
-        // 1. Master table (highest priority for stitch data)
-        for (const rec of masterRecords) {
-            const dn = String(rec.Design_Number);
-            if (!merged[dn]) {
-                merged[dn] = {
-                    designNumber: dn,
-                    company: rec.Company || '',
-                    designName: '',
-                    customerId: rec.Customer_ID || '',
-                    maxStitchCount: 0,
-                    maxStitchTier: 'Standard',
-                    maxAsSurcharge: 0,
-                    variantCount: 0,
-                    dstFilenames: [],
-                    hasImage: false,
-                    artworkUrl: null,
-                    placement: '',
-                    sources: []
-                };
-            }
-            const entry = merged[dn];
-            if (!entry.sources.includes('master')) entry.sources.push('master');
-
-            const stitchCount = parseInt(rec.Stitch_Count, 10) || 0;
-            entry.variantCount++;
-            entry.dstFilenames.push(rec.DST_Filename || '');
-            if (stitchCount > entry.maxStitchCount) {
-                entry.maxStitchCount = stitchCount;
-                entry.maxStitchTier = rec.Stitch_Tier || 'Standard';
-                entry.maxAsSurcharge = parseFloat(rec.AS_Surcharge) || 0;
-            }
-        }
-
-        // 2. ShopWorks_Designs (fills design name, colors, order history)
-        for (const rec of shopworksRecords) {
-            const dn = String(rec.Design_Number || '').trim();
-            if (!dn) continue;
-            if (!merged[dn]) {
-                merged[dn] = {
-                    designNumber: dn,
-                    company: rec.Company_Name || '',
-                    designName: rec.Design_Name || '',
-                    customerId: '',
-                    maxStitchCount: parseInt(rec.Stitch_Count, 10) || 0,
-                    maxStitchTier: rec.Stitch_Tier || '',
-                    maxAsSurcharge: 0,
-                    variantCount: 1,
-                    dstFilenames: [],
-                    hasImage: false,
-                    artworkUrl: null,
-                    placement: '',
-                    sources: []
-                };
-            }
-            const entry = merged[dn];
-            if (!entry.sources.includes('shopworks')) entry.sources.push('shopworks');
-            if (!entry.company && rec.Company_Name) entry.company = rec.Company_Name;
-            if (!entry.designName && rec.Design_Name) entry.designName = rec.Design_Name;
-            if (rec.Thread_Colors) entry.threadColors = rec.Thread_Colors;
-            if (rec.Last_Order_Date) entry.lastOrderDate = rec.Last_Order_Date;
-            if (rec.Order_Count) entry.orderCount = parseInt(rec.Order_Count, 10) || 0;
-        }
-
-        // 3. Thumbnail table (adds hasImage + designName)
-        for (const rec of thumbnailRecords) {
-            const dn = String(rec.Thumb_DesLocid_Design || '').replace(/\.\d+$/, '').trim();
-            if (!dn) continue;
-            if (!merged[dn]) {
-                merged[dn] = {
-                    designNumber: dn,
-                    company: '',
-                    designName: (rec.Thumb_DesLoc_DesDesignName || '').trim(),
-                    customerId: '',
-                    maxStitchCount: 0,
-                    maxStitchTier: '',
-                    maxAsSurcharge: 0,
-                    variantCount: 0,
-                    dstFilenames: [],
-                    hasImage: false,
-                    artworkUrl: null,
-                    placement: '',
-                    sources: []
-                };
-            }
-            const entry = merged[dn];
-            if (!entry.sources.includes('thumbnail')) entry.sources.push('thumbnail');
-            if (!entry.designName && rec.Thumb_DesLoc_DesDesignName) {
-                entry.designName = rec.Thumb_DesLoc_DesDesignName.trim();
-            }
-            // Build image URL from ExternalKey or FileUrl
-            const imageUrl = rec.ExternalKey
-                ? `https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/files/${rec.ExternalKey}`
-                : (rec.FileUrl || null);
-            if (imageUrl) {
-                entry.hasImage = true;
-                if (!entry.thumbnailUrl) entry.thumbnailUrl = imageUrl;
-            }
-        }
-
-        // 4. ArtRequests (adds artwork CDN URL, placement, notes)
-        for (const rec of artRecords) {
-            // Use Design_Num_SW if available, fall back to ID_Design
-            const dn = String(rec.Design_Num_SW || '').trim() || String(rec.ID_Design || '').trim();
-            if (!dn) continue;
-            if (!merged[dn]) {
-                merged[dn] = {
-                    designNumber: dn,
-                    company: rec.CompanyName || '',
-                    designName: '',
-                    customerId: rec.Shopwork_customer_number ? String(rec.Shopwork_customer_number) : '',
-                    maxStitchCount: 0,
-                    maxStitchTier: '',
-                    maxAsSurcharge: 0,
-                    variantCount: 0,
-                    dstFilenames: [],
-                    hasImage: false,
-                    artworkUrl: null,
-                    placement: '',
-                    sources: []
-                };
-            }
-            const entry = merged[dn];
-            if (!entry.sources.includes('artrequests')) entry.sources.push('artrequests');
-            if (!entry.company && rec.CompanyName) entry.company = rec.CompanyName;
-            if (!entry.customerId && rec.Shopwork_customer_number) {
-                entry.customerId = String(rec.Shopwork_customer_number);
-            }
-            // Use most recent CDN link (ArtRequests sorted by Date_Created DESC)
-            if (!entry.artworkUrl && rec.CDN_Link && rec.CDN_Link.length > 30) {
-                entry.artworkUrl = rec.CDN_Link;
-            }
-            if (!entry.placement && rec.Garment_Placement) {
-                entry.placement = rec.Garment_Placement;
-            }
-        }
+        // Merge all 4 tables into unified results (shared helper)
+        const merged = mergeDesignResults(masterRecords, shopworksRecords, thumbnailRecords, artRecords);
 
         // Tag customer matches when customerId was provided
         const allResults = Object.values(merged);
@@ -786,6 +757,165 @@ router.get('/digitized-designs/search-all', async (req, res) => {
         res.status(500).json({
             success: false,
             error: 'Search failed',
+            details: error.message
+        });
+    }
+});
+
+
+// ============================================
+// BY-CUSTOMER ENDPOINT (gallery view)
+// ============================================
+
+/**
+ * GET /api/digitized-designs/by-customer?customerId=12025
+ * Fetches ALL designs belonging to a specific customer across Master + ArtRequests,
+ * enriched with ShopWorks_Designs and Thumbnail data. Used for gallery view.
+ */
+router.get('/digitized-designs/by-customer', async (req, res) => {
+    const { customerId: rawId } = req.query;
+
+    if (!rawId || typeof rawId !== 'string' || !/^\d+$/.test(rawId.trim())) {
+        return res.status(400).json({
+            success: false,
+            error: 'customerId must be a numeric string'
+        });
+    }
+
+    const customerId = rawId.trim();
+
+    try {
+        // Check cache
+        const cacheKey = `customer:${customerId}`;
+        const cached = designsCache.get(cacheKey);
+        if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+            console.log(`[CACHE HIT] by-customer: ${customerId}`);
+            return res.json(cached.data);
+        }
+
+        console.log(`[By-Customer] Fetching designs for customerId=${customerId}`);
+
+        const QUERY_TIMEOUT = 8000;
+        const withTimeout = (promise, label) => Promise.race([
+            promise,
+            new Promise((_, reject) => setTimeout(() => reject(new Error(`${label} timeout`)), QUERY_TIMEOUT))
+        ]);
+
+        // Step 1: Fetch customer's designs from Master + ArtRequests in parallel
+        const [r1, r4] = await Promise.allSettled([
+            withTimeout(
+                fetchAllCaspioPages(RESOURCE_PATH, {
+                    'q.where': `Customer_ID='${customerId}'`,
+                    'q.select': LOOKUP_FIELDS,
+                    'q.limit': '500'
+                }),
+                'Master'
+            ),
+            withTimeout(
+                fetchAllCaspioPages('/tables/ArtRequests/records', {
+                    'q.where': `Shopwork_customer_number='${customerId}'`,
+                    'q.select': SEARCH_ALL_FIELDS.artRequests,
+                    'q.limit': '200'
+                }),
+                'ArtRequests'
+            )
+        ]);
+
+        const masterRecords = r1.status === 'fulfilled' ? r1.value : [];
+        const artRecords = r4.status === 'fulfilled' ? r4.value : [];
+
+        if (r1.status === 'rejected') console.warn(`[By-Customer] Master failed: ${r1.reason.message}`);
+        if (r4.status === 'rejected') console.warn(`[By-Customer] ArtRequests failed: ${r4.reason.message}`);
+
+        // Collect all unique design numbers for enrichment queries
+        const designNums = new Set();
+        for (const rec of masterRecords) {
+            if (rec.Design_Number) designNums.add(String(rec.Design_Number));
+        }
+        for (const rec of artRecords) {
+            const dn = String(rec.Design_Num_SW || '').trim() || String(rec.ID_Design || '').trim();
+            if (dn) designNums.add(dn);
+        }
+
+        console.log(`[By-Customer] Found ${designNums.size} unique designs (Master=${masterRecords.length}, ArtRequests=${artRecords.length})`);
+
+        // Step 2: Enrich with ShopWorks_Designs + Thumbnails by design number
+        let shopworksRecords = [];
+        let thumbnailRecords = [];
+
+        if (designNums.size > 0) {
+            const dnArray = Array.from(designNums);
+            // Build IN clauses in batches of 50 to avoid query length limits
+            const batchSize = 50;
+            const swPromises = [];
+            const thumbPromises = [];
+
+            for (let i = 0; i < dnArray.length; i += batchSize) {
+                const batch = dnArray.slice(i, i + batchSize);
+                const inClause = batch.map(d => `'${d}'`).join(',');
+
+                swPromises.push(
+                    withTimeout(
+                        fetchAllCaspioPages(`/tables/${FALLBACK_TABLE}/records`, {
+                            'q.where': `Design_Number IN (${inClause})`,
+                            'q.select': SEARCH_ALL_FIELDS.shopworks,
+                            'q.limit': '500'
+                        }),
+                        'ShopWorks'
+                    ).catch(() => [])
+                );
+                thumbPromises.push(
+                    withTimeout(
+                        fetchAllCaspioPages('/tables/Shopworks_Thumbnail_Report/records', {
+                            'q.where': `Thumb_DesLocid_Design IN (${inClause})`,
+                            'q.select': SEARCH_ALL_FIELDS.thumbnail,
+                            'q.limit': '500'
+                        }),
+                        'Thumbnails'
+                    ).catch(() => [])
+                );
+            }
+
+            const [swResults, thumbResults] = await Promise.all([
+                Promise.all(swPromises),
+                Promise.all(thumbPromises)
+            ]);
+            shopworksRecords = swResults.flat();
+            thumbnailRecords = thumbResults.flat();
+        }
+
+        console.log(`[By-Customer] Enrichment: ShopWorks=${shopworksRecords.length}, Thumbnails=${thumbnailRecords.length}`);
+
+        // Step 3: Merge all data
+        const merged = mergeDesignResults(masterRecords, shopworksRecords, thumbnailRecords, artRecords);
+        const allResults = Object.values(merged);
+
+        // Tag all as customer matches and sort by design number
+        for (const entry of allResults) {
+            entry.customerMatch = true;
+        }
+        allResults.sort((a, b) => parseInt(a.designNumber) - parseInt(b.designNumber));
+
+        const response = {
+            success: true,
+            customerId,
+            results: allResults,
+            count: allResults.length,
+            tablesQueried: {
+                master: masterRecords.length,
+                shopworks: shopworksRecords.length,
+                thumbnails: thumbnailRecords.length,
+                artRequests: artRecords.length
+            }
+        };
+
+        designsCache.set(cacheKey, { data: response, timestamp: Date.now() });
+        res.json(response);
+    } catch (error) {
+        console.error(`[By-Customer] Failed for customerId=${customerId}:`, error.message);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to fetch customer designs',
             details: error.message
         });
     }
