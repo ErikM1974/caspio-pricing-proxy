@@ -443,7 +443,7 @@ const SEARCH_ALL_FIELDS = {
 };
 
 /**
- * GET /api/digitized-designs/search-all?q=<term>&limit=20
+ * GET /api/digitized-designs/search-all?q=<term>&limit=20&customerId=<id>
  * Searches 4 design tables in parallel:
  *   1. Digitized_Designs_Master_2026 (stitch data)
  *   2. ShopWorks_Designs (design names, colors, order history)
@@ -451,9 +451,13 @@ const SEARCH_ALL_FIELDS = {
  *   4. ArtRequests (artwork mockups, placement notes)
  *
  * Results merged & deduplicated by design number. Master table wins for stitch data.
+ *
+ * Optional customerId param: When provided, also fetches designs belonging to that
+ * customer (by Customer_ID in Master, Shopwork_customer_number in ArtRequests).
+ * Customer-matching results are tagged with customerMatch:true and sorted to the top.
  */
 router.get('/digitized-designs/search-all', async (req, res) => {
-    const { q, limit: limitParam } = req.query;
+    const { q, limit: limitParam, customerId: customerIdParam } = req.query;
 
     if (!q || typeof q !== 'string' || q.trim().length < 2) {
         return res.status(400).json({
@@ -466,10 +470,12 @@ router.get('/digitized-designs/search-all', async (req, res) => {
     const resultLimit = Math.min(Math.max(parseInt(limitParam, 10) || 20, 1), 50);
     const isNumeric = /^\d+$/.test(searchTerm);
     const escaped = searchTerm.replace(/'/g, "''");
+    // Optional customer ID for prioritizing/filtering results
+    const customerId = (customerIdParam && typeof customerIdParam === 'string') ? customerIdParam.trim().replace(/'/g, "''") : '';
 
     try {
         // Check cache
-        const cacheKey = `search-all:${searchTerm.toLowerCase()}:${resultLimit}`;
+        const cacheKey = `search-all:${searchTerm.toLowerCase()}:${resultLimit}:${customerId}`;
         const cached = designsCache.get(cacheKey);
         if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
             console.log(`[CACHE HIT] search-all: "${searchTerm}"`);
@@ -530,6 +536,13 @@ router.get('/digitized-designs/search-all', async (req, res) => {
 
         if (useFuzzy) {
             console.log(`[Search-All] Fuzzy mode: ${isMultiWord ? 'multi-word' : 'single-word'}, words=[${searchWords.join(',')}]`);
+        }
+
+        // When customerId is provided, broaden Master & ArtRequests queries to also fetch that customer's designs
+        if (customerId && !isNumeric) {
+            where1 = `(${where1}) OR (Customer_ID='${customerId}')`;
+            where4 = `(${where4}) OR (Shopwork_customer_number='${customerId}')`;
+            console.log(`[Search-All] Customer scope: customerId=${customerId}`);
         }
 
         // Query all 4 tables in parallel with timeout
@@ -710,24 +723,39 @@ router.get('/digitized-designs/search-all', async (req, res) => {
             }
         }
 
-        // Score and sort results by relevance
+        // Tag customer matches when customerId was provided
         const allResults = Object.values(merged);
+        if (customerId) {
+            for (const entry of allResults) {
+                entry.customerMatch = (entry.customerId === customerId);
+            }
+            const matchCount = allResults.filter(r => r.customerMatch).length;
+            console.log(`[Search-All] Customer matches: ${matchCount} of ${allResults.length} for customerId=${customerId}`);
+        }
+
+        // Score and sort results by relevance
         let results;
         if (!isNumeric) {
             // Compute fuzzy relevance score for each result
             for (const entry of allResults) {
                 entry.relevanceScore = fuzzyScore(searchTerm, entry.company, entry.designName);
             }
-            // Sort by relevance (highest first), then by design number for ties
+            // Sort: customer matches first, then by relevance (highest first), then by design number for ties
             allResults.sort((a, b) => {
+                // Customer matches always come first
+                if (customerId) {
+                    if (a.customerMatch && !b.customerMatch) return -1;
+                    if (!a.customerMatch && b.customerMatch) return 1;
+                }
                 const scoreDiff = (b.relevanceScore || 0) - (a.relevanceScore || 0);
                 if (scoreDiff !== 0) return scoreDiff;
                 return parseInt(a.designNumber) - parseInt(b.designNumber);
             });
             // Filter out poor matches when fuzzy broadening was used
+            // Customer matches bypass the minimum score filter — they were explicitly requested
             const MIN_FUZZY_SCORE = useFuzzy ? 45 : 0;
-            results = allResults.filter(r => (r.relevanceScore || 0) >= MIN_FUZZY_SCORE).slice(0, resultLimit);
-            console.log(`[Search-All] Top scores: ${results.slice(0, 5).map(r => `${r.company}:${r.relevanceScore}`).join(', ')}`);
+            results = allResults.filter(r => r.customerMatch || (r.relevanceScore || 0) >= MIN_FUZZY_SCORE).slice(0, resultLimit);
+            console.log(`[Search-All] Top scores: ${results.slice(0, 5).map(r => `${r.company}:${r.relevanceScore}${r.customerMatch ? '*' : ''}`).join(', ')}`);
         } else {
             // Numeric: sort by design number
             allResults.sort((a, b) => parseInt(a.designNumber) - parseInt(b.designNumber));
@@ -739,6 +767,7 @@ router.get('/digitized-designs/search-all', async (req, res) => {
             query: searchTerm,
             searchType: isNumeric ? 'design_number' : 'company',
             fuzzyEnabled: useFuzzy || false,
+            customerScoped: !!customerId,
             results,
             count: results.length,
             totalMatches: allResults.length,
