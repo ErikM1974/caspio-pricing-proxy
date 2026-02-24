@@ -482,7 +482,7 @@ router.get('/digitized-designs/search-all', async (req, res) => {
     }
 
     const searchTerm = q.trim();
-    const resultLimit = Math.min(Math.max(parseInt(limitParam, 10) || 20, 1), 50);
+    const resultLimit = Math.min(Math.max(parseInt(limitParam, 10) || 20, 1), 200);
     const isNumeric = /^\d+$/.test(searchTerm);
     const escaped = searchTerm.replace(/'/g, "''");
     const customerId = (customerIdParam && typeof customerIdParam === 'string') ? customerIdParam.trim().replace(/'/g, "''") : '';
