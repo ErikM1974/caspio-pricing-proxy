@@ -25,7 +25,7 @@ const ALL_FIELDS = [
     'Stitch_Count', 'Stitch_Tier', 'AS_Surcharge', 'DST_Filename',
     'Color_Changes', 'Extra_Colors', 'Extra_Color_Surcharge',
     'FB_Price_1_7', 'FB_Price_8_23', 'FB_Price_24_47', 'FB_Price_48_71', 'FB_Price_72plus',
-    'Thumbnail_URL', 'Artwork_URL', 'Placement', 'Thread_Colors',
+    'Thumbnail_URL', 'Artwork_URL', 'Mockup_URL', 'Placement', 'Thread_Colors',
     'Last_Order_Date', 'Order_Count', 'Art_Notes', 'Is_Active', 'Date_Updated'
 ].join(',');
 
@@ -72,6 +72,7 @@ function groupByDesignNumber(records, requestedNumbers) {
                 hasFBPricing: false,
                 thumbnailUrl: '',
                 artworkUrl: '',
+                mockupUrl: '',
                 threadColors: '',
                 placement: '',
                 lastOrderDate: null,
@@ -117,6 +118,7 @@ function groupByDesignNumber(records, requestedNumbers) {
         const g = grouped[dn];
         if (rec.Thumbnail_URL && !g.thumbnailUrl) g.thumbnailUrl = rec.Thumbnail_URL;
         if (rec.Artwork_URL && rec.Artwork_URL.length > 10 && !g.artworkUrl) g.artworkUrl = rec.Artwork_URL;
+        if (rec.Mockup_URL && rec.Mockup_URL.length > 10 && !g.mockupUrl) g.mockupUrl = rec.Mockup_URL;
         if (rec.Thread_Colors && !g.threadColors) g.threadColors = rec.Thread_Colors;
         if (rec.Placement && !g.placement) g.placement = rec.Placement;
         if (rec.Last_Order_Date && !g.lastOrderDate) g.lastOrderDate = rec.Last_Order_Date;
@@ -154,6 +156,7 @@ function groupToSearchResults(records) {
                 hasImage: false,
                 artworkUrl: null,
                 thumbnailUrl: null,
+                mockupUrl: null,
                 placement: '',
                 sources: ['unified'],
                 threadColors: '',
@@ -181,6 +184,10 @@ function groupToSearchResults(records) {
         }
         if (rec.Thumbnail_URL && rec.Thumbnail_URL.length > 10 && !entry.thumbnailUrl) {
             entry.thumbnailUrl = rec.Thumbnail_URL;
+            entry.hasImage = true;
+        }
+        if (rec.Mockup_URL && rec.Mockup_URL.length > 10 && !entry.mockupUrl) {
+            entry.mockupUrl = rec.Mockup_URL;
             entry.hasImage = true;
         }
 

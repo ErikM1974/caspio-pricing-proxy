@@ -15,6 +15,28 @@
 
 require('dotenv').config();
 const axios = require('axios');
+const fs = require('fs');
+const path = require('path');
+
+// Box.com design previews mapping (design# → CDN URL for DST thumbnails)
+const BOX_MAPPING_FILE = path.join(__dirname, 'data', 'box-design-previews.json');
+let boxByDN = {};
+if (fs.existsSync(BOX_MAPPING_FILE)) {
+    boxByDN = JSON.parse(fs.readFileSync(BOX_MAPPING_FILE, 'utf8'));
+    console.log(`[Init] Loaded ${Object.keys(boxByDN).length.toLocaleString()} Box thumbnail mappings`);
+} else {
+    console.warn('[Init] Box mapping file not found — Box thumbnails will be skipped');
+}
+
+// Box.com Steve Art mockups mapping (design# → CDN URL for garment mockups)
+const MOCKUP_MAPPING_FILE = path.join(__dirname, 'data', 'box-steve-mockups.json');
+let mockupByDN = {};
+if (fs.existsSync(MOCKUP_MAPPING_FILE)) {
+    mockupByDN = JSON.parse(fs.readFileSync(MOCKUP_MAPPING_FILE, 'utf8'));
+    console.log(`[Init] Loaded ${Object.keys(mockupByDN).length.toLocaleString()} Box mockup mappings`);
+} else {
+    console.warn('[Init] Box mockup mapping file not found — mockups will be skipped');
+}
 
 // ============================================
 // Configuration
@@ -314,10 +336,11 @@ function buildUnifiedRecords(masterRecords, shopworksRecords, thumbnailRecords, 
             || (sw?.Company_Name || '').trim()
             || '';
 
-        // Thumbnail URL priority: Master → Thumbnail Report → ArtRequests CDN
+        // Thumbnail URL priority: Master → DST Preview → Thumbnail Report → Box → (empty)
         const thumbnailUrl = (rec.Thumbnail_URL || '').trim()
             || (rec.DST_Preview_URL || '').trim()
             || (thumb?.thumbnailUrl || '')
+            || (boxByDN[dn] || '')
             || '';
 
         // Artwork URL: ArtRequests CDN_Link only (full mockup, not thumbnail)
@@ -342,6 +365,7 @@ function buildUnifiedRecords(masterRecords, shopworksRecords, thumbnailRecords, 
             FB_Price_72plus: parseFloat(rec.FB_Price_72plus) || 0,
             Thumbnail_URL: thumbnailUrl.substring(0, 255),
             Artwork_URL: artworkUrl.substring(0, 255),
+            Mockup_URL: (mockupByDN[dn] || '').substring(0, 500),
             Placement: (art?.Garment_Placement || '').substring(0, 255),
             Thread_Colors: (sw?.Thread_Colors || '').substring(0, 255),
             Last_Order_Date: sw?.Last_Order_Date || null,
@@ -380,8 +404,9 @@ function buildUnifiedRecords(masterRecords, shopworksRecords, thumbnailRecords, 
             FB_Price_24_47: 0,
             FB_Price_48_71: 0,
             FB_Price_72plus: 0,
-            Thumbnail_URL: (thumb?.thumbnailUrl || '').substring(0, 255),
+            Thumbnail_URL: (thumb?.thumbnailUrl || boxByDN[dn] || '').substring(0, 255),
             Artwork_URL: (art?.CDN_Link && art.CDN_Link.length > 30 ? art.CDN_Link : '').substring(0, 255),
+            Mockup_URL: (mockupByDN[dn] || '').substring(0, 500),
             Placement: (art?.Garment_Placement || '').substring(0, 255),
             Thread_Colors: (sw.Thread_Colors || '').substring(0, 255),
             Last_Order_Date: sw.Last_Order_Date || null,
@@ -416,8 +441,9 @@ function buildUnifiedRecords(masterRecords, shopworksRecords, thumbnailRecords, 
             FB_Price_24_47: 0,
             FB_Price_48_71: 0,
             FB_Price_72plus: 0,
-            Thumbnail_URL: (thumb?.thumbnailUrl || '').substring(0, 255),
+            Thumbnail_URL: (thumb?.thumbnailUrl || boxByDN[dn] || '').substring(0, 255),
             Artwork_URL: (art.CDN_Link && art.CDN_Link.length > 30 ? art.CDN_Link : '').substring(0, 255),
+            Mockup_URL: (mockupByDN[dn] || '').substring(0, 500),
             Placement: (art.Garment_Placement || '').substring(0, 255),
             Thread_Colors: '',
             Last_Order_Date: null,
