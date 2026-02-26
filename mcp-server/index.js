@@ -46,6 +46,25 @@ async function apiCall(endpoint, options = {}) {
   return response.json();
 }
 
+// Sync Design_Lookup_2026 Sales_Rep after account moves (fire-and-forget)
+async function syncDesignLookupRep(customerId, newRep) {
+  try {
+    await apiCall('/api/digitized-designs/sync-rep', {
+      method: 'POST',
+      body: JSON.stringify({ customerId, salesRep: newRep || '' })
+    });
+  } catch (err) {
+    // Don't fail the move if design sync fails
+    console.error(`Design sync failed for customer ${customerId}:`, err.message);
+  }
+}
+
+// Capitalize rep name for Design_Lookup_2026 (taneisha → Taneisha)
+function capitalizeRep(rep) {
+  if (!rep) return '';
+  return rep.charAt(0).toUpperCase() + rep.slice(1).toLowerCase();
+}
+
 // Create server
 const server = new Server(
   {
@@ -701,6 +720,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           method: "DELETE"
         });
 
+        // Step 5: Sync Sales_Rep in Design_Lookup_2026
+        await syncDesignLookupRep(customerId, capitalizeRep(toRep));
+
         return { content: [{ type: "text", text: JSON.stringify({
           success: true,
           message: `Moved ${accountData.CompanyName} (${customerId}) from ${fromRep} to ${toRep}`,
@@ -813,6 +835,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           method: "DELETE"
         });
 
+        // Step 4: Clear Sales_Rep in Design_Lookup_2026 (house accounts have no rep)
+        await syncDesignLookupRep(customerId, '');
+
         return { content: [{ type: "text", text: JSON.stringify({
           success: true,
           message: `Moved ${accountData.CompanyName} (${customerId}) from ${fromRep} to House Accounts`,
@@ -864,6 +889,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const deleteResult = await apiCall(`/api/house-accounts/${customerId}`, {
           method: "DELETE"
         });
+
+        // Step 4: Set Sales_Rep in Design_Lookup_2026
+        await syncDesignLookupRep(customerId, capitalizeRep(toRep));
 
         return { content: [{ type: "text", text: JSON.stringify({
           success: true,

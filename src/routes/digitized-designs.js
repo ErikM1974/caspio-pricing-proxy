@@ -9,8 +9,10 @@
 //   GET /cache/clear                      — Clear in-memory cache
 
 const express = require('express');
+const axios = require('axios');
 const router = express.Router();
-const { fetchAllCaspioPages } = require('../utils/caspio');
+const config = require('../../config');
+const { getCaspioAccessToken, fetchAllCaspioPages } = require('../utils/caspio');
 
 // ============================================
 // Configuration
@@ -683,6 +685,47 @@ router.get('/digitized-designs/cache/clear', (req, res) => {
     designsCache.clear();
     console.log('[Designs] Cache cleared');
     res.json({ success: true, message: 'Design lookup cache cleared' });
+});
+
+
+// ============================================
+// POST /digitized-designs/sync-rep
+// Update Sales_Rep in Design_Lookup_2026 for a given Customer_ID.
+// Called by MCP server after account move operations (move_account, move_to_house, move_from_house).
+// ============================================
+
+router.post('/digitized-designs/sync-rep', express.json(), async (req, res) => {
+    const { customerId, salesRep } = req.body;
+
+    if (!customerId || isNaN(Number(customerId)) || Number(customerId) <= 0) {
+        return res.status(400).json({ success: false, error: 'customerId must be a positive integer' });
+    }
+
+    const newRep = (salesRep != null) ? String(salesRep).trim() : '';
+
+    try {
+        const token = await getCaspioAccessToken();
+        const url = `${config.caspio.apiBaseUrl}/tables/${UNIFIED_TABLE}/records?q.where=Customer_ID=${Number(customerId)}`;
+
+        const result = await axios({
+            method: 'put',
+            url,
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            data: { Sales_Rep: newRep },
+            timeout: 15000
+        });
+
+        const recordsAffected = result.data?.RecordsAffected || 0;
+        console.log(`[Designs] Synced Sales_Rep="${newRep}" for Customer_ID=${customerId} (${recordsAffected} records)`);
+
+        res.json({ success: true, recordsAffected });
+    } catch (error) {
+        console.error('[Designs] sync-rep error:', error.response?.data || error.message);
+        res.status(500).json({ success: false, error: 'Failed to sync Sales_Rep in Design_Lookup_2026' });
+    }
 });
 
 
