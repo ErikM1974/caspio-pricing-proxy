@@ -25,8 +25,9 @@ const ALL_FIELDS = [
     'Stitch_Count', 'Stitch_Tier', 'AS_Surcharge', 'DST_Filename',
     'Color_Changes', 'Extra_Colors', 'Extra_Color_Surcharge',
     'FB_Price_1_7', 'FB_Price_8_23', 'FB_Price_24_47', 'FB_Price_48_71', 'FB_Price_72plus',
-    'Thumbnail_URL', 'Artwork_URL', 'Mockup_URL', 'Placement', 'Thread_Colors',
-    'Last_Order_Date', 'Order_Count', 'Art_Notes', 'Is_Active', 'Date_Updated'
+    'Thumbnail_URL', 'DST_Preview_URL', 'Artwork_URL', 'Mockup_URL', 'Placement', 'Thread_Colors',
+    'Last_Order_Date', 'Order_Count', 'Art_Notes', 'Sales_Rep', 'Customer_Type',
+    'Is_Active', 'Date_Updated'
 ].join(',');
 
 // Cache (15 min TTL)
@@ -71,6 +72,7 @@ function groupByDesignNumber(records, requestedNumbers) {
                 maxAsSurcharge: 0,
                 hasFBPricing: false,
                 thumbnailUrl: '',
+                dstPreviewUrl: '',
                 artworkUrl: '',
                 mockupUrl: '',
                 threadColors: '',
@@ -99,7 +101,7 @@ function groupByDesignNumber(records, requestedNumbers) {
             fbPrice24_47: parseFloat(rec.FB_Price_24_47) || 0,
             fbPrice48_71: parseFloat(rec.FB_Price_48_71) || 0,
             fbPrice72plus: parseFloat(rec.FB_Price_72plus) || 0,
-            dstPreviewUrl: '',
+            dstPreviewUrl: rec.DST_Preview_URL || '',
             thumbnailUrl: rec.Thumbnail_URL || ''
         });
 
@@ -117,6 +119,7 @@ function groupByDesignNumber(records, requestedNumbers) {
         // Pick best metadata from variants (first non-empty wins)
         const g = grouped[dn];
         if (rec.Thumbnail_URL && !g.thumbnailUrl) g.thumbnailUrl = rec.Thumbnail_URL;
+        if (rec.DST_Preview_URL && !g.dstPreviewUrl) g.dstPreviewUrl = rec.DST_Preview_URL;
         if (rec.Artwork_URL && rec.Artwork_URL.length > 10 && !g.artworkUrl) g.artworkUrl = rec.Artwork_URL;
         if (rec.Mockup_URL && rec.Mockup_URL.length > 10 && !g.mockupUrl) g.mockupUrl = rec.Mockup_URL;
         if (rec.Thread_Colors && !g.threadColors) g.threadColors = rec.Thread_Colors;
@@ -156,6 +159,7 @@ function groupToSearchResults(records) {
                 hasImage: false,
                 artworkUrl: null,
                 thumbnailUrl: null,
+                dstPreviewUrl: null,
                 mockupUrl: null,
                 placement: '',
                 sources: ['unified'],
@@ -184,6 +188,10 @@ function groupToSearchResults(records) {
         }
         if (rec.Thumbnail_URL && rec.Thumbnail_URL.length > 10 && !entry.thumbnailUrl) {
             entry.thumbnailUrl = rec.Thumbnail_URL;
+            entry.hasImage = true;
+        }
+        if (rec.DST_Preview_URL && rec.DST_Preview_URL.length > 10 && !entry.dstPreviewUrl) {
+            entry.dstPreviewUrl = rec.DST_Preview_URL;
             entry.hasImage = true;
         }
         if (rec.Mockup_URL && rec.Mockup_URL.length > 10 && !entry.mockupUrl) {

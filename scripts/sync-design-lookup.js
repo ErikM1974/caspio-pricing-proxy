@@ -39,6 +39,132 @@ if (fs.existsSync(MOCKUP_MAPPING_FILE)) {
 }
 
 // ============================================
+// Company → Customer_ID CSV mapping (primary/authoritative source)
+// ============================================
+// Auto-detect CSV files in scripts/data/ matching common patterns
+const CSV_PATTERNS = ['company-customer-ids.csv', 'company-customers.csv', 'customer-ids.csv', 'Full Company List 2026.csv'];
+let csvCompanyMap = {};  // normalized company name → { custId, correctName }
+let csvLoaded = false;
+
+function loadCompanyCSV() {
+    const dataDir = path.join(__dirname, 'data');
+    // Find any CSV file in data/ that might be the company mapping
+    let csvFile = null;
+    for (const pattern of CSV_PATTERNS) {
+        const candidate = path.join(dataDir, pattern);
+        if (fs.existsSync(candidate)) {
+            csvFile = candidate;
+            break;
+        }
+    }
+    // Also check for any CSV with "company" or "customer" in the name
+    if (!csvFile && fs.existsSync(dataDir)) {
+        const files = fs.readdirSync(dataDir);
+        for (const f of files) {
+            if (f.endsWith('.csv') && (f.toLowerCase().includes('company') || f.toLowerCase().includes('customer'))) {
+                csvFile = path.join(dataDir, f);
+                break;
+            }
+        }
+    }
+    if (!csvFile) return;
+
+    console.log(`[Init] Loading company CSV: ${path.basename(csvFile)}`);
+    const raw = fs.readFileSync(csvFile, 'utf8');
+    const lines = raw.split(/\r?\n/).filter(l => l.trim());
+    if (lines.length < 2) {
+        console.warn('[Init] CSV file has fewer than 2 lines — skipping');
+        return;
+    }
+
+    // Parse header — auto-detect column names
+    const header = lines[0].split(',').map(h => h.trim().replace(/^["']|["']$/g, ''));
+    const companyCol = header.findIndex(h =>
+        /^(company|companyname|company_name|customercompanyname|customer_company_name|name)$/i.test(h)
+    );
+    const idCol = header.findIndex(h =>
+        /^(id_customer|customer_id|customerid|id|shopworks_id)$/i.test(h)
+    );
+
+    // Also detect CustomerType column (optional enrichment)
+    const typeCol = header.findIndex(h =>
+        /^(customertype|customer_type|type)$/i.test(h)
+    );
+
+    if (companyCol === -1 || idCol === -1) {
+        console.warn(`[Init] CSV header not recognized: [${header.join(', ')}]`);
+        console.warn('  Expected columns like CompanyName + ID_Customer');
+        return;
+    }
+
+    console.log(`[Init] CSV columns: "${header[companyCol]}" (company) + "${header[idCol]}" (customer ID)${typeCol !== -1 ? ` + "${header[typeCol]}" (customer type)` : ''}`);
+
+    let count = 0;
+    for (let i = 1; i < lines.length; i++) {
+        // Simple CSV parse — handles quoted fields with commas
+        const fields = parseCSVLine(lines[i]);
+        if (!fields || fields.length <= Math.max(companyCol, idCol)) continue;
+
+        const company = (fields[companyCol] || '').trim();
+        const custId = (fields[idCol] || '').trim();
+        if (!company || !custId || custId === '0') continue;
+
+        const customerType = (typeCol !== -1 && fields[typeCol]) ? fields[typeCol].trim() : '';
+        const normalized = normalizeCompanyName(company);
+        if (normalized && !csvCompanyMap[normalized]) {
+            csvCompanyMap[normalized] = { custId, correctName: company, customerType };
+            count++;
+        }
+    }
+
+    csvLoaded = true;
+    console.log(`[Init] Loaded ${count.toLocaleString()} company→customer mappings from CSV (with correct spellings)`);
+}
+
+/** Simple CSV line parser that handles quoted fields */
+function parseCSVLine(line) {
+    const fields = [];
+    let current = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (ch === '"' && !inQuotes) {
+            inQuotes = true;
+        } else if (ch === '"' && inQuotes) {
+            if (i + 1 < line.length && line[i + 1] === '"') {
+                current += '"';
+                i++; // skip escaped quote
+            } else {
+                inQuotes = false;
+            }
+        } else if (ch === ',' && !inQuotes) {
+            fields.push(current.trim());
+            current = '';
+        } else {
+            current += ch;
+        }
+    }
+    fields.push(current.trim());
+    return fields;
+}
+
+/** Normalize company name for matching: lowercase, trim, strip common punctuation */
+function normalizeCompanyName(name) {
+    if (!name) return '';
+    return name
+        .toLowerCase()
+        .trim()
+        .replace(/[.,;:!?'"()[\]{}]/g, '')  // strip punctuation
+        .replace(/\s+/g, ' ')                // collapse whitespace
+        .replace(/\b(inc|llc|ltd|corp|co|the|and)\b/g, '') // strip common suffixes
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+// Load CSV at startup
+loadCompanyCSV();
+
+// ============================================
 // Configuration
 // ============================================
 
@@ -57,7 +183,13 @@ const TABLES = {
     shopworks: 'ShopWorks_Designs',
     thumbnail: 'Shopworks_Thumbnail_Report',
     artRequests: 'ArtRequests',
-    unified: 'Design_Lookup_2026'
+    unified: 'Design_Lookup_2026',
+    // Customer mapping tables (for Customer_ID enrichment)
+    salesReps: 'Sales_Reps_2026',
+    contacts: 'Company_Contacts_Merge_ODBC',
+    houseAccounts: 'House_Accounts',
+    taneishaAccounts: 'Taneisha_All_Accounts_Caspio',
+    nikaAccounts: 'Nika_All_Accounts_Caspio'
 };
 
 // Fields to fetch from each source table
@@ -78,7 +210,7 @@ const FIELDS = {
         'Thumb_DesLocid_Design', 'Thumb_DesLoc_DesDesignName', 'ExternalKey', 'FileUrl'
     ].join(','),
     artRequests: [
-        'Design_Num_SW', 'ID_Design', 'CompanyName', 'CDN_Link',
+        'Design_Num_SW', 'ID_Design', 'CompanyName', 'Company_Mockup', 'CDN_Link',
         'Garment_Placement', 'NOTES', 'Shopwork_customer_number'
     ].join(',')
 };
@@ -255,6 +387,141 @@ function sleep(ms) {
 const PROXY_BASE = 'https://caspio-pricing-proxy-ab30a049961a.herokuapp.com';
 
 /**
+ * Build a unified company → customer_id lookup map from multiple Caspio tables + CSV.
+ * Priority: CSV (authoritative) → Sales_Reps → Contacts → Rep accounts → House
+ * Lower-priority sources only fill gaps — they don't overwrite higher-priority mappings.
+ */
+function buildCompanyCustomerMap(salesRepsRecs, contactsRecs, houseRecs, taneishaRecs, nikaRecs) {
+    const map = {};
+    const sourceCounts = { csv: 0, salesReps: 0, contacts: 0, repAccounts: 0, house: 0 };
+
+    // Helper: add to map if not already present
+    function addMapping(company, custId, source) {
+        if (!company || !custId || custId === '0') return;
+        const normalized = normalizeCompanyName(company);
+        if (!normalized) return;
+        if (!map[normalized]) {
+            map[normalized] = String(custId).trim();
+            sourceCounts[source]++;
+        }
+    }
+
+    // 1. CSV file (highest priority — authoritative master list with correct spellings)
+    if (csvLoaded) {
+        for (const [normalized, entry] of Object.entries(csvCompanyMap)) {
+            if (!map[normalized]) {
+                map[normalized] = entry;  // { custId, correctName }
+                sourceCounts.csv++;
+            }
+        }
+    }
+
+    // 2. Sales_Reps_2026 (2nd priority — active sales assignments)
+    for (const rec of salesRepsRecs) {
+        addMapping(rec.CompanyName, rec.ID_Customer, 'salesReps');
+    }
+
+    // 3. Company_Contacts_Merge_ODBC (3rd — rich contact data)
+    // Note: this table uses different field names (id_Customer, CustomerCompanyName)
+    for (const rec of contactsRecs) {
+        addMapping(rec.CustomerCompanyName, rec.id_Customer, 'contacts');
+    }
+
+    // 4. Rep-specific account tables (4th)
+    for (const rec of taneishaRecs) {
+        addMapping(rec.CompanyName, rec.ID_Customer, 'repAccounts');
+    }
+    for (const rec of nikaRecs) {
+        addMapping(rec.CompanyName, rec.ID_Customer, 'repAccounts');
+    }
+
+    // 5. House_Accounts (5th — catch-all non-rep customers)
+    for (const rec of houseRecs) {
+        addMapping(rec.CompanyName, rec.ID_Customer, 'house');
+    }
+
+    console.log(`  Customer map sources: CSV=${sourceCounts.csv}, SalesReps=${sourceCounts.salesReps}, Contacts=${sourceCounts.contacts}, RepAccounts=${sourceCounts.repAccounts}, House=${sourceCounts.house}`);
+
+    return map;
+}
+
+/**
+ * Look up Customer_ID by company name using the unified map.
+ * Tries exact normalized match first, then prefix matching.
+ * Returns { customerId, matchType, correctName, customerType } or null.
+ * correctName = authoritative spelling from CSV (source of truth).
+ * customerType = from CSV (e.g., "DEAD", "ACTIVE").
+ */
+function lookupCustomerByCompany(company, companyToCustomerId) {
+    if (!company) return null;
+    const normalized = normalizeCompanyName(company);
+    if (!normalized) return null;
+
+    // 1. Exact normalized match
+    const entry = companyToCustomerId[normalized];
+    if (entry) {
+        return {
+            customerId: typeof entry === 'object' ? entry.custId : entry,
+            correctName: typeof entry === 'object' ? entry.correctName : null,
+            customerType: typeof entry === 'object' ? (entry.customerType || '') : '',
+            matchType: 'exact'
+        };
+    }
+
+    // 2. Prefix match (first 10+ chars) — catches "Company Name Inc" vs "Company Name"
+    if (normalized.length >= 8) {
+        const prefix = normalized.substring(0, Math.min(normalized.length, 15));
+        for (const [key, val] of Object.entries(companyToCustomerId)) {
+            if (key.startsWith(prefix) || prefix.startsWith(key.substring(0, Math.min(key.length, 15)))) {
+                return {
+                    customerId: typeof val === 'object' ? val.custId : val,
+                    correctName: typeof val === 'object' ? val.correctName : null,
+                    customerType: typeof val === 'object' ? (val.customerType || '') : '',
+                    matchType: 'prefix'
+                };
+            }
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Build a Customer_ID → Sales_Rep lookup map.
+ * Determines rep ownership from which account table(s) a customer appears in.
+ * Sales_Reps_2026 Account_Tier encodes the rep: "GOLD '26-TANEISHA" → "Taneisha"
+ */
+function buildCustomerToRepMap(salesRepsRecs, taneishaRecs, nikaRecs) {
+    const repMap = {};  // customer_id → rep name
+
+    // Rep-specific tables are the most authoritative (explicit assignment)
+    for (const rec of taneishaRecs) {
+        const id = String(rec.ID_Customer || '').trim();
+        if (id && id !== '0') repMap[id] = 'Taneisha';
+    }
+    for (const rec of nikaRecs) {
+        const id = String(rec.ID_Customer || '').trim();
+        if (id && id !== '0') repMap[id] = 'Nika';
+    }
+
+    // Sales_Reps_2026 Account_Tier can also encode the rep
+    // e.g., "GOLD '26-TANEISHA", "SILVER '26-NIKA", "Win Back '26 TANEISHA"
+    for (const rec of salesRepsRecs) {
+        const id = String(rec.ID_Customer || '').trim();
+        if (!id || id === '0' || repMap[id]) continue; // don't overwrite rep-specific
+        const tier = (rec.Account_Tier || '').toUpperCase();
+        if (tier.includes('TANEISHA')) repMap[id] = 'Taneisha';
+        else if (tier.includes('NIKA')) repMap[id] = 'Nika';
+    }
+
+    const tCount = Object.values(repMap).filter(r => r === 'Taneisha').length;
+    const nCount = Object.values(repMap).filter(r => r === 'Nika').length;
+    console.log(`  Customer→Rep map: ${Object.keys(repMap).length} customers (Taneisha=${tCount}, Nika=${nCount})`);
+
+    return repMap;
+}
+
+/**
  * Merge records from all 4 source tables into a unified map.
  * Key = Design_Number, Value = merged record fields for Design_Lookup_2026.
  *
@@ -262,8 +529,15 @@ const PROXY_BASE = 'https://caspio-pricing-proxy-ab30a049961a.herokuapp.com';
  * this preserves EACH VARIANT ROW from Master as a separate row in the
  * unified table (important: one design number can have garment/cap/sleeve
  * variants with different stitch counts).
+ *
+ * @param {Object} companyToCustomerId - Normalized company name → Customer_ID lookup map
+ * @param {Object} customerToRep - Customer_ID → Sales_Rep name lookup map
  */
-function buildUnifiedRecords(masterRecords, shopworksRecords, thumbnailRecords, artRecords) {
+function buildUnifiedRecords(masterRecords, shopworksRecords, thumbnailRecords, artRecords, companyToCustomerId = {}, customerToRep = {}) {
+    // Track Customer_ID enrichment stats
+    const custIdStats = { fromMaster: 0, fromArt: 0, companyLookup: 0, prefixMatches: 0, namesCorrected: 0, fromCompanyMockup: 0, stillMissing: 0 };
+    const enrichStats = { salesRepFilled: 0, customerTypeFilled: 0 };
+
     // Index ShopWorks_Designs by Design_Number (one record per design number)
     const swByDN = {};
     for (const rec of shopworksRecords) {
@@ -324,21 +598,54 @@ function buildUnifiedRecords(masterRecords, shopworksRecords, thumbnailRecords, 
             || (rec.Design_Description || '').trim()
             || '';
 
-        // Customer ID priority: Master → ArtRequests
-        // Note: Customer_ID in Master may be a Number, so coerce to String first
-        const customerId = (rec.Customer_ID != null ? String(rec.Customer_ID) : '').trim()
-            || (art?.Shopwork_customer_number != null ? String(art.Shopwork_customer_number) : '').trim()
-            || '';
-
-        // Company priority: Master → ArtRequests → ShopWorks
-        const company = (rec.Company || '').trim()
+        // Company priority: Master → ArtRequests CompanyName → ArtRequests Company_Mockup → ShopWorks
+        // (resolved BEFORE Customer_ID so we can use company name for lookup)
+        // Using let because CSV may correct the spelling
+        let company = (rec.Company || '').trim()
             || (art?.CompanyName || '').trim()
+            || (art?.Company_Mockup || '').trim()
             || (sw?.Company_Name || '').trim()
             || '';
 
-        // Thumbnail URL priority: Master → DST Preview → Thumbnail Report → Box → (empty)
+        // Track if Company_Mockup was the source (CompanyName empty, Company_Mockup provided the value)
+        const companyFromMockup = company && !(rec.Company || '').trim() && !(art?.CompanyName || '').trim()
+            && (art?.Company_Mockup || '').trim();
+
+        // Customer ID priority: Master → ArtRequests → Company name lookup
+        // Note: Customer_ID in Master may be a Number, so coerce to String first
+        let customerId = (rec.Customer_ID != null ? String(rec.Customer_ID) : '').trim()
+            || (art?.Shopwork_customer_number != null ? String(art.Shopwork_customer_number) : '').trim()
+            || '';
+
+        // 3rd fallback: look up by company name
+        // Also correct company spelling from CSV (source of truth)
+        if (company) {
+            const lookup = lookupCustomerByCompany(company, companyToCustomerId);
+            if (lookup) {
+                if (!customerId) {
+                    customerId = lookup.customerId;
+                    custIdStats.companyLookup++;
+                    if (lookup.matchType === 'prefix') custIdStats.prefixMatches++;
+                    if (companyFromMockup) custIdStats.fromCompanyMockup++;
+                }
+                // Use correct spelling from CSV (authoritative)
+                if (lookup.correctName && lookup.correctName !== company) {
+                    company = lookup.correctName;
+                    custIdStats.namesCorrected = (custIdStats.namesCorrected || 0) + 1;
+                }
+            }
+        }
+        if (customerId) {
+            if (rec.Customer_ID != null && String(rec.Customer_ID).trim()) custIdStats.fromMaster++;
+            else if (art?.Shopwork_customer_number) custIdStats.fromArt++;
+        }
+
+        // DST Preview URL: preserved as separate field (JPG of digitized stitch file)
+        const dstPreviewUrl = (rec.DST_Preview_URL || '').trim();
+
+        // Thumbnail URL priority: Master → Thumbnail Report → Box DST → (empty)
+        // Note: DST_Preview_URL removed from this chain — now its own field
         const thumbnailUrl = (rec.Thumbnail_URL || '').trim()
-            || (rec.DST_Preview_URL || '').trim()
             || (thumb?.thumbnailUrl || '')
             || (boxByDN[dn] || '')
             || '';
@@ -364,6 +671,7 @@ function buildUnifiedRecords(masterRecords, shopworksRecords, thumbnailRecords, 
             FB_Price_48_71: parseFloat(rec.FB_Price_48_71) || 0,
             FB_Price_72plus: parseFloat(rec.FB_Price_72plus) || 0,
             Thumbnail_URL: thumbnailUrl.substring(0, 255),
+            DST_Preview_URL: dstPreviewUrl.substring(0, 500),
             Artwork_URL: artworkUrl.substring(0, 255),
             Mockup_URL: (mockupByDN[dn] || '').substring(0, 500),
             Placement: (art?.Garment_Placement || '').substring(0, 255),
@@ -371,9 +679,20 @@ function buildUnifiedRecords(masterRecords, shopworksRecords, thumbnailRecords, 
             Last_Order_Date: sw?.Last_Order_Date || null,
             Order_Count: parseInt(sw?.Order_Count, 10) || 0,
             Art_Notes: (art?.NOTES || '').substring(0, 255),
+            Sales_Rep: (customerId && customerToRep[customerId]) ? customerToRep[customerId].substring(0, 255) : '',
+            Customer_Type: '',  // will be set below from lookup
             Is_Active: 'true',
             Date_Updated: new Date().toISOString()
         });
+
+        // Set Customer_Type from CSV lookup (need to re-check after push)
+        const lastRec = unifiedRecords[unifiedRecords.length - 1];
+        const normalizedForType = normalizeCompanyName(company);
+        if (normalizedForType && csvCompanyMap[normalizedForType]?.customerType) {
+            lastRec.Customer_Type = csvCompanyMap[normalizedForType].customerType.substring(0, 255);
+            enrichStats.customerTypeFilled++;
+        }
+        if (lastRec.Sales_Rep) enrichStats.salesRepFilled++;
     }
 
     // Also add designs that exist ONLY in ShopWorks_Designs (not in Master)
@@ -384,13 +703,37 @@ function buildUnifiedRecords(masterRecords, shopworksRecords, thumbnailRecords, 
         const thumb = thumbByDN[dn];
         const art = artByDN[dn];
 
-        const customerId = (art?.Shopwork_customer_number != null ? String(art.Shopwork_customer_number) : '').trim()
+        let swCompany = (sw.Company_Name || art?.CompanyName || art?.Company_Mockup || '').trim();
+        const swCompanyFromMockup = swCompany && !(sw.Company_Name || '').trim() && !(art?.CompanyName || '').trim()
+            && (art?.Company_Mockup || '').trim();
+        let swCustomerType = '';
+
+        let customerId = (art?.Shopwork_customer_number != null ? String(art.Shopwork_customer_number) : '').trim()
             || '';
+
+        // Look up by company name — fills Customer_ID and corrects spelling
+        if (swCompany) {
+            const lookup = lookupCustomerByCompany(swCompany, companyToCustomerId);
+            if (lookup) {
+                if (lookup.customerType) swCustomerType = lookup.customerType;
+                if (!customerId) {
+                    customerId = lookup.customerId;
+                    custIdStats.companyLookup++;
+                    if (lookup.matchType === 'prefix') custIdStats.prefixMatches++;
+                    if (swCompanyFromMockup) custIdStats.fromCompanyMockup++;
+                }
+                if (lookup.correctName && lookup.correctName !== swCompany) {
+                    swCompany = lookup.correctName;
+                    custIdStats.namesCorrected = (custIdStats.namesCorrected || 0) + 1;
+                }
+            }
+        }
+        if (customerId && art?.Shopwork_customer_number) custIdStats.fromArt++;
 
         unifiedRecords.push({
             Design_Number: parseInt(dn, 10) || 0,
             Design_Name: (sw.Design_Name || thumb?.designName || '').substring(0, 255),
-            Company: (sw.Company_Name || art?.CompanyName || '').substring(0, 255),
+            Company: swCompany.substring(0, 255),
             Customer_ID: customerId.substring(0, 255),
             Stitch_Count: parseInt(sw.Stitch_Count, 10) || 0,
             Stitch_Tier: (sw.Stitch_Tier || '').substring(0, 255),
@@ -405,6 +748,7 @@ function buildUnifiedRecords(masterRecords, shopworksRecords, thumbnailRecords, 
             FB_Price_48_71: 0,
             FB_Price_72plus: 0,
             Thumbnail_URL: (thumb?.thumbnailUrl || boxByDN[dn] || '').substring(0, 255),
+            DST_Preview_URL: '',
             Artwork_URL: (art?.CDN_Link && art.CDN_Link.length > 30 ? art.CDN_Link : '').substring(0, 255),
             Mockup_URL: (mockupByDN[dn] || '').substring(0, 500),
             Placement: (art?.Garment_Placement || '').substring(0, 255),
@@ -412,9 +756,13 @@ function buildUnifiedRecords(masterRecords, shopworksRecords, thumbnailRecords, 
             Last_Order_Date: sw.Last_Order_Date || null,
             Order_Count: parseInt(sw.Order_Count, 10) || 0,
             Art_Notes: (art?.NOTES || '').substring(0, 255),
+            Sales_Rep: (customerId && customerToRep[customerId]) ? customerToRep[customerId].substring(0, 255) : '',
+            Customer_Type: swCustomerType.substring(0, 255),
             Is_Active: 'true',
             Date_Updated: new Date().toISOString()
         });
+        if (customerId && customerToRep[customerId]) enrichStats.salesRepFilled++;
+        if (swCustomerType) enrichStats.customerTypeFilled++;
     }
 
     // Also add designs that exist ONLY in ArtRequests (not in Master or ShopWorks)
@@ -423,12 +771,38 @@ function buildUnifiedRecords(masterRecords, shopworksRecords, thumbnailRecords, 
         if (swByDN[dn]) continue; // Already handled
 
         const thumb = thumbByDN[dn];
+        let artCompany = (art.CompanyName || '').trim()
+            || (art.Company_Mockup || '').trim();
+        const artCompanyFromMockup = artCompany && !(art.CompanyName || '').trim()
+            && (art.Company_Mockup || '').trim();
+        let artCustomerType = '';
+
+        let artCustomerId = (art.Shopwork_customer_number != null ? String(art.Shopwork_customer_number) : '').trim();
+
+        // Look up by company name — fills Customer_ID and corrects spelling
+        if (artCompany) {
+            const lookup = lookupCustomerByCompany(artCompany, companyToCustomerId);
+            if (lookup) {
+                if (lookup.customerType) artCustomerType = lookup.customerType;
+                if (!artCustomerId) {
+                    artCustomerId = lookup.customerId;
+                    custIdStats.companyLookup++;
+                    if (lookup.matchType === 'prefix') custIdStats.prefixMatches++;
+                    if (artCompanyFromMockup) custIdStats.fromCompanyMockup++;
+                }
+                if (lookup.correctName && lookup.correctName !== artCompany) {
+                    artCompany = lookup.correctName;
+                    custIdStats.namesCorrected = (custIdStats.namesCorrected || 0) + 1;
+                }
+            }
+        }
+        if (artCustomerId && art.Shopwork_customer_number) custIdStats.fromArt++;
 
         unifiedRecords.push({
             Design_Number: parseInt(dn, 10) || 0,
             Design_Name: (thumb?.designName || '').substring(0, 255),
-            Company: (art.CompanyName || '').substring(0, 255),
-            Customer_ID: (art.Shopwork_customer_number != null ? String(art.Shopwork_customer_number) : '').trim().substring(0, 255),
+            Company: artCompany.substring(0, 255),
+            Customer_ID: artCustomerId.substring(0, 255),
             Stitch_Count: 0,
             Stitch_Tier: '',
             AS_Surcharge: 0,
@@ -442,6 +816,7 @@ function buildUnifiedRecords(masterRecords, shopworksRecords, thumbnailRecords, 
             FB_Price_48_71: 0,
             FB_Price_72plus: 0,
             Thumbnail_URL: (thumb?.thumbnailUrl || boxByDN[dn] || '').substring(0, 255),
+            DST_Preview_URL: '',
             Artwork_URL: (art.CDN_Link && art.CDN_Link.length > 30 ? art.CDN_Link : '').substring(0, 255),
             Mockup_URL: (mockupByDN[dn] || '').substring(0, 500),
             Placement: (art.Garment_Placement || '').substring(0, 255),
@@ -449,13 +824,32 @@ function buildUnifiedRecords(masterRecords, shopworksRecords, thumbnailRecords, 
             Last_Order_Date: null,
             Order_Count: 0,
             Art_Notes: (art.NOTES || '').substring(0, 255),
+            Sales_Rep: (artCustomerId && customerToRep[artCustomerId]) ? customerToRep[artCustomerId].substring(0, 255) : '',
+            Customer_Type: artCustomerType.substring(0, 255),
             Is_Active: 'true',
             Date_Updated: new Date().toISOString()
         });
+        if (artCustomerId && customerToRep[artCustomerId]) enrichStats.salesRepFilled++;
+        if (artCustomerType) enrichStats.customerTypeFilled++;
     }
 
-    // Filter out records with invalid design numbers (0 or NaN)
-    return unifiedRecords.filter(r => r.Design_Number > 0);
+    // Count remaining missing
+    const filtered = unifiedRecords.filter(r => r.Design_Number > 0);
+    custIdStats.stillMissing = filtered.filter(r => !r.Customer_ID).length;
+
+    // Log enrichment stats
+    console.log('\n  Customer_ID enrichment stats:');
+    console.log(`    From Master table:       ${custIdStats.fromMaster.toLocaleString()}`);
+    console.log(`    From ArtRequests:         ${custIdStats.fromArt.toLocaleString()}`);
+    console.log(`    From company name lookup: ${custIdStats.companyLookup.toLocaleString()} (${custIdStats.prefixMatches} prefix matches)`);
+    console.log(`    Via Company_Mockup field: ${custIdStats.fromCompanyMockup.toLocaleString()} (CompanyName empty, matched via Company_Mockup)`);
+    console.log(`    Company names corrected:  ${custIdStats.namesCorrected.toLocaleString()} (spelling fixed from CSV)`);
+    console.log(`    Still missing:            ${custIdStats.stillMissing.toLocaleString()} (${(custIdStats.stillMissing / filtered.length * 100).toFixed(1)}%)`);
+    console.log(`\n  Additional enrichment stats:`);
+    console.log(`    Sales_Rep filled:         ${enrichStats.salesRepFilled.toLocaleString()} (${(enrichStats.salesRepFilled / filtered.length * 100).toFixed(1)}%)`);
+    console.log(`    Customer_Type filled:     ${enrichStats.customerTypeFilled.toLocaleString()} (${(enrichStats.customerTypeFilled / filtered.length * 100).toFixed(1)}%)`);
+
+    return filtered;
 }
 
 // ============================================
@@ -513,15 +907,67 @@ async function main() {
     }
 
     // -----------------------------------------------
+    // Step 1b: Fetch customer mapping tables for Customer_ID enrichment
+    // -----------------------------------------------
+    console.log('\n📥 Step 1b: Fetching customer mapping tables...');
+    const startCustFetch = Date.now();
+
+    const [salesRepsRecs, contactsRecs, houseRecs, taneishaRecs, nikaRecs] = await Promise.all([
+        fetchAll(TABLES.salesReps, { 'q.select': 'ID_Customer,CompanyName,Account_Tier' }).catch(err => {
+            console.error(`  ❌ Sales_Reps_2026 failed: ${err.message}`);
+            return [];
+        }),
+        fetchAll(TABLES.contacts, { 'q.select': 'id_Customer,CustomerCompanyName' }).catch(err => {
+            console.error(`  ❌ Company_Contacts failed: ${err.message}`);
+            return [];
+        }),
+        fetchAll(TABLES.houseAccounts, { 'q.select': 'ID_Customer,CompanyName' }).catch(err => {
+            console.error(`  ❌ House_Accounts failed: ${err.message}`);
+            return [];
+        }),
+        fetchAll(TABLES.taneishaAccounts, { 'q.select': 'ID_Customer,CompanyName' }).catch(err => {
+            console.error(`  ❌ Taneisha accounts failed: ${err.message}`);
+            return [];
+        }),
+        fetchAll(TABLES.nikaAccounts, { 'q.select': 'ID_Customer,CompanyName' }).catch(err => {
+            console.error(`  ❌ Nika accounts failed: ${err.message}`);
+            return [];
+        })
+    ]);
+
+    const custFetchTime = ((Date.now() - startCustFetch) / 1000).toFixed(1);
+    console.log(`\n  Customer mapping tables (fetched in ${custFetchTime}s):`);
+    console.log(`    Sales_Reps_2026:       ${salesRepsRecs.length.toLocaleString()} records`);
+    console.log(`    Company_Contacts:      ${contactsRecs.length.toLocaleString()} records`);
+    console.log(`    House_Accounts:        ${houseRecs.length.toLocaleString()} records`);
+    console.log(`    Taneisha_Accounts:     ${taneishaRecs.length.toLocaleString()} records`);
+    console.log(`    Nika_Accounts:         ${nikaRecs.length.toLocaleString()} records`);
+
+    // Build unified company → customer_id lookup map
+    // Priority: CSV (authoritative) → Sales_Reps → Contacts → Rep accounts → House
+    const companyToCustomerId = buildCompanyCustomerMap(
+        salesRepsRecs, contactsRecs, houseRecs, taneishaRecs, nikaRecs
+    );
+    console.log(`  Combined lookup map: ${Object.keys(companyToCustomerId).length.toLocaleString()} unique companies`);
+    if (csvLoaded) {
+        console.log(`  (includes ${Object.keys(csvCompanyMap).length.toLocaleString()} from CSV — highest priority)`);
+    }
+
+    // Build customer_id → sales_rep lookup map
+    const customerToRep = buildCustomerToRepMap(salesRepsRecs, taneishaRecs, nikaRecs);
+
+    // -----------------------------------------------
     // Step 2: Merge into unified records
     // -----------------------------------------------
     console.log('\n🔀 Step 2: Merging into unified records...');
-    const unifiedRecords = buildUnifiedRecords(masterRecords, shopworksRecords, thumbnailRecords, artRecords);
+    const unifiedRecords = buildUnifiedRecords(masterRecords, shopworksRecords, thumbnailRecords, artRecords, companyToCustomerId, customerToRep);
 
     // Count unique design numbers
     const uniqueDesigns = new Set(unifiedRecords.map(r => r.Design_Number));
     const withCustomerId = unifiedRecords.filter(r => r.Customer_ID).length;
     const withThumbnail = unifiedRecords.filter(r => r.Thumbnail_URL).length;
+    const withDstPreview = unifiedRecords.filter(r => r.DST_Preview_URL).length;
+    const withMockup = unifiedRecords.filter(r => r.Mockup_URL).length;
     const withArtwork = unifiedRecords.filter(r => r.Artwork_URL).length;
     const withDesignName = unifiedRecords.filter(r => r.Design_Name).length;
     const withStitchData = unifiedRecords.filter(r => r.Stitch_Count > 0).length;
@@ -532,12 +978,21 @@ async function main() {
     console.log(`  With stitch data: ${withStitchData.toLocaleString()} (${(withStitchData / unifiedRecords.length * 100).toFixed(1)}%)`);
     console.log(`  With design name: ${withDesignName.toLocaleString()} (${(withDesignName / unifiedRecords.length * 100).toFixed(1)}%)`);
     console.log(`  With thumbnail: ${withThumbnail.toLocaleString()} (${(withThumbnail / unifiedRecords.length * 100).toFixed(1)}%)`);
+    console.log(`  With DST preview: ${withDstPreview.toLocaleString()} (${(withDstPreview / unifiedRecords.length * 100).toFixed(1)}%)`);
+    console.log(`  With mockup: ${withMockup.toLocaleString()} (${(withMockup / unifiedRecords.length * 100).toFixed(1)}%)`);
     console.log(`  With artwork: ${withArtwork.toLocaleString()} (${(withArtwork / unifiedRecords.length * 100).toFixed(1)}%)`);
+
+    const withSalesRep = unifiedRecords.filter(r => r.Sales_Rep).length;
+    const withCustomerType = unifiedRecords.filter(r => r.Customer_Type).length;
+    console.log(`  With Sales_Rep: ${withSalesRep.toLocaleString()} (${(withSalesRep / unifiedRecords.length * 100).toFixed(1)}%)`);
+    console.log(`  With Customer_Type: ${withCustomerType.toLocaleString()} (${(withCustomerType / unifiedRecords.length * 100).toFixed(1)}%)`);
 
     // Show sample records
     console.log('\n  Sample records (first 5):');
     for (const rec of unifiedRecords.slice(0, 5)) {
-        console.log(`    Design #${rec.Design_Number} — "${rec.Design_Name}" (${rec.Company}) — ${rec.Stitch_Count} stitches, ${rec.Stitch_Tier}`);
+        const repTag = rec.Sales_Rep ? ` [${rec.Sales_Rep}]` : '';
+        const typeTag = rec.Customer_Type ? ` (${rec.Customer_Type})` : '';
+        console.log(`    Design #${rec.Design_Number} — "${rec.Design_Name}" (${rec.Company}${repTag}${typeTag}) — ${rec.Stitch_Count} stitches, ${rec.Stitch_Tier}`);
     }
 
     if (!LIVE_MODE) {
