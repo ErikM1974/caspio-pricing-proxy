@@ -7,20 +7,35 @@ yarn-error.log*
 # Environment variables
 .env
 .env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env.*.local
 
-# Runtime files
+# Logs
 *.log
-server.log
-response.json
+heroku_logs.txt
+
+# Test output & artifacts
+test-output/
+coverage/
+.nyc_output/
+*-test-*.json
+production-test-results*.json
+production-broken-endpoints*.json
+heroku-*-endpoints*.json
+
+# Cache
+.cache/
 
 # Development artifacts
 debug-*.js
 temp-*.js
 scratch-*.js
 test-temp-*.js
+
+# Backup files (CLAUDE.md Rule #1)
+*.backup
+*.bak
+*-FINAL.*
+*-old.*
 
 # IDE files
 .vscode/
@@ -32,28 +47,19 @@ test-temp-*.js
 .DS_Store
 Thumbs.db
 
-# Test artifacts
-test-output/
-coverage/
-.nyc_output/
-
-# Cache files
-.cache/
-
-# Temporary files
-CLEANUP-PLAN.md
-
 # Claude configuration
 .claude/
+
+# Temporary/one-off files
+CLEANUP-PLAN.md
+response.json
+orders_check.json
+
+# CSV reports (may contain PII)
+*.csv
+
+# Specific ignored files
 QUOTE_API_INTEGRATION_GUIDE_UPDATED.md
 test-heroku-files.js
-.cache/scanned-routes.json
-.cache/scanned-routes.json
-nika_missing_customers.csv
-REVIEW_in_taneisha_list_but_nika_orders.csv
-REVIEW_not_in_either_list.csv
-taneisha_missing_customers.csv
 docs/NWCA-API.postman_collection.json
 docs/NWCA-API.postman_collection.AUTO.json
-orders_check.json
-.cache/
