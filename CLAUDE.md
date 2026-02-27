@@ -16,7 +16,7 @@ This API server is consumed by two frontend projects:
 | Project | Location | Relationship |
 |---------|----------|--------------|
 | **Pricing Index File 2025** | `../Pricing Index File 2025` | Primary frontend - quote builders, calculators consume all pricing APIs |
-| **Python Inksoft** | `../Python Inksoft` | Uses `/api/designs/*` and `/api/gift-certificates/*` endpoints |
+| **Python Inksoft** | `../Python Inksoft` | Flask app (Python 3.11) — transforms InkSoft orders → ShopWorks OnSite. Uses `/api/manageorders/*`, `/api/designs/*`, `/api/gift-certificates/*`, `/api/thumbnails/*` |
 
 When modifying API endpoints, check if these projects need updates.
 
