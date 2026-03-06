@@ -743,11 +743,39 @@ router.put('/art-requests/:designId/status', express.json(), async (req, res) =>
 
     try {
         console.log(`Quick-action: updating design ${designId} → ${status}`);
+        const token = await getCaspioAccessToken();
 
         const updateData = { Status: status };
+        const isRevision = status.includes('Revision Requested');
 
-        // If art minutes provided, calculate billing ($75/hr, 15-min increments)
-        if (artMinutes !== undefined && artMinutes !== null) {
+        // For revisions or when art minutes need additive handling, fetch current record
+        if (isRevision || (artMinutes !== undefined && artMinutes !== null && isRevision)) {
+            const fetchUrl = `${caspioApiBaseUrl}/tables/ArtRequests/records?q.where=ID_Design=${designId}&q.select=Revision_Count,Art_Minutes`;
+            const fetchResp = await axios({
+                method: 'get',
+                url: fetchUrl,
+                headers: { 'Authorization': `Bearer ${token}` },
+                timeout: 15000
+            });
+
+            const current = fetchResp.data?.Result?.[0] || {};
+            const currentRevCount = current.Revision_Count || 0;
+            const currentArtMins = current.Art_Minutes || 0;
+
+            // Increment revision count
+            updateData.Revision_Count = currentRevCount + 1;
+
+            // Additive art time for revisions (add to existing, not replace)
+            if (artMinutes !== undefined && artMinutes !== null) {
+                const addMins = parseInt(artMinutes) || 0;
+                const totalMins = currentArtMins + addMins;
+                const quarterHours = Math.ceil(totalMins / 15) * 0.25;
+                const billed = parseFloat((quarterHours * 75).toFixed(2));
+                updateData.Art_Minutes = totalMins;
+                updateData.Amount_Art_Billed = billed;
+            }
+        } else if (artMinutes !== undefined && artMinutes !== null) {
+            // Non-revision (e.g. Completed): set absolute art time
             const mins = parseInt(artMinutes) || 0;
             const quarterHours = Math.ceil(mins / 15) * 0.25;
             const billed = parseFloat((quarterHours * 75).toFixed(2));
@@ -755,7 +783,6 @@ router.put('/art-requests/:designId/status', express.json(), async (req, res) =>
             updateData.Amount_Art_Billed = billed;
         }
 
-        const token = await getCaspioAccessToken();
         const resource = `/tables/ArtRequests/records?q.where=ID_Design=${designId}`;
         const url = `${caspioApiBaseUrl}${resource}`;
 
@@ -770,8 +797,8 @@ router.put('/art-requests/:designId/status', express.json(), async (req, res) =>
             timeout: 15000
         });
 
-        console.log(`Design ${designId} status updated to "${status}"`);
-        res.json({ message: 'Status updated', designId, status, data: response.data });
+        console.log(`Design ${designId} status updated to "${status}"${isRevision ? ` (revision #${updateData.Revision_Count})` : ''}`);
+        res.json({ message: 'Status updated', designId, status, revisionCount: updateData.Revision_Count, data: response.data });
     } catch (error) {
         console.error(`Quick-action status update failed for design ${designId}:`,
             error.response?.data || error.message);
