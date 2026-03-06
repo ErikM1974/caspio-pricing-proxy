@@ -729,4 +729,101 @@ router.delete('/design-notes/:id', async (req, res) => {
     }
 });
 
+// --- Quick-Action Endpoints (Steve's Art Hub) ---
+// These use ID_Design (design number shown on gallery cards) not PK_ID
+
+// PUT /api/art-requests/:designId/status — Quick status update + optional art time
+router.put('/art-requests/:designId/status', express.json(), async (req, res) => {
+    const { designId } = req.params;
+    const { status, artMinutes } = req.body;
+
+    if (!designId || !status) {
+        return res.status(400).json({ error: 'designId and status are required' });
+    }
+
+    try {
+        console.log(`Quick-action: updating design ${designId} → ${status}`);
+
+        const updateData = { Status: status };
+
+        // If art minutes provided, calculate billing ($75/hr, 15-min increments)
+        if (artMinutes !== undefined && artMinutes !== null) {
+            const mins = parseInt(artMinutes) || 0;
+            const quarterHours = Math.ceil(mins / 15) * 0.25;
+            const billed = parseFloat((quarterHours * 75).toFixed(2));
+            updateData.Art_Minutes = mins;
+            updateData.Amount_Art_Billed = billed;
+        }
+
+        const token = await getCaspioAccessToken();
+        const resource = `/tables/ArtRequests/records?q.where=ID_Design=${designId}`;
+        const url = `${caspioApiBaseUrl}${resource}`;
+
+        const response = await axios({
+            method: 'put',
+            url,
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            data: updateData,
+            timeout: 15000
+        });
+
+        console.log(`Design ${designId} status updated to "${status}"`);
+        res.json({ message: 'Status updated', designId, status, data: response.data });
+    } catch (error) {
+        console.error(`Quick-action status update failed for design ${designId}:`,
+            error.response?.data || error.message);
+        res.status(500).json({ error: 'Failed to update status' });
+    }
+});
+
+// POST /api/art-requests/:designId/note — Create a design note (triggers Caspio email)
+router.post('/art-requests/:designId/note', express.json(), async (req, res) => {
+    const { designId } = req.params;
+    const { noteType, noteText, noteBy } = req.body;
+
+    if (!designId || !noteType || !noteText) {
+        return res.status(400).json({
+            error: 'designId, noteType, and noteText are required'
+        });
+    }
+
+    try {
+        console.log(`Quick-action: creating note for design ${designId}`);
+
+        const noteData = {
+            ID_Design: parseInt(designId),
+            Note_Type: noteType,
+            Note_Text: noteText
+        };
+
+        if (noteBy) {
+            noteData.Note_By = noteBy;
+        }
+
+        const token = await getCaspioAccessToken();
+        const url = `${caspioApiBaseUrl}/tables/DesignNotes/records`;
+
+        const response = await axios({
+            method: 'post',
+            url,
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            data: noteData,
+            timeout: 15000
+        });
+
+        console.log(`Note created for design ${designId}`);
+        res.status(201).json({ message: 'Note created', designId, data: response.data });
+    } catch (error) {
+        console.error(`Quick-action note creation failed for design ${designId}:`,
+            error.response?.data || error.message);
+        res.status(500).json({ error: 'Failed to create note' });
+    }
+});
+
 module.exports = router;
