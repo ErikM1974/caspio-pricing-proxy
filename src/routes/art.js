@@ -747,9 +747,10 @@ router.put('/art-requests/:designId/status', express.json(), async (req, res) =>
 
         const updateData = { Status: status };
         const isRevision = status.includes('Revision Requested');
+        const isAwaitingApproval = status.includes('Awaiting Approval');
 
-        // For revisions or when art minutes need additive handling, fetch current record
-        if (isRevision || (artMinutes !== undefined && artMinutes !== null && isRevision)) {
+        // For revisions or awaiting approval: fetch current record for additive art time
+        if (isRevision || isAwaitingApproval) {
             const fetchUrl = `${caspioApiBaseUrl}/tables/ArtRequests/records?q.where=ID_Design=${designId}&q.select=Revision_Count,Art_Minutes`;
             const fetchResp = await axios({
                 method: 'get',
@@ -762,10 +763,12 @@ router.put('/art-requests/:designId/status', express.json(), async (req, res) =>
             const currentRevCount = current.Revision_Count || 0;
             const currentArtMins = current.Art_Minutes || 0;
 
-            // Increment revision count
-            updateData.Revision_Count = currentRevCount + 1;
+            // Only increment revision count for actual revisions, NOT awaiting approval
+            if (isRevision) {
+                updateData.Revision_Count = currentRevCount + 1;
+            }
 
-            // Additive art time for revisions (add to existing, not replace)
+            // Additive art time for revisions and awaiting approval (add to existing, not replace)
             if (artMinutes !== undefined && artMinutes !== null) {
                 const addMins = parseInt(artMinutes) || 0;
                 const totalMins = currentArtMins + addMins;
@@ -797,7 +800,7 @@ router.put('/art-requests/:designId/status', express.json(), async (req, res) =>
             timeout: 15000
         });
 
-        console.log(`Design ${designId} status updated to "${status}"${isRevision ? ` (revision #${updateData.Revision_Count})` : ''}`);
+        console.log(`Design ${designId} status updated to "${status}"${isRevision ? ` (revision #${updateData.Revision_Count})` : ''}${isAwaitingApproval ? ' (awaiting approval)' : ''}`);
         res.json({ message: 'Status updated', designId, status, revisionCount: updateData.Revision_Count, data: response.data });
     } catch (error) {
         console.error(`Quick-action status update failed for design ${designId}:`,
