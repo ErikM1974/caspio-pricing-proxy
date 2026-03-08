@@ -748,9 +748,11 @@ router.put('/art-requests/:designId/status', express.json(), async (req, res) =>
         const updateData = { Status: status };
         const isRevision = status.includes('Revision Requested');
         const isAwaitingApproval = status.includes('Awaiting Approval');
+        const isInProgress = status.includes('In Progress');
+        const isCompleted = status.includes('Completed');
 
-        // For revisions or awaiting approval: fetch current record for additive art time
-        if (isRevision || isAwaitingApproval) {
+        // All status updates use additive art time (fetch current record, add new minutes)
+        if (isRevision || isAwaitingApproval || isInProgress || isCompleted) {
             const fetchUrl = `${caspioApiBaseUrl}/tables/ArtRequests/records?q.where=ID_Design=${designId}&q.select=Revision_Count,Art_Minutes`;
             const fetchResp = await axios({
                 method: 'get',
@@ -768,7 +770,7 @@ router.put('/art-requests/:designId/status', express.json(), async (req, res) =>
                 updateData.Revision_Count = currentRevCount + 1;
             }
 
-            // Additive art time for revisions and awaiting approval (add to existing, not replace)
+            // Additive art time for all status updates (add session minutes to existing total)
             if (artMinutes !== undefined && artMinutes !== null) {
                 const addMins = parseInt(artMinutes) || 0;
                 const totalMins = currentArtMins + addMins;
@@ -853,6 +855,75 @@ router.post('/art-requests/:designId/note', express.json(), async (req, res) => 
         console.error(`Quick-action note creation failed for design ${designId}:`,
             error.response?.data || error.message);
         res.status(500).json({ error: 'Failed to create note' });
+    }
+});
+
+// --- Art Charges Endpoints ---
+
+// GET /api/art-charges?id_design=XXXXX — List charges for a design
+router.get('/art-charges', async (req, res) => {
+    try {
+        const { id_design } = req.query;
+        if (!id_design) {
+            return res.status(400).json({ error: 'id_design query parameter is required' });
+        }
+
+        const params = {
+            'q.where': `ID_Design=${parseInt(id_design)}`,
+            'q.orderBy': 'Charge_Date DESC',
+            'q.limit': 200
+        };
+
+        const records = await fetchAllCaspioPages('/tables/ArtCharges/records', params);
+        res.json(records);
+    } catch (error) {
+        console.error('Error fetching art charges:', error.response?.data || error.message);
+        res.status(500).json({ error: 'Failed to fetch art charges' });
+    }
+});
+
+// POST /api/art-charges — Create new charge entry
+router.post('/art-charges', async (req, res) => {
+    try {
+        const { ID_Design, Minutes, Cost, Description, Charge_Type, Logged_By,
+                Running_Total_Minutes, Running_Total_Cost } = req.body;
+
+        if (!ID_Design || Minutes === undefined || !Charge_Type) {
+            return res.status(400).json({
+                error: 'Missing required fields: ID_Design, Minutes, Charge_Type'
+            });
+        }
+
+        const chargeData = {
+            ID_Design: parseInt(ID_Design),
+            Minutes: parseInt(Minutes) || 0,
+            Cost: parseFloat(Cost) || 0,
+            Description: (Description || '').substring(0, 255),
+            Charge_Type: (Charge_Type || '').substring(0, 50),
+            Logged_By: (Logged_By || 'art@nwcustomapparel.com').substring(0, 100),
+            Running_Total_Minutes: parseInt(Running_Total_Minutes) || 0,
+            Running_Total_Cost: parseFloat(Running_Total_Cost) || 0
+        };
+
+        const token = await getCaspioAccessToken();
+        const url = `${caspioApiBaseUrl}/tables/ArtCharges/records`;
+
+        const response = await axios({
+            method: 'post',
+            url,
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            data: chargeData,
+            timeout: 15000
+        });
+
+        console.log(`Art charge created for design ${ID_Design}: ${Minutes}min, $${Cost}`);
+        res.status(201).json({ message: 'Art charge created', data: response.data });
+    } catch (error) {
+        console.error('Error creating art charge:', error.response?.data || error.message);
+        res.status(500).json({ error: 'Failed to create art charge' });
     }
 });
 
