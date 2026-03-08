@@ -742,10 +742,12 @@ router.put('/art-requests/:designId/status', express.json(), async (req, res) =>
     }
 
     try {
-        console.log(`Quick-action: updating design ${designId} → ${status}`);
+        // Strip emoji/non-ASCII from status (Caspio REST API rejects 4-byte UTF-8)
+        const cleanStatus = status.replace(/[^\x20-\x7E\xA0-\xFF]/g, '').trim();
+        console.log(`Quick-action: updating design ${designId} → ${cleanStatus}`);
         const token = await getCaspioAccessToken();
 
-        const updateData = { Status: status };
+        const updateData = { Status: cleanStatus };
         const isRevision = status.includes('Revision Requested');
         const isAwaitingApproval = status.includes('Awaiting Approval');
         const isInProgress = status.includes('In Progress');
@@ -771,21 +773,14 @@ router.put('/art-requests/:designId/status', express.json(), async (req, res) =>
             }
 
             // Additive art time for all status updates (add session minutes to existing total)
+            // Amount_Art_Billed is a Caspio formula field — auto-calculates from Art_Minutes
             if (artMinutes !== undefined && artMinutes !== null) {
                 const addMins = parseInt(artMinutes) || 0;
-                const totalMins = currentArtMins + addMins;
-                const quarterHours = Math.ceil(totalMins / 15) * 0.25;
-                const billed = parseFloat((quarterHours * 75).toFixed(2));
-                updateData.Art_Minutes = totalMins;
-                updateData.Amount_Art_Billed = billed;
+                updateData.Art_Minutes = currentArtMins + addMins;
             }
         } else if (artMinutes !== undefined && artMinutes !== null) {
             // Non-revision (e.g. Completed): set absolute art time
-            const mins = parseInt(artMinutes) || 0;
-            const quarterHours = Math.ceil(mins / 15) * 0.25;
-            const billed = parseFloat((quarterHours * 75).toFixed(2));
-            updateData.Art_Minutes = mins;
-            updateData.Amount_Art_Billed = billed;
+            updateData.Art_Minutes = parseInt(artMinutes) || 0;
         }
 
         const resource = `/tables/ArtRequests/records?q.where=ID_Design=${designId}`;
@@ -806,6 +801,7 @@ router.put('/art-requests/:designId/status', express.json(), async (req, res) =>
         res.json({ message: 'Status updated', designId, status, revisionCount: updateData.Revision_Count, data: response.data });
     } catch (error) {
         console.error(`Quick-action status update failed for design ${designId}:`,
+            'updateData:', JSON.stringify(updateData),
             error.response?.data || error.message);
         res.status(500).json({ error: 'Failed to update status' });
     }
