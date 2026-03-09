@@ -7,6 +7,19 @@ const config = require('../../config');
 
 const caspioApiBaseUrl = config.caspio.apiBaseUrl;
 
+// ── In-Memory Art Notification Queue (Steve's dashboard toasts) ──────
+// Ephemeral notifications for real-time dashboard updates.
+// Single Heroku dyno = shared memory. Dyno restart clears queue (email backup exists).
+const ART_NOTIFICATIONS = [];
+const NOTIFICATION_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
+function pruneNotifications() {
+    const cutoff = Date.now() - NOTIFICATION_TTL_MS;
+    while (ART_NOTIFICATIONS.length > 0 && ART_NOTIFICATIONS[0].timestamp < cutoff) {
+        ART_NOTIFICATIONS.shift();
+    }
+}
+
 // --- Art Requests Endpoints ---
 
 // Get all art requests or filter by query parameters
@@ -921,6 +934,44 @@ router.post('/art-charges', async (req, res) => {
         console.error('Error creating art charge:', error.response?.data || error.message);
         res.status(500).json({ error: 'Failed to create art charge' });
     }
+});
+
+// ── Art Notification Endpoints (Steve's real-time dashboard toasts) ──
+
+// POST /api/art-notifications — Detail page pushes notification after approve/changes
+router.post('/art-notifications', express.json(), (req, res) => {
+    const { type, designId, companyName, actorName } = req.body;
+
+    if (!type || !designId || !actorName) {
+        return res.status(400).json({ error: 'type, designId, and actorName are required' });
+    }
+
+    if (!['approved', 'revision'].includes(type)) {
+        return res.status(400).json({ error: 'type must be "approved" or "revision"' });
+    }
+
+    const notification = {
+        id: `${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+        type,
+        designId: String(designId),
+        companyName: companyName || 'Unknown',
+        actorName,
+        timestamp: Date.now()
+    };
+
+    ART_NOTIFICATIONS.push(notification);
+    pruneNotifications();
+
+    console.log(`Art notification queued: ${type} for design ${designId} by ${actorName}`);
+    res.status(201).json({ message: 'Notification queued', id: notification.id });
+});
+
+// GET /api/art-notifications — Steve's dashboard polls for new notifications
+router.get('/art-notifications', (req, res) => {
+    pruneNotifications();
+    const since = parseInt(req.query.since) || 0;
+    const notifications = ART_NOTIFICATIONS.filter(n => n.timestamp > since);
+    res.json({ notifications, serverTime: Date.now() });
 });
 
 module.exports = router;
