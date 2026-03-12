@@ -7,11 +7,13 @@ const config = require('../../config');
 
 const caspioApiBaseUrl = config.caspio.apiBaseUrl;
 
-// ── In-Memory Art Notification Queue (Steve's dashboard toasts) ──────
+// ── In-Memory Art Notification Queue (dashboard toasts) ──────────────
 // Ephemeral notifications for real-time dashboard updates.
+// Used by: Steve's dashboard (art-hub-steve.js) AND AE dashboard (ae-dashboard.js).
 // Single Heroku dyno = shared memory. Dyno restart clears queue (email backup exists).
 const ART_NOTIFICATIONS = [];
 const NOTIFICATION_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const VALID_NOTIFICATION_TYPES = ['approved', 'revision', 'new_submission', 'mockup_sent', 'status_changed', 'completed'];
 
 function pruneNotifications() {
     const cutoff = Date.now() - NOTIFICATION_TTL_MS;
@@ -936,18 +938,21 @@ router.post('/art-charges', async (req, res) => {
     }
 });
 
-// ── Art Notification Endpoints (Steve's real-time dashboard toasts) ──
+// ── Art Notification Endpoints (real-time dashboard toasts) ──────────
+// Used by: Steve's dashboard, AE dashboard, detail page, submit form
 
-// POST /api/art-notifications — Detail page pushes notification after approve/changes
+// POST /api/art-notifications — Push notification after actions (approve, submit, mockup, etc.)
 router.post('/art-notifications', express.json(), (req, res) => {
-    const { type, designId, companyName, actorName } = req.body;
+    const { type, designId, companyName, actorName, targetRep } = req.body;
 
     if (!type || !designId || !actorName) {
         return res.status(400).json({ error: 'type, designId, and actorName are required' });
     }
 
-    if (!['approved', 'revision'].includes(type)) {
-        return res.status(400).json({ error: 'type must be "approved" or "revision"' });
+    if (!VALID_NOTIFICATION_TYPES.includes(type)) {
+        return res.status(400).json({
+            error: `type must be one of: ${VALID_NOTIFICATION_TYPES.join(', ')}`
+        });
     }
 
     const notification = {
@@ -956,21 +961,34 @@ router.post('/art-notifications', express.json(), (req, res) => {
         designId: String(designId),
         companyName: companyName || 'Unknown',
         actorName,
+        targetRep: targetRep || null, // Optional: email of rep to target (for AE dashboard filtering)
         timestamp: Date.now()
     };
 
     ART_NOTIFICATIONS.push(notification);
     pruneNotifications();
 
-    console.log(`Art notification queued: ${type} for design ${designId} by ${actorName}`);
+    console.log(`Art notification queued: ${type} for design ${designId} by ${actorName}${targetRep ? ' (target: ' + targetRep + ')' : ''}`);
     res.status(201).json({ message: 'Notification queued', id: notification.id });
 });
 
-// GET /api/art-notifications — Steve's dashboard polls for new notifications
+// GET /api/art-notifications — Dashboards poll for new notifications
+// Query params:
+//   since=<timestamp>  — only return notifications newer than this
+//   rep=<email>        — only return notifications targeted at this rep (for AE dashboard)
 router.get('/art-notifications', (req, res) => {
     pruneNotifications();
     const since = parseInt(req.query.since) || 0;
-    const notifications = ART_NOTIFICATIONS.filter(n => n.timestamp > since);
+    const repFilter = req.query.rep || null;
+
+    let notifications = ART_NOTIFICATIONS.filter(n => n.timestamp > since);
+
+    // If rep filter provided, only return notifications targeted at that rep
+    // (or notifications with no targetRep, which are broadcast to everyone)
+    if (repFilter) {
+        notifications = notifications.filter(n => !n.targetRep || n.targetRep === repFilter);
+    }
+
     res.json({ notifications, serverTime: Date.now() });
 });
 

@@ -312,6 +312,11 @@ const filesRoutes = require('./src/routes/files-simple');
 app.use('/api', filesRoutes);
 console.log('✓ File upload routes loaded');
 
+// Box Upload Routes (mockup file upload to Box → Caspio)
+const boxUploadRoutes = require('./src/routes/box-upload');
+app.use('/api', boxUploadRoutes);
+console.log('✓ Box upload routes loaded');
+
 // ManageOrders Routes (with rate limiting)
 const manageOrdersLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
