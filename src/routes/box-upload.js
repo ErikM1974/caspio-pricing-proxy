@@ -83,31 +83,61 @@ async function boxRequest(method, url, data, extraHeaders) {
     return axios({ method, url, data, headers, timeout: 30000 });
 }
 
+// In-memory cache: customerId → { id, name } (survives until dyno restart)
+const folderCache = new Map();
+
 /**
  * Search for a customer sub-folder inside Steve's art folder.
  * Folders are named: "{customerId} {companyName}"
+ * Uses Box Search API instead of paginating all items (much faster).
  */
 async function findCustomerFolder(customerId) {
-    const token = await getBoxAccessToken();
-    let offset = 0;
-    const limit = 100;
+    const custIdStr = String(customerId);
 
-    while (true) {
-        const resp = await axios.get(`${BOX_API_BASE}/folders/${BOX_ART_FOLDER_ID}/items`, {
-            params: { fields: 'id,name,type', limit, offset },
+    // Check cache first
+    if (folderCache.has(custIdStr)) {
+        return folderCache.get(custIdStr);
+    }
+
+    const token = await getBoxAccessToken();
+
+    try {
+        // Box Search API: search for folder by customer ID within Steve's art folder
+        const resp = await axios.get(`${BOX_API_BASE}/search`, {
+            params: {
+                query: custIdStr,
+                type: 'folder',
+                ancestor_folder_ids: BOX_ART_FOLDER_ID,
+                fields: 'id,name,type',
+                limit: 10
+            },
             headers: { 'Authorization': `Bearer ${token}` },
-            timeout: 30000
+            timeout: 15000
         });
 
         const entries = resp.data.entries || [];
         for (const entry of entries) {
-            if (entry.type === 'folder' && entry.name.startsWith(String(customerId))) {
+            if (entry.type === 'folder' && entry.name.startsWith(custIdStr)) {
+                folderCache.set(custIdStr, entry);
                 return entry;
             }
         }
-
-        if (entries.length < limit) break;
-        offset += limit;
+    } catch (searchErr) {
+        // Search API can be eventually consistent for new folders.
+        // Fall back to listing first page if search fails.
+        console.log('Box: Search API failed, falling back to folder listing:', searchErr.message);
+        const resp = await axios.get(`${BOX_API_BASE}/folders/${BOX_ART_FOLDER_ID}/items`, {
+            params: { fields: 'id,name,type', limit: 200, offset: 0 },
+            headers: { 'Authorization': `Bearer ${token}` },
+            timeout: 15000
+        });
+        const entries = resp.data.entries || [];
+        for (const entry of entries) {
+            if (entry.type === 'folder' && entry.name.startsWith(custIdStr)) {
+                folderCache.set(custIdStr, entry);
+                return entry;
+            }
+        }
     }
 
     return null; // Not found
@@ -124,6 +154,7 @@ async function createCustomerFolder(customerId, companyName) {
         parent: { id: BOX_ART_FOLDER_ID }
     }, { 'Content-Type': 'application/json' });
     console.log(`Box: Created folder "${folderName}" (ID: ${resp.data.id})`);
+    folderCache.set(String(customerId), resp.data);
     return resp.data;
 }
 
