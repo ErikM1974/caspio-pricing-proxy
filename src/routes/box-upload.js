@@ -397,45 +397,107 @@ router.post('/art-requests/:designId/upload-mockup', upload.single('file'), asyn
 // ── Box File Picker Endpoints ─────────────────────────────────────────
 
 /**
- * GET /api/box/folder-files?designNumber=40246
+ * GET /api/box/art-folders?limit=100&offset=0
  *
- * Search Box for a folder matching the design number, then list its files
- * with thumbnail URLs. Used by Steve's Send Mockup modal to browse his
- * Box Drive folders from the dashboard.
+ * List all folders inside BOX_ART_FOLDER_ID (Steve's art folder).
+ * Used by Art Request Detail "Browse Box" tab to show a browsable folder list.
  */
-router.get('/box/folder-files', async (req, res) => {
-    const { designNumber } = req.query;
-
-    if (!designNumber) {
-        return res.status(400).json({ success: false, error: 'Missing designNumber parameter' });
-    }
+router.get('/box/art-folders', async (req, res) => {
+    const limit = Math.min(parseInt(req.query.limit) || 100, 500);
+    const offset = parseInt(req.query.offset) || 0;
 
     try {
         const token = await getBoxAccessToken();
-        const designNum = String(designNumber).trim();
 
-        // 1. Search Box for folder matching design number
-        const searchResp = await axios.get(`${BOX_API_BASE}/search`, {
+        const resp = await axios.get(`${BOX_API_BASE}/folders/${BOX_ART_FOLDER_ID}/items`, {
             params: {
-                query: designNum,
-                type: 'folder',
-                ancestor_folder_ids: BOX_ART_FOLDER_ID,
                 fields: 'id,name,type',
-                limit: 10
+                limit,
+                offset,
+                sort: 'date',
+                direction: 'DESC'
             },
             headers: { 'Authorization': `Bearer ${token}` },
             timeout: 15000
         });
 
-        const folders = (searchResp.data.entries || []).filter(
-            e => e.type === 'folder' && e.name.startsWith(designNum)
-        );
+        const folders = (resp.data.entries || []).filter(e => e.type === 'folder');
+        const totalCount = resp.data.total_count || 0;
 
-        if (folders.length === 0) {
-            return res.json({ success: true, found: false, folderId: null, folderName: null, files: [] });
+        res.json({
+            success: true,
+            folders: folders.map(f => ({ id: f.id, name: f.name })),
+            total_count: totalCount,
+            hasMore: (offset + limit) < totalCount
+        });
+
+    } catch (err) {
+        console.error('Box art-folders error:', err.response ? JSON.stringify(err.response.data) : err.message);
+        if (err.response?.status === 401) {
+            boxAccessToken = null;
+            boxTokenExpiry = 0;
         }
+        res.status(500).json({ success: false, error: 'Failed to list Box folders: ' + (err.message || 'Unknown error') });
+    }
+});
 
-        const folder = folders[0];
+/**
+ * GET /api/box/folder-files?designNumber=40246
+ * GET /api/box/folder-files?folderId=123456789
+ *
+ * Search Box for a folder matching the design number (or use folderId directly),
+ * then list its files with thumbnail URLs. Used by Steve's Send Mockup modal
+ * and Art Request Detail Browse Box tab.
+ */
+router.get('/box/folder-files', async (req, res) => {
+    const { designNumber, folderId } = req.query;
+
+    if (!designNumber && !folderId) {
+        return res.status(400).json({ success: false, error: 'Missing designNumber or folderId parameter' });
+    }
+
+    try {
+        const token = await getBoxAccessToken();
+        let folder = null;
+
+        if (folderId) {
+            // Direct folder access — skip search
+            try {
+                const folderResp = await axios.get(`${BOX_API_BASE}/folders/${folderId}`, {
+                    params: { fields: 'id,name,type' },
+                    headers: { 'Authorization': `Bearer ${token}` },
+                    timeout: 10000
+                });
+                folder = { id: folderResp.data.id, name: folderResp.data.name };
+            } catch (folderErr) {
+                return res.json({ success: true, found: false, folderId: null, folderName: null, files: [] });
+            }
+        } else {
+            // Search by design number (original behavior)
+            const designNum = String(designNumber).trim();
+
+            const searchResp = await axios.get(`${BOX_API_BASE}/search`, {
+                params: {
+                    query: designNum,
+                    type: 'folder',
+                    ancestor_folder_ids: BOX_ART_FOLDER_ID,
+                    fields: 'id,name,type',
+                    limit: 10
+                },
+                headers: { 'Authorization': `Bearer ${token}` },
+                timeout: 15000
+            });
+
+            const folders = (searchResp.data.entries || []).filter(
+                e => e.type === 'folder' && e.name.startsWith(designNum)
+            );
+
+            if (folders.length === 0) {
+                return res.json({ success: true, found: false, folderId: null, folderName: null, files: [] });
+            }
+
+            folder = folders[0];
+        }
 
         // 2. List folder items
         const itemsResp = await axios.get(`${BOX_API_BASE}/folders/${folder.id}/items`, {
@@ -449,36 +511,45 @@ router.get('/box/folder-files', async (req, res) => {
 
         const items = (itemsResp.data.entries || []).filter(e => e.type === 'file');
 
-        // 3. Get thumbnail URLs for image/PDF files (batch — one request per file)
-        const files = await Promise.all(items.map(async (item) => {
-            let thumbnailUrl = null;
-            try {
-                const repResp = await axios.get(`${BOX_API_BASE}/files/${item.id}`, {
-                    params: { fields: 'representations' },
-                    headers: {
-                        'Authorization': `Bearer ${token}`,
-                        'X-Rep-Hints': '[jpg?dimensions=320x320]'
-                    },
-                    timeout: 10000
-                });
-                const reps = repResp.data.representations?.entries || [];
-                const jpgRep = reps.find(r => r.representation === 'jpg' && r.status?.state === 'success');
-                if (jpgRep && jpgRep.content?.url_template) {
-                    thumbnailUrl = jpgRep.content.url_template.replace('{+asset_path}', '');
-                }
-            } catch (thumbErr) {
-                // Thumbnail not available for this file type — that's fine
-            }
-
-            return {
-                id: item.id,
-                name: item.name,
-                size: item.size,
-                modified_at: item.modified_at,
-                extension: item.extension || item.name.split('.').pop(),
-                thumbnailUrl
-            };
+        // 3. Get thumbnail URLs with concurrency limit + total timeout
+        const THUMB_CONCURRENCY = 5;
+        const THUMB_TIMEOUT_MS = 15000;
+        const files = items.map(item => ({
+            id: item.id,
+            name: item.name,
+            size: item.size,
+            modified_at: item.modified_at,
+            extension: item.extension || item.name.split('.').pop(),
+            thumbnailUrl: null
         }));
+
+        await Promise.race([
+            (async () => {
+                for (let i = 0; i < files.length; i += THUMB_CONCURRENCY) {
+                    const batch = files.slice(i, i + THUMB_CONCURRENCY);
+                    await Promise.allSettled(batch.map(async (file) => {
+                        try {
+                            const repResp = await axios.get(`${BOX_API_BASE}/files/${file.id}`, {
+                                params: { fields: 'representations' },
+                                headers: {
+                                    'Authorization': `Bearer ${token}`,
+                                    'X-Rep-Hints': '[jpg?dimensions=320x320]'
+                                },
+                                timeout: 5000
+                            });
+                            const reps = repResp.data.representations?.entries || [];
+                            const jpgRep = reps.find(r => r.representation === 'jpg' && r.status?.state === 'success');
+                            if (jpgRep?.content?.url_template) {
+                                file.thumbnailUrl = jpgRep.content.url_template.replace('{+asset_path}', '');
+                            }
+                        } catch (thumbErr) {
+                            // Thumbnail not available — that's fine
+                        }
+                    }));
+                }
+            })(),
+            new Promise(resolve => setTimeout(resolve, THUMB_TIMEOUT_MS))
+        ]);
 
         res.json({
             success: true,
