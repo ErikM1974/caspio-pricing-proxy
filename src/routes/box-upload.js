@@ -28,7 +28,8 @@ const ALLOWED_MIME_TYPES = [
 ];
 
 // Mockup URL fields in Caspio ArtRequests (order of preference)
-const MOCKUP_FIELDS = ['Mockup_Link', 'CDN_Link', 'CDN_Link_Two', 'CDN_Link_Three', 'CDN_Link_Four'];
+// Note: No "Mockup_Link" field exists. Box_File_Mockup is the dedicated mockup field.
+const MOCKUP_FIELDS = ['Box_File_Mockup', 'CDN_Link', 'CDN_Link_Two', 'CDN_Link_Three', 'CDN_Link_Four'];
 
 // ── Multer ─────────────────────────────────────────────────────────────
 const upload = multer({
