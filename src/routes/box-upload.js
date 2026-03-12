@@ -149,13 +149,27 @@ async function findCustomerFolder(customerId) {
 async function createCustomerFolder(customerId, companyName) {
     // Match Steve's naming: "{customerId} {companyName}"
     const folderName = `${customerId} ${companyName}`.substring(0, 255);
-    const resp = await boxRequest('POST', `${BOX_API_BASE}/folders`, {
-        name: folderName,
-        parent: { id: BOX_ART_FOLDER_ID }
-    }, { 'Content-Type': 'application/json' });
-    console.log(`Box: Created folder "${folderName}" (ID: ${resp.data.id})`);
-    folderCache.set(String(customerId), resp.data);
-    return resp.data;
+    try {
+        const resp = await boxRequest('POST', `${BOX_API_BASE}/folders`, {
+            name: folderName,
+            parent: { id: BOX_ART_FOLDER_ID }
+        }, { 'Content-Type': 'application/json' });
+        console.log(`Box: Created folder "${folderName}" (ID: ${resp.data.id})`);
+        folderCache.set(String(customerId), resp.data);
+        return resp.data;
+    } catch (err) {
+        // 409 = folder already exists (search API is eventually consistent)
+        if (err.response && err.response.status === 409) {
+            const conflicts = err.response.data?.context_info?.conflicts;
+            if (conflicts && conflicts.length > 0) {
+                const existing = conflicts[0];
+                console.log(`Box: Folder already exists "${existing.name}" (ID: ${existing.id})`);
+                folderCache.set(String(customerId), existing);
+                return existing;
+            }
+        }
+        throw err;
+    }
 }
 
 /**
