@@ -27,9 +27,10 @@ const ALLOWED_MIME_TYPES = [
     'application/pdf'
 ];
 
-// Mockup URL fields in Caspio ArtRequests (order of preference)
-// Note: No "Mockup_Link" field exists. Box_File_Mockup is the dedicated mockup field.
-const MOCKUP_FIELDS = ['Box_File_Mockup', 'CDN_Link', 'CDN_Link_Two', 'CDN_Link_Three', 'CDN_Link_Four'];
+// Writable mockup URL fields in Caspio ArtRequests (order of preference)
+// CDN_Link* are Caspio FILE fields (read-only via API) — cannot write to them.
+// Only text URL fields are writable: Box_File_Mockup, BoxFileLink, Company_Mockup.
+const MOCKUP_FIELDS = ['Box_File_Mockup', 'BoxFileLink', 'Company_Mockup'];
 
 // ── Multer ─────────────────────────────────────────────────────────────
 const upload = multer({
