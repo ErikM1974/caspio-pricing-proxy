@@ -513,45 +513,22 @@ router.get('/box/folder-files', async (req, res) => {
 
         const items = (itemsResp.data.entries || []).filter(e => e.type === 'file');
 
-        // 3. Get thumbnail URLs with concurrency limit + total timeout
-        const THUMB_CONCURRENCY = 5;
-        const THUMB_TIMEOUT_MS = 15000;
-        const files = items.map(item => ({
-            id: item.id,
-            name: item.name,
-            size: item.size,
-            modified_at: item.modified_at,
-            extension: item.extension || item.name.split('.').pop(),
-            thumbnailUrl: null
-        }));
-
-        await Promise.race([
-            (async () => {
-                for (let i = 0; i < files.length; i += THUMB_CONCURRENCY) {
-                    const batch = files.slice(i, i + THUMB_CONCURRENCY);
-                    await Promise.allSettled(batch.map(async (file) => {
-                        try {
-                            const repResp = await axios.get(`${BOX_API_BASE}/files/${file.id}`, {
-                                params: { fields: 'representations' },
-                                headers: {
-                                    'Authorization': `Bearer ${token}`,
-                                    'X-Rep-Hints': '[jpg?dimensions=320x320]'
-                                },
-                                timeout: 5000
-                            });
-                            const reps = repResp.data.representations?.entries || [];
-                            const jpgRep = reps.find(r => r.representation === 'jpg' && r.status?.state !== 'error');
-                            if (jpgRep?.content?.url_template) {
-                                file.thumbnailUrl = jpgRep.content.url_template.replace('{+asset_path}', '');
-                            }
-                        } catch (thumbErr) {
-                            // Thumbnail not available — that's fine
-                        }
-                    }));
-                }
-            })(),
-            new Promise(resolve => setTimeout(resolve, THUMB_TIMEOUT_MS))
-        ]);
+        // 3. Build file list with proxy thumbnail URLs
+        // Thumbnails are served via GET /api/box/thumbnail/:fileId (handles auth server-side)
+        const THUMB_SUPPORTED_EXTS = ['jpg','jpeg','png','gif','bmp','tiff','tif','svg','psd','ai','eps','pdf','indd','indt','idml'];
+        const files = items.map(item => {
+            const ext = (item.extension || item.name.split('.').pop() || '').toLowerCase();
+            return {
+                id: item.id,
+                name: item.name,
+                size: item.size,
+                modified_at: item.modified_at,
+                extension: ext,
+                thumbnailUrl: THUMB_SUPPORTED_EXTS.includes(ext)
+                    ? `/api/box/thumbnail/${item.id}`
+                    : null
+            };
+        });
 
         res.json({
             success: true,
@@ -568,6 +545,68 @@ router.get('/box/folder-files', async (req, res) => {
             boxTokenExpiry = 0;
         }
         res.status(500).json({ success: false, error: 'Failed to search Box: ' + (err.message || 'Unknown error') });
+    }
+});
+
+/**
+ * GET /api/box/thumbnail/:fileId
+ *
+ * Proxy a Box file thumbnail. Returns the image binary directly so the
+ * browser can use it as an <img src> without needing Box auth.
+ * Supports: jpg, png, psd, ai, eps, pdf, indd (NOT cdr).
+ */
+router.get('/box/thumbnail/:fileId', async (req, res) => {
+    const { fileId } = req.params;
+    try {
+        const token = await getBoxAccessToken();
+        // Use Box's simple thumbnail endpoint — returns image bytes directly
+        const thumbResp = await axios.get(`${BOX_API_BASE}/files/${fileId}/thumbnail.png`, {
+            params: { min_height: 256, min_width: 256 },
+            headers: { 'Authorization': `Bearer ${token}` },
+            responseType: 'arraybuffer',
+            timeout: 10000,
+            // Box returns 202 if thumbnail is generating, 302 for placeholder
+            validateStatus: (s) => s === 200 || s === 202 || s === 302
+        });
+
+        if (thumbResp.status === 200 && thumbResp.data && thumbResp.data.length > 0) {
+            const contentType = thumbResp.headers['content-type'] || 'image/png';
+            res.set('Content-Type', contentType);
+            res.set('Cache-Control', 'public, max-age=3600'); // cache 1hr
+            return res.send(Buffer.from(thumbResp.data));
+        }
+
+        // 202 = generating, 302 = placeholder — try Representations API as fallback
+        const repResp = await axios.get(`${BOX_API_BASE}/files/${fileId}`, {
+            params: { fields: 'representations' },
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'X-Rep-Hints': '[jpg?dimensions=320x320]'
+            },
+            timeout: 5000
+        });
+        const reps = repResp.data.representations?.entries || [];
+        const jpgRep = reps.find(r => r.representation === 'jpg' && r.status?.state === 'success');
+        if (jpgRep?.content?.url_template) {
+            const repUrl = jpgRep.content.url_template.replace('{+asset_path}', '');
+            const imgResp = await axios.get(repUrl, {
+                headers: { 'Authorization': `Bearer ${token}` },
+                responseType: 'arraybuffer',
+                timeout: 8000
+            });
+            res.set('Content-Type', 'image/jpeg');
+            res.set('Cache-Control', 'public, max-age=3600');
+            return res.send(Buffer.from(imgResp.data));
+        }
+
+        // No thumbnail available
+        res.status(404).json({ error: 'No thumbnail available' });
+    } catch (err) {
+        if (err.response?.status === 401) {
+            boxAccessToken = null;
+            boxTokenExpiry = 0;
+        }
+        res.status(err.response?.status || 500).json({ error: 'Thumbnail fetch failed' });
     }
 });
 
