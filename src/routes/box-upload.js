@@ -503,7 +503,9 @@ router.get('/box/folder-files', async (req, res) => {
         const itemsResp = await axios.get(`${BOX_API_BASE}/folders/${folder.id}/items`, {
             params: {
                 fields: 'id,name,type,size,modified_at,extension',
-                limit: 100
+                limit: 100,
+                sort: 'date',
+                direction: 'DESC'
             },
             headers: { 'Authorization': `Bearer ${token}` },
             timeout: 15000
