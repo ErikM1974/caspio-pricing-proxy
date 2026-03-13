@@ -538,7 +538,7 @@ router.get('/box/folder-files', async (req, res) => {
                                 timeout: 5000
                             });
                             const reps = repResp.data.representations?.entries || [];
-                            const jpgRep = reps.find(r => r.representation === 'jpg' && r.status?.state === 'success');
+                            const jpgRep = reps.find(r => r.representation === 'jpg' && r.status?.state !== 'error');
                             if (jpgRep?.content?.url_template) {
                                 file.thumbnailUrl = jpgRep.content.url_template.replace('{+asset_path}', '');
                             }
