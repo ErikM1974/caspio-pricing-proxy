@@ -9,6 +9,8 @@
 //   PUT    /api/mockups/:id/status — Quick status update (with revision tracking)
 //   GET    /api/mockup-notes/:mockupId — Get notes for a mockup
 //   POST   /api/mockup-notes     — Add a note to a mockup
+//   GET    /api/thread-colors    — List thread colors (cached 1hr, ?instock=true)
+//   GET    /api/locations        — List locations (cached 1hr, ?type=EMB,CAP)
 
 const express = require('express');
 const router = express.Router();
@@ -19,6 +21,11 @@ const config = require('../../config');
 const caspioApiBaseUrl = config.caspio.apiBaseUrl;
 const MOCKUPS_TABLE = 'Digitizing_Mockups';
 const NOTES_TABLE = 'Digitizing_Mockup_Notes';
+
+// ── In-Memory Caches (1-hour TTL) ───────────────────────────────────
+const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+let threadColorsCache = { data: null, timestamp: 0 };
+let locationsCache = { data: null, timestamp: 0 };
 
 // ── In-Memory Mockup Notification Queue ──────────────────────────────
 // Same pattern as art notifications (art.js)
@@ -441,6 +448,101 @@ router.get('/mockup-notifications', (req, res) => {
     });
 
     res.json({ success: true, notifications });
+});
+
+// ── Thread Colors & Locations Endpoints ──────────────────────────────
+
+/**
+ * GET /api/thread-colors
+ *
+ * Fetches all records from the Caspio ThreadColors table.
+ * Query params:
+ *   instock=true — filter to only Instock=Yes records (default: show all)
+ * Results cached in-memory for 1 hour.
+ */
+router.get('/thread-colors', async (req, res) => {
+    try {
+        const now = Date.now();
+        const useInstock = req.query.instock === 'true';
+
+        // Check cache
+        if (threadColorsCache.data && (now - threadColorsCache.timestamp) < CACHE_TTL_MS) {
+            console.log('Thread colors served from cache');
+            let colors = threadColorsCache.data;
+            if (useInstock) {
+                colors = colors.filter(c => c.Instock === 'Yes');
+            }
+            return res.json({ success: true, count: colors.length, colors });
+        }
+
+        // Fetch from Caspio
+        console.log('Fetching thread colors from Caspio');
+        const resource = `/tables/ThreadColors/records`;
+        const params = { 'q.orderBy': 'Thread_Color ASC' };
+
+        const records = await fetchAllCaspioPages(resource, params);
+
+        // Update cache with ALL records
+        threadColorsCache = { data: records, timestamp: Date.now() };
+
+        let colors = records;
+        if (useInstock) {
+            colors = colors.filter(c => c.Instock === 'Yes');
+        }
+
+        res.json({ success: true, count: colors.length, colors });
+
+    } catch (error) {
+        console.error('Error fetching thread colors:', error.response ? JSON.stringify(error.response.data) : error.message);
+        res.status(500).json({ success: false, error: 'Failed to fetch thread colors: ' + error.message });
+    }
+});
+
+/**
+ * GET /api/locations
+ *
+ * Fetches all records from the Caspio location table.
+ * Query params:
+ *   type — filter by Type (comma-separated, e.g. type=EMB,CAP)
+ * Results cached in-memory for 1 hour.
+ */
+router.get('/locations', async (req, res) => {
+    try {
+        const now = Date.now();
+
+        // Check cache
+        if (locationsCache.data && (now - locationsCache.timestamp) < CACHE_TTL_MS) {
+            console.log('Locations served from cache');
+            let locations = locationsCache.data;
+            if (req.query.type) {
+                const types = req.query.type.split(',').map(t => t.trim());
+                locations = locations.filter(l => types.includes(l.Type));
+            }
+            return res.json({ success: true, count: locations.length, locations });
+        }
+
+        // Fetch from Caspio
+        console.log('Fetching locations from Caspio');
+        const resource = `/tables/location/records`;
+        const params = { 'q.orderBy': 'location_name ASC' };
+
+        const records = await fetchAllCaspioPages(resource, params);
+
+        // Update cache with ALL records
+        locationsCache = { data: records, timestamp: Date.now() };
+
+        let locations = records;
+        if (req.query.type) {
+            const types = req.query.type.split(',').map(t => t.trim());
+            locations = locations.filter(l => types.includes(l.Type));
+        }
+
+        res.json({ success: true, count: locations.length, locations });
+
+    } catch (error) {
+        console.error('Error fetching locations:', error.response ? JSON.stringify(error.response.data) : error.message);
+        res.status(500).json({ success: false, error: 'Failed to fetch locations: ' + error.message });
+    }
 });
 
 module.exports = router;
