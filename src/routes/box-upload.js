@@ -20,6 +20,7 @@ const BOX_CLIENT_ID = process.env.BOX_CLIENT_ID;
 const BOX_CLIENT_SECRET = process.env.BOX_CLIENT_SECRET;
 const BOX_ENTERPRISE_ID = process.env.BOX_ENTERPRISE_ID;
 const BOX_ART_FOLDER_ID = process.env.BOX_ART_FOLDER_ID; // AAA...Steve Art Box 2020
+const BOX_MOCKUP_FOLDER_ID = process.env.BOX_MOCKUP_FOLDER_ID; // Ruth Digitizing Mockups parent folder
 
 // Allowed file types for mockup uploads
 const ALLOWED_MIME_TYPES = [
@@ -663,6 +664,301 @@ router.post('/art-requests/:designId/upload-mockup-url', async (req, res) => {
     } catch (err) {
         console.error('Save mockup URL error:', err.message);
         res.status(500).json({ success: false, error: 'Failed to save URL: ' + err.message });
+    }
+});
+
+// ── Ruth Digitizing Mockup Box Endpoints ─────────────────────────────
+
+// In-memory cache for mockup customer folders (separate from Steve's art folders)
+const mockupFolderCache = new Map();
+
+/**
+ * Find a customer folder inside Ruth's mockup parent folder.
+ * Folders named by company name (e.g., "Starbucks", "Boeing").
+ */
+async function findMockupCustomerFolder(companyName) {
+    const nameKey = companyName.trim().toLowerCase();
+
+    if (mockupFolderCache.has(nameKey)) {
+        return mockupFolderCache.get(nameKey);
+    }
+
+    const token = await getBoxAccessToken();
+
+    try {
+        const resp = await axios.get(`${BOX_API_BASE}/search`, {
+            params: {
+                query: companyName.trim(),
+                type: 'folder',
+                ancestor_folder_ids: BOX_MOCKUP_FOLDER_ID,
+                fields: 'id,name,type',
+                limit: 10
+            },
+            headers: { 'Authorization': `Bearer ${token}` },
+            timeout: 15000
+        });
+
+        const entries = resp.data.entries || [];
+        for (const entry of entries) {
+            if (entry.type === 'folder' && entry.name.toLowerCase() === nameKey) {
+                mockupFolderCache.set(nameKey, entry);
+                return entry;
+            }
+        }
+    } catch (searchErr) {
+        console.log('Box: Mockup folder search failed, falling back to listing:', searchErr.message);
+        const resp = await axios.get(`${BOX_API_BASE}/folders/${BOX_MOCKUP_FOLDER_ID}/items`, {
+            params: { fields: 'id,name,type', limit: 200, offset: 0 },
+            headers: { 'Authorization': `Bearer ${token}` },
+            timeout: 15000
+        });
+        const entries = resp.data.entries || [];
+        for (const entry of entries) {
+            if (entry.type === 'folder' && entry.name.toLowerCase() === nameKey) {
+                mockupFolderCache.set(nameKey, entry);
+                return entry;
+            }
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Create a customer folder inside Ruth's mockup parent folder.
+ */
+async function createMockupCustomerFolder(companyName) {
+    const folderName = companyName.trim().substring(0, 255);
+    try {
+        const resp = await boxRequest('POST', `${BOX_API_BASE}/folders`, {
+            name: folderName,
+            parent: { id: BOX_MOCKUP_FOLDER_ID }
+        }, { 'Content-Type': 'application/json' });
+        console.log(`Box: Created mockup folder "${folderName}" (ID: ${resp.data.id})`);
+        mockupFolderCache.set(folderName.toLowerCase(), resp.data);
+        return resp.data;
+    } catch (err) {
+        if (err.response && err.response.status === 409) {
+            const conflicts = err.response.data?.context_info?.conflicts;
+            if (conflicts && conflicts.length > 0) {
+                const existing = conflicts[0];
+                console.log(`Box: Mockup folder already exists "${existing.name}" (ID: ${existing.id})`);
+                mockupFolderCache.set(folderName.toLowerCase(), existing);
+                return existing;
+            }
+        }
+        throw err;
+    }
+}
+
+/**
+ * GET /api/box/mockup-folders?limit=100&offset=0
+ *
+ * List all customer folders inside Ruth's mockup parent folder.
+ */
+router.get('/box/mockup-folders', async (req, res) => {
+    if (!BOX_MOCKUP_FOLDER_ID) {
+        return res.status(500).json({ success: false, error: 'BOX_MOCKUP_FOLDER_ID not configured' });
+    }
+
+    const limit = Math.min(parseInt(req.query.limit) || 100, 500);
+    const offset = parseInt(req.query.offset) || 0;
+
+    try {
+        const token = await getBoxAccessToken();
+
+        const resp = await axios.get(`${BOX_API_BASE}/folders/${BOX_MOCKUP_FOLDER_ID}/items`, {
+            params: {
+                fields: 'id,name,type',
+                limit,
+                offset,
+                sort: 'name',
+                direction: 'ASC'
+            },
+            headers: { 'Authorization': `Bearer ${token}` },
+            timeout: 15000
+        });
+
+        const folders = (resp.data.entries || []).filter(e => e.type === 'folder');
+        const totalCount = resp.data.total_count || 0;
+
+        res.json({
+            success: true,
+            folders: folders.map(f => ({ id: f.id, name: f.name })),
+            total_count: totalCount,
+            hasMore: (offset + limit) < totalCount
+        });
+
+    } catch (err) {
+        console.error('Box mockup-folders error:', err.response ? JSON.stringify(err.response.data) : err.message);
+        if (err.response?.status === 401) {
+            boxAccessToken = null;
+            boxTokenExpiry = 0;
+        }
+        res.status(500).json({ success: false, error: 'Failed to list mockup folders: ' + (err.message || 'Unknown error') });
+    }
+});
+
+/**
+ * POST /api/box/create-mockup-folder
+ *
+ * Auto-create a customer folder inside Ruth's mockup parent folder.
+ * Body: { companyName }
+ * Returns: { success, folderId, folderName }
+ */
+router.post('/box/create-mockup-folder', async (req, res) => {
+    if (!BOX_MOCKUP_FOLDER_ID) {
+        return res.status(500).json({ success: false, error: 'BOX_MOCKUP_FOLDER_ID not configured' });
+    }
+
+    const { companyName } = req.body;
+    if (!companyName) {
+        return res.status(400).json({ success: false, error: 'Missing companyName' });
+    }
+
+    try {
+        // Check if folder already exists
+        let folder = await findMockupCustomerFolder(companyName);
+        if (!folder) {
+            folder = await createMockupCustomerFolder(companyName);
+        }
+
+        res.json({
+            success: true,
+            folderId: folder.id,
+            folderName: folder.name,
+            created: !mockupFolderCache.has(companyName.trim().toLowerCase())
+        });
+
+    } catch (err) {
+        console.error('Box create-mockup-folder error:', err.response ? JSON.stringify(err.response.data) : err.message);
+        if (err.response?.status === 401) {
+            boxAccessToken = null;
+            boxTokenExpiry = 0;
+        }
+        res.status(500).json({ success: false, error: 'Failed to create folder: ' + (err.message || 'Unknown error') });
+    }
+});
+
+/**
+ * POST /api/mockups/:id/upload-file
+ *
+ * Upload a mockup file for Ruth's digitizing work.
+ * Body (multipart/form-data):
+ *   - file: the image/PDF file
+ *   - companyName: customer company name (for folder lookup/creation)
+ *   - slot: which field to save to ("Box_Mockup_1", "Box_Mockup_2", "Box_Mockup_3", or "Box_Reference_File")
+ *   - designNumber: design number (for file naming)
+ */
+router.post('/mockups/:id/upload-file', upload.single('file'), async (req, res) => {
+    const { id } = req.params;
+    const { companyName, slot, designNumber } = req.body;
+
+    if (!req.file) {
+        return res.status(400).json({ success: false, error: 'No file provided', code: 'NO_FILE' });
+    }
+    if (!companyName) {
+        return res.status(400).json({ success: false, error: 'Missing companyName', code: 'MISSING_COMPANY' });
+    }
+
+    const VALID_SLOTS = ['Box_Mockup_1', 'Box_Mockup_2', 'Box_Mockup_3', 'Box_Reference_File'];
+    const targetSlot = slot || 'Box_Mockup_1';
+    if (!VALID_SLOTS.includes(targetSlot)) {
+        return res.status(400).json({ success: false, error: `Invalid slot. Must be one of: ${VALID_SLOTS.join(', ')}`, code: 'INVALID_SLOT' });
+    }
+
+    const file = req.file;
+    console.log(`Mockup upload: ID ${id}, slot ${targetSlot}, file "${file.originalname}" (${(file.size / 1024).toFixed(1)} KB)`);
+
+    try {
+        // 1. Find or create customer folder in Ruth's mockup folder
+        let folder = await findMockupCustomerFolder(companyName);
+        if (!folder) {
+            folder = await createMockupCustomerFolder(companyName);
+        }
+        console.log(`Mockup upload: Using folder "${folder.name}" (ID: ${folder.id})`);
+
+        // 2. Build file name
+        const ext = file.originalname.split('.').pop() || 'jpg';
+        const shortCompany = companyName.substring(0, 30).trim();
+        const slotLabel = targetSlot === 'Box_Reference_File' ? 'Reference' : targetSlot.replace('Box_Mockup_', 'Mockup');
+        const fileName = `${shortCompany} ${slotLabel} ${designNumber || id}.${ext}`.replace(/[<>:"/\\|?*]/g, '');
+
+        // 3. Upload to Box
+        let boxFile;
+        try {
+            boxFile = await uploadFileToBox(folder.id, fileName, file.buffer, file.mimetype);
+        } catch (uploadErr) {
+            if (uploadErr.response && uploadErr.response.status === 409) {
+                const ts = Date.now().toString(36);
+                const altName = `${shortCompany} ${slotLabel} ${designNumber || id}_${ts}.${ext}`.replace(/[<>:"/\\|?*]/g, '');
+                boxFile = await uploadFileToBox(folder.id, altName, file.buffer, file.mimetype);
+            } else {
+                throw uploadErr;
+            }
+        }
+        console.log(`Mockup upload: File uploaded as "${boxFile.name}" (ID: ${boxFile.id})`);
+
+        // 4. Create shared link
+        const sharedLink = await createSharedLink(boxFile.id);
+        const sharedUrl = sharedLink.download_url || sharedLink.url;
+        console.log(`Mockup upload: Shared link: ${sharedUrl}`);
+
+        // 5. Save URL to Caspio Digitizing_Mockups table
+        const caspioToken = await getCaspioAccessToken();
+        const updateData = {
+            [targetSlot]: sharedUrl,
+            Box_Folder_ID: folder.id
+        };
+
+        await axios.put(
+            `${config.caspio.apiBaseUrl}/tables/Digitizing_Mockups/records?q.where=ID=${id}`,
+            updateData,
+            {
+                headers: {
+                    'Authorization': `Bearer ${caspioToken}`,
+                    'Content-Type': 'application/json'
+                },
+                timeout: 15000
+            }
+        );
+
+        console.log(`Mockup upload: Saved ${targetSlot} URL for mockup ${id}`);
+
+        // 6. Return success
+        res.json({
+            success: true,
+            slot: targetSlot,
+            url: sharedUrl,
+            boxFileId: boxFile.id,
+            boxFileName: boxFile.name,
+            folderId: folder.id,
+            folderName: folder.name
+        });
+
+    } catch (err) {
+        console.error('Mockup upload error:', err.response ? JSON.stringify(err.response.data) : err.message);
+
+        if (err.response) {
+            const status = err.response.status;
+            if (status === 401) {
+                boxAccessToken = null;
+                boxTokenExpiry = 0;
+                return res.status(502).json({ success: false, error: 'Box authentication failed. Please retry.', code: 'BOX_AUTH_FAILED' });
+            }
+            if (status === 403) {
+                return res.status(403).json({ success: false, error: 'Box permission denied.', code: 'BOX_PERMISSION_DENIED' });
+            }
+            if (status === 429) {
+                return res.status(429).json({ success: false, error: 'Box rate limited. Please wait and retry.', code: 'BOX_RATE_LIMITED' });
+            }
+        }
+
+        res.status(500).json({
+            success: false,
+            error: 'Failed to upload mockup file: ' + (err.message || 'Unknown error'),
+            code: 'UPLOAD_FAILED'
+        });
     }
 });
 

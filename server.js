@@ -317,6 +317,11 @@ const boxUploadRoutes = require('./src/routes/box-upload');
 app.use('/api', boxUploadRoutes);
 console.log('✓ Box upload routes loaded');
 
+// Digitizing Mockup Routes (Ruth's mockup workflow)
+const mockupRoutes = require('./src/routes/mockup-routes');
+app.use('/api', mockupRoutes);
+console.log('✓ Digitizing Mockup routes loaded');
+
 // ManageOrders Routes (with rate limiting)
 const manageOrdersLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
