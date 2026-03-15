@@ -498,51 +498,6 @@ router.get('/thread-colors', async (req, res) => {
     }
 });
 
-/**
- * GET /api/locations
- *
- * Fetches all records from the Caspio location table.
- * Query params:
- *   type — filter by Type (comma-separated, e.g. type=EMB,CAP)
- * Results cached in-memory for 1 hour.
- */
-router.get('/locations', async (req, res) => {
-    try {
-        const now = Date.now();
-
-        // Check cache
-        if (locationsCache.data && (now - locationsCache.timestamp) < CACHE_TTL_MS) {
-            console.log('Locations served from cache');
-            let locations = locationsCache.data;
-            if (req.query.type) {
-                const types = req.query.type.split(',').map(t => t.trim());
-                locations = locations.filter(l => types.includes(l.Type));
-            }
-            return res.json({ success: true, count: locations.length, locations });
-        }
-
-        // Fetch from Caspio
-        console.log('Fetching locations from Caspio');
-        const resource = `/tables/location/records`;
-        const params = { 'q.orderBy': 'location_name ASC' };
-
-        const records = await fetchAllCaspioPages(resource, params);
-
-        // Update cache with ALL records
-        locationsCache = { data: records, timestamp: Date.now() };
-
-        let locations = records;
-        if (req.query.type) {
-            const types = req.query.type.split(',').map(t => t.trim());
-            locations = locations.filter(l => types.includes(l.Type));
-        }
-
-        res.json({ success: true, count: locations.length, locations });
-
-    } catch (error) {
-        console.error('Error fetching locations:', error.response ? JSON.stringify(error.response.data) : error.message);
-        res.status(500).json({ success: false, error: 'Failed to fetch locations: ' + error.message });
-    }
-});
+// NOTE: /api/locations endpoint is handled by misc.js (supports comma-separated ?type=EMB,CAP)
 
 module.exports = router;

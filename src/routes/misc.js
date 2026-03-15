@@ -481,6 +481,7 @@ router.get('/staff-announcements', async (req, res) => {
 });
 
 // GET /api/locations
+// Supports comma-separated type filter: ?type=EMB,CAP
 router.get('/locations', async (req, res) => {
     const { type } = req.query;
     console.log(`GET /api/locations requested with type=${type || 'all'}`);
@@ -491,11 +492,17 @@ router.get('/locations', async (req, res) => {
             'q.orderBy': 'PK_ID ASC',
             'q.limit': 100
         };
-        
+
         if (type) {
-            params['q.where'] = `Type='${type}'`;
+            const types = type.split(',').map(t => t.trim());
+            if (types.length === 1) {
+                params['q.where'] = `Type='${types[0]}'`;
+            } else {
+                // Multiple types: Type='EMB' OR Type='CAP'
+                params['q.where'] = types.map(t => `Type='${t}'`).join(' OR ');
+            }
         }
-        
+
         const locations = await fetchAllCaspioPages('/tables/location/records', params);
         console.log(`Locations: ${locations.length} record(s) found`);
         res.json(locations);
