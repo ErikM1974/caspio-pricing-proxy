@@ -470,7 +470,7 @@ router.get('/thread-colors', async (req, res) => {
             console.log('Thread colors served from cache');
             let colors = threadColorsCache.data;
             if (useInstock) {
-                colors = colors.filter(c => c.Instock === true);
+                colors = colors.filter(c => c.Instock === true || c.Instock === 'Yes' || c.Instock === 'True' || c.Instock === 1);
             }
             return res.json({ success: true, count: colors.length, colors });
         }
@@ -487,7 +487,7 @@ router.get('/thread-colors', async (req, res) => {
 
         let colors = records;
         if (useInstock) {
-            colors = colors.filter(c => c.Instock === true);
+            colors = colors.filter(c => c.Instock === true || c.Instock === 'Yes' || c.Instock === 'True' || c.Instock === 1);
         }
 
         res.json({ success: true, count: colors.length, colors });
