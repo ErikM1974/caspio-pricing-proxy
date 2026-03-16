@@ -2,6 +2,8 @@
 // Mirrors pattern from art.js (Steve's Art Hub)
 //
 // Endpoints:
+//   GET    /api/mockup-versions/:mockupId — Get version history for a mockup
+//   POST   /api/mockup-versions  — Insert a new version record (auto-increments)
 //   GET    /api/mockups          — List mockups (with filters)
 //   GET    /api/mockups/:id      — Get single mockup
 //   POST   /api/mockups          — Create new mockup
@@ -39,6 +41,107 @@ function pruneNotifications() {
         MOCKUP_NOTIFICATIONS.shift();
     }
 }
+
+const VERSIONS_TABLE = 'Digitizing_Mockup_Versions';
+
+// ── Mockup Version History Endpoints ─────────────────────────────────
+
+/**
+ * GET /api/mockup-versions/:mockupId
+ *
+ * Fetch all version records for a mockup, ordered by slot + version desc.
+ */
+router.get('/mockup-versions/:mockupId', async (req, res) => {
+    try {
+        const token = await getCaspioAccessToken();
+        const mockupId = req.params.mockupId;
+        const response = await axios.get(
+            `${caspioApiBaseUrl}/tables/${VERSIONS_TABLE}/records`,
+            {
+                params: {
+                    'q.where': `Mockup_ID=${mockupId}`,
+                    'q.orderBy': 'Slot_Key ASC, Version_Number DESC'
+                },
+                headers: { Authorization: `Bearer ${token}` }
+            }
+        );
+        res.json({ success: true, versions: response.data.Result || [] });
+    } catch (error) {
+        console.error('Error fetching mockup versions:', error.message);
+        res.status(500).json({ success: false, error: 'Failed to fetch versions' });
+    }
+});
+
+/**
+ * POST /api/mockup-versions
+ *
+ * Insert a new version record. Auto-calculates Version_Number and
+ * marks previous versions for the same slot as not current.
+ * Body: { Mockup_ID, Slot_Key, File_URL, File_Name, Box_File_ID, Uploaded_By }
+ */
+router.post('/mockup-versions', async (req, res) => {
+    try {
+        const token = await getCaspioAccessToken();
+        const { Mockup_ID, Slot_Key, File_URL, File_Name, Box_File_ID, Uploaded_By } = req.body;
+
+        if (!Mockup_ID || !Slot_Key || !File_URL) {
+            return res.status(400).json({ success: false, error: 'Missing required fields (Mockup_ID, Slot_Key, File_URL)' });
+        }
+
+        // 1. Get current max version for this mockup+slot
+        const existing = await axios.get(
+            `${caspioApiBaseUrl}/tables/${VERSIONS_TABLE}/records`,
+            {
+                params: {
+                    'q.where': `Mockup_ID=${Mockup_ID} AND Slot_Key='${Slot_Key}'`,
+                    'q.orderBy': 'Version_Number DESC',
+                    'q.pageSize': 1
+                },
+                headers: { Authorization: `Bearer ${token}` }
+            }
+        );
+        const records = existing.data.Result || [];
+        const nextVersion = records.length > 0 ? records[0].Version_Number + 1 : 1;
+
+        // 2. Mark all existing versions for this slot as not current
+        if (records.length > 0) {
+            await axios.put(
+                `${caspioApiBaseUrl}/tables/${VERSIONS_TABLE}/records`,
+                { Is_Current: 'No' },
+                {
+                    params: { 'q.where': `Mockup_ID=${Mockup_ID} AND Slot_Key='${Slot_Key}'` },
+                    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
+                }
+            );
+        }
+
+        // 3. Insert new version as current
+        const newRecord = {
+            Mockup_ID: parseInt(Mockup_ID),
+            Slot_Key: Slot_Key,
+            Version_Number: nextVersion,
+            File_URL: File_URL,
+            File_Name: File_Name || '',
+            Box_File_ID: Box_File_ID || '',
+            Uploaded_By: Uploaded_By || '',
+            Uploaded_Date: new Date().toISOString(),
+            Is_Current: 'Yes',
+            Notes: ''
+        };
+
+        await axios.post(
+            `${caspioApiBaseUrl}/tables/${VERSIONS_TABLE}/records`,
+            newRecord,
+            { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
+        );
+
+        console.log(`Mockup version ${nextVersion} created for mockup ${Mockup_ID}, slot ${Slot_Key}`);
+        res.json({ success: true, version: nextVersion });
+    } catch (error) {
+        console.error('Error creating mockup version:', error.message);
+        res.status(500).json({ success: false, error: 'Failed to create version' });
+    }
+});
 
 // ── Mockup CRUD Endpoints ────────────────────────────────────────────
 

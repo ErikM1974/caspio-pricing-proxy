@@ -929,7 +929,57 @@ router.post('/mockups/:id/upload-file', upload.single('file'), async (req, res) 
 
         console.log(`Mockup upload: Saved ${targetSlot} URL for mockup ${id}`);
 
-        // 6. Return success
+        // 6. Insert version record (fire-and-forget — never blocks the upload response)
+        try {
+            const versionResp = await axios.get(
+                `${config.caspio.apiBaseUrl}/tables/Digitizing_Mockup_Versions/records`,
+                {
+                    params: {
+                        'q.where': `Mockup_ID=${id} AND Slot_Key='${targetSlot}'`,
+                        'q.orderBy': 'Version_Number DESC',
+                        'q.pageSize': 1
+                    },
+                    headers: { 'Authorization': `Bearer ${caspioToken}` }
+                }
+            );
+            const vRecords = versionResp.data.Result || [];
+            const nextVer = vRecords.length > 0 ? vRecords[0].Version_Number + 1 : 1;
+
+            // Mark previous versions not current
+            if (vRecords.length > 0) {
+                await axios.put(
+                    `${config.caspio.apiBaseUrl}/tables/Digitizing_Mockup_Versions/records`,
+                    { Is_Current: 'No' },
+                    {
+                        params: { 'q.where': `Mockup_ID=${id} AND Slot_Key='${targetSlot}'` },
+                        headers: { 'Authorization': `Bearer ${caspioToken}`, 'Content-Type': 'application/json' }
+                    }
+                );
+            }
+
+            // Insert new version
+            await axios.post(
+                `${config.caspio.apiBaseUrl}/tables/Digitizing_Mockup_Versions/records`,
+                {
+                    Mockup_ID: parseInt(id),
+                    Slot_Key: targetSlot,
+                    Version_Number: nextVer,
+                    File_URL: sharedUrl,
+                    File_Name: boxFile.name || file.originalname,
+                    Box_File_ID: String(boxFile.id),
+                    Uploaded_By: 'Ruth',
+                    Uploaded_Date: new Date().toISOString(),
+                    Is_Current: 'Yes',
+                    Notes: ''
+                },
+                { headers: { 'Authorization': `Bearer ${caspioToken}`, 'Content-Type': 'application/json' } }
+            );
+            console.log(`Mockup upload: Version ${nextVer} recorded for mockup ${id}, slot ${targetSlot}`);
+        } catch (versionErr) {
+            console.error('Version tracking failed (non-blocking):', versionErr.message);
+        }
+
+        // 7. Return success
         res.json({
             success: true,
             slot: targetSlot,
