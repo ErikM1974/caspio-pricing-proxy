@@ -188,17 +188,26 @@ router.post('/mockups', async (req, res) => {
         });
 
         // Query for the newly created record to get its auto-generated ID
+        // Use Design_Number + Company_Name, sorted by ID DESC to get the latest
         const escapedCompany = (data.Company_Name || '').replace(/'/g, "''");
-        const whereClause = `Submitted_Date='${data.Submitted_Date}' AND Company_Name='${escapedCompany}'`;
-        const queryUrl = `${caspioApiBaseUrl}/tables/${MOCKUPS_TABLE}/records?q.where=${encodeURIComponent(whereClause)}&q.orderBy=ID+DESC&q.pageSize=1`;
+        const escapedDesign = (data.Design_Number || '').replace(/'/g, "''");
+        const whereClause = `Design_Number='${escapedDesign}' AND Company_Name='${escapedCompany}'`;
+        const queryUrl = `${caspioApiBaseUrl}/tables/${MOCKUPS_TABLE}/records?q.where=${encodeURIComponent(whereClause)}&q.orderBy=${encodeURIComponent('ID DESC')}&q.pageSize=1&q.select=${encodeURIComponent('ID,Design_Number,Company_Name,Status')}`;
 
-        const queryResp = await axios.get(queryUrl, {
-            headers: { 'Authorization': `Bearer ${token}` },
-            timeout: 15000
-        });
-
-        const records = queryResp.data.Result || [];
-        const createdRecord = records[0] || { ID: null };
+        let createdRecord = { ID: null };
+        try {
+            const queryResp = await axios.get(queryUrl, {
+                headers: { 'Authorization': `Bearer ${token}` },
+                timeout: 15000
+            });
+            const records = queryResp.data.Result || [];
+            if (records.length > 0) {
+                createdRecord = records[0];
+            }
+        } catch (queryErr) {
+            // If query fails, still return success but without ID
+            console.warn('Post-insert query failed (record was created):', queryErr.message);
+        }
 
         console.log(`Mockup created: ID ${createdRecord.ID}, Design ${data.Design_Number} for ${data.Company_Name}`);
 
