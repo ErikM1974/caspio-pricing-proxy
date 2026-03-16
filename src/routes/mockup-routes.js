@@ -170,14 +170,16 @@ router.post('/mockups', async (req, res) => {
         const url = `${caspioApiBaseUrl}/tables/${MOCKUPS_TABLE}/records`;
 
         // Set defaults for new records
+        const submittedDate = new Date().toISOString();
         const data = {
             ...req.body,
             Status: req.body.Status || 'Submitted',
-            Submitted_Date: req.body.Submitted_Date || new Date().toISOString(),
+            Submitted_Date: req.body.Submitted_Date || submittedDate,
             Revision_Count: 0
         };
 
-        const resp = await axios.post(url, data, {
+        // Insert record (Caspio POST returns empty string, not the created record)
+        await axios.post(url, data, {
             headers: {
                 'Authorization': `Bearer ${token}`,
                 'Content-Type': 'application/json'
@@ -185,8 +187,19 @@ router.post('/mockups', async (req, res) => {
             timeout: 15000
         });
 
-        // Caspio returns { Result: [{ ID: 123, ... }] } — unwrap for frontend
-        const createdRecord = resp.data.Result ? resp.data.Result[0] : resp.data;
+        // Query for the newly created record to get its auto-generated ID
+        const escapedCompany = (data.Company_Name || '').replace(/'/g, "''");
+        const whereClause = `Submitted_Date='${data.Submitted_Date}' AND Company_Name='${escapedCompany}'`;
+        const queryUrl = `${caspioApiBaseUrl}/tables/${MOCKUPS_TABLE}/records?q.where=${encodeURIComponent(whereClause)}&q.orderBy=ID+DESC&q.pageSize=1`;
+
+        const queryResp = await axios.get(queryUrl, {
+            headers: { 'Authorization': `Bearer ${token}` },
+            timeout: 15000
+        });
+
+        const records = queryResp.data.Result || [];
+        const createdRecord = records[0] || { ID: null };
+
         console.log(`Mockup created: ID ${createdRecord.ID}, Design ${data.Design_Number} for ${data.Company_Name}`);
 
         res.status(201).json({
