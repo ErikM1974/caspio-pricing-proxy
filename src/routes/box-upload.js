@@ -25,7 +25,11 @@ const BOX_MOCKUP_FOLDER_ID = process.env.BOX_MOCKUP_FOLDER_ID; // Ruth Digitizin
 // Allowed file types for mockup uploads
 const ALLOWED_MIME_TYPES = [
     'image/jpeg', 'image/png', 'image/gif', 'image/webp',
-    'application/pdf'
+    'application/pdf',
+    'image/svg+xml',                    // .SVG
+    'application/postscript',           // .AI, .EPS
+    'application/octet-stream',         // .DST, .EMB (binary embroidery files)
+    'application/x-dst'                 // .DST alternate MIME
 ];
 
 // Writable mockup URL fields in Caspio ArtRequests (order of preference)

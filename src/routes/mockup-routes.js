@@ -185,11 +185,13 @@ router.post('/mockups', async (req, res) => {
             timeout: 15000
         });
 
-        console.log(`Mockup created: Design ${data.Design_Number} for ${data.Company_Name}`);
+        // Caspio returns { Result: [{ ID: 123, ... }] } — unwrap for frontend
+        const createdRecord = resp.data.Result ? resp.data.Result[0] : resp.data;
+        console.log(`Mockup created: ID ${createdRecord.ID}, Design ${data.Design_Number} for ${data.Company_Name}`);
 
         res.status(201).json({
             success: true,
-            record: resp.data
+            record: createdRecord
         });
 
     } catch (error) {
