@@ -882,11 +882,33 @@ router.post('/mockups/:id/upload-file', upload.single('file'), async (req, res) 
         }
         console.log(`Mockup upload: Using folder "${folder.name}" (ID: ${folder.id})`);
 
-        // 2. Build file name
+        // 2. Query next version number BEFORE building filename (need it for versioned naming)
         const ext = file.originalname.split('.').pop() || 'jpg';
         const shortCompany = companyName.substring(0, 30).trim();
         const slotLabel = targetSlot === 'Box_Reference_File' ? 'Reference' : targetSlot.replace('Box_Mockup_', 'Mockup');
-        const fileName = `${shortCompany} ${slotLabel} ${designNumber || id}.${ext}`.replace(/[<>:"/\\|?*]/g, '');
+
+        let nextVer = 1;
+        let vRecords = [];
+        try {
+            const earlyToken = await getCaspioAccessToken();
+            const versionResp = await axios.get(
+                `${config.caspio.apiBaseUrl}/tables/Digitizing_Mockup_Versions/records`,
+                {
+                    params: {
+                        'q.where': `Mockup_ID=${id} AND Slot_Key='${targetSlot}'`,
+                        'q.orderBy': 'Version_Number DESC',
+                        'q.pageSize': 1
+                    },
+                    headers: { 'Authorization': `Bearer ${earlyToken}` }
+                }
+            );
+            vRecords = versionResp.data.Result || [];
+            nextVer = vRecords.length > 0 ? vRecords[0].Version_Number + 1 : 1;
+        } catch (verLookupErr) {
+            console.error('Version lookup failed (using v1):', verLookupErr.message);
+        }
+
+        const fileName = `${shortCompany} ${slotLabel} ${designNumber || id} v${nextVer}.${ext}`.replace(/[<>:"/\\|?*]/g, '');
 
         // 3. Upload to Box
         let boxFile;
@@ -895,7 +917,7 @@ router.post('/mockups/:id/upload-file', upload.single('file'), async (req, res) 
         } catch (uploadErr) {
             if (uploadErr.response && uploadErr.response.status === 409) {
                 const ts = Date.now().toString(36);
-                const altName = `${shortCompany} ${slotLabel} ${designNumber || id}_${ts}.${ext}`.replace(/[<>:"/\\|?*]/g, '');
+                const altName = `${shortCompany} ${slotLabel} ${designNumber || id} v${nextVer}_${ts}.${ext}`.replace(/[<>:"/\\|?*]/g, '');
                 boxFile = await uploadFileToBox(folder.id, altName, file.buffer, file.mimetype);
             } else {
                 throw uploadErr;
@@ -929,22 +951,8 @@ router.post('/mockups/:id/upload-file', upload.single('file'), async (req, res) 
 
         console.log(`Mockup upload: Saved ${targetSlot} URL for mockup ${id}`);
 
-        // 6. Insert version record (fire-and-forget — never blocks the upload response)
+        // 6. Insert version record (fire-and-forget — reuses nextVer/vRecords from step 2)
         try {
-            const versionResp = await axios.get(
-                `${config.caspio.apiBaseUrl}/tables/Digitizing_Mockup_Versions/records`,
-                {
-                    params: {
-                        'q.where': `Mockup_ID=${id} AND Slot_Key='${targetSlot}'`,
-                        'q.orderBy': 'Version_Number DESC',
-                        'q.pageSize': 1
-                    },
-                    headers: { 'Authorization': `Bearer ${caspioToken}` }
-                }
-            );
-            const vRecords = versionResp.data.Result || [];
-            const nextVer = vRecords.length > 0 ? vRecords[0].Version_Number + 1 : 1;
-
             // Mark previous versions not current
             if (vRecords.length > 0) {
                 await axios.put(
