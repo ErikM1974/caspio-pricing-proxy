@@ -178,8 +178,8 @@ router.post('/mockups', async (req, res) => {
             Revision_Count: 0
         };
 
-        // Insert record (Caspio POST returns empty string, not the created record)
-        await axios.post(url, data, {
+        // Insert record — Caspio POST returns 201 with Location header containing the new record URL
+        const insertResp = await axios.post(url, data, {
             headers: {
                 'Authorization': `Bearer ${token}`,
                 'Content-Type': 'application/json'
@@ -187,30 +187,55 @@ router.post('/mockups', async (req, res) => {
             timeout: 15000
         });
 
-        // Query for the newly created record to get its auto-generated ID
-        // Use Design_Number + Company_Name, sorted by ID DESC to get the latest
-        const escapedCompany = (data.Company_Name || '').replace(/'/g, "''");
-        const escapedDesign = (data.Design_Number || '').replace(/'/g, "''");
-        const whereClause = `Design_Number='${escapedDesign}' AND Company_Name='${escapedCompany}'`;
+        // Extract the new record ID from the Location header
+        // Caspio returns Location like: .../tables/Digitizing_Mockups/records?q.where=ID=123
+        const locationHeader = insertResp.headers.location || '';
+        console.log('Caspio POST Location header:', locationHeader);
 
         let createdRecord = { ID: null };
-        try {
-            const queryResp = await axios.get(`${caspioApiBaseUrl}/tables/${MOCKUPS_TABLE}/records`, {
-                params: {
-                    'q.where': whereClause,
-                    'q.orderBy': 'ID DESC',
-                    'q.pageSize': 1
-                },
-                headers: { 'Authorization': `Bearer ${token}` },
-                timeout: 15000
-            });
-            const records = queryResp.data.Result || [];
-            if (records.length > 0) {
-                createdRecord = records[0];
+
+        // Try to extract ID from Location header (most reliable)
+        const idMatch = locationHeader.match(/ID[=](\d+)/i);
+        if (idMatch) {
+            const newId = parseInt(idMatch[1]);
+            console.log(`Extracted ID ${newId} from Location header`);
+
+            // Fetch the full record by ID
+            try {
+                const fetchResp = await axios.get(`${caspioApiBaseUrl}/tables/${MOCKUPS_TABLE}/records?q.where=ID=${newId}`, {
+                    headers: { 'Authorization': `Bearer ${token}` },
+                    timeout: 15000
+                });
+                const records = fetchResp.data.Result || [];
+                if (records.length > 0) {
+                    createdRecord = records[0];
+                } else {
+                    createdRecord = { ID: newId };
+                }
+            } catch (fetchErr) {
+                console.warn('Could not fetch created record, using ID from header:', fetchErr.message);
+                createdRecord = { ID: newId };
             }
-        } catch (queryErr) {
-            // If query fails, still return success but without ID
-            console.warn('Post-insert query failed (record was created):', queryErr.response ? JSON.stringify(queryErr.response.data) : queryErr.message);
+        } else {
+            // Fallback: query by Design_Number + Company_Name, newest first
+            console.warn('No ID in Location header, falling back to query. Header was:', locationHeader);
+            try {
+                const escapedCompany = (data.Company_Name || '').replace(/'/g, "''");
+                const escapedDesign = (data.Design_Number || '').replace(/'/g, "''");
+                const whereClause = `Design_Number='${escapedDesign}' AND Company_Name='${escapedCompany}'`;
+                const queryUrl = `${caspioApiBaseUrl}/tables/${MOCKUPS_TABLE}/records?q.where=${encodeURIComponent(whereClause)}&q.orderBy=${encodeURIComponent('ID DESC')}&q.limit=1`;
+
+                const queryResp = await axios.get(queryUrl, {
+                    headers: { 'Authorization': `Bearer ${token}` },
+                    timeout: 15000
+                });
+                const records = queryResp.data.Result || [];
+                if (records.length > 0) {
+                    createdRecord = records[0];
+                }
+            } catch (queryErr) {
+                console.warn('Fallback query also failed:', queryErr.response ? JSON.stringify(queryErr.response.data) : queryErr.message);
+            }
         }
 
         console.log(`Mockup created: ID ${createdRecord.ID}, Design ${data.Design_Number} for ${data.Company_Name}`);
