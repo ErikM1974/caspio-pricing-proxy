@@ -431,6 +431,11 @@ router.put('/mockups/:id/status', async (req, res) => {
             updateData.Completion_Date = new Date().toISOString();
         }
 
+        // Track when approval was sent to AE
+        if (status === 'Awaiting Approval') {
+            updateData.Approval_Sent_Date = new Date().toISOString();
+        }
+
         // 2. Update the mockup status
         const putUrl = `${caspioApiBaseUrl}/tables/${MOCKUPS_TABLE}/records?q.where=ID=${id}`;
         await axios.put(putUrl, updateData, {
