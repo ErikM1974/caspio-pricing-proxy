@@ -647,6 +647,49 @@ router.post('/box/shared-link', async (req, res) => {
 });
 
 /**
+ * DELETE /api/box/file/:fileId
+ *
+ * Delete a file from Box permanently.
+ * Returns { success: true } on success. 404 treated as success (idempotent).
+ */
+router.delete('/box/file/:fileId', async (req, res) => {
+    const { fileId } = req.params;
+
+    if (!fileId) {
+        return res.status(400).json({ success: false, error: 'Missing fileId' });
+    }
+
+    try {
+        const token = await getBoxAccessToken();
+
+        await axios.delete(`${BOX_API_BASE}/files/${fileId}`, {
+            headers: { 'Authorization': `Bearer ${token}` },
+            timeout: 15000
+        });
+
+        console.log(`Box: Deleted file ID ${fileId}`);
+        res.json({ success: true });
+
+    } catch (err) {
+        console.error('Box delete error:', err.response ? JSON.stringify(err.response.data) : err.message);
+
+        if (err.response?.status === 401) {
+            boxAccessToken = null;
+            boxTokenExpiry = 0;
+            return res.status(502).json({ success: false, error: 'Box authentication failed.' });
+        }
+        if (err.response?.status === 404) {
+            return res.json({ success: true, note: 'File not found (may already be deleted)' });
+        }
+        if (err.response?.status === 429) {
+            return res.status(429).json({ success: false, error: 'Box rate limited. Please wait a moment.' });
+        }
+
+        res.status(500).json({ success: false, error: 'Failed to delete file: ' + (err.message || 'Unknown error') });
+    }
+});
+
+/**
  * POST /api/art-requests/:designId/upload-mockup-url
  *
  * Save a mockup URL (e.g., Box shared link) to the first empty Caspio slot.
