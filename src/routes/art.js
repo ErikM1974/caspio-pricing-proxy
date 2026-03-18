@@ -994,24 +994,84 @@ router.get('/art-notifications', (req, res) => {
 
 /**
  * GET /api/art-requests/:designId/analysis
- * Get AI vision analysis results for a design's mockup images
+ * Get AI vision analysis results + screen print location data for a design's mockup images
  */
 router.get('/art-requests/:designId/analysis', async (req, res) => {
     const { designId } = req.params;
     console.log(`GET /api/art-requests/${designId}/analysis`);
 
     try {
-        const records = await fetchAllCaspioPages('/tables/Mockup_AI_Analysis/records', {
-            'q.where': `Design_ID='${designId}'`,
-            'q.sort': 'Analysis_Date DESC'
-        }, { maxPages: 1 });
+        // Fetch both tables in parallel
+        const [analyses, printLocations] = await Promise.all([
+            fetchAllCaspioPages('/tables/Mockup_AI_Analysis/records', {
+                'q.where': `Design_ID='${designId}'`,
+                'q.sort': 'Analysis_Date DESC'
+            }, { maxPages: 1 }),
+            fetchAllCaspioPages('/tables/Mockup_Print_Locations/records', {
+                'q.where': `Design_ID='${designId}'`
+            }, { maxPages: 1 }).catch(() => [])  // Don't fail if no print data
+        ]);
 
-        console.log(`Analysis: ${records.length} result(s) for Design #${designId}`);
-        res.json({ analyses: records });
+        console.log(`Analysis: ${analyses.length} result(s), ${printLocations.length} print location(s) for Design #${designId}`);
+        res.json({ analyses, printLocations });
 
     } catch (error) {
         console.error('Error fetching analysis:', error.message);
         res.status(500).json({ error: 'Failed to fetch analysis', details: error.message });
+    }
+});
+
+/**
+ * DELETE /api/art-requests/:designId/analysis/:mockupSlot
+ * Delete AI analysis + print location data when a mockup is removed
+ */
+router.delete('/art-requests/:designId/analysis/:mockupSlot', async (req, res) => {
+    const { designId, mockupSlot } = req.params;
+    console.log(`DELETE /api/art-requests/${designId}/analysis/${mockupSlot}`);
+
+    try {
+        // Find matching analysis records
+        const analyses = await fetchAllCaspioPages('/tables/Mockup_AI_Analysis/records', {
+            'q.where': `Design_ID='${designId}' AND Mockup_Slot='${mockupSlot}'`,
+            'q.select': 'PK_ID'
+        }, { maxPages: 1 });
+
+        if (analyses.length === 0) {
+            return res.json({ deleted: 0, message: 'No analysis found for this slot' });
+        }
+
+        let deletedAnalysis = 0;
+        let deletedLocations = 0;
+
+        for (const record of analyses) {
+            const pkId = record.PK_ID;
+
+            // Delete child print location rows first
+            try {
+                const locations = await fetchAllCaspioPages('/tables/Mockup_Print_Locations/records', {
+                    'q.where': `Analysis_ID='${pkId}'`,
+                    'q.select': 'PK_ID'
+                }, { maxPages: 1 });
+
+                for (const loc of locations) {
+                    await caspioRequest(`/tables/Mockup_Print_Locations/records?q.where=PK_ID=${loc.PK_ID}`, 'DELETE');
+                    deletedLocations++;
+                }
+            } catch (e) {
+                console.warn('Could not delete print locations for analysis', pkId, e.message);
+            }
+
+            // Delete the analysis record
+            await caspioRequest(`/tables/Mockup_AI_Analysis/records?q.where=PK_ID=${pkId}`, 'DELETE');
+            deletedAnalysis++;
+        }
+
+        console.log(`Deleted ${deletedAnalysis} analysis record(s) and ${deletedLocations} print location(s)`);
+        res.json({ deleted: deletedAnalysis, deletedLocations });
+
+    } catch (error) {
+        console.error('Error deleting analysis:', error.message);
+        res.status(500).json({ error: 'Failed to delete analysis', details: error.message });
     }
 });
 
