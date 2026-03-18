@@ -509,6 +509,18 @@ const embroideryPushRoutes = require('./src/routes/embroidery-push');
 app.use('/api', embroideryPushRoutes);
 console.log('✓ Embroidery Push routes loaded');
 
+// Vision Routes (ShopWorks screenshot extraction via Claude Haiku)
+const visionRoutes = require('./src/routes/vision');
+const visionLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 10,
+    message: { error: 'Too many vision requests. Please wait a moment.', retryAfter: '60 seconds' },
+    standardHeaders: true,
+    legacyHeaders: false
+});
+app.use('/api/vision', visionLimiter, visionRoutes);
+console.log('✓ Vision routes loaded (rate limited: 10 req/min)');
+
 // --- Admin Metrics Endpoint ---
 const apiTracker = require('./src/utils/api-tracker');
 
