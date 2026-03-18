@@ -280,6 +280,78 @@ router.put('/company-contacts/:id', express.json(), async (req, res) => {
 });
 
 /**
+ * GET /api/company-contacts/by-company
+ * Get contacts by company name (exact match for mockup auto-populate)
+ * Query params:
+ *   - company: Company name (required)
+ *   - limit: Max results (default 5, max 10)
+ */
+router.get('/company-contacts/by-company', async (req, res) => {
+  const { company, limit } = req.query;
+
+  console.log(`GET /api/company-contacts/by-company?company=${company}`);
+
+  try {
+    if (!company || typeof company !== 'string' || company.trim().length < 2) {
+      return res.status(400).json({
+        error: 'Invalid company name',
+        hint: 'Company name must be at least 2 characters'
+      });
+    }
+
+    const sanitized = company.replace(/['"\\%_]/g, '').trim();
+    if (!sanitized) {
+      return res.status(400).json({ error: 'Invalid company name after sanitization' });
+    }
+
+    const maxResults = Math.min(Math.max(parseInt(limit, 10) || 5, 1), 10);
+
+    // Check cache
+    const cacheKey = `bycompany:${sanitized.toLowerCase()}:${maxResults}`;
+    const cached = contactsCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < CONTACTS_CACHE_TTL) {
+      console.log(`Cache HIT for by-company: ${cacheKey}`);
+      return res.json({ contacts: cached.data, fromCache: true });
+    }
+
+    // Exact match on company name, active contacts only
+    const whereClause = `Customersts_Active=1 AND CustomerCompanyName='${sanitized}'`;
+
+    const records = await fetchAllCaspioPages('/tables/Company_Contacts_Merge_ODBC/records', {
+      'q.where': whereClause,
+      'q.sort': 'Customerdate_LastOrdered DESC',
+      'q.limit': maxResults
+    }, { maxPages: 1 });
+
+    // Map to simplified format for the modal
+    const contacts = records.map(r => ({
+      name: r.ct_NameFull || '',
+      email: r.ContactNumbersEmail || '',
+      company: r.CustomerCompanyName || '',
+      id_Customer: r.id_Customer
+    })).filter(c => c.email); // Only return contacts with email
+
+    console.log(`By-company lookup: ${contacts.length} contacts for "${sanitized}"`);
+
+    // Cache
+    contactsCache.set(cacheKey, { data: contacts, timestamp: Date.now() });
+    if (contactsCache.size > 200) {
+      const firstKey = contactsCache.keys().next().value;
+      contactsCache.delete(firstKey);
+    }
+
+    res.json({ contacts });
+
+  } catch (error) {
+    console.error('Error fetching contacts by company:', error.message);
+    res.status(500).json({
+      error: 'Failed to fetch contacts by company',
+      details: error.message
+    });
+  }
+});
+
+/**
  * GET /api/company-contacts/by-customer/:customerId
  * Get contacts by customer ID (id_Customer)
  */
