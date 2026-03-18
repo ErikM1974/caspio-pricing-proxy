@@ -200,6 +200,46 @@ async function analyzeMockupImage(imageBuffer, mimeType, metadata) {
             console.warn(`[Vision] ${validationNotes}`);
         }
 
+        // Clean up old analysis + print locations for this Design_ID + slot before inserting new
+        try {
+            const oldRecords = await makeCaspioRequest('get', `/tables/${ANALYSIS_TABLE}/records`, {
+                'q.where': `Design_ID='${designId}' AND Mockup_Slot='${slotField}'`,
+                'q.select': 'PK_ID'
+            });
+            const oldAnalyses = (oldRecords && oldRecords.Result) || [];
+            for (const old of oldAnalyses) {
+                // Delete child print locations first
+                try {
+                    const oldLocs = await makeCaspioRequest('get', `/tables/${PRINT_LOCATIONS_TABLE}/records`, {
+                        'q.where': `Analysis_ID='${old.PK_ID}'`,
+                        'q.select': 'PK_ID'
+                    });
+                    const locRecords = (oldLocs && oldLocs.Result) || [];
+                    for (const loc of locRecords) {
+                        await makeCaspioRequest('delete', `/tables/${PRINT_LOCATIONS_TABLE}/records`, { 'q.where': `PK_ID=${loc.PK_ID}` });
+                    }
+                } catch (e) { /* ignore */ }
+                // Also clean up fallback-format Analysis_IDs in print locations
+                try {
+                    const fallbackLocs = await makeCaspioRequest('get', `/tables/${PRINT_LOCATIONS_TABLE}/records`, {
+                        'q.where': `Design_ID='${designId}' AND Mockup_Slot='${slotField}'`,
+                        'q.select': 'PK_ID'
+                    });
+                    const fbRecords = (fallbackLocs && fallbackLocs.Result) || [];
+                    for (const loc of fbRecords) {
+                        await makeCaspioRequest('delete', `/tables/${PRINT_LOCATIONS_TABLE}/records`, { 'q.where': `PK_ID=${loc.PK_ID}` });
+                    }
+                } catch (e) { /* ignore */ }
+                // Delete old parent
+                await makeCaspioRequest('delete', `/tables/${ANALYSIS_TABLE}/records`, { 'q.where': `PK_ID=${old.PK_ID}` });
+            }
+            if (oldAnalyses.length > 0) {
+                console.log(`[Vision] Cleaned up ${oldAnalyses.length} old analysis record(s) for Design #${designId} slot ${slotField}`);
+            }
+        } catch (cleanupErr) {
+            console.warn('[Vision] Cleanup of old records failed (non-blocking):', cleanupErr.message);
+        }
+
         // Save parent record to Mockup_AI_Analysis
         const analysisRecord = {
             Design_ID: String(designId),
