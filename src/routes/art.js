@@ -992,4 +992,27 @@ router.get('/art-notifications', (req, res) => {
     res.json({ notifications, serverTime: Date.now() });
 });
 
+/**
+ * GET /api/art-requests/:designId/analysis
+ * Get AI vision analysis results for a design's mockup images
+ */
+router.get('/art-requests/:designId/analysis', async (req, res) => {
+    const { designId } = req.params;
+    console.log(`GET /api/art-requests/${designId}/analysis`);
+
+    try {
+        const records = await fetchAllCaspioPages('/tables/Mockup_AI_Analysis/records', {
+            'q.where': `Design_ID='${designId}'`,
+            'q.sort': 'Analysis_Date DESC'
+        }, { maxPages: 1 });
+
+        console.log(`Analysis: ${records.length} result(s) for Design #${designId}`);
+        res.json({ analyses: records });
+
+    } catch (error) {
+        console.error('Error fetching analysis:', error.message);
+        res.status(500).json({ error: 'Failed to fetch analysis', details: error.message });
+    }
+});
+
 module.exports = router;

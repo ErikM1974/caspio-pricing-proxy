@@ -420,6 +420,18 @@ router.post('/art-requests/:designId/upload-mockup', upload.single('file'), asyn
         // 6. Save shared link URL to Caspio
         await saveMockupUrlToCaspio(pkId, slotField, sharedUrl);
 
+        // 6b. Fire-and-forget: AI vision analysis of the mockup image
+        try {
+            const { analyzeMockupImage } = require('../utils/mockup-vision');
+            analyzeMockupImage(file.buffer, file.mimetype, {
+                designId,
+                slotField,
+                imageUrl: sharedUrl
+            }).catch(err => console.warn('[Vision] Analysis failed (non-blocking):', err.message));
+        } catch (visionErr) {
+            console.warn('[Vision] Module load failed (non-blocking):', visionErr.message);
+        }
+
         // 7. Return success
         res.json({
             success: true,
