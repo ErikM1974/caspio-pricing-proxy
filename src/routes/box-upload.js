@@ -364,12 +364,11 @@ router.post('/art-requests/:designId/upload-mockup', upload.single('file'), asyn
     if (!pkId) {
         return res.status(400).json({ success: false, error: 'Missing pkId', code: 'MISSING_PK_ID' });
     }
-    if (!customerId) {
-        return res.status(400).json({ success: false, error: 'Missing customerId', code: 'MISSING_CUSTOMER_ID' });
-    }
+    // customerId is optional — fall back to designId for folder/file naming
+    const folderIdentifier = customerId || designId;
 
     const file = req.file;
-    console.log(`Box upload: Design #${designId}, file "${file.originalname}" (${(file.size / 1024).toFixed(1)} KB)`);
+    console.log(`Box upload: Design #${designId}, file "${file.originalname}" (${(file.size / 1024).toFixed(1)} KB), customerId: ${customerId || '(none, using designId)'}`);
 
     try {
         // 1. Find empty mockup slot in Caspio BEFORE uploading
@@ -394,7 +393,7 @@ router.post('/art-requests/:designId/upload-mockup', upload.single('file'), asyn
         // 3. Build file name: "{customerId} {company} Mockup {designId}.{ext}"
         const ext = file.originalname.split('.').pop() || 'jpg';
         const shortCompany = (companyName || '').substring(0, 30).trim();
-        const fileName = `${customerId} ${shortCompany} Mockup ${designId}.${ext}`.replace(/[<>:"/\\|?*]/g, '');
+        const fileName = `${folderIdentifier} ${shortCompany} Mockup ${designId}.${ext}`.replace(/[<>:"/\\|?*]/g, '');
 
         // 4. Upload file to Box
         let boxFile;
