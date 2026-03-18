@@ -181,4 +181,46 @@ async function analyzeMockupImage(imageBuffer, mimeType, metadata) {
     }
 }
 
-module.exports = { analyzeMockupImage };
+/**
+ * Analyze a mockup from a URL (for Box picker uploads where we don't have the buffer)
+ * Downloads the image first, then runs vision analysis
+ * @param {string} imageUrl - Box shared link or download URL
+ * @param {Object} metadata - { designId, slotField }
+ */
+async function analyzeMockupFromUrl(imageUrl, metadata) {
+    const { designId, slotField } = metadata;
+    console.log(`[Vision] Downloading image for Design #${designId} from URL...`);
+
+    try {
+        // Download the image
+        const response = await axios.get(imageUrl, {
+            responseType: 'arraybuffer',
+            timeout: 30000,
+            headers: { 'User-Agent': 'NWCA-Art-System/1.0' }
+        });
+
+        const buffer = Buffer.from(response.data);
+        const contentType = response.headers['content-type'] || 'image/jpeg';
+
+        // Check if it's an image
+        if (!contentType.startsWith('image/')) {
+            console.log(`[Vision] Skipping non-image URL: ${contentType}`);
+            return null;
+        }
+
+        console.log(`[Vision] Downloaded ${(buffer.length / 1024).toFixed(1)} KB, type: ${contentType}`);
+
+        // Run the standard analysis
+        return await analyzeMockupImage(buffer, contentType, {
+            designId,
+            slotField,
+            imageUrl
+        });
+
+    } catch (err) {
+        console.error(`[Vision] URL download failed for Design #${designId}:`, err.message);
+        return null;
+    }
+}
+
+module.exports = { analyzeMockupImage, analyzeMockupFromUrl };

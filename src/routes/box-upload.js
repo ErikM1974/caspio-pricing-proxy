@@ -791,6 +791,19 @@ router.post('/art-requests/:designId/upload-mockup-url', async (req, res) => {
             return res.status(409).json({ success: false, error: 'All mockup slots full', code: 'SLOTS_FULL' });
         }
         await saveMockupUrlToCaspio(pkId, slotField, url);
+
+        // Fire-and-forget: AI vision analysis from URL
+        try {
+            const { analyzeMockupFromUrl } = require('../utils/mockup-vision');
+            const { designId } = req.params;
+            analyzeMockupFromUrl(url, {
+                designId,
+                slotField,
+            }).catch(err => console.warn('[Vision] URL analysis failed (non-blocking):', err.message));
+        } catch (visionErr) {
+            console.warn('[Vision] Module load failed (non-blocking):', visionErr.message);
+        }
+
         res.json({ success: true, field: slotField, url });
     } catch (err) {
         console.error('Save mockup URL error:', err.message);
