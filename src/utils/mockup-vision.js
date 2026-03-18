@@ -1,12 +1,13 @@
 // Mockup Vision Analysis — Claude Haiku 4.5 image extraction
 // Reads Steve's mockup images and extracts production metadata + design descriptions
+// Supports DTG, DTF, Embroidery AND Screen Print mockups (ink colors, print order, screens)
 // Fire-and-forget: failures are logged but never block the upload flow
 
 const Anthropic = require('@anthropic-ai/sdk');
 const axios = require('axios');
-const config = require('../config');
 
 const ANALYSIS_TABLE = 'Mockup_AI_Analysis';
+const PRINT_LOCATIONS_TABLE = 'Mockup_Print_Locations';
 const MODEL_ID = 'claude-haiku-4-5-20251001';
 
 // Lazy-init Anthropic client (only when first needed)
@@ -20,8 +21,8 @@ function getClient() {
     return anthropicClient;
 }
 
-// Caspio token helper (reuse from caspio.js)
-const { getCaspioAccessToken, makeCaspioRequest } = require('./caspio');
+// Caspio helper (reuse from caspio.js)
+const { makeCaspioRequest } = require('./caspio');
 
 const VISION_PROMPT = `Analyze this apparel mockup image. This is a production mockup created by a custom apparel company.
 
@@ -32,7 +33,7 @@ TASK 1 — Extract the TEXT TEMPLATE at the bottom of the image (if present). Lo
 - Customer Name
 - Garment Color & Style (e.g., "29ls Black", "PC54 Red")
 - Size & Placement (e.g., "LC" for left chest, "FB" for full back, "5 inch left chest")
-- Method label (DTF, DTG, Embroidery, Screen Print)
+- Method label (DTF, DTG, Embroidery, Screen Print, Screenprint)
 - Date and Time
 - Customer Approved (checkbox — checked or unchecked)
 - Files Prepared for DTG & Digital Transfer (checkbox — checked or unchecked)
@@ -43,6 +44,43 @@ TASK 2 — Analyze the DESIGN ARTWORK on the garment:
 - Describe the design (what it depicts, style, layout)
 - List all readable text ON the design itself (logo text, slogans, etc.)
 - List the colors used in the design artwork
+
+TASK 3 — SCREEN PRINT INK DATA (critical — look carefully):
+If the method is Screen Print / Screenprint, look for ink color information. This may appear in different layouts:
+
+FORMAT A (newer): Rows organized by placement (FF, FB, LC, etc.) with numbered ink colors:
+  FF: INK COLOR (1) White, INK COLOR (2) White, INK COLOR (3) Reflective
+  FB: INK COLOR (1) White, INK COLOR (2) White, INK COLOR (3) Reflective
+  Summary: (4) Screens (6) Prints (4) Flashes
+
+FORMAT B (older): Print order grid on the right side with numbered thread/ink colors and FLASH markers:
+  THREAD COLOR (1.) White, FLASH, (2.) White, (3.) Metallic Silver, FLASH, (4.) Red, (5.) Yellow
+  Total # of Screens: 5
+  Placement counts listed separately
+
+FORMAT C: Per-placement rows with ink colors, screens count, and prints count:
+  FF: INK COLOR (1.) White, (2.) White, FLASH, (3.) PMS 383, INK COLOR (3.) PMS 434 — 3 Screens, 4 Prints
+  FB: INK COLOR (1.) White, (2.) White, FLASH, (3.) PMS 383, INK COLOR (3.) PMS 434 — 3 Screens, 4 Prints
+  LC: INK COLOR (1.) White, (2.) White, (3.) PMS 383
+
+For EACH print location found, extract:
+- placement: the location code (FF, FB, LC, RC, LS, RS, etc.)
+- ink_colors: ordered list of ink color names for that location
+- num_colors: count of unique ink colors
+- screens: number of screens for that location (if shown)
+- prints: number of prints for that location (if shown)
+- flashes: number of flashes for that location (if shown)
+- pms_colors: any PMS color codes (e.g., "PMS 383", "PMS 434")
+- has_flash: whether flashes are used between colors
+- print_order: the full print order text as shown (e.g., "(1) White, (2) White, FLASH, (3) Reflective")
+
+Also extract totals:
+- total_screens, total_prints, total_flashes (from summary line if present)
+- has_reflective: Yes/No (any reflective ink used)
+- has_metallic: Yes/No (any metallic ink used)
+- pms_colors_all: all PMS codes found across all locations
+
+If the method is NOT Screen Print, set all screen print fields to null.
 
 Return ONLY valid JSON (no markdown, no backticks):
 {
@@ -60,8 +98,29 @@ Return ONLY valid JSON (no markdown, no backticks):
   "files_prepared": "Yes/No/null",
   "design_description": "string",
   "design_text": "string — all text visible on the design, comma-separated",
-  "design_colors": "string — colors in the artwork, comma-separated"
-}`;
+  "design_colors": "string — colors in the artwork, comma-separated",
+  "print_locations": [
+    {
+      "placement": "FF",
+      "ink_colors": "White, White, Reflective",
+      "num_colors": 3,
+      "screens": "3",
+      "prints": "4",
+      "flashes": "2",
+      "pms_colors": "",
+      "has_flash": "Yes",
+      "print_order": "(1) White, (2) White, FLASH, (3) Reflective"
+    }
+  ],
+  "total_screens": "string or null",
+  "total_prints": "string or null",
+  "total_flashes": "string or null",
+  "has_reflective": "Yes/No/null",
+  "has_metallic": "Yes/No/null",
+  "pms_colors_all": "string or null"
+}
+
+If there are no print locations (non-screen-print method), set print_locations to an empty array [].`;
 
 /**
  * Analyze a mockup image using Claude Haiku vision
@@ -92,7 +151,7 @@ async function analyzeMockupImage(imageBuffer, mimeType, metadata) {
         // Call Claude Haiku with the image
         const response = await client.messages.create({
             model: MODEL_ID,
-            max_tokens: 1500,
+            max_tokens: 2500,
             messages: [{
                 role: 'user',
                 content: [
@@ -116,10 +175,8 @@ async function analyzeMockupImage(imageBuffer, mimeType, metadata) {
         const responseText = response.content[0].text;
         let extracted;
         try {
-            // Try to parse as JSON directly
             extracted = JSON.parse(responseText);
         } catch (parseErr) {
-            // Try to extract JSON from markdown code block
             const jsonMatch = responseText.match(/\{[\s\S]*\}/);
             if (jsonMatch) {
                 extracted = JSON.parse(jsonMatch[0]);
@@ -143,7 +200,7 @@ async function analyzeMockupImage(imageBuffer, mimeType, metadata) {
             console.warn(`[Vision] ${validationNotes}`);
         }
 
-        // Save to Caspio
+        // Save parent record to Mockup_AI_Analysis
         const analysisRecord = {
             Design_ID: String(designId),
             Mockup_Slot: slotField || '',
@@ -166,11 +223,55 @@ async function analyzeMockupImage(imageBuffer, mimeType, metadata) {
             Validation_Status: validationStatus,
             Validation_Notes: validationNotes,
             Analysis_Date: new Date().toISOString(),
-            Model_Used: MODEL_ID
+            Model_Used: MODEL_ID,
+            // Screen print summary fields
+            Total_Screens: extracted.total_screens || '',
+            Total_Prints: extracted.total_prints || '',
+            Total_Flashes: extracted.total_flashes || '',
+            Has_Reflective: extracted.has_reflective || '',
+            Has_Metallic: extracted.has_metallic || '',
+            PMS_Colors: extracted.pms_colors_all || ''
         };
 
-        await makeCaspioRequest('post', `/tables/${ANALYSIS_TABLE}/records`, {}, analysisRecord);
-        console.log(`[Vision] Saved analysis to Caspio for Design #${designId} (${elapsed}ms)`);
+        const parentResult = await makeCaspioRequest('post', `/tables/${ANALYSIS_TABLE}/records`, {}, analysisRecord);
+        console.log(`[Vision] Saved parent analysis to Caspio for Design #${designId} (${elapsed}ms)`);
+
+        // Get the parent PK_ID for linking child records
+        var parentId = '';
+        if (parentResult && parentResult.Result && parentResult.Result.PK_ID) {
+            parentId = String(parentResult.Result.PK_ID);
+        } else {
+            // Fallback: use designId + timestamp as a unique key
+            parentId = designId + '_' + Date.now();
+        }
+
+        // Save child records to Mockup_Print_Locations (if screen print)
+        const locations = extracted.print_locations || [];
+        if (locations.length > 0) {
+            console.log(`[Vision] Saving ${locations.length} print location(s) for Design #${designId}`);
+            for (const loc of locations) {
+                try {
+                    const locationRecord = {
+                        Analysis_ID: parentId,
+                        Design_ID: String(designId),
+                        Mockup_Slot: slotField || '',
+                        Placement: (loc.placement || '').substring(0, 255),
+                        Ink_Colors: (loc.ink_colors || '').substring(0, 255),
+                        Num_Colors: String(loc.num_colors || ''),
+                        Screens: (loc.screens || '').toString(),
+                        Prints: (loc.prints || '').toString(),
+                        Flashes: (loc.flashes || '').toString(),
+                        PMS_Colors: (loc.pms_colors || '').substring(0, 255),
+                        Has_Flash: loc.has_flash || '',
+                        Print_Order: (loc.print_order || '').substring(0, 255)
+                    };
+                    await makeCaspioRequest('post', `/tables/${PRINT_LOCATIONS_TABLE}/records`, {}, locationRecord);
+                    console.log(`[Vision]   → Saved location: ${loc.placement} (${loc.ink_colors})`);
+                } catch (locErr) {
+                    console.warn(`[Vision]   → Failed to save location ${loc.placement}:`, locErr.message);
+                }
+            }
+        }
 
         return analysisRecord;
 
@@ -192,7 +293,6 @@ async function analyzeMockupFromUrl(imageUrl, metadata) {
     console.log(`[Vision] Downloading image for Design #${designId} from URL...`);
 
     try {
-        // Download the image
         const response = await axios.get(imageUrl, {
             responseType: 'arraybuffer',
             timeout: 30000,
@@ -202,7 +302,6 @@ async function analyzeMockupFromUrl(imageUrl, metadata) {
         const buffer = Buffer.from(response.data);
         const contentType = response.headers['content-type'] || 'image/jpeg';
 
-        // Check if it's an image
         if (!contentType.startsWith('image/')) {
             console.log(`[Vision] Skipping non-image URL: ${contentType}`);
             return null;
@@ -210,7 +309,6 @@ async function analyzeMockupFromUrl(imageUrl, metadata) {
 
         console.log(`[Vision] Downloaded ${(buffer.length / 1024).toFixed(1)} KB, type: ${contentType}`);
 
-        // Run the standard analysis
         return await analyzeMockupImage(buffer, contentType, {
             designId,
             slotField,
