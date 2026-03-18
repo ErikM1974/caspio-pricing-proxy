@@ -1043,26 +1043,24 @@ router.delete('/art-requests/:designId/analysis/:mockupSlot', async (req, res) =
         let deletedAnalysis = 0;
         let deletedLocations = 0;
 
-        for (const record of analyses) {
-            const pkId = record.PK_ID;
+        // Delete ALL child print locations for this Design_ID + slot (catches both PK_ID and fallback format)
+        try {
+            const allLocations = await fetchAllCaspioPages('/tables/Mockup_Print_Locations/records', {
+                'q.where': `Design_ID='${designId}' AND Mockup_Slot='${mockupSlot}'`,
+                'q.select': 'PK_ID'
+            }, { maxPages: 1 });
 
-            // Delete child print location rows first
-            try {
-                const locations = await fetchAllCaspioPages('/tables/Mockup_Print_Locations/records', {
-                    'q.where': `Analysis_ID='${pkId}'`,
-                    'q.select': 'PK_ID'
-                }, { maxPages: 1 });
-
-                for (const loc of locations) {
-                    await caspioRequest(`/tables/Mockup_Print_Locations/records?q.where=PK_ID=${loc.PK_ID}`, 'DELETE');
-                    deletedLocations++;
-                }
-            } catch (e) {
-                console.warn('Could not delete print locations for analysis', pkId, e.message);
+            for (const loc of allLocations) {
+                await makeCaspioRequest('delete', `/tables/Mockup_Print_Locations/records`, { 'q.where': `PK_ID=${loc.PK_ID}` });
+                deletedLocations++;
             }
+        } catch (e) {
+            console.warn('Could not delete print locations for slot', mockupSlot, e.message);
+        }
 
-            // Delete the analysis record
-            await caspioRequest(`/tables/Mockup_AI_Analysis/records?q.where=PK_ID=${pkId}`, 'DELETE');
+        // Delete all analysis records for this slot
+        for (const record of analyses) {
+            await makeCaspioRequest('delete', `/tables/Mockup_AI_Analysis/records`, { 'q.where': `PK_ID=${record.PK_ID}` });
             deletedAnalysis++;
         }
 
