@@ -150,6 +150,78 @@ async function findCustomerFolder(customerId) {
 }
 
 /**
+ * Find art folder by design number first, then company name fallback.
+ * Steve names folders as "{designNumber} {companyName}" (e.g., "39789 Wyoming University Tumbler").
+ */
+async function findArtFolder(designId, companyName) {
+    const designStr = String(designId);
+
+    // Check cache by design ID
+    const cacheKey = 'art_' + designStr;
+    if (folderCache.has(cacheKey)) {
+        return folderCache.get(cacheKey);
+    }
+
+    const token = await getBoxAccessToken();
+
+    // Step 1: Search by design number (most reliable)
+    try {
+        const resp = await axios.get(`${BOX_API_BASE}/search`, {
+            params: {
+                query: designStr,
+                type: 'folder',
+                ancestor_folder_ids: BOX_ART_FOLDER_ID,
+                fields: 'id,name,type',
+                limit: 10
+            },
+            headers: { 'Authorization': `Bearer ${token}` },
+            timeout: 15000
+        });
+
+        const entries = resp.data.entries || [];
+        for (const entry of entries) {
+            if (entry.type === 'folder' && entry.name.startsWith(designStr)) {
+                console.log(`Box: Found art folder by design #${designStr}: "${entry.name}"`);
+                folderCache.set(cacheKey, entry);
+                return entry;
+            }
+        }
+    } catch (err) {
+        console.log('Box: Design # search failed:', err.message);
+    }
+
+    // Step 2: Search by company name (fallback for folders Steve named differently)
+    if (companyName && companyName.trim()) {
+        try {
+            const resp = await axios.get(`${BOX_API_BASE}/search`, {
+                params: {
+                    query: companyName.trim(),
+                    type: 'folder',
+                    ancestor_folder_ids: BOX_ART_FOLDER_ID,
+                    fields: 'id,name,type',
+                    limit: 10
+                },
+                headers: { 'Authorization': `Bearer ${token}` },
+                timeout: 15000
+            });
+
+            const entries = resp.data.entries || [];
+            for (const entry of entries) {
+                if (entry.type === 'folder' && entry.name.toLowerCase().includes(companyName.trim().toLowerCase())) {
+                    console.log(`Box: Found art folder by company name "${companyName}": "${entry.name}"`);
+                    folderCache.set(cacheKey, entry);
+                    return entry;
+                }
+            }
+        } catch (err) {
+            console.log('Box: Company name search failed:', err.message);
+        }
+    }
+
+    return null; // Not found — caller will create
+}
+
+/**
  * Create a customer sub-folder inside Steve's art folder.
  */
 async function createCustomerFolder(customerId, companyName) {
@@ -310,11 +382,12 @@ router.post('/art-requests/:designId/upload-mockup', upload.single('file'), asyn
             });
         }
 
-        // 2. Find or create customer folder in Box
-        let folder = await findCustomerFolder(customerId);
+        // 2. Find or create art folder in Box (search by design #, then company name)
+        let folder = await findArtFolder(designId, companyName);
         if (!folder) {
-            const name = companyName || `Customer ${customerId}`;
-            folder = await createCustomerFolder(customerId, name);
+            // Auto-create folder: "{designId} {companyName}" (Steve's naming convention)
+            const folderLabel = companyName || `Design ${designId}`;
+            folder = await createCustomerFolder(designId, folderLabel);
         }
         console.log(`Box upload: Using folder "${folder.name}" (ID: ${folder.id})`);
 
