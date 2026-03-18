@@ -43,7 +43,7 @@ If there is no text template at the bottom, set all template fields to null.
 TASK 2 — Analyze the DESIGN ARTWORK on the garment:
 - Describe the design (what it depicts, style, layout)
 - List all readable text ON the design itself (logo text, slogans, etc.)
-- List the colors used in the design artwork
+- List the colors used IN THE DESIGN ARTWORK ONLY (NOT the garment/shirt color, NOT the ink color names from the print order section — only the visible colors you see in the actual logo/graphic design itself)
 
 TASK 3 — SCREEN PRINT INK DATA (critical — look carefully):
 If the method is Screen Print / Screenprint, look for ink color information. This may appear in different layouts:
