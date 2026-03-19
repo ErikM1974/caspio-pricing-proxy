@@ -23,36 +23,37 @@ const EXTRACTION_PROMPT = `You are extracting data from a ShopWorks OnSite scree
 Look at the screenshot and extract ALL visible fields. The screenshot may show any of these tabs:
 
 **Customer tab** — look for:
-- Customer number (5-digit number near company name, often in a "View" row)
-- Company name
+- Customer number (4-5 digit number near company name, often in a "View" row)
+- Company name (the CUSTOMER company, not "Northwest Custom Apparel")
 - Order number (large number, top-right area labeled "Order Number:")
-- Contact first name and last name
-- Phone number
-- Email address
-- Salesperson name
-- Date Order Placed, Req. Ship Date
+- Contact first name and last name (in the "Order Contact" section)
+- Phone number and email address
+- Salesperson name (in "Order Information" section)
+- Date Order Placed, Req. Ship Date (right side, date format M/D/YY)
+- Order type: shown in the colored header bar as text (e.g. "Transfers", "HOT-TICKET (WOW)", "Custom Screen Print", "Custom Embroidery", "Digital Printing", "Laser/Ad Specialties"). Extract the FULL text, not just abbreviations.
 
 **Design tab** — look for:
-- Design number (in "Currently Viewing" section)
-- Design name
-- Order type (DTG, DTF, Embroidery, Screen Print — shown as badge/label)
+- Design number (in "Currently Viewing" section, the number before the dash)
+- Design name (text after the design number)
+- Order type (shown as badge in top-right, e.g. "EMB", "DTG", "SP")
 - Number of locations
-- Location IDs
+- Location code (2-3 letter code like "LC", "FB", "FF", "CB", "CFC", "CLP", "CRS" — shown in the Location dropdown or field)
 
 **Line Items tab** — look for garment/product rows:
-- Part number (e.g. PC54, PC850H, PC600LS)
+- Part number (e.g. PC54, PC850H, PC600LS, C110)
 - Color name
 - Description
-- Quantities by size
+- Also look for art charge line items with part numbers starting with "GRT-" (e.g. GRT-50, GRT-75, GRT-100). Return the first GRT part number found as artCharge.
 
 Return a JSON object with ONLY the fields you can see. Use null for fields not visible in this screenshot.
 
 IMPORTANT:
 - Return ONLY valid JSON, no markdown fencing, no explanation
-- For garments array, only include actual apparel products (skip stickers, tumblers, promotional items)
-- Part numbers are typically 2-8 characters like PC54, PC850H, DT6000, ST350LS
+- For garments array, only include actual apparel products (skip stickers, tumblers, promotional items, and GRT-* art charges)
+- Part numbers are typically 2-8 characters like PC54, PC850H, DT6000, ST350LS, C110
 - Customer numbers are typically 4-5 digit numbers
 - Order numbers are typically 5-6 digit numbers
+- For orderType, return the FULL ShopWorks name (e.g. "Custom Screen Print", "Digital Printing", "Transfers", "Custom Embroidery", "Laser/Ad Specialties")
 
 JSON schema:
 {
@@ -71,6 +72,8 @@ JSON schema:
   "designName": "string|null",
   "orderType": "string|null",
   "locations": "number|null",
+  "locationCode": "string|null",
+  "artCharge": "string|null",
   "garments": [
     {
       "partNumber": "string",
