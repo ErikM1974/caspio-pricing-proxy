@@ -11,7 +11,7 @@ router.get('/thread-colors', async (req, res) => {
 
     try {
         const params = {
-            'q.select': 'Thead_ID,Thread_Color,Thread_Number,Instock',
+            'q.select': 'Thead_ID,Thread_Color,Thread_Number,Instock,Hex_Color,PMS_Color',
             'q.orderBy': 'Thread_Color ASC'
         };
 
