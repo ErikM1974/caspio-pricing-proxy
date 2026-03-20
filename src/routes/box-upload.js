@@ -985,6 +985,57 @@ router.post('/box/create-mockup-folder', async (req, res) => {
 });
 
 /**
+ * POST /api/box/upload-to-folder
+ *
+ * Lightweight file upload directly to an existing Box folder.
+ * No slot tracking, no versioning — just upload and return.
+ * Body (multipart/form-data):
+ *   - file: the image/PDF file
+ *   - folderId: Box folder ID to upload into
+ *   - fileName: (optional) custom file name; defaults to original filename
+ */
+router.post('/box/upload-to-folder', upload.single('file'), async (req, res) => {
+    const { folderId } = req.body;
+    const customName = req.body.fileName;
+
+    if (!req.file) {
+        return res.status(400).json({ success: false, error: 'No file provided' });
+    }
+    if (!folderId) {
+        return res.status(400).json({ success: false, error: 'Missing folderId' });
+    }
+
+    const fileName = customName || req.file.originalname;
+
+    try {
+        let boxFile;
+        try {
+            boxFile = await uploadFileToBox(folderId, fileName, req.file.buffer, req.file.mimetype);
+        } catch (uploadErr) {
+            // Handle 409 duplicate name — append timestamp suffix
+            if (uploadErr.response && uploadErr.response.status === 409) {
+                const ts = Date.now().toString(36);
+                const ext = fileName.split('.').pop();
+                const base = fileName.replace(/\.[^.]+$/, '');
+                const altName = `${base}_${ts}.${ext}`;
+                boxFile = await uploadFileToBox(folderId, altName, req.file.buffer, req.file.mimetype);
+            } else {
+                throw uploadErr;
+            }
+        }
+
+        res.json({
+            success: true,
+            fileId: boxFile.id,
+            fileName: boxFile.name
+        });
+    } catch (err) {
+        console.error('Box upload-to-folder error:', err.message);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+/**
  * POST /api/mockups/:id/upload-file
  *
  * Upload a mockup file for Ruth's digitizing work.
