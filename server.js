@@ -322,6 +322,11 @@ const mockupRoutes = require('./src/routes/mockup-routes');
 app.use('/api', mockupRoutes);
 console.log('✓ Digitizing Mockup routes loaded');
 
+// EMB Design Files Routes (parsed EMB metadata + colorways)
+const embDesignRoutes = require('./src/routes/emb-design-routes');
+app.use('/api', embDesignRoutes);
+console.log('✓ EMB Design Files routes loaded');
+
 // ManageOrders Routes (with rate limiting)
 const manageOrdersLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
