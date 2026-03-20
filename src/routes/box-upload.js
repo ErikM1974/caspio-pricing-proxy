@@ -1229,4 +1229,59 @@ router.use((err, req, res, next) => {
     next(err);
 });
 
+// ── Download Box File Content ─────────────────────────────────────────
+// GET /api/box/download/:fileId
+// Proxies the raw file content from Box → client (for DST/EMB reprocessing)
+router.get('/box/download/:fileId', async (req, res) => {
+    try {
+        const { fileId } = req.params;
+        if (!fileId) {
+            return res.status(400).json({ success: false, error: 'fileId required' });
+        }
+
+        const token = await getBoxAccessToken();
+
+        // Get file info first (for filename + size)
+        const infoResp = await axios.get(`${BOX_API_BASE}/files/${fileId}`, {
+            headers: { 'Authorization': `Bearer ${token}` },
+            timeout: 15000
+        });
+        const fileName = infoResp.data.name || 'download';
+        const fileSize = infoResp.data.size || 0;
+
+        // Download file content
+        const contentResp = await axios.get(`${BOX_API_BASE}/files/${fileId}/content`, {
+            headers: { 'Authorization': `Bearer ${token}` },
+            responseType: 'arraybuffer',
+            timeout: 60000,
+            maxRedirects: 5
+        });
+
+        // Determine content type from extension
+        const ext = fileName.split('.').pop().toLowerCase();
+        const mimeTypes = {
+            'dst': 'application/octet-stream',
+            'emb': 'application/octet-stream',
+            'pdf': 'application/pdf',
+            'png': 'image/png',
+            'jpg': 'image/jpeg',
+            'jpeg': 'image/jpeg',
+            'svg': 'image/svg+xml'
+        };
+        const contentType = mimeTypes[ext] || 'application/octet-stream';
+
+        res.set({
+            'Content-Type': contentType,
+            'Content-Disposition': `attachment; filename="${fileName}"`,
+            'Content-Length': contentResp.data.length,
+            'Cache-Control': 'no-cache'
+        });
+        res.send(Buffer.from(contentResp.data));
+    } catch (err) {
+        console.error('Box download error:', err.response?.status, err.message);
+        const status = err.response?.status || 500;
+        res.status(status).json({ success: false, error: 'Box download failed: ' + err.message });
+    }
+});
+
 module.exports = router;
