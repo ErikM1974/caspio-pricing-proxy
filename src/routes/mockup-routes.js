@@ -174,9 +174,10 @@ router.get('/mockups', async (req, res) => {
             whereConditions.push(`Submitted_By='${req.query.submittedBy}'`);
         }
 
-        // Filter by company name (partial match)
+        // Filter by company name (partial match, escape apostrophes for Caspio)
         if (req.query.companyName) {
-            whereConditions.push(`Company_Name LIKE '%${req.query.companyName}%'`);
+            const safeName = req.query.companyName.replace(/'/g, "''");
+            whereConditions.push(`Company_Name LIKE '%${safeName}%'`);
         }
 
         // Filter by design number
@@ -187,11 +188,6 @@ router.get('/mockups', async (req, res) => {
         // Filter by customer ID
         if (req.query.idCustomer) {
             whereConditions.push(`Id_Customer=${req.query.idCustomer}`);
-        }
-
-        // Filter by company name (for customer portal)
-        if (req.query.companyName) {
-            whereConditions.push(`Company_Name='${req.query.companyName.replace(/'/g, "''")}'`);
         }
 
         // Filter by ShopWorks customer number
