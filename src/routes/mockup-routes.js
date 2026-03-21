@@ -189,6 +189,16 @@ router.get('/mockups', async (req, res) => {
             whereConditions.push(`Id_Customer=${req.query.idCustomer}`);
         }
 
+        // Filter by company name (for customer portal)
+        if (req.query.companyName) {
+            whereConditions.push(`Company_Name='${req.query.companyName.replace(/'/g, "''")}'`);
+        }
+
+        // Filter by ShopWorks customer number
+        if (req.query.shopworksCustomerId) {
+            whereConditions.push(`Id_Customer=${req.query.shopworksCustomerId}`);
+        }
+
         // Date range filters
         if (req.query.dateFrom) {
             whereConditions.push(`Submitted_Date>='${req.query.dateFrom}'`);

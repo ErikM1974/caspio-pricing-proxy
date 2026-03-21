@@ -74,6 +74,14 @@ router.get('/artrequests', async (req, res) => {
             if (req.query.id_customer) {
                 whereConditions.push(`id_customer=${req.query.id_customer}`);
             }
+            // Filter by ShopWorks customer number (for customer portal)
+            if (req.query.shopworksCustomerId) {
+                whereConditions.push(`Shopwork_customer_number='${req.query.shopworksCustomerId}'`);
+            }
+            // Filter by company name (for customer portal)
+            if (req.query.companyName) {
+                whereConditions.push(`CompanyName='${req.query.companyName.replace(/'/g, "''")}'`);
+            }
             if (req.query.id_contact) {
                 whereConditions.push(`id_contact=${req.query.id_contact}`);
             }
