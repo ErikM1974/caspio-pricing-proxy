@@ -37,9 +37,9 @@ const CONTACTS_CACHE_TTL = 2 * 60 * 1000;
  *   - limit: Max results to return (default 10, max 25)
  */
 router.get('/company-contacts/search', async (req, res) => {
-  const { q, limit } = req.query;
+  const { q, limit, includeInactive } = req.query;
 
-  console.log(`GET /api/company-contacts/search?q=${q}&limit=${limit}`);
+  console.log(`GET /api/company-contacts/search?q=${q}&limit=${limit}&includeInactive=${includeInactive}`);
 
   try {
     // Validate search query
@@ -55,7 +55,8 @@ router.get('/company-contacts/search', async (req, res) => {
     const maxResults = Math.min(Math.max(parseInt(limit, 10) || 10, 1), 25);
 
     // Check cache
-    const cacheKey = `search:${searchTerm.toLowerCase()}:${maxResults}`;
+    const activeFlag = includeInactive === 'true' ? 'all' : 'active';
+    const cacheKey = `search:${searchTerm.toLowerCase()}:${maxResults}:${activeFlag}`;
     const cached = contactsCache.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < CONTACTS_CACHE_TTL) {
       console.log(`Cache HIT for contacts search: ${cacheKey}`);
@@ -63,8 +64,9 @@ router.get('/company-contacts/search', async (req, res) => {
     }
 
     // Build Caspio WHERE clause - search multiple fields
-    // Filter to active customers only (Customersts_Active = 1)
-    const whereClause = `Customersts_Active=1 AND (CustomerCompanyName LIKE '%${searchTerm}%' OR ct_NameFull LIKE '%${searchTerm}%' OR ContactNumbersEmail LIKE '%${searchTerm}%')`;
+    // Filter to active customers only unless includeInactive=true
+    const activeFilter = includeInactive === 'true' ? '' : 'Customersts_Active=1 AND ';
+    const whereClause = `${activeFilter}(CustomerCompanyName LIKE '%${searchTerm}%' OR ct_NameFull LIKE '%${searchTerm}%' OR ContactNumbersEmail LIKE '%${searchTerm}%')`;
 
     const params = {
       'q.where': whereClause,
