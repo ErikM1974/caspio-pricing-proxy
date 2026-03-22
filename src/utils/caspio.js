@@ -229,14 +229,20 @@ async function fetchAllCaspioPages(resourcePath, initialParams = {}, options = {
         }
 
       } catch (pageError) {
+        const status = pageError.response?.status;
         console.error('Axios error details:', {
-          status: pageError.response?.status,
+          status,
           statusText: pageError.response?.statusText,
           data: pageError.response?.data,
           url: currentUrl,
           params: currentRequestParams
         });
-        if (pageError.code === 'ECONNABORTED' || pageError.message.includes('timeout')) {
+        if (status === 429) {
+          console.warn(`[Caspio] Rate limited on ${resourcePath} (page ${pageCount}). Returning ${allResults.length} partial results.`);
+          const error = new Error('Caspio API rate limit exceeded');
+          error.statusCode = 429;
+          throw error;
+        } else if (pageError.code === 'ECONNABORTED' || pageError.message.includes('timeout')) {
           console.log(`Timeout on page ${pageCount} for ${resourcePath}, continuing with collected data`);
           morePages = false;
         } else {

@@ -370,10 +370,20 @@ const jdsRoutes = require('./src/routes/jds');
 app.use('/api/jds', jdsLimiter, jdsRoutes);
 console.log('✓ JDS Industries routes loaded (rate limited: 60 req/min)');
 
-// Sanmar-ShopWorks Mapping Routes
+// Sanmar-ShopWorks Mapping Routes (with rate limiting + server-side cache)
 const sanmarShopworksRoutes = require('./src/routes/sanmar-shopworks');
-app.use('/api', sanmarShopworksRoutes);
-console.log('✓ Sanmar-ShopWorks mapping routes loaded');
+const sanmarLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60, // 60 req/min — generous since import-format has server-side cache
+  message: {
+    error: 'Too many requests to SanMar-ShopWorks endpoints',
+    retryAfter: '60 seconds'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use('/api', sanmarLimiter, sanmarShopworksRoutes);
+console.log('✓ Sanmar-ShopWorks mapping routes loaded (rate limited: 60 req/min, cached)');
 
 // Thumbnail Lookup Routes
 const thumbnailsRoutes = require('./src/routes/thumbnails');

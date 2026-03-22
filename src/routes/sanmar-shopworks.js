@@ -13,6 +13,10 @@ const router = express.Router();
 // Import Caspio utilities
 const { fetchAllCaspioPages } = require('../utils/caspio');
 
+// Server-side cache for import-format responses (10 min TTL)
+const NodeCache = require('node-cache');
+const importFormatCache = new NodeCache({ stdTTL: 600, checkperiod: 120 });
+
 // In-memory cache for mapping data (1-hour TTL)
 const sanmarMappingCache = new Map();
 const MAPPING_CACHE_TTL = 60 * 60 * 1000; // 1 hour
@@ -654,7 +658,15 @@ router.get('/sanmar-shopworks/import-format', async (req, res) => {
       return res.status(400).json({ error: 'styleNumber parameter is required' });
     }
 
-    console.log(`[Import Format] Generating ShopWorks import data for ${styleNumber} ${color || '(all colors)'}`);
+    // Check cache first — avoids hitting Caspio API quota
+    const cacheKey = `import-format:${styleNumber}:${color || 'all'}`;
+    const cached = importFormatCache.get(cacheKey);
+    if (cached) {
+      console.log(`[Import Format] Cache hit for ${styleNumber} ${color || '(all colors)'}`);
+      return res.json(cached);
+    }
+
+    console.log(`[Import Format] Cache miss — querying Caspio for ${styleNumber} ${color || '(all colors)'}`);
 
     // Get product info
     const productInfo = await getProductInfo(styleNumber);
@@ -742,11 +754,13 @@ router.get('/sanmar-shopworks/import-format', async (req, res) => {
     });
 
     console.log(`[Import Format] Returning ${importEntries.length} entries for ${styleNumber} (${availableSizes.length} sizes)`);
+    importFormatCache.set(cacheKey, importEntries);
     res.json(importEntries);
   } catch (error) {
-    console.error('[Import Format] Error:', error);
-    res.status(500).json({
-      error: 'Failed to generate import format',
+    console.error('[Import Format] Error:', error.message);
+    const status = error.statusCode === 429 ? 429 : 500;
+    res.status(status).json({
+      error: status === 429 ? 'Rate limited — please retry in a moment' : 'Failed to generate import format',
       details: error.message
     });
   }
