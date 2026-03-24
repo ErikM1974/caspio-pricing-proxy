@@ -141,7 +141,7 @@ router.get('/products-by-brand', async (req, res) => {
     ];
 
     const records = await fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
-      'q.where': `BRAND_NAME LIKE '%${brand}%'`,
+      'q.where': `BRAND_NAME LIKE '%${brand}%' AND PRODUCT_STATUS<>'Discontinued'`,
       'q.select': selectFields.join(', '),
       'q.groupBy': 'STYLE, PRODUCT_TITLE, PRODUCT_DESCRIPTION, BRAND_NAME, FRONT_MODEL, CATEGORY_NAME, SUBCATEGORY_NAME, PRODUCT_STATUS, PIECE_PRICE, DOZEN_PRICE, CASE_PRICE'
     });
@@ -170,7 +170,7 @@ router.get('/products-by-category', async (req, res) => {
     ];
 
     const records = await fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
-      'q.where': `CATEGORY_NAME='${category}'`,
+      'q.where': `CATEGORY_NAME='${category}' AND PRODUCT_STATUS<>'Discontinued'`,
       'q.select': selectFields.join(', '),
       'q.groupBy': 'STYLE, PRODUCT_TITLE, PRODUCT_DESCRIPTION, BRAND_NAME, FRONT_MODEL, CATEGORY_NAME, SUBCATEGORY_NAME, PRODUCT_STATUS'
     });
@@ -199,7 +199,7 @@ router.get('/products-by-subcategory', async (req, res) => {
     ];
 
     const records = await fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
-      'q.where': `SUBCATEGORY_NAME='${subcategory}'`,
+      'q.where': `SUBCATEGORY_NAME='${subcategory}' AND PRODUCT_STATUS<>'Discontinued'`,
       'q.select': selectFields.join(', '),
       'q.groupBy': 'STYLE, PRODUCT_TITLE, PRODUCT_DESCRIPTION, BRAND_NAME, FRONT_MODEL, CATEGORY_NAME, SUBCATEGORY_NAME, PRODUCT_STATUS'
     });
@@ -304,7 +304,7 @@ router.get('/search', async (req, res) => {
   }
 
   try {
-    const whereClause = `STYLE LIKE '%${q}%' OR PRODUCT_TITLE LIKE '%${q}%' OR PRODUCT_DESCRIPTION LIKE '%${q}%' OR BRAND_NAME LIKE '%${q}%' OR CATEGORY_NAME LIKE '%${q}%' OR SUBCATEGORY_NAME LIKE '%${q}%'`;
+    const whereClause = `(STYLE LIKE '%${q}%' OR PRODUCT_TITLE LIKE '%${q}%' OR PRODUCT_DESCRIPTION LIKE '%${q}%' OR BRAND_NAME LIKE '%${q}%' OR CATEGORY_NAME LIKE '%${q}%' OR SUBCATEGORY_NAME LIKE '%${q}%') AND PRODUCT_STATUS<>'Discontinued'`;
     
     const selectFields = [
       'STYLE', 'PRODUCT_TITLE', 'PRODUCT_DESCRIPTION', 'BRAND_NAME',
