@@ -31,7 +31,8 @@ const REQUEST_DELAY = 1500; // 1.5s between ManageOrders calls to avoid rate lim
 // === Q1 2026: Jan 1 - Mar 31 ===
 // Swap products each quarter. Must stay synced with staff-dashboard-service.js GARMENT_TRACKER_CONFIG.
 const TRACKED_REPS = ['Nika Lao', 'Taneisha Clark'];
-const ORDER_TYPE_IDS = [21, 41];
+const EXCLUDED_ORDER_TYPE_IDS = [31]; // 31 = InkSoft webstore orders (don't count toward commission)
+const EXCLUDED_CUSTOMER_IDS = [13500]; // Q1 2026: Rainier Pure Beef (id_Customer=13500) - excluded this quarter
 
 const PREMIUM_ITEMS = {
     'CT104670': { name: 'Carhartt Storm Defender Jacket', bonus: 5 },
@@ -129,10 +130,11 @@ async function main() {
         const allOrders = ordersResp.data?.result || [];
         console.log(`  Found ${allOrders.length} total orders`);
 
-        // Filter to tracked reps and order types
+        // Filter to tracked reps, exclude InkSoft (type 31) and excluded customers
         const repOrders = allOrders.filter(o =>
             TRACKED_REPS.includes(o.CustomerServiceRep) &&
-            ORDER_TYPE_IDS.includes(o.id_OrderType)
+            !EXCLUDED_ORDER_TYPE_IDS.includes(o.id_OrderType) &&
+            !EXCLUDED_CUSTOMER_IDS.includes(o.id_Customer)
         );
         console.log(`  Filtered to ${repOrders.length} orders for tracked reps`);
 
