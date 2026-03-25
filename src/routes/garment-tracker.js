@@ -13,24 +13,10 @@ const caspioApiBaseUrl = config.caspio.apiBaseUrl;
 const TABLE_NAME = 'GarmentTracker';
 const ARCHIVE_TABLE_NAME = 'GarmentTrackerArchive';
 
-// === Q1 2026: Jan 1 - Mar 31 ===
-// Swap products each quarter. Must stay synced with staff-dashboard-service.js GARMENT_TRACKER_CONFIG.
-const PREMIUM_ITEMS = {
-    'CT104670': { name: 'Carhartt Storm Defender Jacket', bonus: 5 },
-    'EB550': { name: 'Eddie Bauer Rain Jacket', bonus: 5 },
-    'CT103828': { name: 'Carhartt Duck Detroit Jacket', bonus: 5 },
-    'CT102286': { name: 'Carhartt Gilliam Vest', bonus: 3 },
-    'NF0A52S7': { name: 'North Face Dyno Backpack', bonus: 2 }
-};
-
-// Richardson cap styles - combined list from frontend + backend (synced with staff-dashboard-service.js)
-// $0.50 bonus each
-const RICHARDSON_CAPS = [
-    '110', '111', '112', '112FP', '112FPR', '112PFP', '112PL', '112PT',
-    '115', '168', '168P', '169', '172', '173', '212', '220', '225', '256', '256P',
-    '312', '323FPC', '325', '326', '336', '355', '356',
-    '435', '511', '514', '514J', '840', '842', '870'
-];
+// Single source of truth for quarter config — edit config/garment-tracker-config.js to swap products
+const gtConfig = require('../../config/garment-tracker-config');
+const PREMIUM_ITEMS = gtConfig.premiumItems;
+const RICHARDSON_CAPS = gtConfig.richardsonStyles;
 
 /**
  * Helper to determine quarter from date
@@ -95,7 +81,7 @@ function calculateBonus(partNumber, quantity) {
         return premium.bonus * quantity;
     }
     if (isRichardsonCap(partNumber)) {
-        return 0.50 * quantity;
+        return gtConfig.richardsonBonus * quantity;
     }
     return 0;
 }
@@ -769,6 +755,24 @@ router.post('/garment-tracker/import', express.json(), async (req, res) => {
         console.error('[GarmentArchive] Error importing:', error.message);
         res.status(500).json({ success: false, error: 'Failed to import data' });
     }
+});
+
+// GET /api/garment-tracker/config - Returns current quarter config for frontend
+// Frontend fetches this instead of hardcoding product lists
+router.get('/garment-tracker/config', (req, res) => {
+    res.json({
+        success: true,
+        config: {
+            quarter: gtConfig.quarter,
+            dateRange: gtConfig.dateRange,
+            premiumItems: gtConfig.premiumItems,
+            richardsonStyles: gtConfig.richardsonStyles,
+            richardsonBonus: gtConfig.richardsonBonus,
+            trackedReps: gtConfig.trackedReps,
+            excludedOrderTypeIds: gtConfig.excludedOrderTypeIds,
+            excludedCustomerIds: gtConfig.excludedCustomerIds
+        }
+    });
 });
 
 // ============================================================================

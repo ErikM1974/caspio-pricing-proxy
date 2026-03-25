@@ -28,27 +28,14 @@ const BASE_URL = process.env.BASE_URL || 'https://caspio-pricing-proxy-ab30a0499
 const TIMEOUT = 30000; // 30s per individual request
 const REQUEST_DELAY = 1500; // 1.5s between ManageOrders calls to avoid rate limits
 
-// === Q1 2026: Jan 1 - Mar 31 ===
-// Swap products each quarter. Must stay synced with staff-dashboard-service.js GARMENT_TRACKER_CONFIG.
-const TRACKED_REPS = ['Nika Lao', 'Taneisha Clark'];
-const EXCLUDED_ORDER_TYPE_IDS = [31]; // 31 = InkSoft webstore orders (don't count toward commission)
-const EXCLUDED_CUSTOMER_IDS = [13500]; // Q1 2026: Rainier Pure Beef (id_Customer=13500) - excluded this quarter
-
-const PREMIUM_ITEMS = {
-    'CT104670': { name: 'Carhartt Storm Defender Jacket', bonus: 5 },
-    'EB550': { name: 'Eddie Bauer Rain Jacket', bonus: 5 },
-    'CT103828': { name: 'Carhartt Duck Detroit Jacket', bonus: 5 },
-    'CT102286': { name: 'Carhartt Gilliam Vest', bonus: 3 },
-    'NF0A52S7': { name: 'North Face Dyno Backpack', bonus: 2 }
-};
-
-const RICHARDSON_CAPS = [
-    '110', '111', '112', '112FP', '112FPR', '112PFP', '112PL', '112PT',
-    '115', '168', '168P', '169', '172', '173', '212', '220', '225', '256', '256P',
-    '312', '323FPC', '325', '326', '336', '355', '356',
-    '435', '511', '514', '514J', '840', '842', '870'
-];
-const RICHARDSON_BONUS = 0.50;
+// Single source of truth — edit config/garment-tracker-config.js to swap products each quarter
+const gtConfig = require('../config/garment-tracker-config');
+const TRACKED_REPS = gtConfig.trackedReps;
+const EXCLUDED_ORDER_TYPE_IDS = gtConfig.excludedOrderTypeIds;
+const EXCLUDED_CUSTOMER_IDS = gtConfig.excludedCustomerIds;
+const PREMIUM_ITEMS = gtConfig.premiumItems;
+const RICHARDSON_CAPS = gtConfig.richardsonStyles;
+const RICHARDSON_BONUS = gtConfig.richardsonBonus;
 
 function formatDate(date) {
     return date.toISOString().split('T')[0];
