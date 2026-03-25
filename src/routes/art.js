@@ -830,6 +830,62 @@ router.put('/art-requests/:designId/status', express.json(), async (req, res) =>
     }
 });
 
+// PUT /api/art-requests/:designId/fields — Update editable fields on an art request
+router.put('/art-requests/:designId/fields', express.json(), async (req, res) => {
+    const { designId } = req.params;
+    const updates = req.body;
+
+    if (!designId || !updates || Object.keys(updates).length === 0) {
+        return res.status(400).json({ error: 'designId and at least one field are required' });
+    }
+
+    // Whitelist of editable Caspio column names
+    const EDITABLE_FIELDS = [
+        'Order_Type', 'Due_Date', 'Garment_Placement',
+        'Garment_1', 'Garment_Color_1', 'Garment_2', 'Garment_Color_2',
+        'Garment_3', 'Garment_Color_3',
+        'Instructions', 'Thread_Colors', 'Additional_Instructions',
+        'Prelim_Charges', 'Additional_Services',
+        'First_Name', 'Last_Name', 'Email_Contact', 'Phone'
+    ];
+
+    const updateData = {};
+    const changedFields = [];
+    for (const [key, value] of Object.entries(updates)) {
+        if (EDITABLE_FIELDS.includes(key)) {
+            updateData[key] = value;
+            changedFields.push(key);
+        }
+    }
+
+    if (Object.keys(updateData).length === 0) {
+        return res.status(400).json({ error: 'No valid editable fields provided' });
+    }
+
+    try {
+        console.log(`AE field update: design ${designId} — fields: ${changedFields.join(', ')}`);
+        const token = await getCaspioAccessToken();
+
+        const url = `${caspioApiBaseUrl}/tables/ArtRequests/records?q.where=ID_Design=${designId}`;
+        await axios({
+            method: 'put',
+            url,
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            data: updateData,
+            timeout: 15000
+        });
+
+        console.log(`Design ${designId} fields updated: ${changedFields.join(', ')}`);
+        res.json({ message: 'Fields updated', designId, updatedFields: changedFields });
+    } catch (error) {
+        console.error(`Field update failed for design ${designId}:`, error.response?.data || error.message);
+        res.status(500).json({ error: 'Failed to update fields' });
+    }
+});
+
 // POST /api/art-requests/:designId/note — Create a design note (triggers Caspio email)
 router.post('/art-requests/:designId/note', express.json(), async (req, res) => {
     const { designId } = req.params;
