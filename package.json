@@ -15,6 +15,7 @@
     "postman-list": "node scripts/postman-api-client.js list",
     "archive-daily-sales": "node scripts/archive-daily-sales.js",
     "archive-garment-tracker": "node scripts/archive-garment-tracker.js",
+    "sync-garment-tracker": "node scripts/sync-garment-tracker.js",
     "sync-crm-dashboards": "node scripts/sync-crm-dashboards.js",
     "sync-contacts": "node scripts/sync-contacts.js"
   },
