@@ -4,6 +4,7 @@ const express = require('express');
 const router = express.Router();
 const { makeCaspioRequest, fetchAllCaspioPages } = require('../utils/caspio');
 const { mapFieldsForBackwardCompatibility, createProductColorsResponse, createColorSwatchesResponse } = require('../utils/field-mapper');
+const { getActiveColors } = require('./sanmar-product-data');
 
 // Cache for product search (5 minute TTL)
 const productSearchCache = new Map();
@@ -114,7 +115,29 @@ router.get('/color-swatches', async (req, res) => {
     });
 
     // Use the mapper to create the original response format
-    const colorSwatches = createColorSwatchesResponse(records);
+    let colorSwatches = createColorSwatchesResponse(records);
+
+    // Filter discontinued colors via SanMar API (fail-open: if API fails, show all)
+    const includeDiscontinued = req.query.includeDiscontinued === 'true';
+    if (!includeDiscontinued) {
+      try {
+        const activeColors = await getActiveColors(styleNumber);
+        if (activeColors && activeColors.size > 0) {
+          const originalCount = colorSwatches.length;
+          colorSwatches = colorSwatches.filter(c => {
+            const colorName = (c.COLOR_NAME || c.colorName || '').toLowerCase();
+            const catalogColor = (c.CATALOG_COLOR || c.catalogColor || '').toLowerCase();
+            return activeColors.has(colorName) || activeColors.has(catalogColor);
+          });
+          const removedCount = originalCount - colorSwatches.length;
+          if (removedCount > 0) {
+            console.log(`Filtered ${removedCount} discontinued swatch(es) for ${styleNumber}`);
+          }
+        }
+      } catch (filterErr) {
+        console.warn(`SanMar swatch filter failed for ${styleNumber}, showing all:`, filterErr.message);
+      }
+    }
 
     console.log(`Color swatches for ${styleNumber}: ${colorSwatches.length} color(s)`);
     res.json(colorSwatches);
@@ -844,6 +867,30 @@ router.get('/product-colors', async (req, res) => {
 
     if (!productColorsResponse) {
       return res.status(404).json({ error: 'Product not found' });
+    }
+
+    // Filter discontinued colors via SanMar API (fail-open: if API fails, show all)
+    const includeDiscontinued = req.query.includeDiscontinued === 'true';
+    if (!includeDiscontinued) {
+      try {
+        const activeColors = await getActiveColors(styleNumber);
+        if (activeColors && activeColors.size > 0) {
+          const originalCount = productColorsResponse.colors.length;
+          productColorsResponse.colors = productColorsResponse.colors.filter(c => {
+            const colorName = (c.COLOR_NAME || '').toLowerCase();
+            const catalogColor = (c.CATALOG_COLOR || '').toLowerCase();
+            return activeColors.has(colorName) || activeColors.has(catalogColor);
+          });
+          const removedCount = originalCount - productColorsResponse.colors.length;
+          if (removedCount > 0) {
+            productColorsResponse.discontinuedFiltered = true;
+            productColorsResponse.removedCount = removedCount;
+            console.log(`Filtered ${removedCount} discontinued color(s) for ${styleNumber}`);
+          }
+        }
+      } catch (filterErr) {
+        console.warn(`SanMar color filter failed for ${styleNumber}, showing all:`, filterErr.message);
+      }
     }
 
     console.log(`Product colors for ${styleNumber}: ${productColorsResponse.colors.length} unique color(s) found`);

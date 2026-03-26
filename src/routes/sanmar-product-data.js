@@ -322,4 +322,54 @@ router.get('/discontinued-colors/:style', async (req, res) => {
   }
 });
 
+// ── Exported helper: getActiveColors(style) ──
+// Returns Set of active color names for a style, or null if API fails (fail-open)
+// Used by products.js to filter discontinued colors from /api/product-colors
+async function getActiveColors(style) {
+  const cacheKey = `sanmar-active-colors-${style.toUpperCase()}`;
+
+  const cached = sanmarCache.get(cacheKey);
+  if (cached) return cached;
+
+  try {
+    const auth = getAuth();
+    if (!auth.id || !auth.password) return null;
+
+    const soapBody = `
+    <ns:GetProductRequest>
+      <shar:wsVersion>2.0.0</shar:wsVersion>
+      <shar:id>${auth.id}</shar:id>
+      <shar:password>${auth.password}</shar:password>
+      <shar:localizationCountry>US</shar:localizationCountry>
+      <shar:localizationLanguage>en</shar:localizationLanguage>
+      <shar:productId>${style.toUpperCase()}</shar:productId>
+    </ns:GetProductRequest>`;
+
+    const xml = await makeSoapRequest(soapBody, 'getProduct');
+
+    if (xml.includes('Authentication Credentials failed')) return null;
+
+    const colorNames = extractAll(xml, 'colorName');
+    const closeoutFlags = extractAll(xml, 'isCloseout');
+
+    // Build set of active colors (not closeout)
+    const activeColors = new Set();
+    for (let i = 0; i < colorNames.length; i++) {
+      if (closeoutFlags[i] !== 'true') {
+        activeColors.add(colorNames[i].toLowerCase());
+      }
+    }
+
+    // If API returned no colors, product might not exist — fail open
+    if (activeColors.size === 0 && colorNames.length === 0) return null;
+
+    sanmarCache.set(cacheKey, activeColors);
+    return activeColors;
+  } catch (error) {
+    console.error(`getActiveColors(${style}) failed:`, error.message);
+    return null; // Fail open — show all colors
+  }
+}
+
 module.exports = router;
+module.exports.getActiveColors = getActiveColors;
