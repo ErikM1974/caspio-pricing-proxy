@@ -385,6 +385,11 @@ const sanmarLimiter = rateLimit({
 app.use('/api', sanmarLimiter, sanmarShopworksRoutes);
 console.log('✓ Sanmar-ShopWorks mapping routes loaded (rate limited: 60 req/min, cached)');
 
+// SanMar PromoStandards Product Data Routes (discontinued color detection)
+const sanmarProductDataRoutes = require('./src/routes/sanmar-product-data');
+app.use('/api/sanmar', sanmarLimiter, sanmarProductDataRoutes);
+console.log('✓ SanMar Product Data routes loaded (PromoStandards API)');
+
 // Thumbnail Lookup Routes
 const thumbnailsRoutes = require('./src/routes/thumbnails');
 app.use('/api', thumbnailsRoutes);
