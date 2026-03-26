@@ -371,5 +371,167 @@ async function getActiveColors(style) {
   }
 }
 
+// ── PromoStandards Inventory Service ──
+const INVENTORY_ENDPOINT = 'https://ws.sanmar.com:8080/promostandards/InventoryServiceBindingV2final';
+const INV_NS = 'http://www.promostandards.org/WSDL/Inventory/2.0.0/';
+const INV_SHARED_NS = 'http://www.promostandards.org/WSDL/Inventory/2.0.0/SharedObjects/';
+
+// Inventory cache: 5-minute TTL (inventory changes more frequently)
+const inventoryCache = new NodeCache({ stdTTL: 300, checkperiod: 60 });
+
+// Make SOAP request to inventory endpoint (different URL from product data)
+function makeInventoryRequest(soapBody) {
+  return new Promise((resolve, reject) => {
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ns="${INV_NS}" xmlns:shar="${INV_SHARED_NS}">
+  <soapenv:Body>
+    ${soapBody}
+  </soapenv:Body>
+</soapenv:Envelope>`;
+
+    const url = new URL(INVENTORY_ENDPOINT);
+    const options = {
+      hostname: url.hostname,
+      port: url.port || 8080,
+      path: url.pathname,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'text/xml; charset=utf-8',
+        'Content-Length': Buffer.byteLength(xml)
+      },
+      timeout: 30000
+    };
+
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => resolve(data));
+    });
+
+    req.on('error', (err) => reject(err));
+    req.on('timeout', () => {
+      req.destroy();
+      reject(new Error('SanMar Inventory API request timed out'));
+    });
+
+    req.write(xml);
+    req.end();
+  });
+}
+
+// ── GET /api/sanmar/inventory/:style ──
+// Returns real-time inventory from SanMar warehouses
+// Query params: color (optional, uses CATALOG_COLOR), size (optional)
+router.get('/inventory/:style', async (req, res) => {
+  const style = req.params.style.toUpperCase();
+  const color = req.query.color || '';
+  const size = req.query.size || '';
+  const cacheKey = `sanmar-inv-${style}-${color}-${size}`.toLowerCase();
+
+  const cached = inventoryCache.get(cacheKey);
+  if (cached) {
+    return res.json({ ...cached, cached: true });
+  }
+
+  try {
+    const auth = getAuth();
+    if (!auth.id || !auth.password) {
+      return res.status(500).json({ error: 'SanMar credentials not configured' });
+    }
+
+    // Build filter section
+    let filterXml = '';
+    if (color || size) {
+      filterXml = '<shar:Filter>';
+      if (color) {
+        filterXml += `<shar:PartColorArray><shar:partColor>${color}</shar:partColor></shar:PartColorArray>`;
+      }
+      if (size) {
+        filterXml += `<shar:LabelSizeArray><shar:labelSize>${size}</shar:labelSize></shar:LabelSizeArray>`;
+      }
+      filterXml += '</shar:Filter>';
+    }
+
+    const soapBody = `
+    <ns:GetInventoryLevelsRequest>
+      <shar:wsVersion>2.0.0</shar:wsVersion>
+      <shar:id>${auth.id}</shar:id>
+      <shar:password>${auth.password}</shar:password>
+      <shar:productId>${style}</shar:productId>
+      ${filterXml}
+    </ns:GetInventoryLevelsRequest>`;
+
+    const xml = await makeInventoryRequest(soapBody);
+
+    // Check for errors
+    if (xml.includes('Authentication Credentials failed')) {
+      return res.status(401).json({ error: 'SanMar authentication failed' });
+    }
+    if (xml.includes('<code>') && xml.includes('Error')) {
+      const errDesc = (xml.match(/<description>([^<]+)<\/description>/) || [])[1] || 'Unknown error';
+      return res.status(400).json({ error: errDesc });
+    }
+
+    // Parse inventory XML into structured JSON
+    // Each PartInventory has: partColor, labelSize, quantityAvailable, InventoryLocationArray
+    const inventory = [];
+    const partRegex = /<PartInventory>([\s\S]*?)<\/PartInventory>/g;
+    let partMatch;
+
+    while ((partMatch = partRegex.exec(xml)) !== null) {
+      const partXml = partMatch[1];
+
+      const partColor = (partXml.match(/<partColor>([^<]*)<\/partColor>/) || [])[1] || '';
+      const labelSize = (partXml.match(/<labelSize>([^<]*)<\/labelSize>/) || [])[1] || '';
+      const totalQty = parseInt((partXml.match(/<quantityAvailable>[\s\S]*?<value>(\d+)<\/value>/) || [])[1] || '0', 10);
+      const partId = (partXml.match(/<partId>([^<]*)<\/partId>/) || [])[1] || '';
+
+      // Parse warehouse quantities
+      const warehouses = [];
+      const locRegex = /<InventoryLocation>([\s\S]*?)<\/InventoryLocation>/g;
+      let locMatch;
+
+      while ((locMatch = locRegex.exec(partXml)) !== null) {
+        const locXml = locMatch[1];
+        const locId = parseInt((locXml.match(/<inventoryLocationId>(\d+)<\/inventoryLocationId>/) || [])[1] || '0', 10);
+        const locName = (locXml.match(/<inventoryLocationName>([^<]*)<\/inventoryLocationName>/) || [])[1] || '';
+        const qty = parseInt((locXml.match(/<inventoryLocationQuantity>[\s\S]*?<value>(\d+)<\/value>/) || [])[1] || '0', 10);
+
+        warehouses.push({ id: locId, name: locName, qty });
+      }
+
+      inventory.push({
+        partId,
+        color: partColor,
+        size: labelSize,
+        totalQty,
+        warehouses
+      });
+    }
+
+    // Sort by size order
+    const sizeOrder = ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL', '6XL', 'OSFA'];
+    inventory.sort((a, b) => {
+      const aIdx = sizeOrder.indexOf(a.size);
+      const bIdx = sizeOrder.indexOf(b.size);
+      return (aIdx === -1 ? 99 : aIdx) - (bIdx === -1 ? 99 : bIdx);
+    });
+
+    const result = {
+      style,
+      color: color || 'all',
+      totalSizes: inventory.length,
+      grandTotal: inventory.reduce((sum, item) => sum + item.totalQty, 0),
+      inventory
+    };
+
+    inventoryCache.set(cacheKey, result);
+    res.json(result);
+  } catch (error) {
+    console.error(`Error fetching SanMar inventory for ${style}:`, error.message);
+    res.status(500).json({ error: 'Failed to fetch inventory', details: error.message });
+  }
+});
+
 module.exports = router;
 module.exports.getActiveColors = getActiveColors;
