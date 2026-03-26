@@ -86,6 +86,28 @@ router.get('/product-details', async (req, res) => {
     const uniqueStyles = [];
     const seenStyles = new Set();
 
+    // Filter discontinued colors via SanMar API (fail-open)
+    const includeDiscontinued = req.query.includeDiscontinued === 'true';
+    if (!includeDiscontinued) {
+      try {
+        const activeColors = await getActiveColors(styleNumber);
+        if (activeColors && activeColors.size > 0) {
+          const originalCount = records.length;
+          records = records.filter(r => {
+            const colorName = (r.COLOR_NAME || '').toLowerCase();
+            const catalogColor = (r.CATALOG_COLOR || '').toLowerCase();
+            return activeColors.has(colorName) || activeColors.has(catalogColor);
+          });
+          const removedCount = originalCount - records.length;
+          if (removedCount > 0) {
+            console.log(`Filtered ${removedCount} discontinued record(s) for ${styleNumber}`);
+          }
+        }
+      } catch (filterErr) {
+        console.warn(`SanMar filter failed for product-details ${styleNumber}, showing all:`, filterErr.message);
+      }
+    }
+
     // Return the records with the original field names as expected by existing apps
     console.log(`Product details for ${styleNumber}: ${records.length} record(s)`);
     res.json(records);
