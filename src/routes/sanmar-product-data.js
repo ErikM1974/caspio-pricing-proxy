@@ -461,19 +461,35 @@ router.get('/inventory/:style', async (req, res) => {
       ${filterXml}
     </ns:GetInventoryLevelsRequest>`;
 
-    const xml = await makeInventoryRequest(soapBody);
+    let xml = await makeInventoryRequest(soapBody);
 
-    // Check for errors
+    // Check for auth errors
     if (xml.includes('Authentication Credentials failed')) {
       return res.status(401).json({ error: 'SanMar authentication failed' });
     }
-    if (xml.includes('<code>') && xml.includes('Error')) {
+
+    // If color filter returned error/no data, retry WITHOUT color and filter server-side
+    // This handles CATALOG_COLOR vs COLOR_NAME mismatches (e.g., "Biscuit/TB" vs "Biscuit/ True Blue")
+    let serverSideColorFilter = null;
+    if (color && (xml.includes('Data not found') || xml.includes('<code>') || !xml.includes('<PartInventory>'))) {
+      console.log(`Inventory: Color "${color}" not found for ${style}, retrying without color filter`);
+      const retryBody = `
+      <ns:GetInventoryLevelsRequest>
+        <shar:wsVersion>2.0.0</shar:wsVersion>
+        <shar:id>${auth.id}</shar:id>
+        <shar:password>${auth.password}</shar:password>
+        <shar:productId>${style}</shar:productId>
+      </ns:GetInventoryLevelsRequest>`;
+      xml = await makeInventoryRequest(retryBody);
+      serverSideColorFilter = color.toLowerCase();
+    }
+
+    if (xml.includes('<code>') && xml.includes('Error') && !xml.includes('<PartInventory>')) {
       const errDesc = (xml.match(/<description>([^<]+)<\/description>/) || [])[1] || 'Unknown error';
       return res.status(400).json({ error: errDesc });
     }
 
     // Parse inventory XML into structured JSON
-    // Each PartInventory has: partColor, labelSize, quantityAvailable, InventoryLocationArray
     const inventory = [];
     const partRegex = /<PartInventory>([\s\S]*?)<\/PartInventory>/g;
     let partMatch;
@@ -485,6 +501,17 @@ router.get('/inventory/:style', async (req, res) => {
       const labelSize = (partXml.match(/<labelSize>([^<]*)<\/labelSize>/) || [])[1] || '';
       const totalQty = parseInt((partXml.match(/<quantityAvailable>[\s\S]*?<value>(\d+)<\/value>/) || [])[1] || '0', 10);
       const partId = (partXml.match(/<partId>([^<]*)<\/partId>/) || [])[1] || '';
+
+      // Server-side color filtering: match by partial/fuzzy when original color didn't match API format
+      if (serverSideColorFilter) {
+        const apiColor = partColor.toLowerCase();
+        const searchColor = serverSideColorFilter;
+        // Match if: exact, starts-with, or the API abbreviation is contained in the full name
+        const isMatch = apiColor === searchColor ||
+                        searchColor.startsWith(apiColor.split('/')[0]) ||
+                        apiColor.startsWith(searchColor.split('/')[0]);
+        if (!isMatch) continue; // Skip non-matching colors
+      }
 
       // Parse warehouse quantities
       const warehouses = [];
