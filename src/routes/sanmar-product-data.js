@@ -67,6 +67,12 @@ function makeSoapRequest(soapBody, soapAction) {
   });
 }
 
+// XML-escape user inputs before SOAP interpolation (prevents XML injection)
+function xmlEscape(str) {
+  if (!str) return '';
+  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+}
+
 // Parse XML — extract tag values (simple regex, no dependency needed)
 function extractAll(xml, tagName) {
   const regex = new RegExp(`<(?:[\\w:]*:)?${tagName}>([^<]*)<\\/(?:[\\w:]*:)?${tagName}>`, 'g');
@@ -99,11 +105,11 @@ router.get('/product-colors/:style', async (req, res) => {
     const soapBody = `
     <ns:GetProductRequest>
       <shar:wsVersion>2.0.0</shar:wsVersion>
-      <shar:id>${auth.id}</shar:id>
-      <shar:password>${auth.password}</shar:password>
+      <shar:id>${xmlEscape(auth.id)}</shar:id>
+      <shar:password>${xmlEscape(auth.password)}</shar:password>
       <shar:localizationCountry>US</shar:localizationCountry>
       <shar:localizationLanguage>en</shar:localizationLanguage>
-      <shar:productId>${style}</shar:productId>
+      <shar:productId>${xmlEscape(style)}</shar:productId>
     </ns:GetProductRequest>`;
 
     const xml = await makeSoapRequest(soapBody, 'getProduct');
@@ -179,8 +185,8 @@ router.get('/closeout-styles', async (req, res) => {
     const soapBody = `
     <ns:GetProductCloseOutRequest>
       <shar:wsVersion>2.0.0</shar:wsVersion>
-      <shar:id>${auth.id}</shar:id>
-      <shar:password>${auth.password}</shar:password>
+      <shar:id>${xmlEscape(auth.id)}</shar:id>
+      <shar:password>${xmlEscape(auth.password)}</shar:password>
     </ns:GetProductCloseOutRequest>`;
 
     const xml = await makeSoapRequest(soapBody, 'getProductCloseOut');
@@ -225,9 +231,9 @@ router.get('/sellable/:style', async (req, res) => {
     const soapBody = `
     <ns:GetProductSellableRequest>
       <shar:wsVersion>2.0.0</shar:wsVersion>
-      <shar:id>${auth.id}</shar:id>
-      <shar:password>${auth.password}</shar:password>
-      <shar:productId>${style}</shar:productId>
+      <shar:id>${xmlEscape(auth.id)}</shar:id>
+      <shar:password>${xmlEscape(auth.password)}</shar:password>
+      <shar:productId>${xmlEscape(style)}</shar:productId>
       <shar:isSellable>true</shar:isSellable>
     </ns:GetProductSellableRequest>`;
 
@@ -275,11 +281,11 @@ router.get('/discontinued-colors/:style', async (req, res) => {
     const soapBody = `
     <ns:GetProductRequest>
       <shar:wsVersion>2.0.0</shar:wsVersion>
-      <shar:id>${auth.id}</shar:id>
-      <shar:password>${auth.password}</shar:password>
+      <shar:id>${xmlEscape(auth.id)}</shar:id>
+      <shar:password>${xmlEscape(auth.password)}</shar:password>
       <shar:localizationCountry>US</shar:localizationCountry>
       <shar:localizationLanguage>en</shar:localizationLanguage>
-      <shar:productId>${style}</shar:productId>
+      <shar:productId>${xmlEscape(style)}</shar:productId>
     </ns:GetProductRequest>`;
 
     const xml = await makeSoapRequest(soapBody, 'getProduct');
@@ -338,11 +344,11 @@ async function getActiveColors(style) {
     const soapBody = `
     <ns:GetProductRequest>
       <shar:wsVersion>2.0.0</shar:wsVersion>
-      <shar:id>${auth.id}</shar:id>
-      <shar:password>${auth.password}</shar:password>
+      <shar:id>${xmlEscape(auth.id)}</shar:id>
+      <shar:password>${xmlEscape(auth.password)}</shar:password>
       <shar:localizationCountry>US</shar:localizationCountry>
       <shar:localizationLanguage>en</shar:localizationLanguage>
-      <shar:productId>${style.toUpperCase()}</shar:productId>
+      <shar:productId>${xmlEscape(style.toUpperCase())}</shar:productId>
     </ns:GetProductRequest>`;
 
     const xml = await makeSoapRequest(soapBody, 'getProduct');
@@ -360,8 +366,11 @@ async function getActiveColors(style) {
       }
     }
 
-    // If API returned no colors, product might not exist — fail open
-    if (activeColors.size === 0 && colorNames.length === 0) return null;
+    // If API returned no data at all, product might not exist — fail open
+    if (colorNames.length === 0) return null;
+    // If all colors are closeout (activeColors empty but colorNames exist), still return null
+    // so the fail-open filter in products.js shows all colors rather than hiding everything
+    if (activeColors.size === 0) return null;
 
     sanmarCache.set(cacheKey, activeColors);
     return activeColors;
@@ -444,10 +453,10 @@ router.get('/inventory/:style', async (req, res) => {
     if (color || size) {
       filterXml = '<shar:Filter>';
       if (color) {
-        filterXml += `<shar:PartColorArray><shar:partColor>${color}</shar:partColor></shar:PartColorArray>`;
+        filterXml += `<shar:PartColorArray><shar:partColor>${xmlEscape(color)}</shar:partColor></shar:PartColorArray>`;
       }
       if (size) {
-        filterXml += `<shar:LabelSizeArray><shar:labelSize>${size}</shar:labelSize></shar:LabelSizeArray>`;
+        filterXml += `<shar:LabelSizeArray><shar:labelSize>${xmlEscape(size)}</shar:labelSize></shar:LabelSizeArray>`;
       }
       filterXml += '</shar:Filter>';
     }
@@ -455,9 +464,9 @@ router.get('/inventory/:style', async (req, res) => {
     const soapBody = `
     <ns:GetInventoryLevelsRequest>
       <shar:wsVersion>2.0.0</shar:wsVersion>
-      <shar:id>${auth.id}</shar:id>
-      <shar:password>${auth.password}</shar:password>
-      <shar:productId>${style}</shar:productId>
+      <shar:id>${xmlEscape(auth.id)}</shar:id>
+      <shar:password>${xmlEscape(auth.password)}</shar:password>
+      <shar:productId>${xmlEscape(style)}</shar:productId>
       ${filterXml}
     </ns:GetInventoryLevelsRequest>`;
 
@@ -471,14 +480,14 @@ router.get('/inventory/:style', async (req, res) => {
     // If color filter returned error/no data, retry WITHOUT color and filter server-side
     // This handles CATALOG_COLOR vs COLOR_NAME mismatches (e.g., "Biscuit/TB" vs "Biscuit/ True Blue")
     let serverSideColorFilter = null;
-    if (color && (xml.includes('Data not found') || xml.includes('<code>') || !xml.includes('<PartInventory>'))) {
+    if (color && (xml.includes('Data not found') || !xml.includes('<PartInventory>'))) {
       console.log(`Inventory: Color "${color}" not found for ${style}, retrying without color filter`);
       const retryBody = `
       <ns:GetInventoryLevelsRequest>
         <shar:wsVersion>2.0.0</shar:wsVersion>
-        <shar:id>${auth.id}</shar:id>
-        <shar:password>${auth.password}</shar:password>
-        <shar:productId>${style}</shar:productId>
+        <shar:id>${xmlEscape(auth.id)}</shar:id>
+        <shar:password>${xmlEscape(auth.password)}</shar:password>
+        <shar:productId>${xmlEscape(style)}</shar:productId>
       </ns:GetInventoryLevelsRequest>`;
       xml = await makeInventoryRequest(retryBody);
       serverSideColorFilter = color.toLowerCase();
