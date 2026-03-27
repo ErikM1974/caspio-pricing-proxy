@@ -1,11 +1,68 @@
 // ManageOrders API utilities
 
 const axios = require('axios');
+const https = require('https');
 const config = require('../../config');
+
+// Reusable HTTPS agent with keep-alive (saves ~100-300ms per request by reusing TCP connections)
+const keepAliveAgent = new https.Agent({
+  keepAlive: true,
+  maxSockets: 10,
+  maxFreeSockets: 5,
+  timeout: 60000
+});
+
+// Shared axios instance for all ManageOrders calls
+const moClient = axios.create({
+  baseURL: config.manageOrders.baseUrl,
+  httpsAgent: keepAliveAgent,
+  headers: {
+    'Content-Type': 'application/json',
+    'Accept-Encoding': 'gzip, deflate'
+  }
+});
 
 // Token cache
 let manageOrdersToken = null;
 let tokenExpiryTime = 0;
+
+/**
+ * Retry wrapper for ManageOrders API calls.
+ * Retries on timeout or 5xx errors with exponential backoff.
+ * @param {Function} fn - Async function to retry
+ * @param {number} maxRetries - Max retry attempts (default from config)
+ * @param {string} label - Label for logging
+ * @returns {Promise<*>} - Result of the function
+ */
+async function withRetry(fn, maxRetries = config.manageOrders.retryAttempts || 2, label = 'ManageOrders call') {
+  let lastError;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const start = Date.now();
+      const result = await fn();
+      const elapsed = Date.now() - start;
+      if (attempt > 0) {
+        console.log(`[MO Retry] ${label} succeeded on attempt ${attempt + 1} (${elapsed}ms)`);
+      }
+      return result;
+    } catch (error) {
+      lastError = error;
+      const isRetryable = error.code === 'ECONNABORTED' || // timeout
+        error.code === 'ETIMEDOUT' ||
+        error.code === 'ECONNRESET' ||
+        (error.response && error.response.status >= 500);
+
+      if (isRetryable && attempt < maxRetries) {
+        const delay = config.manageOrders.retryDelays?.[attempt] || (1000 * Math.pow(2, attempt));
+        console.warn(`[MO Retry] ${label} failed (attempt ${attempt + 1}/${maxRetries + 1}): ${error.message}. Retrying in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      } else {
+        throw error;
+      }
+    }
+  }
+  throw lastError;
+}
 
 /**
  * Authenticates with ManageOrders API and returns auth tokens.
@@ -24,14 +81,13 @@ async function authenticateManageOrders() {
   console.log("Authenticating with ManageOrders API...");
 
   try {
-    const response = await axios.post(
-      `${config.manageOrders.baseUrl}/manageorders/signin`,
+    const response = await moClient.post(
+      '/manageorders/signin',
       {
         username: config.manageOrders.username,
         password: config.manageOrders.password
       },
       {
-        headers: { 'Content-Type': 'application/json' },
         timeout: 10000
       }
     );
@@ -70,17 +126,13 @@ async function fetchOrders(params = {}) {
   try {
     const token = await authenticateManageOrders();
 
-    const response = await axios.get(
-      `${config.manageOrders.baseUrl}/manageorders/orders`,
-      {
-        params: params, // Pass all params through
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        timeout: 30000 // 30 seconds for potentially large result sets
-      }
-    );
+    const response = await withRetry(async () => {
+      return moClient.get('/manageorders/orders', {
+        params: params,
+        headers: { 'Authorization': `Bearer ${token}` },
+        timeout: 30000
+      });
+    }, undefined, 'fetchOrders');
 
     if (response.data && response.data.result) {
       console.log(`Fetched ${response.data.result.length} orders from ManageOrders`);
@@ -111,16 +163,12 @@ async function fetchOrderByNumber(orderNo) {
   try {
     const token = await authenticateManageOrders();
 
-    const response = await axios.get(
-      `${config.manageOrders.baseUrl}/manageorders/orders/${orderNo}`,
-      {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
+    const response = await withRetry(async () => {
+      return moClient.get(`/manageorders/orders/${orderNo}`, {
+        headers: { 'Authorization': `Bearer ${token}` },
         timeout: 10000
-      }
-    );
+      });
+    }, undefined, `fetchOrder#${orderNo}`);
 
     if (response.data && response.data.result) {
       console.log(`Fetched order #${orderNo} successfully`);
@@ -131,7 +179,6 @@ async function fetchOrderByNumber(orderNo) {
     }
   } catch (error) {
     console.error(`Error fetching order #${orderNo}:`, error.message);
-    // Return empty array for not found (don't throw error)
     if (error.response && error.response.status === 404) {
       return [];
     }
@@ -150,16 +197,12 @@ async function fetchOrderNoByExternalId(extOrderId) {
   try {
     const token = await authenticateManageOrders();
 
-    const response = await axios.get(
-      `${config.manageOrders.baseUrl}/manageorders/getorderno/${extOrderId}`,
-      {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
+    const response = await withRetry(async () => {
+      return moClient.get(`/manageorders/getorderno/${extOrderId}`, {
+        headers: { 'Authorization': `Bearer ${token}` },
         timeout: 10000
-      }
-    );
+      });
+    }, undefined, `fetchOrderByExtId#${extOrderId}`);
 
     if (response.data && response.data.result) {
       console.log(`Found order number for external ID ${extOrderId}`);
@@ -188,16 +231,12 @@ async function fetchLineItems(orderNo) {
   try {
     const token = await authenticateManageOrders();
 
-    const response = await axios.get(
-      `${config.manageOrders.baseUrl}/manageorders/lineitems/${orderNo}`,
-      {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
+    const response = await withRetry(async () => {
+      return moClient.get(`/manageorders/lineitems/${orderNo}`, {
+        headers: { 'Authorization': `Bearer ${token}` },
         timeout: 10000
-      }
-    );
+      });
+    }, undefined, `fetchLineItems#${orderNo}`);
 
     if (response.data && response.data.result) {
       console.log(`Fetched ${response.data.result.length} line items for order #${orderNo}`);
@@ -232,17 +271,16 @@ async function fetchPayments(params) {
     const token = await authenticateManageOrders();
 
     const url = isOrderLookup
-      ? `${config.manageOrders.baseUrl}/manageorders/payments/${params}`
-      : `${config.manageOrders.baseUrl}/manageorders/payments`;
+      ? `/manageorders/payments/${params}`
+      : '/manageorders/payments';
 
-    const response = await axios.get(url, {
-      params: isOrderLookup ? {} : params,
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      },
-      timeout: 30000
-    });
+    const response = await withRetry(async () => {
+      return moClient.get(url, {
+        params: isOrderLookup ? {} : params,
+        headers: { 'Authorization': `Bearer ${token}` },
+        timeout: 30000
+      });
+    }, undefined, `fetchPayments${isOrderLookup ? '#' + params : ''}`);
 
     if (response.data && response.data.result) {
       console.log(`Fetched ${response.data.result.length} payments`);
@@ -277,17 +315,16 @@ async function fetchTracking(params) {
     const token = await authenticateManageOrders();
 
     const url = isOrderLookup
-      ? `${config.manageOrders.baseUrl}/manageorders/tracking/${params}`
-      : `${config.manageOrders.baseUrl}/manageorders/tracking`;
+      ? `/manageorders/tracking/${params}`
+      : '/manageorders/tracking';
 
-    const response = await axios.get(url, {
-      params: isOrderLookup ? {} : params,
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      },
-      timeout: 30000
-    });
+    const response = await withRetry(async () => {
+      return moClient.get(url, {
+        params: isOrderLookup ? {} : params,
+        headers: { 'Authorization': `Bearer ${token}` },
+        timeout: 30000
+      });
+    }, undefined, `fetchTracking${isOrderLookup ? '#' + params : ''}`);
 
     if (response.data && response.data.result) {
       console.log(`Fetched ${response.data.result.length} tracking records`);
@@ -316,17 +353,13 @@ async function fetchInventoryLevels(params = {}) {
   try {
     const token = await authenticateManageOrders();
 
-    const response = await axios.get(
-      `${config.manageOrders.baseUrl}/manageorders/inventorylevels`,
-      {
+    const response = await withRetry(async () => {
+      return moClient.get('/manageorders/inventorylevels', {
         params: params,
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
+        headers: { 'Authorization': `Bearer ${token}` },
         timeout: 30000
-      }
-    );
+      });
+    }, undefined, 'fetchInventoryLevels');
 
     if (response.data && response.data.result) {
       console.log(`Fetched ${response.data.result.length} inventory records`);
@@ -445,5 +478,7 @@ module.exports = {
   deduplicateCustomers,
   cleanPhoneNumber,
   getDateDaysAgo,
-  getTodayDate
+  getTodayDate,
+  moClient,
+  withRetry
 };

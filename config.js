@@ -55,7 +55,15 @@ const config = {
     password: process.env.MANAGEORDERS_PASSWORD,
     tokenCacheDuration: 3600000, // 1 hour in milliseconds
     customerCacheDuration: 86400000, // 1 day in milliseconds
-    defaultDaysBack: 60 // Default to 60 days of orders
+    defaultDaysBack: 60, // Default to 60 days of orders
+    // Retry config for transient failures (timeouts, 5xx)
+    retryAttempts: 2,             // Max retries (total attempts = retryAttempts + 1)
+    retryDelays: [1000, 3000],    // Delay before each retry (1s, 3s)
+    // Cache durations (route-level, in milliseconds)
+    ordersCacheDuration: 4 * 60 * 60 * 1000,    // 4 hours (was 1 hour)
+    trackingCacheDuration: 30 * 60 * 1000,       // 30 minutes (was 15 min)
+    paymentsCacheDuration: 4 * 60 * 60 * 1000,   // 4 hours (was 1 hour)
+    inventoryCacheDuration: 3 * 60 * 1000         // 3 minutes (was 1 min)
   },
 
   // JDS Industries API configuration

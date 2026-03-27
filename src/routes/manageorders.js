@@ -3,6 +3,7 @@
 const express = require('express');
 const router = express.Router();
 const {
+  authenticateManageOrders,
   fetchOrders,
   fetchOrderByNumber,
   fetchOrderNoByExternalId,
@@ -12,9 +13,50 @@ const {
   fetchInventoryLevels,
   deduplicateCustomers,
   getDateDaysAgo,
-  getTodayDate
+  getTodayDate,
+  moClient
 } = require('../utils/manageorders');
 const config = require('../../config');
+
+// ==============================================
+// STALE-WHILE-REVALIDATE HELPER
+// ==============================================
+// Returns cached data immediately (even if expired) while refreshing in the background.
+// The next request will get fresh data from the background refresh.
+
+/**
+ * Stale-while-revalidate cache check.
+ * Returns { hit: true, data, stale: false } for fresh cache hits.
+ * Returns { hit: true, data, stale: true } for expired cache (triggers background refresh).
+ * Returns { hit: false } for cache miss.
+ */
+function checkCacheWithSWR(cache, cacheKey, cacheDuration, forceRefresh) {
+  if (forceRefresh) return { hit: false };
+
+  const cached = cache.get(cacheKey);
+  if (!cached) return { hit: false };
+
+  const age = Date.now() - cached.timestamp;
+  if (age < cacheDuration) {
+    return { hit: true, data: cached.data, stale: false, timestamp: cached.timestamp };
+  }
+
+  // Expired but we have data — return stale, let caller revalidate in background
+  return { hit: true, data: cached.data, stale: true, timestamp: cached.timestamp };
+}
+
+/**
+ * Background revalidation — fetches fresh data and updates the cache.
+ * Errors are logged but not thrown (stale data was already served).
+ */
+function revalidateInBackground(cache, cacheKey, fetchFn, label) {
+  fetchFn().then(data => {
+    cache.set(cacheKey, { data, timestamp: Date.now() });
+    console.log(`[SWR] Background refresh complete for ${label}`);
+  }).catch(err => {
+    console.warn(`[SWR] Background refresh failed for ${label}: ${err.message}`);
+  });
+}
 
 // Customer data cache
 let customersCache = null;
@@ -139,9 +181,9 @@ router.get('/manageorders/cache-info', (req, res) => {
 // ORDERS ENDPOINTS
 // ========================================
 
-// Orders cache (1 hour for date range queries)
+// Orders cache (configurable, default 4 hours)
 let ordersCache = new Map();
-const ORDERS_CACHE_DURATION = 60 * 60 * 1000; // 1 hour
+const ORDERS_CACHE_DURATION = config.manageOrders.ordersCacheDuration || 4 * 60 * 60 * 1000;
 
 /**
  * GET /api/manageorders/orders
@@ -154,30 +196,33 @@ router.get('/manageorders/orders', async (req, res) => {
   console.log('GET /api/manageorders/orders requested');
 
   try {
-    const now = Date.now();
     const forceRefresh = req.query.refresh === 'true';
     const cacheKey = JSON.stringify(req.query);
 
-    // Check cache
-    const cached = ordersCache.get(cacheKey);
-    if (!forceRefresh && cached && (now - cached.timestamp) < ORDERS_CACHE_DURATION) {
-      console.log('Returning cached orders data');
+    // Check cache with stale-while-revalidate
+    const cacheResult = checkCacheWithSWR(ordersCache, cacheKey, ORDERS_CACHE_DURATION, forceRefresh);
+
+    if (cacheResult.hit) {
+      if (cacheResult.stale) {
+        // Return stale data immediately, refresh in background
+        console.log('[SWR] Returning stale orders, refreshing in background');
+        revalidateInBackground(ordersCache, cacheKey, () => fetchOrders(req.query), 'orders');
+      } else {
+        console.log('Returning cached orders data');
+      }
       return res.json({
-        result: cached.data,
-        count: cached.data.length,
+        result: cacheResult.data,
+        count: cacheResult.data.length,
         cached: true,
-        cacheDate: new Date(cached.timestamp).toISOString()
+        stale: cacheResult.stale || false,
+        cacheDate: new Date(cacheResult.timestamp).toISOString()
       });
     }
 
-    // Fetch fresh data
+    // No cache at all — fetch fresh data
     const orders = await fetchOrders(req.query);
 
-    // Update cache
-    ordersCache.set(cacheKey, {
-      data: orders,
-      timestamp: now
-    });
+    ordersCache.set(cacheKey, { data: orders, timestamp: Date.now() });
 
     res.json({
       result: orders,
@@ -340,34 +385,38 @@ let paymentsCache = new Map();
  *
  * Fetches payments by date range.
  */
+// Use payments-specific cache duration from config
+const PAYMENTS_CACHE_DURATION = config.manageOrders.paymentsCacheDuration || 4 * 60 * 60 * 1000;
+
 router.get('/manageorders/payments', async (req, res) => {
   console.log('GET /api/manageorders/payments requested');
 
   try {
-    const now = Date.now();
     const forceRefresh = req.query.refresh === 'true';
     const cacheKey = JSON.stringify(req.query);
 
-    // Check cache
-    const cached = paymentsCache.get(cacheKey);
-    if (!forceRefresh && cached && (now - cached.timestamp) < ORDERS_CACHE_DURATION) {
-      console.log('Returning cached payments data');
+    // Check cache with stale-while-revalidate
+    const cacheResult = checkCacheWithSWR(paymentsCache, cacheKey, PAYMENTS_CACHE_DURATION, forceRefresh);
+
+    if (cacheResult.hit) {
+      if (cacheResult.stale) {
+        console.log('[SWR] Returning stale payments, refreshing in background');
+        revalidateInBackground(paymentsCache, cacheKey, () => fetchPayments(req.query), 'payments');
+      } else {
+        console.log('Returning cached payments data');
+      }
       return res.json({
-        result: cached.data,
-        count: cached.data.length,
+        result: cacheResult.data,
+        count: cacheResult.data.length,
         cached: true,
-        cacheDate: new Date(cached.timestamp).toISOString()
+        stale: cacheResult.stale || false,
+        cacheDate: new Date(cacheResult.timestamp).toISOString()
       });
     }
 
-    // Fetch fresh data
+    // No cache — fetch fresh
     const payments = await fetchPayments(req.query);
-
-    // Update cache
-    paymentsCache.set(cacheKey, {
-      data: payments,
-      timestamp: now
-    });
+    paymentsCache.set(cacheKey, { data: payments, timestamp: Date.now() });
 
     res.json({
       result: payments,
@@ -394,30 +443,31 @@ router.get('/manageorders/payments/:order_no', async (req, res) => {
   console.log(`GET /api/manageorders/payments/${orderNo} requested`);
 
   try {
-    const now = Date.now();
     const forceRefresh = req.query.refresh === 'true';
     const cacheKey = `order_${orderNo}`;
 
-    // Check cache
-    const cached = paymentsCache.get(cacheKey);
-    if (!forceRefresh && cached && (now - cached.timestamp) < ORDER_CACHE_DURATION) {
-      console.log(`Returning cached payments for order #${orderNo}`);
+    // Check cache with stale-while-revalidate
+    const cacheResult = checkCacheWithSWR(paymentsCache, cacheKey, ORDER_CACHE_DURATION, forceRefresh);
+
+    if (cacheResult.hit) {
+      if (cacheResult.stale) {
+        console.log(`[SWR] Returning stale payments for order #${orderNo}, refreshing in background`);
+        revalidateInBackground(paymentsCache, cacheKey, () => fetchPayments(orderNo), `payments#${orderNo}`);
+      } else {
+        console.log(`Returning cached payments for order #${orderNo}`);
+      }
       return res.json({
-        result: cached.data,
-        count: cached.data.length,
+        result: cacheResult.data,
+        count: cacheResult.data.length,
         cached: true,
-        cacheDate: new Date(cached.timestamp).toISOString()
+        stale: cacheResult.stale || false,
+        cacheDate: new Date(cacheResult.timestamp).toISOString()
       });
     }
 
-    // Fetch fresh data
+    // No cache — fetch fresh
     const payments = await fetchPayments(orderNo);
-
-    // Update cache
-    paymentsCache.set(cacheKey, {
-      data: payments,
-      timestamp: now
-    });
+    paymentsCache.set(cacheKey, { data: payments, timestamp: Date.now() });
 
     res.json({
       result: payments,
@@ -439,7 +489,7 @@ router.get('/manageorders/payments/:order_no', async (req, res) => {
 // ========================================
 
 let trackingCache = new Map();
-const TRACKING_CACHE_DURATION = 15 * 60 * 1000; // 15 minutes
+const TRACKING_CACHE_DURATION = config.manageOrders.trackingCacheDuration || 30 * 60 * 1000; // 30 minutes
 
 /**
  * GET /api/manageorders/tracking
@@ -450,30 +500,31 @@ router.get('/manageorders/tracking', async (req, res) => {
   console.log('GET /api/manageorders/tracking requested');
 
   try {
-    const now = Date.now();
     const forceRefresh = req.query.refresh === 'true';
     const cacheKey = JSON.stringify(req.query);
 
-    // Check cache
-    const cached = trackingCache.get(cacheKey);
-    if (!forceRefresh && cached && (now - cached.timestamp) < TRACKING_CACHE_DURATION) {
-      console.log('Returning cached tracking data');
+    // Check cache with stale-while-revalidate
+    const cacheResult = checkCacheWithSWR(trackingCache, cacheKey, TRACKING_CACHE_DURATION, forceRefresh);
+
+    if (cacheResult.hit) {
+      if (cacheResult.stale) {
+        console.log('[SWR] Returning stale tracking, refreshing in background');
+        revalidateInBackground(trackingCache, cacheKey, () => fetchTracking(req.query), 'tracking');
+      } else {
+        console.log('Returning cached tracking data');
+      }
       return res.json({
-        result: cached.data,
-        count: cached.data.length,
+        result: cacheResult.data,
+        count: cacheResult.data.length,
         cached: true,
-        cacheDate: new Date(cached.timestamp).toISOString()
+        stale: cacheResult.stale || false,
+        cacheDate: new Date(cacheResult.timestamp).toISOString()
       });
     }
 
-    // Fetch fresh data
+    // No cache — fetch fresh
     const tracking = await fetchTracking(req.query);
-
-    // Update cache
-    trackingCache.set(cacheKey, {
-      data: tracking,
-      timestamp: now
-    });
+    trackingCache.set(cacheKey, { data: tracking, timestamp: Date.now() });
 
     res.json({
       result: tracking,
@@ -545,7 +596,7 @@ router.get('/manageorders/tracking/:order_no', async (req, res) => {
 // ========================================
 
 let inventoryCache = new Map();
-const INVENTORY_CACHE_DURATION = 1 * 60 * 1000; // 1 minute (reduced from 5 for fresher data)
+const INVENTORY_CACHE_DURATION = config.manageOrders.inventoryCacheDuration || 3 * 60 * 1000; // 3 minutes (was 1 min)
 
 // Cache cleanup - Remove expired entries every 5 minutes
 setInterval(() => {
@@ -714,6 +765,133 @@ router.get('/manageorders/inventorylevels', async (req, res) => {
       details: error.message
     });
   }
+});
+
+// ========================================
+// HEALTH / DIAGNOSTICS ENDPOINT
+// ========================================
+
+/**
+ * GET /api/manageorders/health
+ *
+ * Measures ManageOrders API response times for diagnostics.
+ * Tests auth + a lightweight orders query. Use this data when calling ShopWorks support.
+ */
+router.get('/manageorders/health', async (req, res) => {
+  console.log('GET /api/manageorders/health - running diagnostics');
+
+  const results = {
+    timestamp: new Date().toISOString(),
+    tests: {}
+  };
+
+  // Test 1: Authentication
+  try {
+    const authStart = Date.now();
+    // Force fresh auth by testing the sign-in directly
+    const authResponse = await moClient.post('/manageorders/signin', {
+      username: config.manageOrders.username,
+      password: config.manageOrders.password
+    }, { timeout: 15000 });
+    const authMs = Date.now() - authStart;
+
+    results.tests.authentication = {
+      status: 'ok',
+      responseTimeMs: authMs,
+      rating: authMs < 1000 ? 'fast' : authMs < 3000 ? 'normal' : authMs < 10000 ? 'slow' : 'very slow'
+    };
+
+    const token = authResponse.data?.id_token;
+
+    // Test 2: Orders query (last 7 days, small window)
+    if (token) {
+      try {
+        const ordersStart = Date.now();
+        const sevenDaysAgo = getDateDaysAgo(7);
+        const today = getTodayDate();
+        const ordersResponse = await moClient.get('/manageorders/orders', {
+          params: { date_Ordered_start: sevenDaysAgo, date_Ordered_end: today },
+          headers: { 'Authorization': `Bearer ${token}` },
+          timeout: 30000
+        });
+        const ordersMs = Date.now() - ordersStart;
+        const recordCount = ordersResponse.data?.result?.length || 0;
+
+        results.tests.ordersQuery = {
+          status: 'ok',
+          responseTimeMs: ordersMs,
+          recordsReturned: recordCount,
+          dateRange: `${sevenDaysAgo} to ${today}`,
+          rating: ordersMs < 2000 ? 'fast' : ordersMs < 5000 ? 'normal' : ordersMs < 15000 ? 'slow' : 'very slow'
+        };
+      } catch (ordersErr) {
+        results.tests.ordersQuery = {
+          status: 'error',
+          error: ordersErr.message,
+          timedOut: ordersErr.code === 'ECONNABORTED'
+        };
+      }
+
+      // Test 3: Inventory query (lightweight)
+      try {
+        const invStart = Date.now();
+        const invResponse = await moClient.get('/manageorders/inventorylevels', {
+          params: { PartNumber: 'PC54' }, // common style for quick test
+          headers: { 'Authorization': `Bearer ${token}` },
+          timeout: 30000
+        });
+        const invMs = Date.now() - invStart;
+        const invCount = invResponse.data?.result?.length || 0;
+
+        results.tests.inventoryQuery = {
+          status: 'ok',
+          responseTimeMs: invMs,
+          recordsReturned: invCount,
+          testPartNumber: 'PC54',
+          rating: invMs < 2000 ? 'fast' : invMs < 5000 ? 'normal' : invMs < 15000 ? 'slow' : 'very slow'
+        };
+      } catch (invErr) {
+        results.tests.inventoryQuery = {
+          status: 'error',
+          error: invErr.message,
+          timedOut: invErr.code === 'ECONNABORTED'
+        };
+      }
+    }
+  } catch (authErr) {
+    results.tests.authentication = {
+      status: 'error',
+      error: authErr.message,
+      timedOut: authErr.code === 'ECONNABORTED'
+    };
+  }
+
+  // Summary
+  const totalMs = Object.values(results.tests)
+    .filter(t => t.responseTimeMs)
+    .reduce((sum, t) => sum + t.responseTimeMs, 0);
+
+  results.summary = {
+    totalResponseTimeMs: totalMs,
+    overallRating: totalMs < 5000 ? 'healthy' : totalMs < 15000 ? 'degraded' : 'critical',
+    cacheStatus: {
+      customers: { cached: !!customersCache, entries: customersCache ? customersCache.length : 0 },
+      orders: { entries: ordersCache.size },
+      payments: { entries: paymentsCache.size },
+      tracking: { entries: trackingCache.size },
+      inventory: { entries: inventoryCache.size }
+    },
+    recommendations: []
+  };
+
+  if (totalMs > 15000) {
+    results.summary.recommendations.push('ManageOrders API is critically slow. Contact ShopWorks support with this diagnostic data.');
+  }
+  if (totalMs > 5000 && totalMs <= 15000) {
+    results.summary.recommendations.push('ManageOrders API is slower than expected. Consider increasing cache TTLs.');
+  }
+
+  res.json(results);
 });
 
 module.exports = router;
