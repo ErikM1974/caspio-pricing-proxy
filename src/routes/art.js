@@ -850,13 +850,14 @@ router.put('/art-requests/:designId/fields', express.json(), async (req, res) =>
     }
 
     // Whitelist of editable Caspio column names
+    // Column names must match actual Caspio ArtRequests table schema exactly
     const EDITABLE_FIELDS = [
         'Order_Type', 'Due_Date', 'Garment_Placement',
-        'Garment_1', 'Garment_Color_1', 'Garment_2', 'Garment_Color_2',
-        'Garment_3', 'Garment_Color_3',
-        'Instructions', 'Thread_Colors', 'Additional_Instructions',
+        'GarmentStyle', 'GarmentColor', 'Garm_Style_2', 'Garm_Color_2',
+        'Garm_Style_3', 'Garm_Color_3',
+        'NOTES',
         'Prelim_Charges', 'Additional_Services',
-        'First_Name', 'Last_Name', 'Email_Contact', 'Phone'
+        'First_name', 'Last_name', 'Email_Contact', 'Phone'
     ];
 
     const updateData = {};
