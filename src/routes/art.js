@@ -866,7 +866,7 @@ router.put('/art-requests/:designId/fields', express.json(), async (req, res) =>
         console.log(`AE field update: design ${designId} — fields: ${changedFields.join(', ')}`);
         const token = await getCaspioAccessToken();
 
-        const url = `${caspioApiBaseUrl}/tables/ArtRequests/records?q.where=ID_Design=${designId}`;
+        const url = `${caspioApiBaseUrl}/tables/ArtRequests/records?q.where=PK_ID=${designId}`;
         await axios({
             method: 'put',
             url,
