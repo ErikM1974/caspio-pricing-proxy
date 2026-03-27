@@ -778,7 +778,7 @@ router.put('/art-requests/:designId/status', express.json(), async (req, res) =>
 
         // All status updates use additive art time (fetch current record, add new minutes)
         if (isRevision || isAwaitingApproval || isInProgress || isCompleted) {
-            const fetchUrl = `${caspioApiBaseUrl}/tables/ArtRequests/records?q.where=ID_Design=${designId}&q.select=Revision_Count,Art_Minutes`;
+            const fetchUrl = `${caspioApiBaseUrl}/tables/ArtRequests/records?q.where=ID_Design=${designId}&q.select=Revision_Count,Art_Minutes,Approval_Sent_Date`;
             const fetchResp = await axios({
                 method: 'get',
                 url: fetchUrl,
@@ -793,6 +793,11 @@ router.put('/art-requests/:designId/status', express.json(), async (req, res) =>
             // Only increment revision count for actual revisions, NOT awaiting approval
             if (isRevision) {
                 updateData.Revision_Count = currentRevCount + 1;
+            }
+
+            // Track when sent to AE for approval (drives elapsed time badges)
+            if (isAwaitingApproval) {
+                updateData.Approval_Sent_Date = new Date().toISOString();
             }
 
             // Additive art time for all status updates (add session minutes to existing total)
