@@ -800,6 +800,11 @@ router.put('/art-requests/:designId/status', express.json(), async (req, res) =>
                 updateData.Approval_Sent_Date = new Date().toISOString();
             }
 
+            // Clear approval tracking on reopen (so elapsed badges start fresh on next approval cycle)
+            if (isInProgress && current.Approval_Sent_Date) {
+                updateData.Approval_Sent_Date = '';
+            }
+
             // Additive art time for all status updates (add session minutes to existing total)
             // Amount_Art_Billed is a Caspio formula field — auto-calculates from Art_Minutes
             if (artMinutes !== undefined && artMinutes !== null) {
@@ -871,7 +876,7 @@ router.put('/art-requests/:designId/fields', express.json(), async (req, res) =>
         console.log(`AE field update: design ${designId} — fields: ${changedFields.join(', ')}`);
         const token = await getCaspioAccessToken();
 
-        const url = `${caspioApiBaseUrl}/tables/ArtRequests/records?q.where=PK_ID=${designId}`;
+        const url = `${caspioApiBaseUrl}/tables/ArtRequests/records?q.where=ID_Design=${designId}`;
         await axios({
             method: 'put',
             url,
