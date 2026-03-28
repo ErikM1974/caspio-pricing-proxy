@@ -731,12 +731,13 @@ async function discoverPOsFromInvoices(daysBack) {
     const end = windowEnd.toISOString().split('T')[0];
 
     try {
+      console.log(`[Backfill] Invoice PO discovery: ${start} to ${end}`);
       const soapBody = buildInvoiceRequest('GetInvoicesByInvoiceDateRange',
         `<web:StartDate>${xmlEscape(start)}</web:StartDate>
          <web:EndDate>${xmlEscape(end)}</web:EndDate>`
       );
       const xml = await makeSoapRequest(ENDPOINTS.standardInvoice, soapBody, {
-        timeout: 60000,
+        timeout: 20000,
         namespaces: { web: STANDARD_NS }
       });
       const soapError = checkSoapError(xml);
@@ -745,6 +746,7 @@ async function discoverPOsFromInvoices(daysBack) {
         for (const inv of invoices) {
           if (inv.purchaseOrderNo) pos.add(inv.purchaseOrderNo);
         }
+        console.log(`[Backfill] Invoice window ${start}-${end}: ${invoices.length} invoices, ${pos.size} unique POs`);
       }
     } catch (e) {
       console.error(`Invoice PO discovery window ${start}-${end} failed:`, e.message);
