@@ -1012,40 +1012,73 @@ async function runBackfillBackground(daysBack) {
   }
 }
 
-// ── POST /match-manageorders — Match SanMar orders to ManageOrders by style+date ──
-// Enriches SanMar_Orders with Company_Name, Sales_Rep, id_Customer from ManageOrders
+// ── ManageOrders matching status (in-memory) ──
+let moMatchStatus = { running: false, lastRun: null, lastResult: null, progress: null };
+
+// ── GET /match-status — Check ManageOrders matching progress ──
+router.get('/match-status', (req, res) => {
+  res.json(moMatchStatus);
+});
+
+// ── POST /match-manageorders — Match SanMar orders to ManageOrders by style ──
+// Fire-and-forget: returns 202, runs in background, poll /match-status
 router.post('/match-manageorders', async (req, res) => {
   const secret = req.headers['x-api-secret'] || req.query.secret;
   if (secret !== process.env.CRM_API_SECRET) {
     return res.status(403).json({ error: 'Unauthorized' });
   }
 
-  const matchLog = { started: new Date().toISOString(), matched: 0, unmatched: 0, alreadyLinked: 0, errors: 0 };
+  if (moMatchStatus.running) {
+    return res.status(409).json({ error: 'Match already running', progress: moMatchStatus.progress });
+  }
+
+  res.status(202).json({
+    message: 'ManageOrders matching started in background',
+    checkProgressAt: '/api/sanmar-orders/match-status'
+  });
+
+  runManageOrdersMatch();
+});
+
+// Known non-SanMar part numbers to skip during matching
+const FEE_PARTS = new Set(['ART', 'GRT-50', 'GRT-75', 'LTM', 'SETUP', 'DIGITIZE', 'RUSH',
+  'SHIPPING', 'TAX', 'DISCOUNT', 'ARTWORK', 'SCREEN', 'FILM', 'TRANSFER']);
+
+async function runManageOrdersMatch() {
+  moMatchStatus = {
+    running: true,
+    lastRun: new Date().toISOString(),
+    lastResult: null,
+    progress: { phase: 'starting', moOrdersIndexed: 0, matched: 0, unmatched: 0, errors: 0 }
+  };
 
   try {
     const { fetchOrders, fetchLineItems } = require('../utils/manageorders');
 
     // 1. Get SanMar orders missing Company_Name
+    moMatchStatus.progress.phase = 'fetching unlinked SanMar orders';
     const sanmarOrders = await makeCaspioRequest('GET',
       `/tables/${TABLES.orders}/records`,
       { 'q.where': "Company_Name='' OR Company_Name IS NULL", 'q.limit': '1000' }
     );
     const unlinked = Array.isArray(sanmarOrders) ? sanmarOrders : (sanmarOrders?.Result || []);
-    console.log(`[MO Match] ${unlinked.length} SanMar orders need ManageOrders linking`);
+    console.log(`[MO Match] ${unlinked.length} SanMar orders need linking`);
 
     if (unlinked.length === 0) {
-      matchLog.message = 'All orders already linked';
-      return res.json(matchLog);
+      moMatchStatus.lastResult = { success: true, matched: 0, message: 'All orders already linked' };
+      moMatchStatus.running = false;
+      return;
     }
 
     // 2. Get SanMar order items (styles) for matching
+    moMatchStatus.progress.phase = 'fetching SanMar order items';
     const sanmarItems = await makeCaspioRequest('GET',
       `/tables/${TABLES.items}/records`,
       { 'q.limit': '1000' }
     );
     const itemsList = Array.isArray(sanmarItems) ? sanmarItems : (sanmarItems?.Result || []);
 
-    // Build a map: SanMar_PO → Set of styles
+    // Build map: SanMar_PO → Set of styles
     const poStyles = new Map();
     for (const item of itemsList) {
       if (!item.SanMar_PO || !item.Style) continue;
@@ -1053,36 +1086,25 @@ router.post('/match-manageorders', async (req, res) => {
       poStyles.get(item.SanMar_PO).add(item.Style.toUpperCase());
     }
 
-    // 3. Fetch ManageOrders orders (last 90 days)
+    // 3. Fetch ALL ManageOrders orders (last 90 days)
+    moMatchStatus.progress.phase = 'fetching ManageOrders orders';
     const endDate = new Date().toISOString().split('T')[0];
     const startDate = new Date(Date.now() - 90 * 86400000).toISOString().split('T')[0];
     console.log(`[MO Match] Fetching ManageOrders orders ${startDate} to ${endDate}...`);
 
-    let moOrders = [];
-    try {
-      moOrders = await fetchOrders({
-        date_Ordered_start: startDate,
-        date_Ordered_end: endDate
-      });
-      console.log(`[MO Match] Got ${moOrders.length} ManageOrders orders`);
-    } catch (e) {
-      console.error('[MO Match] Failed to fetch ManageOrders:', e.message);
-      return res.status(500).json({ error: 'Failed to fetch ManageOrders data', details: e.message });
-    }
+    const moOrders = await fetchOrders({
+      date_Ordered_start: startDate,
+      date_Ordered_end: endDate
+    });
+    console.log(`[MO Match] Got ${moOrders.length} ManageOrders orders`);
 
-    // 4. Pre-fetch line items for ManageOrders orders (batch, with limit)
-    // Known non-SanMar part numbers to skip
-    const FEE_PARTS = new Set(['ART', 'GRT-50', 'GRT-75', 'LTM', 'SETUP', 'DIGITIZE', 'RUSH',
-      'SHIPPING', 'TAX', 'DISCOUNT', 'ARTWORK', 'SCREEN', 'FILM', 'TRANSFER']);
+    // 4. Build reverse index: style → [MO orders] by fetching ALL line items
+    // This is the key step — we index EVERY MO order's line items
+    moMatchStatus.progress.phase = `indexing line items for ${moOrders.length} ManageOrders orders`;
+    const styleToOrders = new Map(); // style → [{ order, orderId }]
+    let indexed = 0;
 
-    // Build a map of MO order → styles (pre-fetch line items)
-    // ManageOrders uses id_Order (NOT order_no)
-    const moOrderStyles = new Map();
-    const maxToFetch = Math.min(moOrders.length, 100); // Limit to 100 most recent
-    console.log(`[MO Match] Pre-fetching line items for ${maxToFetch} ManageOrders orders...`);
-
-    for (let i = 0; i < maxToFetch; i++) {
-      const moOrder = moOrders[i];
+    for (const moOrder of moOrders) {
       const orderId = moOrder.id_Order;
       if (!orderId) continue;
 
@@ -1090,43 +1112,64 @@ router.post('/match-manageorders', async (req, res) => {
         const lineItems = await fetchLineItems(orderId);
         if (!lineItems || lineItems.length === 0) continue;
 
-        const styles = new Set();
         for (const li of lineItems) {
           const pn = (li.PartNumber || '').toUpperCase();
           if (!pn || FEE_PARTS.has(pn)) continue;
           const baseStyle = pn.replace(/_\d?[xXsSmMlL]+$/i, '').replace(/_\d+$/, '');
-          if (baseStyle) styles.add(baseStyle);
+          if (!baseStyle) continue;
+
+          if (!styleToOrders.has(baseStyle)) styleToOrders.set(baseStyle, []);
+          // Avoid duplicates — same order might have multiple sizes of same style
+          const existing = styleToOrders.get(baseStyle);
+          if (!existing.some(e => e.orderId === orderId)) {
+            existing.push({ orderId, order: moOrder });
+          }
         }
 
-        if (styles.size > 0) {
-          moOrderStyles.set(orderId, { order: moOrder, styles });
+        indexed++;
+        moMatchStatus.progress.moOrdersIndexed = indexed;
+        if (indexed % 100 === 0) {
+          console.log(`[MO Match] Indexed ${indexed}/${moOrders.length} MO orders, ${styleToOrders.size} unique styles`);
         }
       } catch (e) {
-        // Skip orders where line items can't be fetched
+        // Skip failed line item fetches
       }
     }
-    console.log(`[MO Match] Pre-fetched ${moOrderStyles.size} MO orders with product styles`);
+    console.log(`[MO Match] Index complete: ${indexed} orders, ${styleToOrders.size} unique styles`);
+    moMatchStatus.progress.phase = 'matching SanMar orders';
 
-    // 5. For each unlinked SanMar order, find best ManageOrders match by style overlap
+    // 5. For each unlinked SanMar order, find best match using the style index
+    let matched = 0, unmatched = 0;
+
     for (const sanmarOrder of unlinked) {
       const po = sanmarOrder.SanMar_PO;
       const sanmarStyles = poStyles.get(po);
       if (!sanmarStyles || sanmarStyles.size === 0) {
-        matchLog.unmatched++;
+        unmatched++;
+        moMatchStatus.progress.unmatched = unmatched;
         continue;
       }
 
+      // Score each candidate MO order by style overlap
+      const candidateScores = new Map(); // orderId → { order, score }
+
+      for (const style of sanmarStyles) {
+        const moMatches = styleToOrders.get(style) || [];
+        for (const { orderId, order } of moMatches) {
+          if (!candidateScores.has(orderId)) {
+            candidateScores.set(orderId, { order, score: 0 });
+          }
+          candidateScores.get(orderId).score++;
+        }
+      }
+
+      // Find best match (highest style overlap)
       let bestMatch = null;
       let bestScore = 0;
-
-      for (const [orderId, { order: moOrder, styles: moStyles }] of moOrderStyles) {
-        let score = 0;
-        for (const style of sanmarStyles) {
-          if (moStyles.has(style)) score++;
-        }
+      for (const [orderId, { order, score }] of candidateScores) {
         if (score > bestScore) {
           bestScore = score;
-          bestMatch = moOrder;
+          bestMatch = order;
         }
       }
 
@@ -1136,7 +1179,8 @@ router.post('/match-manageorders', async (req, res) => {
             Company_Name: (bestMatch.CustomerName || '').trim(),
             Sales_Rep: bestMatch.CustomerServiceRep || '',
             id_Customer: bestMatch.id_Customer || 0,
-            Matched_By: `auto-style-match (score:${bestScore})`
+            Matched_By: `auto-style-match (score:${bestScore})`,
+            Notes: `SW Order#${bestMatch.id_Order || ''}`
           };
 
           await makeCaspioRequest('PUT', `/tables/${TABLES.orders}/records`,
@@ -1144,25 +1188,34 @@ router.post('/match-manageorders', async (req, res) => {
             updateData
           );
 
-          console.log(`[MO Match] ${po} → ${updateData.Company_Name} (score:${bestScore}, order#${bestMatch.id_Order})`);
-          matchLog.matched++;
+          console.log(`[MO Match] ${po} → ${updateData.Company_Name} (score:${bestScore})`);
+          matched++;
+          moMatchStatus.progress.matched = matched;
         } catch (e) {
           console.error(`[MO Match] Failed to update ${po}:`, e.message);
-          matchLog.errors++;
+          moMatchStatus.progress.errors++;
         }
       } else {
-        console.log(`[MO Match] ${po} → no match (styles: ${[...sanmarStyles].join(',')})`);
-        matchLog.unmatched++;
+        unmatched++;
+        moMatchStatus.progress.unmatched = unmatched;
       }
     }
 
-    matchLog.completed = new Date().toISOString();
-    console.log('[MO Match] Complete:', JSON.stringify(matchLog));
-    res.json(matchLog);
+    moMatchStatus.lastResult = {
+      success: true,
+      matched,
+      unmatched,
+      moOrdersIndexed: indexed,
+      uniqueStyles: styleToOrders.size,
+      completedAt: new Date().toISOString()
+    };
+    console.log('[MO Match] Complete:', JSON.stringify(moMatchStatus.lastResult));
   } catch (error) {
     console.error('[MO Match] Fatal error:', error.message);
-    res.status(500).json({ error: 'Matching failed', details: error.message });
+    moMatchStatus.lastResult = { success: false, error: error.message };
+  } finally {
+    moMatchStatus.running = false;
   }
-});
+}
 
 module.exports = router;
