@@ -5,28 +5,42 @@
 // for the SanMar Order Lookup feature on the Staff Dashboard.
 //
 // Endpoints:
-//   GET  /api/sanmar-orders/open         — All open SanMar orders (cached)
-//   GET  /api/sanmar-orders/status/:po   — Single PO status
-//   GET  /api/sanmar-orders/shipments/:po — Tracking/shipment details for a PO
-//   GET  /api/sanmar-orders/lookup       — Search by order#, company, rep, style
-//   POST /api/sanmar-orders/link         — Save ShopWorks↔SanMar PO mapping
-//   POST /api/sanmar-orders/sync         — Daily sync (Heroku Scheduler)
-//   POST /api/sanmar-orders/backfill     — One-time 60-day backfill
+//   GET  /api/sanmar-orders/open            — All open SanMar orders (cached)
+//   GET  /api/sanmar-orders/status/:po      — Single PO status
+//   GET  /api/sanmar-orders/shipments/:po   — Tracking/shipment details for a PO
+//   GET  /api/sanmar-orders/lookup          — Search by order#, company, rep, style
+//   GET  /api/sanmar-orders/backfill-status — Check backfill progress
+//   GET  /api/sanmar-orders/status-summary  — Monitoring: table counts, sync health
+//   POST /api/sanmar-orders/link            — Save ShopWorks↔SanMar PO mapping
+//   POST /api/sanmar-orders/sync            — Daily sync (Heroku Scheduler)
+//   POST /api/sanmar-orders/backfill        — Fire-and-forget backfill with progress
 
 const express = require('express');
 const router = express.Router();
 const NodeCache = require('node-cache');
 const {
   ENDPOINTS, NS,
-  getPromoStandardsAuth, validateAuth, xmlEscape,
+  getPromoStandardsAuth, getStandardAuth, validateAuth, xmlEscape,
   makeSoapRequest, checkSoapError,
   buildOrderStatusRequest, buildShipmentRequest,
-  parseOrderStatusResponse, parseShipmentResponse
+  parseOrderStatusResponse, parseShipmentResponse,
+  parseInvoiceResponse
 } = require('../utils/sanmar-soap');
 const { makeCaspioRequest } = require('../utils/caspio');
 
 // Cache: 15 min for allOpen (SanMar recommends max 3x/day)
 const orderCache = new NodeCache({ stdTTL: 900, checkperiod: 120 });
+
+// Standard SanMar invoice namespace (for PO discovery via invoices)
+const STANDARD_NS = 'http://webservice.integration.sanmar.com/';
+
+// ── Backfill status tracker (in-memory) ──
+let backfillStatus = {
+  running: false,
+  lastRun: null,
+  lastResult: null,
+  progress: null
+};
 
 // ── Caspio table names ──
 const TABLES = {
@@ -332,7 +346,7 @@ router.post('/link', async (req, res) => {
       { 'q.where': `SanMar_PO='${xmlEscape(sanmarPO)}'` }
     );
 
-    if (existing && existing.Result && existing.Result.length > 0) {
+    if (Array.isArray(existing) && existing.length > 0) {
       // Update existing
       await makeCaspioRequest('PUT',
         `/tables/${TABLES.orders}/records`,
@@ -460,7 +474,7 @@ router.post('/sync', async (req, res) => {
           { 'q.where': `SanMar_PO='${xmlEscape(po)}'` }
         );
 
-        if (existing && existing.Result && existing.Result.length > 0) {
+        if (Array.isArray(existing) && existing.length > 0) {
           await makeCaspioRequest('PUT',
             `/tables/${TABLES.orders}/records`,
             { 'q.where': `SanMar_PO='${xmlEscape(po)}'` },
@@ -498,7 +512,7 @@ router.post('/sync', async (req, res) => {
               Item_Status: product.status || detail.status || ''
             };
 
-            if (existingItem && existingItem.Result && existingItem.Result.length > 0) {
+            if (Array.isArray(existingItem) && existingItem.length > 0) {
               await makeCaspioRequest('PUT', `/tables/${TABLES.items}/records`, { 'q.where': itemWhere }, itemData);
             } else {
               await makeCaspioRequest('POST', `/tables/${TABLES.items}/records`, {}, itemData);
@@ -545,7 +559,7 @@ router.post('/sync', async (req, res) => {
                         Ship_From_Zip: loc.shipFrom.postalCode || ''
                       };
 
-                      if (!existingTrack || !existingTrack.Result || existingTrack.Result.length === 0) {
+                      if (!Array.isArray(existingTrack) || existingTrack.length === 0) {
                         await makeCaspioRequest('POST', `/tables/${TABLES.shipments}/records`, {}, trackData);
                         shipmentsUpdated++;
                       }
@@ -575,23 +589,270 @@ router.post('/sync', async (req, res) => {
   }
 });
 
-// ── POST /backfill — One-time 60-day backfill ──
+// ── GET /backfill-status — Check progress of running or last backfill ──
+router.get('/backfill-status', (req, res) => {
+  res.json(backfillStatus);
+});
+
+// ── GET /status-summary — Monitoring: table counts, sync health, data quality ──
+router.get('/status-summary', async (req, res) => {
+  try {
+    const tableNames = [
+      'SanMar_Orders', 'SanMar_Order_Items', 'SanMar_Shipments',
+      'SanMar_Invoices', 'SanMar_Invoice_Items'
+    ];
+
+    // Fetch a small set from each table to get counts
+    const tableResults = await Promise.all(
+      tableNames.map(t =>
+        makeCaspioRequest('GET', `/tables/${t}/records`, { 'q.select': 'PK_ID', 'q.limit': '1000' })
+          .then(r => ({ table: t, count: Array.isArray(r) ? r.length : 0, error: null }))
+          .catch(e => ({ table: t, count: 0, error: e.message }))
+      )
+    );
+
+    const tables = {};
+    for (const r of tableResults) {
+      tables[r.table] = { rows: r.count, error: r.error };
+    }
+
+    // Get latest sync date from orders
+    let lastSync = 'Never';
+    try {
+      const latest = await makeCaspioRequest('GET', `/tables/${TABLES.orders}/records`, {
+        'q.orderBy': 'Last_Sync_Date DESC', 'q.limit': '1', 'q.select': 'Last_Sync_Date'
+      });
+      if (Array.isArray(latest) && latest.length > 0 && latest[0].Last_Sync_Date) {
+        lastSync = latest[0].Last_Sync_Date;
+      }
+    } catch (e) { /* ignore */ }
+
+    // Get order status distribution
+    const statusCounts = {};
+    try {
+      const allOrders = await makeCaspioRequest('GET', `/tables/${TABLES.orders}/records`, {
+        'q.select': 'SanMar_Status', 'q.limit': '1000'
+      });
+      if (Array.isArray(allOrders)) {
+        for (const o of allOrders) {
+          const s = o.SanMar_Status || 'Unknown';
+          statusCounts[s] = (statusCounts[s] || 0) + 1;
+        }
+      }
+    } catch (e) { /* ignore */ }
+
+    // Data quality: items missing Unit_Price
+    let itemsMissingPrice = 0;
+    try {
+      const missing = await makeCaspioRequest('GET', `/tables/${TABLES.items}/records`, {
+        'q.where': 'Unit_Price IS NULL', 'q.select': 'PK_ID', 'q.limit': '1000'
+      });
+      itemsMissingPrice = Array.isArray(missing) ? missing.length : 0;
+    } catch (e) { /* ignore */ }
+
+    res.json({
+      tables,
+      lastSync,
+      orderStatusDistribution: statusCounts,
+      dataQuality: { itemsMissingUnitPrice: itemsMissingPrice },
+      backfill: {
+        running: backfillStatus.running,
+        lastRun: backfillStatus.lastRun,
+        lastResult: backfillStatus.lastResult ? {
+          success: backfillStatus.lastResult.success,
+          ordersSaved: backfillStatus.lastResult.ordersSaved,
+          shipmentsSaved: backfillStatus.lastResult.shipmentsSaved
+        } : null
+      },
+      checkedAt: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Status summary error:', error.message);
+    res.status(500).json({ error: 'Failed to generate status summary', details: error.message });
+  }
+});
+
+// ── POST /backfill — Fire-and-forget backfill with progress tracking ──
 router.post('/backfill', async (req, res) => {
   const secret = req.headers['x-api-secret'] || req.query.secret;
   if (secret !== process.env.CRM_API_SECRET) {
     return res.status(403).json({ error: 'Unauthorized' });
   }
 
-  const daysBack = parseInt(req.query.days) || 60;
-  const backfillLog = { started: new Date().toISOString(), daysBack };
+  if (backfillStatus.running) {
+    return res.status(409).json({
+      error: 'Backfill already in progress',
+      progress: backfillStatus.progress
+    });
+  }
 
-  try {
-    const auth = getPromoStandardsAuth();
-    if (!validateAuth(auth)) {
-      return res.status(500).json({ error: 'SanMar credentials not configured' });
+  const auth = getPromoStandardsAuth();
+  if (!validateAuth(auth)) {
+    return res.status(500).json({ error: 'SanMar credentials not configured' });
+  }
+
+  const daysBack = parseInt(req.query.days) || 60;
+
+  // Return immediately — work runs in background
+  res.status(202).json({
+    message: 'Backfill started in background',
+    daysBack,
+    startedAt: new Date().toISOString(),
+    checkProgressAt: '/api/sanmar-orders/backfill-status'
+  });
+
+  // Run in background (no await)
+  runBackfillBackground(daysBack);
+});
+
+// ── Helper: Build SanMar standard invoice SOAP body ──
+function buildInvoiceRequest(methodName, methodBody) {
+  const auth = getStandardAuth();
+  return `<web:${methodName} xmlns:web="${STANDARD_NS}">
+      <web:CustomerNo>${xmlEscape(auth.customerNumber)}</web:CustomerNo>
+      <web:UserName>${xmlEscape(auth.username)}</web:UserName>
+      <web:Password>${xmlEscape(auth.password)}</web:Password>
+      ${methodBody}
+    </web:${methodName}>`;
+}
+
+// ── Helper: Discover PO numbers from invoices (for orders older than 30 days) ──
+async function discoverPOsFromInvoices(daysBack) {
+  const pos = new Set();
+  const endDate = new Date();
+  const startDate = new Date();
+  startDate.setDate(startDate.getDate() - daysBack);
+
+  // Walk 30-day windows
+  let windowStart = new Date(startDate);
+  while (windowStart < endDate) {
+    const windowEnd = new Date(Math.min(windowStart.getTime() + 30 * 86400000, endDate.getTime()));
+    const start = windowStart.toISOString().split('T')[0];
+    const end = windowEnd.toISOString().split('T')[0];
+
+    try {
+      const soapBody = buildInvoiceRequest('GetInvoicesByInvoiceDateRange',
+        `<web:StartDate>${xmlEscape(start)}</web:StartDate>
+         <web:EndDate>${xmlEscape(end)}</web:EndDate>`
+      );
+      const xml = await makeSoapRequest(ENDPOINTS.standardInvoice, soapBody, {
+        timeout: 60000,
+        namespaces: { web: STANDARD_NS }
+      });
+      const soapError = checkSoapError(xml);
+      if (!soapError) {
+        const invoices = parseInvoiceResponse(xml);
+        for (const inv of invoices) {
+          if (inv.purchaseOrderNo) pos.add(inv.purchaseOrderNo);
+        }
+      }
+    } catch (e) {
+      console.error(`Invoice PO discovery window ${start}-${end} failed:`, e.message);
     }
 
-    // Step 1: Get all open orders
+    windowStart = new Date(windowEnd);
+  }
+  return pos;
+}
+
+// ── Helper: Fetch a single order by PO number ──
+async function fetchOrderByPO(po) {
+  try {
+    const soapBody = buildOrderStatusRequest('poSearch', {
+      referenceNumber: po,
+      returnProductDetail: true
+    });
+    const xml = await makeSoapRequest(ENDPOINTS.orderStatus, soapBody, {
+      timeout: 30000,
+      namespaces: { ns: NS.orderStatus, shar: NS.orderStatusShared }
+    });
+    const error = checkSoapError(xml);
+    if (error) return null;
+    const orders = parseOrderStatusResponse(xml);
+    return orders[0] || null;
+  } catch (e) {
+    return null;
+  }
+}
+
+// ── Helper: Determine overall status from order details ──
+function getOverallStatus(order) {
+  const statuses = order.details.map(d => d.status).filter(Boolean);
+  return statuses.includes('Shipped') ? 'Shipped'
+    : statuses.includes('Partially Shipped') ? 'Partially Shipped'
+    : statuses.includes('Confirmed') ? 'Confirmed'
+    : statuses.includes('Complete') ? 'Complete'
+    : statuses.includes('Canceled') ? 'Canceled'
+    : statuses[0] || 'Received';
+}
+
+// ── Helper: Upsert a single order + its line items to Caspio ──
+async function upsertOrderToCaspio(po, order, matchedBy) {
+  const overallStatus = getOverallStatus(order);
+
+  const existing = await makeCaspioRequest('GET',
+    `/tables/${TABLES.orders}/records`,
+    { 'q.where': `SanMar_PO='${xmlEscape(po)}'` }
+  );
+
+  const orderData = {
+    SanMar_PO: po,
+    ShopWorks_PO: extractPONumber(po) || '',
+    SanMar_Sales_Order: order.details[0]?.salesOrderNumber || '',
+    SanMar_Status: overallStatus,
+    Status_Updated_Date: order.details[0]?.validTimestamp || new Date().toISOString(),
+    Last_Sync_Date: new Date().toISOString(),
+    Matched_By: matchedBy
+  };
+
+  if (Array.isArray(existing) && existing.length > 0) {
+    await makeCaspioRequest('PUT', `/tables/${TABLES.orders}/records`,
+      { 'q.where': `SanMar_PO='${xmlEscape(po)}'` }, orderData);
+  } else {
+    await makeCaspioRequest('POST', `/tables/${TABLES.orders}/records`, {}, orderData);
+  }
+
+  // Upsert line items
+  for (const detail of order.details) {
+    for (const product of detail.products) {
+      if (!product.productId) continue;
+      try {
+        const itemWhere = `SanMar_PO='${xmlEscape(po)}' AND Style='${xmlEscape(product.productId)}' AND Part_ID='${xmlEscape(product.partId || '')}'`;
+        const existingItem = await makeCaspioRequest('GET',
+          `/tables/${TABLES.items}/records`, { 'q.where': itemWhere });
+        const itemData = {
+          SanMar_PO: po,
+          Style: product.productId,
+          Part_ID: product.partId || '',
+          Qty_Ordered: parseInt(product.qtyOrdered) || 0,
+          Qty_Shipped: parseInt(product.qtyShipped) || 0,
+          Item_Status: product.status || detail.status || ''
+        };
+        if (Array.isArray(existingItem) && existingItem.length > 0) {
+          await makeCaspioRequest('PUT', `/tables/${TABLES.items}/records`, { 'q.where': itemWhere }, itemData);
+        } else {
+          await makeCaspioRequest('POST', `/tables/${TABLES.items}/records`, {}, itemData);
+        }
+      } catch (e) {
+        console.error(`Upsert item ${product.productId} for ${po}:`, e.message);
+      }
+    }
+  }
+}
+
+// ── Background backfill runner ──
+async function runBackfillBackground(daysBack) {
+  backfillStatus = {
+    running: true,
+    lastRun: new Date().toISOString(),
+    lastResult: null,
+    progress: { phase: 'starting', openOrders: 0, updatedOrders: 0, invoicePOs: 0, ordersSaved: 0, shipmentsSaved: 0, errors: 0 }
+  };
+
+  try {
+    // Phase 1: Get all open orders
+    backfillStatus.progress.phase = 'fetching allOpen orders';
+    console.log('[Backfill] Phase 1: Fetching all open orders...');
     const allOpenBody = buildOrderStatusRequest('allOpen', { returnProductDetail: true });
     const allOpenXml = await makeSoapRequest(ENDPOINTS.orderStatus, allOpenBody, {
       timeout: 60000,
@@ -599,11 +860,15 @@ router.post('/backfill', async (req, res) => {
     });
     const allOpenError = checkSoapError(allOpenXml);
     const openOrders = allOpenError ? [] : parseOrderStatusResponse(allOpenXml);
-    backfillLog.openOrders = openOrders.length;
+    backfillStatus.progress.openOrders = openOrders.length;
+    console.log(`[Backfill] Phase 1: ${openOrders.length} open orders found`);
 
-    // Step 2: Get orders updated in last N days
+    // Phase 2: Get orders updated in last 30 days (SanMar API max)
+    const effectiveDays = Math.min(daysBack, 30);
+    backfillStatus.progress.phase = `fetching lastUpdate (${effectiveDays} days)`;
+    console.log(`[Backfill] Phase 2: Fetching orders updated in last ${effectiveDays} days...`);
     const sinceDate = new Date();
-    sinceDate.setDate(sinceDate.getDate() - daysBack);
+    sinceDate.setDate(sinceDate.getDate() - effectiveDays);
     const sinceTimestamp = sinceDate.toISOString().replace('Z', '');
 
     const lastUpdateBody = buildOrderStatusRequest('lastUpdate', {
@@ -615,8 +880,9 @@ router.post('/backfill', async (req, res) => {
       namespaces: { ns: NS.orderStatus, shar: NS.orderStatusShared }
     });
     const lastUpdateError = checkSoapError(lastUpdateXml);
-    const updatedOrders = lastUpdateError ? [] : parseOrderStatusResponse(lastUpdateXml);
-    backfillLog.updatedOrders = updatedOrders.length;
+    const updatedOrders = (lastUpdateError && lastUpdateError.code !== 160) ? [] : parseOrderStatusResponse(lastUpdateXml);
+    backfillStatus.progress.updatedOrders = updatedOrders.length;
+    console.log(`[Backfill] Phase 2: ${updatedOrders.length} updated orders found`);
 
     // Merge (dedupe by PO)
     const allOrders = new Map();
@@ -625,71 +891,57 @@ router.post('/backfill', async (req, res) => {
         allOrders.set(order.purchaseOrderNumber, order);
       }
     }
-    backfillLog.totalUniqueOrders = allOrders.size;
 
-    // Step 3: Save each order + items to Caspio (reuse sync logic)
-    let saved = 0;
-    for (const [po, order] of allOrders) {
-      const statuses = order.details.map(d => d.status).filter(Boolean);
-      const overallStatus = statuses.includes('Shipped') ? 'Shipped'
-        : statuses.includes('Partially Shipped') ? 'Partially Shipped'
-        : statuses.includes('Confirmed') ? 'Confirmed'
-        : statuses.includes('Complete') ? 'Complete'
-        : statuses.includes('Canceled') ? 'Canceled'
-        : statuses[0] || 'Received';
+    // Phase 3: Invoice-based PO discovery for older orders (>30 days)
+    if (daysBack > 30) {
+      backfillStatus.progress.phase = `discovering POs from invoices (${daysBack} days)`;
+      console.log(`[Backfill] Phase 3: Discovering POs from invoices (${daysBack} day window)...`);
+      const invoicePOs = await discoverPOsFromInvoices(daysBack);
+      let newFromInvoices = 0;
 
-      try {
-        const existing = await makeCaspioRequest('GET',
-          `/tables/${TABLES.orders}/records`,
-          { 'q.where': `SanMar_PO='${xmlEscape(po)}'` }
-        );
-
-        const orderData = {
-          SanMar_PO: po,
-          ShopWorks_PO: extractPONumber(po) || '',
-          SanMar_Sales_Order: order.details[0]?.salesOrderNumber || '',
-          SanMar_Status: overallStatus,
-          Status_Updated_Date: order.details[0]?.validTimestamp || new Date().toISOString(),
-          Last_Sync_Date: new Date().toISOString(),
-          Matched_By: 'backfill'
-        };
-
-        if (!existing || !existing.Result || existing.Result.length === 0) {
-          await makeCaspioRequest('POST', `/tables/${TABLES.orders}/records`, {}, orderData);
-        } else {
-          await makeCaspioRequest('PUT', `/tables/${TABLES.orders}/records`,
-            { 'q.where': `SanMar_PO='${xmlEscape(po)}'` }, orderData);
+      for (const po of invoicePOs) {
+        if (allOrders.has(po)) continue;
+        // Rate limit: 1 request per second
+        await new Promise(r => setTimeout(r, 1000));
+        const order = await fetchOrderByPO(po);
+        if (order) {
+          allOrders.set(po, order);
+          newFromInvoices++;
         }
-
-        // Save line items
-        for (const detail of order.details) {
-          for (const product of detail.products) {
-            if (!product.productId) continue;
-            try {
-              await makeCaspioRequest('POST', `/tables/${TABLES.items}/records`, {}, {
-                SanMar_PO: po,
-                Style: product.productId,
-                Part_ID: product.partId || '',
-                Qty_Ordered: parseInt(product.qtyOrdered) || 0,
-                Qty_Shipped: parseInt(product.qtyShipped) || 0,
-                Item_Status: product.status || detail.status || ''
-              });
-            } catch (e) { /* may already exist */ }
-          }
-        }
-
-        saved++;
-      } catch (e) {
-        console.error(`Backfill failed for PO ${po}:`, e.message);
       }
+      backfillStatus.progress.invoicePOs = newFromInvoices;
+      console.log(`[Backfill] Phase 3: ${newFromInvoices} additional orders from invoice PO discovery`);
     }
 
-    // Step 4: Fetch shipments (7-day windows)
+    console.log(`[Backfill] Total unique orders to save: ${allOrders.size}`);
+
+    // Phase 4: Save each order + items to Caspio
+    backfillStatus.progress.phase = 'saving orders to Caspio';
+    let saved = 0;
+    for (const [po, order] of allOrders) {
+      try {
+        await upsertOrderToCaspio(po, order, 'backfill');
+        saved++;
+        backfillStatus.progress.ordersSaved = saved;
+        if (saved % 10 === 0) {
+          console.log(`[Backfill] Phase 4: ${saved}/${allOrders.size} orders saved`);
+        }
+      } catch (e) {
+        backfillStatus.progress.errors++;
+        console.error(`[Backfill] Failed PO ${po}:`, e.message);
+      }
+    }
+    console.log(`[Backfill] Phase 4: ${saved} orders saved`);
+
+    // Phase 5: Fetch shipments (7-day windows)
+    backfillStatus.progress.phase = 'fetching shipments';
+    console.log('[Backfill] Phase 5: Fetching shipments...');
     let totalShipments = 0;
+    const shipDays = Math.min(daysBack, 90); // Cap shipment lookback
     const windowDays = 7;
-    for (let i = 0; i < daysBack; i += windowDays) {
+    for (let i = 0; i < shipDays; i += windowDays) {
       const windowStart = new Date();
-      windowStart.setDate(windowStart.getDate() - daysBack + i);
+      windowStart.setDate(windowStart.getDate() - shipDays + i);
       const timestamp = windowStart.toISOString();
 
       try {
@@ -708,18 +960,23 @@ router.post('/backfill', async (req, res) => {
                 for (const pkg of loc.packages) {
                   if (!pkg.trackingNumber) continue;
                   try {
-                    await makeCaspioRequest('POST', `/tables/${TABLES.shipments}/records`, {}, {
-                      SanMar_PO: shipment.purchaseOrderNumber,
-                      Tracking_Number: pkg.trackingNumber,
-                      Carrier: pkg.carrier || '',
-                      Ship_Method: pkg.shipmentMethod || '',
-                      Ship_Date: pkg.shipmentDate ? pkg.shipmentDate.split('T')[0] : '',
-                      Ship_From_Warehouse: loc.shipFrom.city || '',
-                      Ship_From_City: loc.shipFrom.city || '',
-                      Ship_From_State: loc.shipFrom.region || '',
-                      Ship_From_Zip: loc.shipFrom.postalCode || ''
-                    });
-                    totalShipments++;
+                    const trackWhere = `SanMar_PO='${xmlEscape(shipment.purchaseOrderNumber)}' AND Tracking_Number='${xmlEscape(pkg.trackingNumber)}'`;
+                    const existingTrack = await makeCaspioRequest('GET',
+                      `/tables/${TABLES.shipments}/records`, { 'q.where': trackWhere });
+                    if (!Array.isArray(existingTrack) || existingTrack.length === 0) {
+                      await makeCaspioRequest('POST', `/tables/${TABLES.shipments}/records`, {}, {
+                        SanMar_PO: shipment.purchaseOrderNumber,
+                        Tracking_Number: pkg.trackingNumber,
+                        Carrier: pkg.carrier || '',
+                        Ship_Method: pkg.shipmentMethod || '',
+                        Ship_Date: pkg.shipmentDate ? pkg.shipmentDate.split('T')[0] : '',
+                        Ship_From_Warehouse: loc.shipFrom.city || '',
+                        Ship_From_City: loc.shipFrom.city || '',
+                        Ship_From_State: loc.shipFrom.region || '',
+                        Ship_From_Zip: loc.shipFrom.postalCode || ''
+                      });
+                      totalShipments++;
+                    }
                   } catch (e) { /* may already exist */ }
                 }
               }
@@ -727,20 +984,29 @@ router.post('/backfill', async (req, res) => {
           }
         }
       } catch (e) {
-        console.error(`Shipment backfill window ${i} failed:`, e.message);
+        console.error(`[Backfill] Shipment window ${i} failed:`, e.message);
       }
+      backfillStatus.progress.shipmentsSaved = totalShipments;
     }
+    console.log(`[Backfill] Phase 5: ${totalShipments} shipments saved`);
 
-    backfillLog.ordersSaved = saved;
-    backfillLog.shipmentsSaved = totalShipments;
-    backfillLog.completed = new Date().toISOString();
-
-    console.log('SanMar backfill completed:', JSON.stringify(backfillLog));
-    res.json(backfillLog);
+    // Done
+    backfillStatus.progress.phase = 'complete';
+    backfillStatus.lastResult = {
+      success: true,
+      ordersSaved: saved,
+      shipmentsSaved: totalShipments,
+      errors: backfillStatus.progress.errors,
+      completedAt: new Date().toISOString()
+    };
+    console.log('[Backfill] Complete:', JSON.stringify(backfillStatus.lastResult));
   } catch (error) {
-    console.error('SanMar backfill failed:', error.message);
-    res.status(500).json({ error: 'Backfill failed', details: error.message });
+    console.error('[Backfill] Fatal error:', error.message);
+    backfillStatus.progress.phase = 'failed';
+    backfillStatus.lastResult = { success: false, error: error.message, failedAt: new Date().toISOString() };
+  } finally {
+    backfillStatus.running = false;
   }
-});
+}
 
 module.exports = router;

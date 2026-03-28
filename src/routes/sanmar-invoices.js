@@ -261,7 +261,7 @@ router.post('/sync', async (req, res) => {
           Is_Paid: 'No'
         };
 
-        if (!existing || !existing.Result || existing.Result.length === 0) {
+        if (!Array.isArray(existing) || existing.length === 0) {
           await makeCaspioRequest('POST', `/tables/${TABLES.invoices}/records`, {}, invoiceData);
           invoicesSaved++;
 
@@ -313,5 +313,237 @@ router.post('/sync', async (req, res) => {
     res.status(500).json({ error: 'Invoice sync failed', details: error.message });
   }
 });
+
+// ── Backfill status tracker (in-memory) ──
+let invoiceBackfillStatus = {
+  running: false,
+  lastRun: null,
+  lastResult: null,
+  progress: null
+};
+
+// ── GET /backfill-status — Check invoice backfill progress ──
+router.get('/backfill-status', (req, res) => {
+  res.json(invoiceBackfillStatus);
+});
+
+// ── POST /backfill — Historical invoice backfill by date range ──
+router.post('/backfill', async (req, res) => {
+  const secret = req.headers['x-api-secret'] || req.query.secret;
+  if (secret !== process.env.CRM_API_SECRET) {
+    return res.status(403).json({ error: 'Unauthorized' });
+  }
+
+  if (invoiceBackfillStatus.running) {
+    return res.status(409).json({
+      error: 'Invoice backfill already in progress',
+      progress: invoiceBackfillStatus.progress
+    });
+  }
+
+  const auth = getStandardAuth();
+  if (!auth.customerNumber) {
+    return res.status(500).json({ error: 'SanMar customer number not configured' });
+  }
+
+  const daysBack = parseInt(req.query.days) || 90;
+
+  // Return immediately
+  res.status(202).json({
+    message: 'Invoice backfill started in background',
+    daysBack,
+    startedAt: new Date().toISOString(),
+    checkProgressAt: '/api/sanmar-invoices/backfill-status'
+  });
+
+  // Run in background
+  runInvoiceBackfill(daysBack);
+});
+
+// ── Helper: upsert a single invoice + line items ──
+async function upsertInvoice(invoice) {
+  const invNo = invoice.invoiceNumber;
+  if (!invNo) return false;
+
+  const existing = await makeCaspioRequest('GET',
+    `/tables/${TABLES.invoices}/records`,
+    { 'q.where': `Invoice_Number='${xmlEscape(invNo)}'` }
+  );
+
+  const invoiceData = {
+    SanMar_PO: invoice.purchaseOrderNo || '',
+    Invoice_Number: invNo,
+    Invoice_Date: invoice.invoiceDate || '',
+    Due_Date: invoice.dueDate || '',
+    Order_Date: invoice.orderDate || '',
+    Ship_Via: invoice.shipVia || '',
+    FOB_Location: invoice.fob || '',
+    Terms: invoice.terms || '',
+    Subtotal: invoice.subtotal,
+    Sales_Tax: invoice.salesTax,
+    Shipping_Charges: invoice.shippingCharges,
+    Freight_Savings: invoice.freightSavings,
+    Total_Amount: invoice.totalAmount,
+    Is_Paid: 'No'
+  };
+
+  if (Array.isArray(existing) && existing.length > 0) {
+    await makeCaspioRequest('PUT', `/tables/${TABLES.invoices}/records`,
+      { 'q.where': `Invoice_Number='${xmlEscape(invNo)}'` }, invoiceData);
+  } else {
+    await makeCaspioRequest('POST', `/tables/${TABLES.invoices}/records`, {}, invoiceData);
+  }
+
+  // Upsert line items
+  let itemsSaved = 0;
+  for (const item of invoice.lineItems) {
+    try {
+      const itemWhere = `Invoice_Number='${xmlEscape(invNo)}' AND Style='${xmlEscape(item.styleNo || '')}' AND Size='${xmlEscape(item.size || '')}'`;
+      const existingItem = await makeCaspioRequest('GET',
+        `/tables/${TABLES.invoiceItems}/records`, { 'q.where': itemWhere });
+
+      const itemData = {
+        Invoice_Number: invNo,
+        Style: item.styleNo || '',
+        Color: item.color || '',
+        Style_Description: item.description || '',
+        Size: item.size || '',
+        Quantity: item.quantity,
+        Unit_Price: item.unitPrice,
+        Line_Total: item.lineTotal || (item.quantity * item.unitPrice)
+      };
+
+      if (Array.isArray(existingItem) && existingItem.length > 0) {
+        await makeCaspioRequest('PUT', `/tables/${TABLES.invoiceItems}/records`,
+          { 'q.where': itemWhere }, itemData);
+      } else {
+        await makeCaspioRequest('POST', `/tables/${TABLES.invoiceItems}/records`, {}, itemData);
+      }
+      itemsSaved++;
+    } catch (e) {
+      console.error(`Failed to upsert invoice item for ${invNo}:`, e.message);
+    }
+  }
+
+  // Update Unit_Price on SanMar_Order_Items if the order exists
+  if (invoice.purchaseOrderNo) {
+    for (const item of invoice.lineItems) {
+      try {
+        const where = `SanMar_PO='${xmlEscape(invoice.purchaseOrderNo)}' AND Style='${xmlEscape(item.styleNo || '')}'`;
+        await makeCaspioRequest('PUT', `/tables/${TABLES.orderItems}/records`,
+          { 'q.where': where },
+          { Unit_Price: item.unitPrice, Line_Total: item.quantity * item.unitPrice }
+        );
+      } catch (e) { /* order item may not exist yet */ }
+    }
+  }
+
+  return true;
+}
+
+// ── Background invoice backfill runner ──
+async function runInvoiceBackfill(daysBack) {
+  invoiceBackfillStatus = {
+    running: true,
+    lastRun: new Date().toISOString(),
+    lastResult: null,
+    progress: { phase: 'starting', invoicesSaved: 0, itemsSaved: 0, errors: 0 }
+  };
+
+  try {
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - daysBack);
+
+    // Walk 30-day windows
+    let windowStart = new Date(startDate);
+    let totalInvoices = 0;
+
+    while (windowStart < endDate) {
+      const windowEnd = new Date(Math.min(windowStart.getTime() + 30 * 86400000, endDate.getTime()));
+      const start = windowStart.toISOString().split('T')[0];
+      const end = windowEnd.toISOString().split('T')[0];
+
+      invoiceBackfillStatus.progress.phase = `fetching invoices ${start} to ${end}`;
+      console.log(`[Invoice Backfill] Window: ${start} to ${end}`);
+
+      try {
+        const soapBody = buildInvoiceRequest('GetInvoicesByInvoiceDateRange',
+          `<web:StartDate>${xmlEscape(start)}</web:StartDate>
+           <web:EndDate>${xmlEscape(end)}</web:EndDate>`
+        );
+        const xml = await makeSoapRequest(ENDPOINTS.standardInvoice, soapBody, {
+          timeout: 60000,
+          namespaces: { web: STANDARD_NS }
+        });
+
+        const soapError = checkSoapError(xml);
+        if (!soapError) {
+          const invoices = parseInvoiceResponse(xml);
+          console.log(`[Invoice Backfill] ${invoices.length} invoices in window`);
+
+          for (const invoice of invoices) {
+            try {
+              await upsertInvoice(invoice);
+              totalInvoices++;
+              invoiceBackfillStatus.progress.invoicesSaved = totalInvoices;
+            } catch (e) {
+              invoiceBackfillStatus.progress.errors++;
+              console.error(`[Invoice Backfill] Failed invoice ${invoice.invoiceNumber}:`, e.message);
+            }
+          }
+        } else if (soapError.message !== 'Data not found') {
+          console.error(`[Invoice Backfill] SOAP error for ${start}-${end}:`, soapError.message);
+        }
+      } catch (e) {
+        console.error(`[Invoice Backfill] Window ${start}-${end} failed:`, e.message);
+      }
+
+      windowStart = new Date(windowEnd);
+    }
+
+    // Also fetch unpaid invoices (may include ones outside date range)
+    invoiceBackfillStatus.progress.phase = 'fetching unpaid invoices';
+    console.log('[Invoice Backfill] Fetching unpaid invoices...');
+    try {
+      const unpaidBody = buildInvoiceRequest('GetUnpaidInvoices', '');
+      const unpaidXml = await makeSoapRequest(ENDPOINTS.standardInvoice, unpaidBody, {
+        timeout: 60000,
+        namespaces: { web: STANDARD_NS }
+      });
+      const unpaidError = checkSoapError(unpaidXml);
+      if (!unpaidError) {
+        const unpaidInvoices = parseInvoiceResponse(unpaidXml);
+        console.log(`[Invoice Backfill] ${unpaidInvoices.length} unpaid invoices`);
+        for (const invoice of unpaidInvoices) {
+          try {
+            await upsertInvoice(invoice);
+            totalInvoices++;
+            invoiceBackfillStatus.progress.invoicesSaved = totalInvoices;
+          } catch (e) {
+            invoiceBackfillStatus.progress.errors++;
+          }
+        }
+      }
+    } catch (e) {
+      console.error('[Invoice Backfill] Unpaid fetch failed:', e.message);
+    }
+
+    invoiceBackfillStatus.progress.phase = 'complete';
+    invoiceBackfillStatus.lastResult = {
+      success: true,
+      invoicesSaved: totalInvoices,
+      errors: invoiceBackfillStatus.progress.errors,
+      completedAt: new Date().toISOString()
+    };
+    console.log('[Invoice Backfill] Complete:', JSON.stringify(invoiceBackfillStatus.lastResult));
+  } catch (error) {
+    console.error('[Invoice Backfill] Fatal error:', error.message);
+    invoiceBackfillStatus.progress.phase = 'failed';
+    invoiceBackfillStatus.lastResult = { success: false, error: error.message, failedAt: new Date().toISOString() };
+  } finally {
+    invoiceBackfillStatus.running = false;
+  }
+}
 
 module.exports = router;
