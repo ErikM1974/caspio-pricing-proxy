@@ -390,6 +390,16 @@ const sanmarProductDataRoutes = require('./src/routes/sanmar-product-data');
 app.use('/api/sanmar', sanmarLimiter, sanmarProductDataRoutes);
 console.log('✓ SanMar Product Data routes loaded (PromoStandards API)');
 
+// SanMar Order Status & Shipment Routes (Order Lookup feature)
+const sanmarOrderRoutes = require('./src/routes/sanmar-orders');
+app.use('/api/sanmar-orders', sanmarLimiter, sanmarOrderRoutes);
+console.log('✓ SanMar Order routes loaded (status, shipments, sync, backfill)');
+
+// SanMar Invoice Routes (cost tracking, margin analysis)
+const sanmarInvoiceRoutes = require('./src/routes/sanmar-invoices');
+app.use('/api/sanmar-invoices', sanmarLimiter, sanmarInvoiceRoutes);
+console.log('✓ SanMar Invoice routes loaded (invoices, unpaid, cost data)');
+
 // Thumbnail Lookup Routes
 const thumbnailsRoutes = require('./src/routes/thumbnails');
 app.use('/api', thumbnailsRoutes);
