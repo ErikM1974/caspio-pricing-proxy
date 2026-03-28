@@ -1180,7 +1180,7 @@ async function runManageOrdersMatch() {
             Sales_Rep: bestMatch.CustomerServiceRep || '',
             id_Customer: bestMatch.id_Customer || 0,
             Matched_By: `auto-style-match (score:${bestScore})`,
-            Notes: `SW Order#${bestMatch.id_Order || ''}`
+            id_Order: String(bestMatch.id_Order || '')
           };
 
           await makeCaspioRequest('PUT', `/tables/${TABLES.orders}/records`,
