@@ -1070,15 +1070,48 @@ router.post('/match-manageorders', async (req, res) => {
       return res.status(500).json({ error: 'Failed to fetch ManageOrders data', details: e.message });
     }
 
-    // 4. For each unlinked SanMar order, find matching ManageOrders order by style
+    // 4. Pre-fetch line items for ManageOrders orders (batch, with limit)
     // Known non-SanMar part numbers to skip
     const FEE_PARTS = new Set(['ART', 'GRT-50', 'GRT-75', 'LTM', 'SETUP', 'DIGITIZE', 'RUSH',
       'SHIPPING', 'TAX', 'DISCOUNT', 'ARTWORK', 'SCREEN', 'FILM', 'TRANSFER']);
 
+    // Build a map of MO order → styles (pre-fetch line items)
+    // ManageOrders uses id_Order (NOT order_no)
+    const moOrderStyles = new Map();
+    const maxToFetch = Math.min(moOrders.length, 100); // Limit to 100 most recent
+    console.log(`[MO Match] Pre-fetching line items for ${maxToFetch} ManageOrders orders...`);
+
+    for (let i = 0; i < maxToFetch; i++) {
+      const moOrder = moOrders[i];
+      const orderId = moOrder.id_Order;
+      if (!orderId) continue;
+
+      try {
+        const lineItems = await fetchLineItems(orderId);
+        if (!lineItems || lineItems.length === 0) continue;
+
+        const styles = new Set();
+        for (const li of lineItems) {
+          const pn = (li.PartNumber || '').toUpperCase();
+          if (!pn || FEE_PARTS.has(pn)) continue;
+          const baseStyle = pn.replace(/_\d?[xXsSmMlL]+$/i, '').replace(/_\d+$/, '');
+          if (baseStyle) styles.add(baseStyle);
+        }
+
+        if (styles.size > 0) {
+          moOrderStyles.set(orderId, { order: moOrder, styles });
+        }
+      } catch (e) {
+        // Skip orders where line items can't be fetched
+      }
+    }
+    console.log(`[MO Match] Pre-fetched ${moOrderStyles.size} MO orders with product styles`);
+
+    // 5. For each unlinked SanMar order, find best ManageOrders match by style overlap
     for (const sanmarOrder of unlinked) {
       const po = sanmarOrder.SanMar_PO;
-      const styles = poStyles.get(po);
-      if (!styles || styles.size === 0) {
+      const sanmarStyles = poStyles.get(po);
+      if (!sanmarStyles || sanmarStyles.size === 0) {
         matchLog.unmatched++;
         continue;
       }
@@ -1086,46 +1119,21 @@ router.post('/match-manageorders', async (req, res) => {
       let bestMatch = null;
       let bestScore = 0;
 
-      for (const moOrder of moOrders) {
-        // Quick check: does this MO order have line items we can match?
-        // We need to fetch line items for candidate orders
-        // To avoid too many API calls, first check if we already matched
-        if (bestScore >= 2) break; // Good enough match
-
-        try {
-          const lineItems = await fetchLineItems(moOrder.order_no);
-          if (!lineItems || lineItems.length === 0) continue;
-
-          // Extract base styles from MO line items (strip size suffixes, skip fee PNs)
-          const moStyles = new Set();
-          for (const li of lineItems) {
-            const pn = (li.PartNumber || '').toUpperCase();
-            if (!pn || FEE_PARTS.has(pn)) continue;
-            // Strip size suffix: PC54_2X → PC54
-            const baseStyle = pn.replace(/_\d?[xXsSmMlL]+$/i, '').replace(/_\d+$/, '');
-            moStyles.add(baseStyle);
-          }
-
-          // Count style overlaps
-          let score = 0;
-          for (const style of styles) {
-            if (moStyles.has(style)) score++;
-          }
-
-          if (score > bestScore) {
-            bestScore = score;
-            bestMatch = moOrder;
-          }
-        } catch (e) {
-          // Line item fetch failed, skip this order
+      for (const [orderId, { order: moOrder, styles: moStyles }] of moOrderStyles) {
+        let score = 0;
+        for (const style of sanmarStyles) {
+          if (moStyles.has(style)) score++;
+        }
+        if (score > bestScore) {
+          bestScore = score;
+          bestMatch = moOrder;
         }
       }
 
       if (bestMatch && bestScore >= 1) {
-        // Found a match — update SanMar_Orders with ManageOrders data
         try {
           const updateData = {
-            Company_Name: bestMatch.CustomerName || '',
+            Company_Name: (bestMatch.CustomerName || '').trim(),
             Sales_Rep: bestMatch.CustomerServiceRep || '',
             id_Customer: bestMatch.id_Customer || 0,
             Matched_By: `auto-style-match (score:${bestScore})`
@@ -1136,14 +1144,14 @@ router.post('/match-manageorders', async (req, res) => {
             updateData
           );
 
-          console.log(`[MO Match] ${po} → ${bestMatch.CustomerName} (score:${bestScore}, order#${bestMatch.order_no})`);
+          console.log(`[MO Match] ${po} → ${updateData.Company_Name} (score:${bestScore}, order#${bestMatch.id_Order})`);
           matchLog.matched++;
         } catch (e) {
           console.error(`[MO Match] Failed to update ${po}:`, e.message);
           matchLog.errors++;
         }
       } else {
-        console.log(`[MO Match] ${po} → no match (styles: ${[...styles].join(',')})`);
+        console.log(`[MO Match] ${po} → no match (styles: ${[...sanmarStyles].join(',')})`);
         matchLog.unmatched++;
       }
     }
