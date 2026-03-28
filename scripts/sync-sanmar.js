@@ -116,6 +116,20 @@ async function runInvoiceBackfill(days) {
   return response.data;
 }
 
+async function matchManageOrders() {
+  const url = `${BASE_URL}/api/sanmar-orders/match-manageorders`;
+  console.log(`\n[${new Date().toISOString()}] Matching SanMar orders to ManageOrders...`);
+
+  const response = await axios.post(url, {}, { headers: AUTH_HEADERS, timeout: TIMEOUT });
+  const result = response.data;
+  console.log(`  Matched: ${result.matched || 0}`);
+  console.log(`  Unmatched: ${result.unmatched || 0}`);
+  console.log(`  Already linked: ${result.alreadyLinked || 0}`);
+  console.log(`  Errors: ${result.errors || 0}`);
+  console.log(`  Status: SUCCESS`);
+  return result;
+}
+
 async function checkStatus() {
   const url = `${BASE_URL}/api/sanmar-orders/status-summary`;
   console.log(`\n[${new Date().toISOString()}] Checking SanMar sync status...`);
@@ -165,10 +179,11 @@ async function main() {
       const days = parseInt(args[idx + 1]) || 90;
       await runInvoiceBackfill(days);
     } else {
-      // Normal daily sync: orders + invoices
+      // Normal daily sync: orders + invoices + ManageOrders matching
       const full = args.includes('--full');
       await syncOrders(full);
       await syncInvoices();
+      await matchManageOrders();
     }
 
     console.log(`\n[${new Date().toISOString()}] SanMar sync completed successfully.`);

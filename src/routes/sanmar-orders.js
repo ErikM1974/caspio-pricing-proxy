@@ -14,6 +14,7 @@
 //   POST /api/sanmar-orders/link            — Save ShopWorks↔SanMar PO mapping
 //   POST /api/sanmar-orders/sync            — Daily sync (Heroku Scheduler)
 //   POST /api/sanmar-orders/backfill        — Fire-and-forget backfill with progress
+//   POST /api/sanmar-orders/match-manageorders — Match SanMar orders to ManageOrders by style+date
 
 const express = require('express');
 const router = express.Router();
@@ -1010,5 +1011,150 @@ async function runBackfillBackground(daysBack) {
     backfillStatus.running = false;
   }
 }
+
+// ── POST /match-manageorders — Match SanMar orders to ManageOrders by style+date ──
+// Enriches SanMar_Orders with Company_Name, Sales_Rep, id_Customer from ManageOrders
+router.post('/match-manageorders', async (req, res) => {
+  const secret = req.headers['x-api-secret'] || req.query.secret;
+  if (secret !== process.env.CRM_API_SECRET) {
+    return res.status(403).json({ error: 'Unauthorized' });
+  }
+
+  const matchLog = { started: new Date().toISOString(), matched: 0, unmatched: 0, alreadyLinked: 0, errors: 0 };
+
+  try {
+    const { fetchOrders, fetchLineItems } = require('../utils/manageorders');
+
+    // 1. Get SanMar orders missing Company_Name
+    const sanmarOrders = await makeCaspioRequest('GET',
+      `/tables/${TABLES.orders}/records`,
+      { 'q.where': "Company_Name='' OR Company_Name IS NULL", 'q.limit': '1000' }
+    );
+    const unlinked = Array.isArray(sanmarOrders) ? sanmarOrders : (sanmarOrders?.Result || []);
+    console.log(`[MO Match] ${unlinked.length} SanMar orders need ManageOrders linking`);
+
+    if (unlinked.length === 0) {
+      matchLog.message = 'All orders already linked';
+      return res.json(matchLog);
+    }
+
+    // 2. Get SanMar order items (styles) for matching
+    const sanmarItems = await makeCaspioRequest('GET',
+      `/tables/${TABLES.items}/records`,
+      { 'q.limit': '1000' }
+    );
+    const itemsList = Array.isArray(sanmarItems) ? sanmarItems : (sanmarItems?.Result || []);
+
+    // Build a map: SanMar_PO → Set of styles
+    const poStyles = new Map();
+    for (const item of itemsList) {
+      if (!item.SanMar_PO || !item.Style) continue;
+      if (!poStyles.has(item.SanMar_PO)) poStyles.set(item.SanMar_PO, new Set());
+      poStyles.get(item.SanMar_PO).add(item.Style.toUpperCase());
+    }
+
+    // 3. Fetch ManageOrders orders (last 90 days)
+    const endDate = new Date().toISOString().split('T')[0];
+    const startDate = new Date(Date.now() - 90 * 86400000).toISOString().split('T')[0];
+    console.log(`[MO Match] Fetching ManageOrders orders ${startDate} to ${endDate}...`);
+
+    let moOrders = [];
+    try {
+      moOrders = await fetchOrders({
+        date_Ordered_start: startDate,
+        date_Ordered_end: endDate
+      });
+      console.log(`[MO Match] Got ${moOrders.length} ManageOrders orders`);
+    } catch (e) {
+      console.error('[MO Match] Failed to fetch ManageOrders:', e.message);
+      return res.status(500).json({ error: 'Failed to fetch ManageOrders data', details: e.message });
+    }
+
+    // 4. For each unlinked SanMar order, find matching ManageOrders order by style
+    // Known non-SanMar part numbers to skip
+    const FEE_PARTS = new Set(['ART', 'GRT-50', 'GRT-75', 'LTM', 'SETUP', 'DIGITIZE', 'RUSH',
+      'SHIPPING', 'TAX', 'DISCOUNT', 'ARTWORK', 'SCREEN', 'FILM', 'TRANSFER']);
+
+    for (const sanmarOrder of unlinked) {
+      const po = sanmarOrder.SanMar_PO;
+      const styles = poStyles.get(po);
+      if (!styles || styles.size === 0) {
+        matchLog.unmatched++;
+        continue;
+      }
+
+      let bestMatch = null;
+      let bestScore = 0;
+
+      for (const moOrder of moOrders) {
+        // Quick check: does this MO order have line items we can match?
+        // We need to fetch line items for candidate orders
+        // To avoid too many API calls, first check if we already matched
+        if (bestScore >= 2) break; // Good enough match
+
+        try {
+          const lineItems = await fetchLineItems(moOrder.order_no);
+          if (!lineItems || lineItems.length === 0) continue;
+
+          // Extract base styles from MO line items (strip size suffixes, skip fee PNs)
+          const moStyles = new Set();
+          for (const li of lineItems) {
+            const pn = (li.PartNumber || '').toUpperCase();
+            if (!pn || FEE_PARTS.has(pn)) continue;
+            // Strip size suffix: PC54_2X → PC54
+            const baseStyle = pn.replace(/_\d?[xXsSmMlL]+$/i, '').replace(/_\d+$/, '');
+            moStyles.add(baseStyle);
+          }
+
+          // Count style overlaps
+          let score = 0;
+          for (const style of styles) {
+            if (moStyles.has(style)) score++;
+          }
+
+          if (score > bestScore) {
+            bestScore = score;
+            bestMatch = moOrder;
+          }
+        } catch (e) {
+          // Line item fetch failed, skip this order
+        }
+      }
+
+      if (bestMatch && bestScore >= 1) {
+        // Found a match — update SanMar_Orders with ManageOrders data
+        try {
+          const updateData = {
+            Company_Name: bestMatch.CustomerName || '',
+            Sales_Rep: bestMatch.CustomerServiceRep || '',
+            id_Customer: bestMatch.id_Customer || 0,
+            Matched_By: `auto-style-match (score:${bestScore})`
+          };
+
+          await makeCaspioRequest('PUT', `/tables/${TABLES.orders}/records`,
+            { 'q.where': `SanMar_PO='${xmlEscape(po)}'` },
+            updateData
+          );
+
+          console.log(`[MO Match] ${po} → ${bestMatch.CustomerName} (score:${bestScore}, order#${bestMatch.order_no})`);
+          matchLog.matched++;
+        } catch (e) {
+          console.error(`[MO Match] Failed to update ${po}:`, e.message);
+          matchLog.errors++;
+        }
+      } else {
+        console.log(`[MO Match] ${po} → no match (styles: ${[...styles].join(',')})`);
+        matchLog.unmatched++;
+      }
+    }
+
+    matchLog.completed = new Date().toISOString();
+    console.log('[MO Match] Complete:', JSON.stringify(matchLog));
+    res.json(matchLog);
+  } catch (error) {
+    console.error('[MO Match] Fatal error:', error.message);
+    res.status(500).json({ error: 'Matching failed', details: error.message });
+  }
+});
 
 module.exports = router;
