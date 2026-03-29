@@ -18,7 +18,8 @@
     "sync-garment-tracker": "node scripts/sync-garment-tracker.js",
     "sync-crm-dashboards": "node scripts/sync-crm-dashboards.js",
     "sync-contacts": "node scripts/sync-contacts.js",
-    "sync-sanmar": "node scripts/sync-sanmar.js"
+    "sync-sanmar": "node scripts/sync-sanmar.js",
+    "sync-manageorders": "node scripts/sync-manageorders.js"
   },
   "keywords": [
     "caspio",
