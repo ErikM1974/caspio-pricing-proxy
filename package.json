@@ -19,7 +19,8 @@
     "sync-crm-dashboards": "node scripts/sync-crm-dashboards.js",
     "sync-contacts": "node scripts/sync-contacts.js",
     "sync-sanmar": "node scripts/sync-sanmar.js",
-    "sync-manageorders": "node scripts/sync-manageorders.js"
+    "sync-manageorders": "node scripts/sync-manageorders.js",
+    "check-zero-billing": "node scripts/check-zero-billing.js"
   },
   "keywords": [
     "caspio",

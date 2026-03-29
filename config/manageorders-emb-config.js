@@ -40,7 +40,7 @@ const SALES_REP_MAP = {
   'nika@nwcustomapparel.com': 'Nika Lao',
   'taneisha@nwcustomapparel.com': 'Taneisha Jones',
   'erik@nwcustomapparel.com': 'Erik Mickelson',
-  'ruthie@nwcustomapparel.com': 'Ruthie Mickelson',
+  'ruth@nwcustomapparel.com': 'Ruthie Nhoung',
 };
 
 /**
