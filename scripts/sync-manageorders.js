@@ -104,36 +104,37 @@ async function caspioReadAll(table, where) {
 }
 
 // ── ManageOrders API (via proxy) ────────────────────────────────────────
-async function fetchOrders(startDate, endDate) {
-  const url = `${BASE_URL}/api/manageorders/orders?date_Ordered_start=${startDate}&date_Ordered_end=${endDate}`;
-  try {
-    const resp = await axios.get(url, { timeout: TIMEOUT });
-    return resp.data.result || [];
-  } catch (err) {
-    if (err.response && err.response.status === 429) {
-      console.log('  Rate limited on orders fetch, waiting 62s...');
-      await sleep(RATE_LIMIT_WAIT_MS);
-      const retry = await axios.get(url, { timeout: TIMEOUT });
-      return retry.data.result || [];
+const MAX_RETRIES = 3;
+
+async function fetchWithRetry(url, label) {
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const resp = await axios.get(url, { timeout: TIMEOUT });
+      return resp.data.result || [];
+    } catch (err) {
+      if (err.response && err.response.status === 429 && attempt < MAX_RETRIES) {
+        const wait = RATE_LIMIT_WAIT_MS * attempt;
+        console.log(`    Rate limited on ${label}, attempt ${attempt}/${MAX_RETRIES}, waiting ${Math.round(wait/1000)}s...`);
+        await sleep(wait);
+      } else {
+        throw err;
+      }
     }
-    throw err;
   }
 }
 
+async function fetchOrders(startDate, endDate) {
+  return fetchWithRetry(
+    `${BASE_URL}/api/manageorders/orders?date_Ordered_start=${startDate}&date_Ordered_end=${endDate}`,
+    'orders fetch'
+  );
+}
+
 async function fetchLineItems(orderId) {
-  const url = `${BASE_URL}/api/manageorders/lineitems/${orderId}`;
-  try {
-    const resp = await axios.get(url, { timeout: TIMEOUT });
-    return resp.data.result || [];
-  } catch (err) {
-    if (err.response && err.response.status === 429) {
-      console.log(`    Rate limited on lineitems/${orderId}, waiting 62s...`);
-      await sleep(RATE_LIMIT_WAIT_MS);
-      const retry = await axios.get(url, { timeout: TIMEOUT });
-      return retry.data.result || [];
-    }
-    throw err;
-  }
+  return fetchWithRetry(
+    `${BASE_URL}/api/manageorders/lineitems/${orderId}`,
+    `lineitems/${orderId}`
+  );
 }
 
 // ── Data Mapping ────────────────────────────────────────────────────────
@@ -268,9 +269,13 @@ async function main() {
 
   // Step 3: Smart sync
   console.log('Step 3: Syncing...');
-  let stats = { new: 0, updated: 0, unchanged: 0, errors: 0, lineItems: 0 };
+  let stats = { new: 0, updated: 0, unchanged: 0, errors: 0, lineItems: 0, skipped: 0 };
+  const total = moOrders.length;
+  const today = new Date().toISOString().split('T')[0];
+  let orderIndex = 0;
 
   for (const mo of moOrders) {
+    orderIndex++;
     const id = String(mo.id_Order);
     const mapped = mapOrder(mo);
     const existing = caspioMap.get(id);
@@ -278,14 +283,25 @@ async function main() {
     try {
       if (!existing) {
         // New order
-        console.log(`  + NEW: ${id} (${cleanStr(mo.CustomerName)})`);
+        console.log(`  [${orderIndex}/${total}] + NEW: ${id} (${cleanStr(mo.CustomerName)})`);
         await caspioRequest('/tables/ManageOrders_Orders/records', 'POST', mapped);
         stats.lineItems += await syncLineItems(mo.id_Order);
         stats.new++;
         await sleep(LINE_ITEM_DELAY_MS);
 
       } else if (isBackfill) {
+        // Resume support: skip if already synced today
+        const lastSync = existing.Last_Sync_Date ? String(existing.Last_Sync_Date) : '';
+        if (lastSync.startsWith(today)) {
+          stats.skipped++;
+          if (stats.skipped % 50 === 0) {
+            console.log(`  [${orderIndex}/${total}] skipping ${stats.skipped} already synced today...`);
+          }
+          continue;
+        }
+
         // Backfill: update everything
+        console.log(`  [${orderIndex}/${total}] ${id} (${cleanStr(mo.CustomerName)})`);
         await caspioRequest(
           `/tables/ManageOrders_Orders/records?q.where=${encodeURIComponent(`id_Order=${id}`)}`,
           'PUT', mapped
@@ -293,6 +309,11 @@ async function main() {
         stats.lineItems += await syncLineItems(mo.id_Order);
         stats.updated++;
         await sleep(LINE_ITEM_DELAY_MS);
+
+        // Progress summary every 25 orders
+        if (stats.updated % 25 === 0) {
+          console.log(`  --- Progress: ${orderIndex}/${total}, ${stats.updated} updated, ${stats.skipped} skipped ---`);
+        }
 
       } else {
         // Smart diff
@@ -326,6 +347,7 @@ async function main() {
   console.log(`  New:       ${stats.new}`);
   console.log(`  Updated:   ${stats.updated}`);
   console.log(`  Unchanged: ${stats.unchanged}`);
+  if (stats.skipped) console.log(`  Skipped:   ${stats.skipped} (already synced today)`);
   console.log(`  Errors:    ${stats.errors}`);
   console.log(`  Line items synced: ${stats.lineItems}`);
   console.log(`  Total in archive:  ${caspioOrders.length + stats.new}`);
