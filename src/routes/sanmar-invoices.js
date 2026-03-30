@@ -284,14 +284,19 @@ router.post('/sync', async (req, res) => {
             }
           }
 
-          // Update Unit_Price on SanMar_Order_Items if the order exists
+          // Update Unit_Price, Color, Size on SanMar_Order_Items if the order exists
           if (invoice.purchaseOrderNo) {
             for (const item of invoice.lineItems) {
               try {
                 const where = `SanMar_PO='${xmlEscape(invoice.purchaseOrderNo)}' AND Style='${xmlEscape(item.styleNo || '')}'`;
                 await makeCaspioRequest('PUT', `/tables/${TABLES.orderItems}/records`,
                   { 'q.where': where },
-                  { Unit_Price: item.unitPrice, Line_Total: item.quantity * item.unitPrice }
+                  {
+                    Unit_Price: item.unitPrice,
+                    Line_Total: item.quantity * item.unitPrice,
+                    Color: item.color || '',
+                    Size: item.size || ''
+                  }
                 );
               } catch (e) { /* order item may not exist yet */ }
             }
@@ -425,14 +430,19 @@ async function upsertInvoice(invoice) {
     }
   }
 
-  // Update Unit_Price on SanMar_Order_Items if the order exists
+  // Update Unit_Price, Color, Size on SanMar_Order_Items if the order exists
   if (invoice.purchaseOrderNo) {
     for (const item of invoice.lineItems) {
       try {
         const where = `SanMar_PO='${xmlEscape(invoice.purchaseOrderNo)}' AND Style='${xmlEscape(item.styleNo || '')}'`;
         await makeCaspioRequest('PUT', `/tables/${TABLES.orderItems}/records`,
           { 'q.where': where },
-          { Unit_Price: item.unitPrice, Line_Total: item.quantity * item.unitPrice }
+          {
+                    Unit_Price: item.unitPrice,
+                    Line_Total: item.quantity * item.unitPrice,
+                    Color: item.color || '',
+                    Size: item.size || ''
+                  }
         );
       } catch (e) { /* order item may not exist yet */ }
     }

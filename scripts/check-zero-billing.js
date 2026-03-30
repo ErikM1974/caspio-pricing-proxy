@@ -40,14 +40,17 @@ const ERIK_EMAIL = 'erik@nwcustomapparel.com';
 
 // ── Caspio Auth & CRUD ──────────────────────────────────────────────────
 let caspioToken = null;
+let tokenExpiresAt = 0;
 
 async function getCaspioToken() {
-  if (caspioToken) return caspioToken;
+  const now = Math.floor(Date.now() / 1000);
+  if (caspioToken && now < tokenExpiresAt - 60) return caspioToken; // 60s buffer
   const resp = await axios.post('https://c3eku948.caspio.com/oauth/token',
     `grant_type=client_credentials&client_id=${CASPIO_CLIENT_ID}&client_secret=${CASPIO_CLIENT_SECRET}`,
     { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
   );
   caspioToken = resp.data.access_token;
+  tokenExpiresAt = now + (resp.data.expires_in || 3600);
   return caspioToken;
 }
 
@@ -206,8 +209,19 @@ async function main() {
       const ourCost = parseFloat(si.Unit_Price) || 0;
       if (ourCost <= 0) continue; // We didn't pay for it either — skip
 
+      // Try exact match first (Style + Color), fall back to Style-only if Color is empty
       const key = `${normalizePartNumber(si.Style)}|${normalizeColor(si.Color)}`;
-      const customerPrice = customerPriceMap.get(key);
+      let customerPrice = customerPriceMap.get(key);
+
+      // If no match and Color is empty/missing, try matching by Style only
+      if (customerPrice === undefined && !si.Color) {
+        for (const [k, v] of customerPriceMap) {
+          if (k.startsWith(normalizePartNumber(si.Style) + '|')) {
+            customerPrice = v;
+            break;
+          }
+        }
+      }
 
       // customerPrice is 0 or not found (item not on the order = not billed)
       if (customerPrice === 0 || customerPrice === undefined) {
@@ -291,18 +305,25 @@ async function main() {
       console.log('    [DRY RUN] Would send email');
       alert.items.forEach(i => console.log(`      ${i.partNumber} ${i.color} x${i.qty} — Our: $${i.ourCost.toFixed(2)}, Cust: ${i.customerPrice}`));
     } else {
+      // Send email first
+      let emailSent = false;
       try {
         await sendEmail(templateParams);
         console.log('    Email sent');
         sentCount++;
-
-        // Mark as alerted in Caspio
-        await caspioPut(
-          `/tables/SanMar_Orders/records?q.where=${encodeURIComponent(`PK_ID=${alert.pk_id}`)}`,
-          { Zero_Billing_Alerted: 'alerted' }
-        );
+        emailSent = true;
       } catch (err) {
         console.error(`    EMAIL FAILED: ${err.message}`);
+      }
+
+      // Only mark as alerted if email actually sent
+      try {
+        await caspioPut(
+          `/tables/SanMar_Orders/records?q.where=${encodeURIComponent(`PK_ID=${alert.pk_id}`)}`,
+          { Zero_Billing_Alerted: emailSent ? 'alerted' : 'email_failed' }
+        );
+      } catch (flagErr) {
+        console.error(`    FLAG UPDATE FAILED: ${flagErr.message}`);
       }
     }
   }

@@ -681,10 +681,19 @@ router.post('/backfill', async (req, res) => {
   }
 
   if (backfillStatus.running) {
-    return res.status(409).json({
-      error: 'Backfill already in progress',
-      progress: backfillStatus.progress
-    });
+    // Auto-reset if stuck for more than 2 hours
+    const stuckThreshold = 2 * 60 * 60 * 1000;
+    if (backfillStatus.startedAt && (Date.now() - backfillStatus.startedAt > stuckThreshold)) {
+      console.warn('[Backfill] Resetting stuck backfill state (>2 hours)');
+      backfillStatus.running = false;
+      backfillStatus.progress = null;
+    } else {
+      return res.status(409).json({
+        error: 'Backfill already in progress',
+        progress: backfillStatus.progress,
+        startedAt: backfillStatus.startedAt ? new Date(backfillStatus.startedAt).toISOString() : null
+      });
+    }
   }
 
   const auth = getPromoStandardsAuth();
@@ -847,6 +856,7 @@ async function upsertOrderToCaspio(po, order, matchedBy) {
 async function runBackfillBackground(daysBack) {
   backfillStatus = {
     running: true,
+    startedAt: Date.now(),
     lastRun: new Date().toISOString(),
     lastResult: null,
     progress: { phase: 'starting', openOrders: 0, updatedOrders: 0, invoicePOs: 0, ordersSaved: 0, shipmentsSaved: 0, errors: 0 }
