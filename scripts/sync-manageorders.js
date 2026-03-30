@@ -33,7 +33,9 @@ const CHANGE_FIELDS = [
   'cur_SubTotal', 'cur_SalesTaxTotal',
   'sts_Paid', 'sts_Shipped', 'sts_Produced', 'sts_Invoiced',
   'TotalProductQuantity',
-  'date_Shipped', 'date_Invoiced', 'date_Produced'
+  'date_Shipped', 'date_Invoiced', 'date_Produced',
+  'cur_Adjustment', 'sts_Purchased', 'sts_Received', 'sts_ArtDone',
+  'sts_PurchasedSub', 'sts_ReceivedSub'
 ];
 
 // ── Helpers ─────────────────────────────────────────────────────────────
@@ -165,6 +167,20 @@ function mapOrder(o) {
     sts_Paid: parseInt(o.sts_Paid) || 0,
     sts_Produced: parseInt(o.sts_Produced) || 0,
     sts_Shipped: parseInt(o.sts_Shipped) || 0,
+    id_OrderType: parseInt(o.id_OrderType) || 0,
+    id_CustomerInternal: parseInt(o.id_CustomerInternal) || 0,
+    id_URL: cleanStr(o.id_URL),
+    ContactFax: cleanStr(o.ContactFax),
+    ContactTitle: cleanStr(o.ContactTitle),
+    ContactDepartment: cleanStr(o.ContactDepartment),
+    cur_Adjustment: parseFloat(o.cur_Adjustment) || 0,
+    TermsDays: parseInt(o.TermsDays) || 0,
+    sts_SizingType: parseFloat(o.sts_SizingType) || 0,
+    sts_Purchased: cleanStr(o.sts_Purchased),
+    sts_Received: cleanStr(o.sts_Received),
+    sts_ReceivedSub: parseFloat(o.sts_ReceivedSub) || 0,
+    sts_PurchasedSub: parseFloat(o.sts_PurchasedSub) || 0,
+    sts_ArtDone: parseFloat(o.sts_ArtDone) || 0,
     Last_Sync_Date: new Date().toISOString()
   };
 }
