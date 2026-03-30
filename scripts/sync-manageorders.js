@@ -182,6 +182,7 @@ function mapOrder(o) {
     sts_ReceivedSub: parseFloat(o.sts_ReceivedSub) || 0,
     sts_PurchasedSub: parseFloat(o.sts_PurchasedSub) || 0,
     sts_ArtDone: parseFloat(o.sts_ArtDone) || 0,
+    Backfill_Source: 'daily_sync',
     Last_Sync_Date: new Date().toISOString()
   };
 }
