@@ -235,6 +235,7 @@ async function syncLineItems(orderId) {
 // ── Main ────────────────────────────────────────────────────────────────
 async function main() {
   const isBackfill = process.argv.includes('--backfill');
+  const isForce = process.argv.includes('--force');
   const startDate = dateStr(DAYS_BACK);
   const endDate = dateStr(-1);
 
@@ -292,7 +293,7 @@ async function main() {
       } else if (isBackfill) {
         // Resume support: skip if already synced today
         const lastSync = existing.Last_Sync_Date ? String(existing.Last_Sync_Date) : '';
-        if (lastSync.startsWith(today)) {
+        if (!isForce && lastSync.startsWith(today)) {
           stats.skipped++;
           if (stats.skipped % 50 === 0) {
             console.log(`  [${orderIndex}/${total}] skipping ${stats.skipped} already synced today...`);
