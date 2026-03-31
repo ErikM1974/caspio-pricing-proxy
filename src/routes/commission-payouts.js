@@ -24,6 +24,23 @@ const COMMISSION_TABLE = 'Commission_Payouts';
 const TANEISHA_ACCOUNTS_TABLE = 'Taneisha_All_Accounts_Caspio';
 const NIKA_ACCOUNTS_TABLE = 'Nika_All_Accounts_Caspio';
 
+// ── Cache (5-minute TTL) ────────────────────────────────────────────────
+// Prevents Caspio 429 rate limits when multiple people load the dashboard
+const cache = new Map();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+function getCached(key) {
+    const entry = cache.get(key);
+    if (entry && Date.now() - entry.timestamp < CACHE_TTL) {
+        return entry.data;
+    }
+    return null;
+}
+
+function setCache(key, data) {
+    cache.set(key, { data, timestamp: Date.now() });
+}
+
 const caspioApiBaseUrl = config.caspio.apiBaseUrl;
 
 // ── Helpers ─────────────────────────────────────────────────────────────
@@ -549,8 +566,16 @@ async function calcNewBusinessBonus(year, rep) {
 router.get('/commissions/quarterly-report', async (req, res) => {
     const quarter = (req.query.quarter || getCurrentQuarter()).toUpperCase();
     const year = parseInt(req.query.year) || getCurrentYear();
+    const cacheKey = `quarterly:${quarter}:${year}`;
 
     console.log(`GET /api/commissions/quarterly-report - ${quarter} ${year}`);
+
+    // Check cache first (5-minute TTL)
+    const cached = getCached(cacheKey);
+    if (cached) {
+        console.log(`  Returning cached quarterly report for ${quarter} ${year}`);
+        return res.json(cached);
+    }
 
     try {
         // Fetch all 3 commission types in parallel
@@ -559,6 +584,15 @@ router.get('/commissions/quarterly-report', async (req, res) => {
             getGarmentSpiffs(quarter, year),
             getWinBackBounty(),
         ]);
+
+        // Also fetch payment history for this year (saves a separate API call from frontend)
+        let paymentHistory = [];
+        try {
+            paymentHistory = await fetchAllCaspioPages(`/tables/${COMMISSION_TABLE}/records`, {
+                'q.where': `Year=${year}`,
+                'q.orderBy': 'Quarter DESC, Commission_Type ASC',
+            });
+        } catch (e) { /* history fetch is optional */ }
 
         // Build unified report per rep
         const reps = {};
@@ -581,13 +615,19 @@ router.get('/commissions/quarterly-report', async (req, res) => {
             };
         }
 
-        res.json({
+        const result = {
             quarter,
             year,
             generatedAt: new Date().toISOString(),
             totalInkSoftOrders: onlineStore?.totalOrders || 0,
             reps,
-        });
+            paymentHistory,
+        };
+
+        // Cache for 5 minutes
+        setCache(cacheKey, result);
+
+        res.json(result);
     } catch (err) {
         console.error('Quarterly report error:', err.message);
         res.status(500).json({ error: 'Failed to generate quarterly report', details: err.message });
