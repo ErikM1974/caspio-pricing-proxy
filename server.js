@@ -461,6 +461,11 @@ const onlineStoreCommissionRoutes = require('./src/routes/online-store-commissio
 app.use('/api', onlineStoreCommissionRoutes);
 console.log('✓ Online Store Commission routes loaded');
 
+// Commission Payouts Routes (unified commission tracking + payment history)
+const commissionPayoutRoutes = require('./src/routes/commission-payouts');
+app.use('/api', commissionPayoutRoutes);
+console.log('✓ Commission Payouts routes loaded');
+
 // Quote Sequence Routes (atomic get-and-increment for quote IDs)
 const quoteSequenceRoutes = require('./src/routes/quote-sequence');
 app.use('/api', quoteSequenceRoutes);
