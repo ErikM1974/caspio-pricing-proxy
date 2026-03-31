@@ -1184,7 +1184,7 @@ router.post('/mockups/:id/upload-file', upload.single('file'), async (req, res) 
         return res.status(400).json({ success: false, error: 'Missing companyName', code: 'MISSING_COMPANY' });
     }
 
-    const VALID_SLOTS = ['Box_Mockup_1', 'Box_Mockup_2', 'Box_Mockup_3', 'Box_Reference_File'];
+    const VALID_SLOTS = ['Box_Mockup_1', 'Box_Mockup_2', 'Box_Mockup_3', 'Box_Mockup_4', 'Box_Mockup_5', 'Box_Mockup_6', 'Box_Reference_File'];
     const targetSlot = slot || 'Box_Mockup_1';
     if (!VALID_SLOTS.includes(targetSlot)) {
         return res.status(400).json({ success: false, error: `Invalid slot. Must be one of: ${VALID_SLOTS.join(', ')}`, code: 'INVALID_SLOT' });
