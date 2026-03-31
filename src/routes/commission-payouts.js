@@ -202,16 +202,20 @@ async function getGarmentSpiffs(quarter, year) {
 }
 
 /**
- * Fetch win-back bounty data from rep account tables
+ * Fetch win-back bounty data from rep account tables.
+ * Year-dynamic: uses YTD_Sales_{year} and Order_Count_{year} fields.
  */
 async function getWinBackBounty() {
     try {
+        const year = getCurrentYear();
+        const ytdField = `YTD_Sales_${year}`;
+        const orderCountField = `Order_Count_${year}`;
         const results = {};
 
         for (const [rep, table] of [['Nika Lao', NIKA_ACCOUNTS_TABLE], ['Taneisha Clark', TANEISHA_ACCOUNTS_TABLE]]) {
             const accounts = await fetchAllCaspioPages(`/tables/${table}/records`, {
                 'q.where': "Account_Tier LIKE '%WIN BACK%' OR Account_Tier LIKE '%Win Back%'",
-                'q.select': 'ID_Customer,CompanyName,Account_Tier,YTD_Sales_2026,Order_Count_2026',
+                'q.select': `ID_Customer,CompanyName,Account_Tier,${ytdField},${orderCountField}`,
             });
 
             let totalRevenue = 0;
@@ -220,7 +224,7 @@ async function getWinBackBounty() {
             const topAccounts = [];
 
             for (const account of accounts) {
-                const ytdSales = parseFloat(account.YTD_Sales_2026) || 0;
+                const ytdSales = parseFloat(account[ytdField]) || 0;
                 accountCount++;
                 totalRevenue += ytdSales;
                 if (ytdSales > 0) {
@@ -229,7 +233,7 @@ async function getWinBackBounty() {
                         company: account.CompanyName,
                         customerId: account.ID_Customer,
                         revenue: ytdSales,
-                        orderCount: parseInt(account.Order_Count_2026) || 0,
+                        orderCount: parseInt(account[orderCountField]) || 0,
                     });
                 }
             }
@@ -242,7 +246,7 @@ async function getWinBackBounty() {
                 rate: 0.05,
                 totalAccounts: accountCount,
                 accountsWithSales,
-                topAccounts: topAccounts.slice(0, 20), // Top 20 for display
+                topAccounts: topAccounts.slice(0, 20),
             };
         }
 
@@ -251,6 +255,259 @@ async function getWinBackBounty() {
         console.error('Win-back bounty error:', err.message);
         return {};
     }
+}
+
+// ── Annual Bonus Calculations ───────────────────────────────────────────
+
+const ORDER_ODBC_TABLE = 'ORDER_ODBC';
+const MANAGEORDERS_TABLE = 'ManageOrders_Orders';
+const SALES_REPS_TABLE = 'Sales_Reps_2026';
+
+const RETENTION_TIERS = [
+    { min: 90, bonus: 5000, label: '90%+ retention ($5,000)' },
+    { min: 80, bonus: 3500, label: '80-89% retention ($3,500)' },
+    { min: 70, bonus: 2000, label: '70-79% retention ($2,000)' },
+];
+
+const GROWTH_TIERS = [
+    { min: 10, bonus: 5000, label: '10%+ growth ($5,000)' },
+    { min: 5,  bonus: 3500, label: '5-9% growth ($3,500)' },
+    { min: 1,  bonus: 2000, label: '1-4% growth ($2,000)' },
+];
+
+const NEW_BUSINESS_TIERS = [
+    { min: 100000, bonus: 2500, label: '$100K+ ($2,500)' },
+    { min: 50000,  bonus: 1500, label: '$50K-$99K ($1,500)' },
+    { min: 25000,  bonus: 750,  label: '$25K-$49K ($750)' },
+];
+
+function getTierBonus(value, tiers) {
+    for (const tier of tiers) {
+        if (value >= tier.min) return tier;
+    }
+    return { min: 0, bonus: 0, label: 'Below minimum threshold ($0)' };
+}
+
+/**
+ * Get the rep's assigned customer IDs from Sales_Reps_2026.
+ * This is the SOURCE OF TRUTH for customer ownership — not the
+ * CustomerServiceRep field on individual orders (which may show
+ * old reps like Taylar Hanson before she retired).
+ *
+ * Returns Set of id_Customer strings.
+ */
+async function getRepCustomerIds(rep) {
+    const escapedRep = rep.replace(/'/g, "''");
+    const records = await fetchAllCaspioPages(`/tables/${SALES_REPS_TABLE}/records`, {
+        'q.where': `CustomerServiceRep='${escapedRep}'`,
+        'q.select': 'ID_Customer',
+    });
+    return new Set(records.map(r => String(r.ID_Customer)));
+}
+
+/**
+ * Get invoiced orders from ORDER_ODBC for a date range,
+ * filtered to only customers in the given Set.
+ * Returns Map of id_Customer → { revenue, company, orderCount }
+ */
+async function getOrdersByCustomerSet(table, dateStart, dateEnd, customerIds, revenueField, companyField) {
+    // Query all invoiced orders in the date range (no rep filter — we filter by customer set)
+    const records = await fetchAllCaspioPages(`/tables/${table}/records`, {
+        'q.where': `date_${table === ORDER_ODBC_TABLE ? 'OrderInvoiced' : 'Invoiced'}>='${dateStart}' AND date_${table === ORDER_ODBC_TABLE ? 'OrderInvoiced' : 'Invoiced'}<='${dateEnd}' AND sts_Invoiced=1`,
+        'q.select': `id_Customer,${companyField},${revenueField}`,
+        'q.limit': 1000,
+    }, { totalTimeout: 120000 });
+
+    const customers = new Map();
+    for (const rec of records) {
+        const cid = String(rec.id_Customer);
+        // Only include customers assigned to this rep
+        if (!customerIds.has(cid)) continue;
+
+        const revenue = parseFloat(rec[revenueField]) || 0;
+        if (!customers.has(cid)) {
+            customers.set(cid, { revenue: 0, company: rec[companyField], orderCount: 0 });
+        }
+        const c = customers.get(cid);
+        c.revenue += revenue;
+        c.orderCount++;
+    }
+    return customers;
+}
+
+/**
+ * Bonus 1: Keep Your Customers (Retention)
+ * What % of previous year's accounts ordered again this year?
+ *
+ * Uses Sales_Reps_2026 for customer ownership, then queries
+ * ORDER_ODBC (previous year) and ManageOrders_Orders (current year)
+ * for those specific customer IDs.
+ */
+async function calcRetentionBonus(year, rep) {
+    const prevYear = year - 1;
+    console.log(`  [Retention] ${rep}: comparing ${prevYear} vs ${year}...`);
+
+    // Get this rep's assigned customers from Sales_Reps_2026
+    const repCustomerIds = await getRepCustomerIds(rep);
+    console.log(`    ${rep} has ${repCustomerIds.size} assigned customers`);
+
+    // Get orders for these customers from both years
+    const [prevCustomers, currCustomers] = await Promise.all([
+        getOrdersByCustomerSet(ORDER_ODBC_TABLE, `${prevYear}-01-01`, `${prevYear}-12-31`, repCustomerIds, 'cur_Subtotal', 'CompanyName'),
+        getOrdersByCustomerSet(MANAGEORDERS_TABLE, `${year}-01-01`, `${year}-12-31`, repCustomerIds, 'cur_SubTotal', 'CustomerName'),
+    ]);
+
+    // Find customers that ordered in both years
+    let retained = 0;
+    const retainedList = [];
+    const lostList = [];
+
+    for (const [cid, prevData] of prevCustomers) {
+        if (currCustomers.has(cid)) {
+            retained++;
+            retainedList.push({ customerId: cid, company: prevData.company, prevRevenue: Math.round(prevData.revenue * 100) / 100 });
+        } else {
+            lostList.push({ customerId: cid, company: prevData.company, prevRevenue: Math.round(prevData.revenue * 100) / 100 });
+        }
+    }
+
+    const prevCount = prevCustomers.size;
+    const retentionPct = prevCount > 0 ? (retained / prevCount) * 100 : 0;
+    const tier = getTierBonus(retentionPct, RETENTION_TIERS);
+
+    lostList.sort((a, b) => b.prevRevenue - a.prevRevenue);
+
+    return {
+        prevYearCustomers: prevCount,
+        currYearCustomers: currCustomers.size,
+        retainedCustomers: retained,
+        lostCustomers: prevCount - retained,
+        retentionPct: Math.round(retentionPct * 10) / 10,
+        bonusTier: tier.label,
+        bonusAmount: tier.bonus,
+        topLost: lostList.slice(0, 10),
+    };
+}
+
+/**
+ * Bonus 2: Grow Your Accounts (YoY Growth)
+ * Did repeat customers spend MORE than last year?
+ * Only counts customers assigned to this rep (via Sales_Reps_2026)
+ * who ordered in BOTH years.
+ */
+async function calcGrowthBonus(year, rep) {
+    const prevYear = year - 1;
+    console.log(`  [Growth] ${rep}: comparing ${prevYear} vs ${year} revenue...`);
+
+    const repCustomerIds = await getRepCustomerIds(rep);
+
+    const [prevCustomers, currCustomers] = await Promise.all([
+        getOrdersByCustomerSet(ORDER_ODBC_TABLE, `${prevYear}-01-01`, `${prevYear}-12-31`, repCustomerIds, 'cur_Subtotal', 'CompanyName'),
+        getOrdersByCustomerSet(MANAGEORDERS_TABLE, `${year}-01-01`, `${year}-12-31`, repCustomerIds, 'cur_SubTotal', 'CustomerName'),
+    ]);
+
+    let prevTotal = 0;
+    let currTotal = 0;
+    const repeatCustomers = [];
+
+    for (const [cid, prevData] of prevCustomers) {
+        if (currCustomers.has(cid)) {
+            const currData = currCustomers.get(cid);
+            prevTotal += prevData.revenue;
+            currTotal += currData.revenue;
+            repeatCustomers.push({
+                customerId: cid,
+                company: prevData.company,
+                prevRevenue: Math.round(prevData.revenue * 100) / 100,
+                currRevenue: Math.round(currData.revenue * 100) / 100,
+                growth: Math.round(currData.revenue - prevData.revenue),
+            });
+        }
+    }
+
+    const growthPct = prevTotal > 0 ? ((currTotal - prevTotal) / prevTotal) * 100 : 0;
+    const tier = getTierBonus(growthPct, GROWTH_TIERS);
+
+    repeatCustomers.sort((a, b) => b.growth - a.growth);
+
+    return {
+        repeatCustomerCount: repeatCustomers.length,
+        prevYearRevenue: Math.round(prevTotal * 100) / 100,
+        currYearRevenue: Math.round(currTotal * 100) / 100,
+        revenueChange: Math.round((currTotal - prevTotal) * 100) / 100,
+        growthPct: Math.round(growthPct * 10) / 10,
+        bonusTier: tier.label,
+        bonusAmount: tier.bonus,
+        topGrowers: repeatCustomers.slice(0, 10),
+        topDecliners: repeatCustomers.slice(-5).reverse(),
+    };
+}
+
+/**
+ * Bonus 3: Bring In New Business
+ * Revenue from brand new customers or reactivated (no orders in 18+ months).
+ *
+ * Uses Sales_Reps_2026 for customer ownership. Checks ORDER_ODBC for
+ * any orders in the 18 months before the current year — if none found
+ * for a customer, they're "new" or "reactivated."
+ */
+async function calcNewBusinessBonus(year, rep) {
+    console.log(`  [New Business] ${rep}: finding new/reactivated customers...`);
+
+    const repCustomerIds = await getRepCustomerIds(rep);
+
+    // Get current year orders for this rep's customers
+    const currCustomers = await getOrdersByCustomerSet(
+        MANAGEORDERS_TABLE, `${year}-01-01`, `${year}-12-31`,
+        repCustomerIds, 'cur_SubTotal', 'CustomerName'
+    );
+
+    // Get historical orders for the 18-month window before current year
+    // 18 months before Jan 1 = Jul 1 two years prior
+    const cutoffDate = `${year - 2}-07-01`;
+    const endPrevPeriod = `${year - 1}-12-31`;
+
+    // Query ALL invoiced orders in that window (not filtered by rep — filtered by customer set)
+    const historicalRecords = await fetchAllCaspioPages(`/tables/${ORDER_ODBC_TABLE}/records`, {
+        'q.where': `date_OrderInvoiced>='${cutoffDate}' AND date_OrderInvoiced<='${endPrevPeriod}' AND sts_Invoiced=1`,
+        'q.select': 'id_Customer',
+        'q.limit': 1000,
+    }, { totalTimeout: 120000 });
+
+    // Build set of customers who had orders in the 18-month window
+    const recentCustomers = new Set();
+    for (const rec of historicalRecords) {
+        recentCustomers.add(String(rec.id_Customer));
+    }
+
+    // New/reactivated = current year customers NOT in recent 18-month history
+    let newRevenue = 0;
+    const newCustomersList = [];
+
+    for (const [cid, data] of currCustomers) {
+        if (!recentCustomers.has(cid)) {
+            newRevenue += data.revenue;
+            newCustomersList.push({
+                customerId: cid,
+                company: data.company,
+                revenue: Math.round(data.revenue * 100) / 100,
+                orderCount: data.orderCount,
+            });
+        }
+    }
+
+    newRevenue = Math.round(newRevenue * 100) / 100;
+    const tier = getTierBonus(newRevenue, NEW_BUSINESS_TIERS);
+
+    newCustomersList.sort((a, b) => b.revenue - a.revenue);
+
+    return {
+        newCustomerCount: newCustomersList.length,
+        totalNewRevenue: newRevenue,
+        bonusTier: tier.label,
+        bonusAmount: tier.bonus,
+        topNewCustomers: newCustomersList.slice(0, 15),
+    };
 }
 
 
@@ -309,6 +566,52 @@ router.get('/commissions/quarterly-report', async (req, res) => {
     } catch (err) {
         console.error('Quarterly report error:', err.message);
         res.status(500).json({ error: 'Failed to generate quarterly report', details: err.message });
+    }
+});
+
+/**
+ * GET /api/commissions/annual-report
+ * Calculates all 3 annual bonuses for both reps.
+ * Uses Sales_Reps_2026 for customer ownership (source of truth).
+ *
+ * Query params:
+ *   year — 2026 (default: current year)
+ */
+router.get('/commissions/annual-report', async (req, res) => {
+    const year = parseInt(req.query.year) || getCurrentYear();
+
+    console.log(`GET /api/commissions/annual-report - ${year}`);
+
+    try {
+        const reps = {};
+
+        for (const repName of ['Nika Lao', 'Taneisha Clark']) {
+            console.log(`\n  Calculating annual bonuses for ${repName}...`);
+
+            // Run all 3 calculations (sequentially to avoid rate limits)
+            const retention = await calcRetentionBonus(year, repName);
+            const growth = await calcGrowthBonus(year, repName);
+            const newBusiness = await calcNewBusinessBonus(year, repName);
+
+            const totalAnnualBonus = retention.bonusAmount + growth.bonusAmount + newBusiness.bonusAmount;
+
+            reps[repName] = {
+                retention,
+                growth,
+                newBusiness,
+                totalAnnualBonus,
+            };
+        }
+
+        res.json({
+            year,
+            generatedAt: new Date().toISOString(),
+            note: 'Annual bonuses are evaluated at year-end. Mid-year numbers are projections based on data available so far.',
+            reps,
+        });
+    } catch (err) {
+        console.error('Annual report error:', err.message);
+        res.status(500).json({ error: 'Failed to calculate annual bonuses', details: err.message });
     }
 });
 
