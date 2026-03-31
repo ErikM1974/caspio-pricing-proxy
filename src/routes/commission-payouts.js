@@ -835,6 +835,7 @@ router.post('/commissions/approve', async (req, res) => {
                 Approved_Date: new Date().toISOString(),
             }
         );
+        cache.clear(); // Clear cached reports so next load shows updated status
         res.json({ success: true, id, status: 'Approved' });
     } catch (err) {
         console.error('Approve error:', err.message);
@@ -870,6 +871,7 @@ router.post('/commissions/mark-paid', async (req, res) => {
             `/tables/${COMMISSION_TABLE}/records?q.where=${encodeURIComponent(`ID_Commission=${id}`)}`,
             {}, updateData
         );
+        cache.clear(); // Clear cached reports so next load shows updated status
         res.json({ success: true, id, status: 'Paid', payrollNumber: payrollNumber || null });
     } catch (err) {
         console.error('Mark paid error:', err.message);
