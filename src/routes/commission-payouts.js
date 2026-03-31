@@ -848,24 +848,29 @@ router.post('/commissions/approve', async (req, res) => {
  * Body: { id, paidDate, paycheckDate }
  */
 router.post('/commissions/mark-paid', async (req, res) => {
-    const { id, paidDate, paycheckDate } = req.body;
+    const { id, paidDate, paycheckDate, payrollNumber } = req.body;
 
     if (!id) {
         return res.status(400).json({ error: 'Missing required field: id' });
     }
 
-    console.log(`POST /api/commissions/mark-paid - ID ${id}`);
+    console.log(`POST /api/commissions/mark-paid - ID ${id}, Pay ${payrollNumber || 'N/A'}`);
 
     try {
+        const updateData = {
+            Status: 'Paid',
+            Paid_Date: paidDate || new Date().toISOString(),
+            Paycheck_Date: paycheckDate || null,
+        };
+        if (payrollNumber) {
+            updateData.Payroll_Number = parseInt(payrollNumber);
+        }
+
         await makeCaspioRequest('put',
             `/tables/${COMMISSION_TABLE}/records?q.where=${encodeURIComponent(`ID_Commission=${id}`)}`,
-            {}, {
-                Status: 'Paid',
-                Paid_Date: paidDate || new Date().toISOString(),
-                Paycheck_Date: paycheckDate || null,
-            }
+            {}, updateData
         );
-        res.json({ success: true, id, status: 'Paid' });
+        res.json({ success: true, id, status: 'Paid', payrollNumber: payrollNumber || null });
     } catch (err) {
         console.error('Mark paid error:', err.message);
         res.status(500).json({ error: 'Failed to mark paid', details: err.message });
