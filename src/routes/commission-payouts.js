@@ -161,6 +161,24 @@ async function getOnlineStoreCommission(quarter, year) {
  */
 async function getGarmentSpiffs(quarter, year) {
     try {
+        // Load garment tracker config to get human-readable product names
+        let gtConfig = {};
+        try {
+            gtConfig = require('../../config/garment-tracker-config');
+        } catch (e) { /* config not available, fall back to part numbers */ }
+        const premiumItems = gtConfig.premiumItems || {};
+
+        // Map part numbers to friendly names (strip size suffixes like _2X, _3X, _OSFA)
+        function getProductName(partNumber) {
+            if (!partNumber) return 'Unknown';
+            // Direct match
+            if (premiumItems[partNumber]) return premiumItems[partNumber].name;
+            // Strip size suffix and try again (CT104670_2X → CT104670)
+            const basePart = partNumber.replace(/_(2X|3X|4X|5X|OSFA|S|M|L|XL)$/i, '');
+            if (premiumItems[basePart]) return `${premiumItems[basePart].name} (${partNumber.replace(basePart + '_', '')})`;
+            return partNumber; // Fallback to part number if not in config
+        }
+
         const quarterLabel = `${year}-${quarter}`;
         const records = await fetchAllCaspioPages('/tables/GarmentTrackerArchive/records', {
             'q.where': `Quarter='${quarterLabel}'`,
@@ -177,8 +195,11 @@ async function getGarmentSpiffs(quarter, year) {
             byRep[rep].orderCount.add(record.OrderNumber);
 
             const key = record.StyleCategory === 'Richardson' ? 'Richardson Caps' : record.PartNumber;
+            const name = record.StyleCategory === 'Richardson'
+                ? `Richardson Caps ($${gtConfig.richardsonBonus || 0.50}/ea)`
+                : getProductName(record.PartNumber);
             if (!byRep[rep].items[key]) {
-                byRep[rep].items[key] = { name: record.StyleCategory === 'Richardson' ? 'Richardson Caps' : key, quantity: 0, bonus: 0 };
+                byRep[rep].items[key] = { name, quantity: 0, bonus: 0 };
             }
             byRep[rep].items[key].quantity += record.Quantity || 0;
             byRep[rep].items[key].bonus += record.BonusAmount || 0;
@@ -261,7 +282,11 @@ async function getWinBackBounty() {
 
 const ORDER_ODBC_TABLE = 'ORDER_ODBC';
 const MANAGEORDERS_TABLE = 'ManageOrders_Orders';
-const SALES_REPS_TABLE = 'Sales_Reps_2026';
+
+// Year-dynamic: Sales_Reps_2026 → Sales_Reps_2027 automatically
+function getSalesRepsTable() {
+    return `Sales_Reps_${getCurrentYear()}`;
+}
 
 const RETENTION_TIERS = [
     { min: 90, bonus: 5000, label: '90%+ retention ($5,000)' },
@@ -298,7 +323,7 @@ function getTierBonus(value, tiers) {
  */
 async function getRepCustomerIds(rep) {
     const escapedRep = rep.replace(/'/g, "''");
-    const records = await fetchAllCaspioPages(`/tables/${SALES_REPS_TABLE}/records`, {
+    const records = await fetchAllCaspioPages(`/tables/${getSalesRepsTable()}/records`, {
         'q.where': `CustomerServiceRep='${escapedRep}'`,
         'q.select': 'ID_Customer',
     });
