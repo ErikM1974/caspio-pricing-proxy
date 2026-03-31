@@ -37,6 +37,9 @@ const ALLOWED_MIME_TYPES = [
 // Only text URL fields are writable: Box_File_Mockup, BoxFileLink, Company_Mockup.
 const MOCKUP_FIELDS = ['Box_File_Mockup', 'BoxFileLink', 'Company_Mockup'];
 
+// Additional art file slots — AE + Steve/Ruth can upload supporting artwork
+const ADDITIONAL_ART_FIELDS = ['Additional_Art_1', 'Additional_Art_2'];
+
 // ── Multer ─────────────────────────────────────────────────────────────
 const upload = multer({
     storage: multer.memoryStorage(),
@@ -341,6 +344,34 @@ async function saveMockupUrlToCaspio(pkId, fieldName, url) {
     console.log(`Caspio: Saved mockup URL to ${fieldName} for PK_ID=${pkId}`);
 }
 
+/**
+ * Find the first empty additional art slot in the Caspio art request.
+ * Returns the field name, or null if all slots are full.
+ */
+async function findEmptyAdditionalArtSlot(pkId) {
+    const token = await getCaspioAccessToken();
+    const fieldsToSelect = ADDITIONAL_ART_FIELDS.join(',');
+    const url = `${config.caspio.apiBaseUrl}/tables/ArtRequests/records?q.where=PK_ID=${pkId}&q.select=${fieldsToSelect}`;
+
+    const resp = await axios.get(url, {
+        headers: { 'Authorization': `Bearer ${token}` },
+        timeout: 15000
+    });
+
+    const records = resp.data.Result || [];
+    if (records.length === 0) return null;
+
+    const record = records[0];
+    for (const field of ADDITIONAL_ART_FIELDS) {
+        const val = record[field];
+        if (!val || val.trim() === '') {
+            return field;
+        }
+    }
+
+    return null; // All slots full
+}
+
 // ── Endpoint ───────────────────────────────────────────────────────────
 
 /**
@@ -478,6 +509,103 @@ router.post('/art-requests/:designId/upload-mockup', upload.single('file'), asyn
         res.status(500).json({
             success: false,
             error: 'Failed to upload mockup: ' + (err.message || 'Unknown error'),
+            code: 'UPLOAD_FAILED'
+        });
+    }
+});
+
+// ── Additional Art File Upload ────────────────────────────────────────
+
+/**
+ * POST /api/art-requests/:designId/upload-additional-art
+ *
+ * Upload an additional art file for an art request (AE + Steve/Ruth).
+ * Same flow as upload-mockup but uses Additional_Art_1/2 fields.
+ */
+router.post('/art-requests/:designId/upload-additional-art', upload.single('file'), async (req, res) => {
+    const { designId } = req.params;
+    const { pkId, customerId, companyName } = req.body;
+
+    if (!req.file) {
+        return res.status(400).json({ success: false, error: 'No file provided', code: 'NO_FILE' });
+    }
+    if (!pkId) {
+        return res.status(400).json({ success: false, error: 'Missing pkId', code: 'MISSING_PK_ID' });
+    }
+
+    const folderIdentifier = customerId || designId;
+    const file = req.file;
+    console.log(`Additional art upload: Design #${designId}, file "${file.originalname}" (${(file.size / 1024).toFixed(1)} KB)`);
+
+    try {
+        const slotField = await findEmptyAdditionalArtSlot(pkId);
+        if (!slotField) {
+            return res.status(409).json({
+                success: false,
+                error: 'All additional art slots are full (2/2)',
+                code: 'SLOTS_FULL'
+            });
+        }
+
+        let folder = await findArtFolder(designId, companyName);
+        if (!folder) {
+            const folderLabel = companyName || `Design ${designId}`;
+            folder = await createCustomerFolder(designId, folderLabel);
+        }
+
+        const ext = file.originalname.split('.').pop() || 'jpg';
+        const shortCompany = (companyName || '').substring(0, 30).trim();
+        const fileName = `${folderIdentifier} ${shortCompany} Art ${designId}.${ext}`.replace(/[<>:"/\\|?*]/g, '');
+
+        let boxFile;
+        try {
+            boxFile = await uploadFileToBox(folder.id, fileName, file.buffer, file.mimetype);
+        } catch (uploadErr) {
+            if (uploadErr.response && uploadErr.response.status === 409) {
+                const ts = Date.now().toString(36);
+                const altName = `${folderIdentifier} ${shortCompany} Art ${designId}_${ts}.${ext}`.replace(/[<>:"/\\|?*]/g, '');
+                boxFile = await uploadFileToBox(folder.id, altName, file.buffer, file.mimetype);
+            } else {
+                throw uploadErr;
+            }
+        }
+
+        const sharedLink = await createSharedLink(boxFile.id);
+        const sharedUrl = sharedLink.download_url || sharedLink.url;
+
+        await saveMockupUrlToCaspio(pkId, slotField, sharedUrl);
+
+        res.json({
+            success: true,
+            field: slotField,
+            url: sharedUrl,
+            boxFileId: boxFile.id,
+            boxFileName: boxFile.name,
+            folderId: folder.id,
+            folderName: folder.name
+        });
+
+    } catch (err) {
+        console.error('Additional art upload error:', err.response ? JSON.stringify(err.response.data) : err.message);
+
+        if (err.response) {
+            const status = err.response.status;
+            if (status === 401) {
+                boxAccessToken = null;
+                boxTokenExpiry = 0;
+                return res.status(502).json({ success: false, error: 'Box authentication failed. Please retry.', code: 'BOX_AUTH_FAILED' });
+            }
+            if (status === 403) {
+                return res.status(403).json({ success: false, error: 'Box permission denied.', code: 'BOX_PERMISSION_DENIED' });
+            }
+            if (status === 429) {
+                return res.status(429).json({ success: false, error: 'Box rate limited. Please wait and retry.', code: 'BOX_RATE_LIMITED' });
+            }
+        }
+
+        res.status(500).json({
+            success: false,
+            error: 'Failed to upload additional art: ' + (err.message || 'Unknown error'),
             code: 'UPLOAD_FAILED'
         });
     }
