@@ -456,6 +456,11 @@ const garmentTrackerRoutes = require('./src/routes/garment-tracker');
 app.use('/api', garmentTrackerRoutes);
 console.log('✓ Garment Tracker routes loaded');
 
+// Online Store Commission Routes (InkSoft webstore commission tracking)
+const onlineStoreCommissionRoutes = require('./src/routes/online-store-commissions');
+app.use('/api', onlineStoreCommissionRoutes);
+console.log('✓ Online Store Commission routes loaded');
+
 // Quote Sequence Routes (atomic get-and-increment for quote IDs)
 const quoteSequenceRoutes = require('./src/routes/quote-sequence');
 app.use('/api', quoteSequenceRoutes);
