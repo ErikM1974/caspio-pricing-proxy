@@ -43,14 +43,28 @@ function getQuarterDateRange(quarter, year) {
 }
 
 /**
- * Determine the commission rate for a parent company.
+ * Determine the commission rate for a parent company (or specific customer).
  * Checks the newStores registry — if the store is within its 6-month
  * new period, returns the higher rate. Otherwise returns maintenance.
+ *
+ * For new locations within existing parent companies (e.g., a new Stella Jones
+ * department), the newStore entry uses customerId to target only that specific
+ * location, not the entire parent company.
  */
-function getCommissionRate(parentCompany, rep, quarterEndDate) {
-    const newStore = commissionConfig.newStores.find(
-        s => s.parentCompany === parentCompany && s.rep === rep
-    );
+function getCommissionRate(parentCompany, rep, quarterEndDate, customerId) {
+    // First check for customer-specific new store entries (new locations within existing parents)
+    let newStore = null;
+    if (customerId) {
+        newStore = commissionConfig.newStores.find(
+            s => s.customerId && String(s.customerId) === String(customerId) && s.rep === rep
+        );
+    }
+    // Fall back to parent company match (for new companies)
+    if (!newStore) {
+        newStore = commissionConfig.newStores.find(
+            s => !s.customerId && s.parentCompany === parentCompany && s.rep === rep
+        );
+    }
 
     if (!newStore) {
         return {
@@ -176,12 +190,20 @@ function aggregateOrders(orders) {
         byRep[rep].orderCount++;
 
         if (!byRep[rep].companies[parent]) {
-            byRep[rep].companies[parent] = { revenue: 0, orderCount: 0, customers: new Set() };
+            byRep[rep].companies[parent] = { revenue: 0, orderCount: 0, customers: new Set(), customerRevenue: {} };
         }
 
         byRep[rep].companies[parent].revenue += revenue;
         byRep[rep].companies[parent].orderCount++;
         byRep[rep].companies[parent].customers.add(order.id_Customer);
+
+        // Track per-customer revenue (needed for mixed parent companies with new locations)
+        const custId = String(order.id_Customer);
+        if (!byRep[rep].companies[parent].customerRevenue[custId]) {
+            byRep[rep].companies[parent].customerRevenue[custId] = { revenue: 0, orders: 0 };
+        }
+        byRep[rep].companies[parent].customerRevenue[custId].revenue += revenue;
+        byRep[rep].companies[parent].customerRevenue[custId].orders++;
     }
 
     return byRep;
@@ -189,6 +211,10 @@ function aggregateOrders(orders) {
 
 /**
  * Calculate commission for a rep.
+ *
+ * Handles mixed parent companies where some locations are new (3%) and
+ * others are existing (1%). For example, Stella Jones has 9 departments
+ * at 1% but Western Operations (CID 2592) is a new location at 3%.
  */
 function calculateRepCommission(rep, repData, quarterEndDate) {
     const repConfig = commissionConfig.reps[rep];
@@ -203,35 +229,98 @@ function calculateRepCommission(rep, repData, quarterEndDate) {
     const totalRevenue = repData.totalRevenue;
     const baselineMet = totalRevenue >= baseline;
 
+    // Check if any new store entries target specific customer IDs within a parent company
+    const customerSpecificNewStores = commissionConfig.newStores.filter(s => s.customerId && s.rep === rep);
+    const newStoreCustomerIds = new Set(customerSpecificNewStores.map(s => String(s.customerId)));
+
     // Calculate per-company commissions
     const companies = [];
     let totalMaintenanceCommission = 0;
     let totalNewStoreCommission = 0;
 
     for (const [parentCompany, companyData] of Object.entries(repData.companies)) {
-        const rateInfo = getCommissionRate(parentCompany, rep, quarterEndDate);
-        let commission = 0;
+        // Check if this parent company has any customer-specific new store entries
+        const hasNewLocations = customerSpecificNewStores.some(s => s.parentCompany === parentCompany);
 
-        if (rateInfo.requiresBaseline) {
-            // Maintenance stores: only earn if baseline met
-            commission = baselineMet ? companyData.revenue * rateInfo.rate : 0;
-            totalMaintenanceCommission += commission;
+        if (hasNewLocations && companyData.customerRevenue) {
+            // Split revenue: new location CIDs get their rate, rest gets maintenance
+            let newLocationRevenue = 0;
+            let maintenanceRevenue = 0;
+            let newLocationOrders = 0;
+            let maintenanceOrders = 0;
+
+            for (const [cid, custData] of Object.entries(companyData.customerRevenue)) {
+                if (newStoreCustomerIds.has(cid)) {
+                    newLocationRevenue += custData.revenue;
+                    newLocationOrders += custData.orders;
+                } else {
+                    maintenanceRevenue += custData.revenue;
+                    maintenanceOrders += custData.orders;
+                }
+            }
+
+            // Add maintenance portion
+            if (maintenanceRevenue > 0) {
+                const maintenanceRate = getCommissionRate(parentCompany, rep, quarterEndDate);
+                const maintenanceComm = baselineMet ? maintenanceRevenue * maintenanceRate.rate : 0;
+                totalMaintenanceCommission += maintenanceComm;
+
+                companies.push({
+                    parentCompany,
+                    revenue: Math.round(maintenanceRevenue * 100) / 100,
+                    orderCount: maintenanceOrders,
+                    locationCount: companyData.customers.size - 1, // Exclude the new location
+                    commissionRate: maintenanceRate.rate,
+                    commissionTier: 'maintenance',
+                    commission: Math.round(maintenanceComm * 100) / 100,
+                    requiresBaseline: true,
+                });
+            }
+
+            // Add new location portion
+            if (newLocationRevenue > 0) {
+                const newLocStore = customerSpecificNewStores.find(s => s.parentCompany === parentCompany);
+                const newLocRate = getCommissionRate(parentCompany, rep, quarterEndDate, newLocStore.customerId);
+                const newLocComm = newLocationRevenue * newLocRate.rate;
+                totalNewStoreCommission += newLocComm;
+
+                companies.push({
+                    parentCompany: `${parentCompany} (New Location)`,
+                    revenue: Math.round(newLocationRevenue * 100) / 100,
+                    orderCount: newLocationOrders,
+                    locationCount: 1,
+                    commissionRate: newLocRate.rate,
+                    commissionTier: newLocRate.tier,
+                    commission: Math.round(newLocComm * 100) / 100,
+                    requiresBaseline: false,
+                    isNewStore: true,
+                });
+            }
         } else {
-            // New stores: always earn regardless of baseline
-            commission = companyData.revenue * rateInfo.rate;
-            totalNewStoreCommission += commission;
-        }
+            // Standard case: entire parent company gets one rate
+            const rateInfo = getCommissionRate(parentCompany, rep, quarterEndDate);
+            let commission = 0;
 
-        companies.push({
-            parentCompany,
-            revenue: Math.round(companyData.revenue * 100) / 100,
-            orderCount: companyData.orderCount,
-            locationCount: companyData.customers.size,
-            commissionRate: rateInfo.rate,
-            commissionTier: rateInfo.tier,
-            commission: Math.round(commission * 100) / 100,
-            requiresBaseline: rateInfo.requiresBaseline,
-        });
+            if (rateInfo.requiresBaseline) {
+                commission = baselineMet ? companyData.revenue * rateInfo.rate : 0;
+                totalMaintenanceCommission += commission;
+            } else {
+                commission = companyData.revenue * rateInfo.rate;
+                totalNewStoreCommission += commission;
+            }
+
+            companies.push({
+                parentCompany,
+                revenue: Math.round(companyData.revenue * 100) / 100,
+                orderCount: companyData.orderCount,
+                locationCount: companyData.customers.size,
+                commissionRate: rateInfo.rate,
+                commissionTier: rateInfo.tier,
+                commission: Math.round(commission * 100) / 100,
+                requiresBaseline: rateInfo.requiresBaseline,
+                isNewStore: !rateInfo.requiresBaseline,
+            });
+        }
     }
 
     // Sort by revenue descending

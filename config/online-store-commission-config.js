@@ -64,8 +64,22 @@ const ONLINE_STORE_COMMISSION_CONFIG = {
     //     setupBonusPaid: false,     // $250 bonus not yet paid
     // },
     newStores: [
-        // No new stores as of Q1 2026 — all current stores are maintenance (1%)
-        // CID >= 13552 indicates a 2026 customer if one shows up as InkSoft
+        {
+            parentCompany: 'Shift Innovations',
+            rep: 'Taneisha Clark',
+            type: 'newCompany',         // 5% rate — brand new customer
+            startDate: '2026-01-08',    // First invoiced order
+            setupBonusPaid: false,      // $250 bonus at $2,500 revenue (within 12 months)
+        },
+        {
+            parentCompany: 'Stella Jones',
+            customerName: 'Stella Jones Western Operations',  // Specific location
+            customerId: 2592,
+            rep: 'Nika Lao',
+            type: 'newLocation',        // 3% rate — new location of existing Stella Jones
+            startDate: '2026-01-01',    // First invoiced order in 2026 (no pre-2026 history)
+            setupBonusPaid: false,      // $100 bonus at $2,500 revenue (within 12 months)
+        },
     ],
 
     // ── Quarter Date Ranges ─────────────────────────────────────────────
