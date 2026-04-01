@@ -12,17 +12,7 @@
 
 const express = require('express');
 const router = express.Router();
-const NodeCache = require('node-cache');
 const { fetchAllCaspioPages } = require('../utils/caspio');
-const {
-  ENDPOINTS, NS,
-  getPromoStandardsAuth, validateAuth,
-  makeSoapRequest,
-  extractAll, extractFirst, extractBlocks
-} = require('../utils/sanmar-soap');
-
-// Cache inventory lookups for 30 minutes (SanMar inventory doesn't change fast)
-const inventoryCache = new NodeCache({ stdTTL: 1800, checkperiod: 300 });
 
 // ── GET /order-by-po/:po — Order info from Caspio ManageOrders_Orders ──
 router.get('/order-by-po/:po', async (req, res) => {
@@ -116,109 +106,49 @@ router.get('/lineitems/:orderId', async (req, res) => {
   }
 });
 
-// ── POST /resolve-parts — Batch resolve partIds to size/color via SanMar inventory ──
+// ── POST /resolve-parts — Batch resolve partIds to size/color via Caspio bulk table ──
+// UNIQUE_KEY in Sanmar_Bulk_251816_Feb2024 = supplierPartId from SanMar shipment API
+// Single Caspio query, <1 second, no SOAP calls needed
 router.post('/resolve-parts', async (req, res) => {
-  const { partIds = [], styles = [] } = req.body;
+  const { partIds = [] } = req.body;
 
-  if (!styles.length) {
-    return res.status(400).json({ success: false, error: 'styles array required' });
+  if (!partIds.length) {
+    return res.json({ success: true, partMap: {}, totalResolved: 0 });
   }
 
   try {
-    const partIdMap = {}; // { partId: { size, color, style } }
-
-    // For each unique style, fetch inventory (cached)
-    const uniqueStyles = [...new Set(styles)];
-    console.log(`[BoxLabels] Resolving parts for ${uniqueStyles.length} styles: ${uniqueStyles.join(', ')}`);
-
-    await Promise.allSettled(uniqueStyles.map(async (style) => {
-      const cacheKey = `inv-parts-${style}`;
-      let inventory = inventoryCache.get(cacheKey);
-
-      if (!inventory) {
-        // Call SanMar inventory SOAP API
-        try {
-          const auth = getPromoStandardsAuth();
-          if (!validateAuth(auth)) return;
-
-          const soapBody = `<ns:GetFilteredInventoryLevelsRequest xmlns:ns="http://www.promostandards.org/WSDL/Inventory/2.0.0/"
-            xmlns:shar="http://www.promostandards.org/WSDL/Inventory/2.0.0/SharedObjects/">
-            <shar:wsVersion>2.0.0</shar:wsVersion>
-            <shar:id>${auth.id}</shar:id>
-            <shar:password>${auth.password}</shar:password>
-            <shar:productId>${style}</shar:productId>
-          </ns:GetFilteredInventoryLevelsRequest>`;
-
-          const xml = await makeSoapRequest(ENDPOINTS.inventory, soapBody, {
-            timeout: 15000,
-            namespaces: {
-              ns: 'http://www.promostandards.org/WSDL/Inventory/2.0.0/',
-              shar: 'http://www.promostandards.org/WSDL/Inventory/2.0.0/SharedObjects/'
-            }
-          });
-
-          // Parse inventory response to extract partId → size/color
-          inventory = [];
-          const partBlocks = extractBlocks(xml, 'PartInventory');
-          for (const block of partBlocks) {
-            const partId = extractFirst(block, 'partId');
-            const color = extractFirst(block, 'partColor') || extractFirst(block, 'labelSize') || '';
-            const size = extractFirst(block, 'labelSize') || '';
-
-            // SanMar inventory returns partColor and labelSize in PartInventory
-            if (partId) {
-              inventory.push({ partId, color, size });
-            }
-          }
-
-          // If PartInventory parsing didn't get size/color, try the product-level parsing
-          if (inventory.length === 0 || !inventory[0].size) {
-            // Fallback: use the /api/sanmar/inventory/:style endpoint on this same server
-            // which already parses the response correctly
-            const https = require('https');
-            const selfUrl = `https://${req.headers.host}/api/sanmar/inventory/${style}`;
-            const selfResp = await fetch(selfUrl, { timeout: 12000 });
-            if (selfResp.ok) {
-              const selfData = await selfResp.json();
-              inventory = (selfData.inventory || []).map(inv => ({
-                partId: inv.partId,
-                color: inv.color || '',
-                size: inv.size || ''
-              }));
-            }
-          }
-
-          if (inventory.length > 0) {
-            inventoryCache.set(cacheKey, inventory);
-            console.log(`[BoxLabels] Cached ${inventory.length} parts for ${style}`);
-          }
-        } catch (e) {
-          console.log(`[BoxLabels] Inventory fetch for ${style} failed: ${e.message}`);
-        }
-      }
-
-      // Map partIds from this style's inventory
-      if (inventory) {
-        for (const inv of inventory) {
-          if (inv.partId) {
-            partIdMap[inv.partId] = { size: inv.size, color: inv.color, style };
-          }
-        }
-      }
-    }));
-
-    // Filter to only requested partIds (if specified)
-    const result = {};
-    if (partIds.length > 0) {
-      for (const pid of partIds) {
-        if (partIdMap[pid]) result[pid] = partIdMap[pid];
-      }
-    } else {
-      Object.assign(result, partIdMap);
+    // Sanitize partIds to integers only (prevent injection)
+    const safeIds = partIds.map(id => parseInt(id, 10)).filter(id => !isNaN(id) && id > 0);
+    if (!safeIds.length) {
+      return res.json({ success: true, partMap: {}, totalResolved: 0 });
     }
 
-    console.log(`[BoxLabels] Resolved ${Object.keys(result).length} of ${partIds.length || 'all'} partIds`);
-    res.json({ success: true, partMap: result, totalResolved: Object.keys(result).length });
+    console.log(`[BoxLabels] Resolving ${safeIds.length} partIds via Caspio UNIQUE_KEY`);
+    const startTime = Date.now();
+
+    // Single Caspio query — UNIQUE_KEY is the supplierPartId
+    const whereClause = `UNIQUE_KEY IN (${safeIds.join(',')})`;
+    const records = await fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
+      'q.where': whereClause,
+      'q.select': 'UNIQUE_KEY,STYLE,COLOR_NAME,SIZE,PRODUCT_TITLE,BRAND_NAME',
+      'q.limit': 200
+    });
+
+    const partMap = {};
+    for (const r of (records || [])) {
+      partMap[String(r.UNIQUE_KEY)] = {
+        size: r.SIZE || '',
+        color: r.COLOR_NAME || '',
+        style: r.STYLE || '',
+        description: r.PRODUCT_TITLE || '',
+        brand: r.BRAND_NAME || ''
+      };
+    }
+
+    const elapsed = Date.now() - startTime;
+    console.log(`[BoxLabels] Resolved ${Object.keys(partMap).length}/${safeIds.length} partIds in ${elapsed}ms`);
+
+    res.json({ success: true, partMap, totalResolved: Object.keys(partMap).length });
   } catch (err) {
     console.error(`[BoxLabels] Part resolution failed:`, err.message);
     res.status(500).json({ success: false, error: err.message });
