@@ -1233,10 +1233,11 @@ async function runQuickMatch() {
       try {
         const { fetchLineItems } = require('../utils/manageorders');
 
-        // Find MO orders missing line items in Caspio
+        // Find MO orders missing line items in Caspio — newest first
         const moIdsWithItems = new Set((moLineItems || []).map(li => String(li.id_Order)));
         const moOrdersMissingItems = [...orderMap.values()]
           .filter(o => !moIdsWithItems.has(String(o.id_Order)))
+          .sort((a, b) => (b.id_Order || 0) - (a.id_Order || 0)) // Recent orders first
           .slice(0, 200); // Cap API calls
 
         console.log(`[QuickMatch] ${moOrdersMissingItems.length} MO orders missing line items — fetching from API...`);
