@@ -116,10 +116,14 @@ async function makeCaspioRequest(method, resourcePath, params = {}, data = null)
 async function fetchAllCaspioPages(resourcePath, initialParams = {}, options = {}) {
   let allResults = [];
   let params = { ...initialParams };
-  // Use q.pageSize for pagination — q.limit conflicts with q.pageNumber on Caspio v3 API
+  // Store desired page size for pagination logic. Keep q.limit for page 1 (universally compatible).
+  // Only switch to q.pageSize + q.pageNumber for pages 2+ (avoids v3 q.limit conflict).
+  // NOTE: Caspio rejects q.pageSize < 5 with IncorrectQueryParameter.
   const pageSize = params['q.limit'] || params['q.pageSize'] || config.pagination.defaultLimit;
-  params['q.pageSize'] = pageSize;
-  delete params['q.limit']; // CRITICAL: q.limit + q.pageNumber causes overlapping pages on v3 API
+  delete params['q.pageSize']; // Don't send q.pageSize on page 1
+  if (!params['q.limit']) {
+    params['q.limit'] = pageSize; // Ensure q.limit is set for page 1
+  }
   let nextPageUrl = `${config.caspio.apiBaseUrl}${resourcePath}`;
 
   const defaultOptions = {
@@ -150,8 +154,10 @@ async function fetchAllCaspioPages(resourcePath, initialParams = {}, options = {
       let currentUrl = nextPageUrl;
 
       if (pageCount === 1 || !nextPageUrl || !nextPageUrl.includes('@nextpage')) {
-        // For v3 API, use q.pageNumber and q.pageSize for pagination
         if (pageCount > 1) {
+          // Pages 2+: switch to q.pageSize + q.pageNumber (q.limit conflicts with q.pageNumber on v3)
+          delete currentRequestParams['q.limit'];
+          currentRequestParams['q.pageSize'] = pageSize;
           currentRequestParams['q.pageNumber'] = pageCount;
         }
         currentUrl = `${config.caspio.apiBaseUrl}${resourcePath}`;
