@@ -1221,6 +1221,97 @@ async function runQuickMatch() {
     }
   }
 
+  // 5. Live API fallback — for still-unmatched orders, fetch MO line items from live API
+  if (unmatched > 0) {
+    const unmatchedWithStyles = unlinkedList.filter(o => {
+      const styles = poStyles.get(o.SanMar_PO);
+      return styles && styles.size > 0 && !styleToOrders.has([...styles][0]);
+    }).slice(0, 30); // Cap at 30 to limit API calls
+
+    if (unmatchedWithStyles.length > 0) {
+      console.log(`[QuickMatch] ${unmatchedWithStyles.length} orders unmatched — trying live ManageOrders API...`);
+      try {
+        const { fetchLineItems } = require('../utils/manageorders');
+
+        // Find MO orders missing line items in Caspio
+        const moIdsWithItems = new Set((moLineItems || []).map(li => String(li.id_Order)));
+        const moOrdersMissingItems = [...orderMap.values()]
+          .filter(o => !moIdsWithItems.has(String(o.id_Order)))
+          .slice(0, 200); // Cap API calls
+
+        console.log(`[QuickMatch] ${moOrdersMissingItems.length} MO orders missing line items — fetching from API...`);
+
+        // Fetch line items and extend style index
+        let fetched = 0;
+        for (const mo of moOrdersMissingItems) {
+          try {
+            const lineItems = await fetchLineItems(mo.id_Order);
+            if (!lineItems || lineItems.length === 0) continue;
+
+            for (const li of lineItems) {
+              const pn = (li.PartNumber || '').toUpperCase();
+              if (!pn || FEE_PARTS.has(pn)) continue;
+              const baseStyle = pn.replace(/_\d?[xXsSmMlL]+$/i, '').replace(/_\d+$/, '');
+              if (!baseStyle) continue;
+              if (!styleToOrders.has(baseStyle)) styleToOrders.set(baseStyle, new Set());
+              styleToOrders.get(baseStyle).add(String(mo.id_Order));
+            }
+            fetched++;
+          } catch (e) { /* skip failed fetches */ }
+        }
+        console.log(`[QuickMatch] Fetched line items for ${fetched} MO orders, style index now ${styleToOrders.size} styles`);
+
+        // Re-run matching for unmatched orders
+        let liveMatched = 0;
+        for (const sanmarOrder of unmatchedWithStyles) {
+          const po = sanmarOrder.SanMar_PO;
+          const styles = poStyles.get(po);
+          if (!styles) continue;
+
+          const scores = new Map();
+          for (const style of styles) {
+            const orderIds = styleToOrders.get(style);
+            if (!orderIds) continue;
+            for (const oid of orderIds) {
+              scores.set(oid, (scores.get(oid) || 0) + 1);
+            }
+          }
+
+          let bestId = null, bestScore = 0;
+          for (const [oid, score] of scores) {
+            if (score > bestScore) { bestScore = score; bestId = oid; }
+          }
+
+          if (bestId && bestScore >= 1) {
+            const mo = orderMap.get(bestId);
+            if (mo) {
+              try {
+                await makeCaspioRequest('PUT', `/tables/${TABLES.orders}/records`,
+                  { 'q.where': `SanMar_PO='${xmlEscape(po)}'` },
+                  {
+                    Company_Name: (mo.CustomerName || '').trim(),
+                    Sales_Rep: mo.CustomerServiceRep || '',
+                    id_Customer: mo.id_Customer || 0,
+                    id_Order: bestId,
+                    Matched_By: `auto-live-match (score:${bestScore})`
+                  }
+                );
+                matched++;
+                liveMatched++;
+                unmatched--;
+              } catch (e) {
+                console.error(`[QuickMatch] Live match update failed for ${po}:`, e.message);
+              }
+            }
+          }
+        }
+        if (liveMatched > 0) console.log(`[QuickMatch] Live API matched ${liveMatched} additional orders`);
+      } catch (e) {
+        console.error(`[QuickMatch] Live API fallback error:`, e.message);
+      }
+    }
+  }
+
   const elapsed = Math.round((Date.now() - startTime) / 1000);
   console.log(`[QuickMatch] Done: ${matched} matched, ${unmatched} unmatched in ${elapsed}s`);
 
