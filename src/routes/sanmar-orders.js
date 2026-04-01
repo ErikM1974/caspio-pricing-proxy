@@ -1169,12 +1169,28 @@ async function runQuickMatch() {
   const elapsed = Math.round((Date.now() - startTime) / 1000);
   console.log(`[QuickMatch] Done: ${matched} matched, ${unmatched} unmatched in ${elapsed}s`);
 
-  // Debug info
-  const sampleUnlinked = unlinkedList.slice(0, 3).map(o => o.SanMar_PO);
-  const samplePoStyles = {};
-  for (const po of sampleUnlinked) {
-    samplePoStyles[po] = poStyles.has(po) ? [...poStyles.get(po)] : 'NO_ITEMS';
+  // Debug: show why matches failed
+  const debugMatches = [];
+  for (const sanmarOrder of unlinkedList.slice(0, 5)) {
+    const po = sanmarOrder.SanMar_PO;
+    const styles = poStyles.get(po);
+    const entry = { po, styles: styles ? [...styles] : 'NO_ITEMS', candidates: [] };
+
+    if (styles) {
+      for (const style of styles) {
+        const moOrderIds = styleToOrders.get(style);
+        entry.candidates.push({
+          style,
+          foundInMO: !!moOrderIds,
+          moOrderCount: moOrderIds ? moOrderIds.size : 0
+        });
+      }
+    }
+    debugMatches.push(entry);
   }
+
+  // Sample MO styles for comparison
+  const sampleMOStyles = [...styleToOrders.keys()].slice(0, 20);
 
   return {
     matched, unmatched, elapsed, totalProcessed: unlinkedList.length,
@@ -1182,9 +1198,10 @@ async function runQuickMatch() {
       sanmarOrderItemsCount: itemsList.length,
       poStylesMapSize: poStyles.size,
       moOrdersCount: orderMap.size,
+      moLineItemsCount: (moLineItems || []).length,
       moStyleIndexSize: styleToOrders.size,
-      sampleUnlinkedPOs: sampleUnlinked,
-      samplePoStyles
+      sampleMOStyles,
+      debugMatches
     }
   };
 }
