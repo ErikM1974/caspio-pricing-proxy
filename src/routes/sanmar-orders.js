@@ -1163,7 +1163,7 @@ async function runQuickMatch() {
   for (const li of (moLineItems || [])) {
     const pn = (li.PartNumber || '').toUpperCase();
     if (!pn || FEE_PARTS.has(pn)) continue;
-    const baseStyle = pn.replace(/_\d?[xXsSmMlL]+$/i, '').replace(/_\d+$/, '');
+    const baseStyle = pn.replace(/_(OSFA|S\/M|L\/XL|ONE SIZE)$/i, '').replace(/_\d?[xXsSmMlL]+$/i, '').replace(/_\d+$/, '');
     if (!baseStyle || !li.id_Order) continue;
 
     if (!styleToOrders.has(baseStyle)) styleToOrders.set(baseStyle, new Set());
@@ -1252,7 +1252,7 @@ async function runQuickMatch() {
             for (const li of lineItems) {
               const pn = (li.PartNumber || '').toUpperCase();
               if (!pn || FEE_PARTS.has(pn)) continue;
-              const baseStyle = pn.replace(/_\d?[xXsSmMlL]+$/i, '').replace(/_\d+$/, '');
+              const baseStyle = pn.replace(/_(OSFA|S\/M|L\/XL|ONE SIZE)$/i, '').replace(/_\d?[xXsSmMlL]+$/i, '').replace(/_\d+$/, '');
               if (!baseStyle) continue;
               if (!styleToOrders.has(baseStyle)) styleToOrders.set(baseStyle, new Set());
               styleToOrders.get(baseStyle).add(String(mo.id_Order));
@@ -1446,7 +1446,7 @@ async function runManageOrdersMatch() {
         for (const li of lineItems) {
           const pn = (li.PartNumber || '').toUpperCase();
           if (!pn || FEE_PARTS.has(pn)) continue;
-          const baseStyle = pn.replace(/_\d?[xXsSmMlL]+$/i, '').replace(/_\d+$/, '');
+          const baseStyle = pn.replace(/_(OSFA|S\/M|L\/XL|ONE SIZE)$/i, '').replace(/_\d?[xXsSmMlL]+$/i, '').replace(/_\d+$/, '');
           if (!baseStyle) continue;
 
           if (!styleToOrders.has(baseStyle)) styleToOrders.set(baseStyle, []);
