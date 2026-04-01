@@ -1238,7 +1238,7 @@ async function runQuickMatch() {
         const moOrdersMissingItems = [...orderMap.values()]
           .filter(o => !moIdsWithItems.has(String(o.id_Order)))
           .sort((a, b) => (b.id_Order || 0) - (a.id_Order || 0)) // Recent orders first
-          .slice(0, 200); // Cap API calls
+          .slice(0, 500); // Cap API calls — needs to reach far enough for older unmatched orders
 
         console.log(`[QuickMatch] ${moOrdersMissingItems.length} MO orders missing line items — fetching from API...`);
 
