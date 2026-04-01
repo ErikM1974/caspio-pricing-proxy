@@ -1150,7 +1150,7 @@ async function runQuickMatch() {
   // 3. Build style→order index from ManageOrders_LineItems + ManageOrders_Orders (Caspio tables)
   // Get all recent ManageOrders
   const moOrders = await fetchAllCaspioPages('/tables/ManageOrders_Orders/records', {
-    'q.select': 'id_Order,id_Customer,CustomerName,CustomerServiceRep',
+    'q.select': 'id_Order,id_Customer,CustomerName,CustomerServiceRep,date_Ordered',
     'q.limit': 1000
   });
   const orderMap = new Map(); // id_Order → order object
@@ -1196,10 +1196,27 @@ async function runQuickMatch() {
       }
     }
 
-    // Find best match
-    let bestId = null, bestScore = 0;
+    // Find best match — use date proximity as tiebreaker
+    // SanMar orders are typically placed within a few days of the ShopWorks order
+    const sanmarDate = sanmarOrder.Status_Updated_Date ? new Date(sanmarOrder.Status_Updated_Date).getTime() : 0;
+    let bestId = null, bestScore = 0, bestDateDiff = Infinity;
     for (const [oid, score] of scores) {
-      if (score > bestScore) { bestScore = score; bestId = oid; }
+      if (score > bestScore) {
+        bestScore = score;
+        bestId = oid;
+        const mo = orderMap.get(oid);
+        bestDateDiff = (mo && mo.date_Ordered && sanmarDate) ? Math.abs(sanmarDate - new Date(mo.date_Ordered).getTime()) : Infinity;
+      } else if (score === bestScore && sanmarDate) {
+        // Same score — pick the order with date_Ordered closest to the SanMar date
+        const mo = orderMap.get(oid);
+        if (mo && mo.date_Ordered) {
+          const dateDiff = Math.abs(sanmarDate - new Date(mo.date_Ordered).getTime());
+          if (dateDiff < bestDateDiff) {
+            bestId = oid;
+            bestDateDiff = dateDiff;
+          }
+        }
+      }
     }
 
     // Require 50%+ style overlap to avoid false positives (e.g., 1/3 match)
@@ -1503,13 +1520,22 @@ async function runManageOrdersMatch() {
         }
       }
 
-      // Find best match (highest style overlap)
+      // Find best match — highest style overlap, date proximity as tiebreaker
+      const sanmarDate = sanmarOrder.Status_Updated_Date ? new Date(sanmarOrder.Status_Updated_Date).getTime() : 0;
       let bestMatch = null;
       let bestScore = 0;
+      let bestDateDiff = Infinity;
       for (const [orderId, { order, score }] of candidateScores) {
         if (score > bestScore) {
           bestScore = score;
           bestMatch = order;
+          bestDateDiff = (order.date_Ordered && sanmarDate) ? Math.abs(sanmarDate - new Date(order.date_Ordered).getTime()) : Infinity;
+        } else if (score === bestScore && sanmarDate && order.date_Ordered) {
+          const dateDiff = Math.abs(sanmarDate - new Date(order.date_Ordered).getTime());
+          if (dateDiff < bestDateDiff) {
+            bestMatch = order;
+            bestDateDiff = dateDiff;
+          }
         }
       }
 
