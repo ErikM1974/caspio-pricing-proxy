@@ -258,7 +258,8 @@ router.post('/sync', async (req, res) => {
           Shipping_Charges: invoice.shippingCharges,
           Freight_Savings: invoice.freightSavings,
           Total_Amount: invoice.totalAmount,
-          Is_Paid: 'No'
+          Is_Paid: 'No',
+          Invoice_Status: invoice.invoiceStatus || ''
         };
 
         if (!Array.isArray(existing) || existing.length === 0) {
@@ -389,7 +390,8 @@ async function upsertInvoice(invoice) {
     Shipping_Charges: invoice.shippingCharges,
     Freight_Savings: invoice.freightSavings,
     Total_Amount: invoice.totalAmount,
-    Is_Paid: 'No'
+    Is_Paid: 'No',
+    Invoice_Status: invoice.invoiceStatus || ''
   };
 
   if (Array.isArray(existing) && existing.length > 0) {

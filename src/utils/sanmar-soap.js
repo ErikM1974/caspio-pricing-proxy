@@ -261,7 +261,21 @@ function parseOrderStatusResponse(xml) {
           lineNumber: extractFirst(prod, 'salesOrderLineNumber'),
           qtyOrdered: qtyOrderedBlock.length > 0 ? extractFirst(qtyOrderedBlock[0], 'value') : null,
           qtyShipped: qtyShippedBlock.length > 0 ? extractFirst(qtyShippedBlock[0], 'value') : null,
-          status: extractFirst(prod, 'status')
+          status: extractFirst(prod, 'status'),
+          estimatedDeliveryDate: extractFirst(prod, 'estimatedDeliveryDate') || extractFirst(prod, 'estimatedShipDate') || null
+        });
+      }
+
+      // Parse issue details (holds, backlogs, returns)
+      const issues = [];
+      const issueBlocks = extractBlocks(detail, 'IssueDetail');
+      for (const issue of issueBlocks) {
+        issues.push({
+          issueType: extractFirst(issue, 'issueType') || extractFirst(issue, 'type') || '',
+          issueDescription: extractFirst(issue, 'issueDescription') || extractFirst(issue, 'description') || '',
+          issueDate: extractFirst(issue, 'issueDate') || '',
+          resolvedDate: extractFirst(issue, 'resolvedDate') || '',
+          quantity: extractFirst(issue, 'quantity') || ''
         });
       }
 
@@ -269,7 +283,8 @@ function parseOrderStatusResponse(xml) {
         salesOrderNumber: extractFirst(detail, 'salesOrderNumber'),
         status: extractFirst(detail, 'status'),
         validTimestamp: extractFirst(detail, 'validTimestamp'),
-        products
+        products,
+        issues: issues.length > 0 ? issues : undefined
       });
     }
 
@@ -324,6 +339,9 @@ function parseShipmentResponse(xml) {
             shipmentDate: extractFirst(pkg, 'shipmentDate'),
             carrier: extractFirst(pkg, 'carrier'),
             shipmentMethod: extractFirst(pkg, 'shipmentMethod'),
+            weight: extractFirst(pkg, 'weight') || '',
+            dimensions: extractFirst(pkg, 'dimension') || extractFirst(pkg, 'dimensions') || '',
+            packageClass: extractFirst(pkg, 'class') || extractFirst(pkg, 'packageType') || '',
             items
           });
         }
@@ -334,12 +352,14 @@ function parseShipmentResponse(xml) {
 
         locations.push({
           shipFrom: {
+            address1: extractFirst(shipFromBlock, 'address1') || '',
             city: extractFirst(shipFromBlock, 'city'),
             region: extractFirst(shipFromBlock, 'region'),
             postalCode: extractFirst(shipFromBlock, 'postalCode'),
             country: extractFirst(shipFromBlock, 'country')
           },
           shipTo: {
+            address1: extractFirst(shipToBlock, 'address1') || '',
             city: extractFirst(shipToBlock, 'city'),
             region: extractFirst(shipToBlock, 'region'),
             postalCode: extractFirst(shipToBlock, 'postalCode'),
@@ -399,6 +419,7 @@ function parseInvoiceResponse(xml) {
       dueDate: extractFirst(headerBlock, 'DueDate'),
       purchaseOrderNo: extractFirst(headerBlock, 'PurchaseOrderNo'),
       orderDate: extractFirst(headerBlock, 'OrderDate'),
+      invoiceStatus: extractFirst(headerBlock, 'InvoiceStatus') || extractFirst(headerBlock, 'Status') || extractFirst(headerBlock, 'PaymentStatus') || '',
       shipVia: extractFirst(headerBlock, 'ShipVia'),
       fob: extractFirst(headerBlock, 'FOB'),
       terms: extractFirst(headerBlock, 'Terms'),

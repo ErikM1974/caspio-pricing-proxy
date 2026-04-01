@@ -464,6 +464,16 @@ router.post('/sync', async (req, res) => {
       // Auto-extract ShopWorks PO from SanMar PO (strip initials like BW, EM, TC, NL)
       const shopworksPO = extractPONumber(po);
 
+      // Collect issue details and estimated delivery from all details
+      const allIssues = [];
+      let estDelivery = '';
+      for (const detail of order.details) {
+        if (detail.issues) allIssues.push(...detail.issues);
+        for (const prod of detail.products) {
+          if (prod.estimatedDeliveryDate && !estDelivery) estDelivery = prod.estimatedDeliveryDate;
+        }
+      }
+
       // Upsert order record
       const orderData = {
         SanMar_PO: po,
@@ -471,7 +481,9 @@ router.post('/sync', async (req, res) => {
         SanMar_Sales_Order: salesOrderNum,
         SanMar_Status: overallStatus,
         Status_Updated_Date: validTimestamp || new Date().toISOString(),
-        Last_Sync_Date: new Date().toISOString()
+        Last_Sync_Date: new Date().toISOString(),
+        Issue_Details: allIssues.length > 0 ? JSON.stringify(allIssues) : '',
+        Estimated_Delivery: estDelivery
       };
 
       try {
@@ -562,7 +574,12 @@ router.post('/sync', async (req, res) => {
                         Ship_From_Warehouse: loc.shipFrom.city || '',
                         Ship_From_City: loc.shipFrom.city || '',
                         Ship_From_State: loc.shipFrom.region || '',
-                        Ship_From_Zip: loc.shipFrom.postalCode || ''
+                        Ship_From_Zip: loc.shipFrom.postalCode || '',
+                        Ship_From_Address: loc.shipFrom.address1 || '',
+                        Ship_To_Address: loc.shipTo.address1 || '',
+                        Package_Weight: pkg.weight || '',
+                        Package_Dimensions: pkg.dimensions || '',
+                        Package_Class: pkg.packageClass || ''
                       };
 
                       if (!Array.isArray(existingTrack) || existingTrack.length === 0) {
