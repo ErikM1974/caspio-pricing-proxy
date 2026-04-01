@@ -1159,9 +1159,10 @@ async function runQuickMatch() {
   }
 
   // Get line items and build style→order index
+  // NOTE: q.limit must be ≤1000 (Caspio max page size) for pagination to work correctly
   const moLineItems = await fetchAllCaspioPages('/tables/ManageOrders_LineItems/records', {
     'q.select': 'id_Order,PartNumber',
-    'q.limit': 5000
+    'q.limit': 1000
   });
 
   const styleToOrders = new Map(); // style → Set of id_Order
