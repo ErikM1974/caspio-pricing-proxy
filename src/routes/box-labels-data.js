@@ -25,12 +25,50 @@ router.get('/order-by-po/:po', async (req, res) => {
       'q.limit': 5
     });
 
-    if (!orders || orders.length === 0) {
+    let o = orders?.[0] || null;
+
+    // If no match by CustomerPurchaseOrder, try SanMar_Orders table (SanMar PO → id_Order)
+    if (!o) {
+      console.log(`[BoxLabels] No CustomerPO match for ${po}, checking SanMar_Orders table...`);
+      try {
+        const sanmarMatch = await fetchAllCaspioPages('/tables/SanMar_Orders/records', {
+          'q.where': `SanMar_PO='${po.replace(/'/g, "''")}'`,
+          'q.select': 'id_Order,Company_Name,Sales_Rep,id_Customer,ShopWorks_PO',
+          'q.limit': 1
+        });
+        const sm = sanmarMatch?.[0];
+        if (sm?.id_Order) {
+          console.log(`[BoxLabels] Found SanMar_Orders match: PO ${po} → WO# ${sm.id_Order}`);
+          // Now fetch the full order from ManageOrders_Orders using id_Order
+          const moOrders = await fetchAllCaspioPages('/tables/ManageOrders_Orders/records', {
+            'q.where': `id_Order=${sm.id_Order}`,
+            'q.select': 'id_Order,id_Customer,CustomerName,ContactFirstName,ContactLastName,ContactEmail,ContactPhone,CustomerServiceRep,CustomerPurchaseOrder,DesignName,id_Design',
+            'q.limit': 1
+          });
+          o = moOrders?.[0] || null;
+
+          // If ManageOrders doesn't have this order, use what SanMar_Orders has
+          if (!o && sm.Company_Name) {
+            o = {
+              id_Order: sm.id_Order,
+              id_Customer: sm.id_Customer,
+              CustomerName: sm.Company_Name,
+              CustomerServiceRep: sm.Sales_Rep,
+              ContactFirstName: '', ContactLastName: '', ContactEmail: '', ContactPhone: '',
+              CustomerPurchaseOrder: sm.ShopWorks_PO || po,
+              DesignName: '', id_Design: ''
+            };
+          }
+        }
+      } catch (e) {
+        console.log(`[BoxLabels] SanMar_Orders lookup failed:`, e.message);
+      }
+    }
+
+    if (!o) {
       return res.json({ success: true, order: null, message: `No order found for PO ${po}` });
     }
 
-    // Return the most recent order (first match)
-    const o = orders[0];
     res.json({
       success: true,
       order: {

@@ -27,7 +27,7 @@ const {
   parseOrderStatusResponse, parseShipmentResponse,
   parseInvoiceResponse
 } = require('../utils/sanmar-soap');
-const { makeCaspioRequest } = require('../utils/caspio');
+const { makeCaspioRequest, fetchAllCaspioPages } = require('../utils/caspio');
 
 // Cache: 15 min for allOpen (SanMar recommends max 3x/day)
 const orderCache = new NodeCache({ stdTTL: 900, checkperiod: 120 });
@@ -580,6 +580,17 @@ router.post('/sync', async (req, res) => {
 
     syncLog.ordersUpserted = upserted;
     syncLog.shipmentsUpdated = shipmentsUpdated;
+
+    // Auto-match unlinked orders using Caspio tables (fast, no live API calls)
+    try {
+      const matchResult = await runQuickMatch();
+      syncLog.quickMatch = matchResult;
+      console.log(`[Sync] Quick match: ${matchResult.matched} matched, ${matchResult.unmatched} unmatched`);
+    } catch (e) {
+      console.error('[Sync] Quick match failed:', e.message);
+      syncLog.quickMatch = { error: e.message };
+    }
+
     syncLog.completed = new Date().toISOString();
 
     console.log('SanMar sync completed:', JSON.stringify(syncLog));
@@ -1029,6 +1040,136 @@ let moMatchStatus = { running: false, lastRun: null, lastResult: null, progress:
 router.get('/match-status', (req, res) => {
   res.json(moMatchStatus);
 });
+
+// ── POST /quick-match — Fast Caspio-only matching (no live ManageOrders API) ──
+router.post('/quick-match', async (req, res) => {
+  const secret = req.headers['x-api-secret'] || req.query.secret;
+  if (secret !== process.env.CRM_API_SECRET) {
+    return res.status(403).json({ error: 'Unauthorized' });
+  }
+
+  try {
+    const result = await runQuickMatch();
+    res.json({ success: true, ...result });
+  } catch (err) {
+    console.error('[QuickMatch] Error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+async function runQuickMatch() {
+  console.log('[QuickMatch] Starting Caspio-only matching...');
+  const startTime = Date.now();
+
+  // 1. Get unlinked SanMar orders
+  const unlinked = await makeCaspioRequest('GET',
+    `/tables/${TABLES.orders}/records`,
+    { 'q.where': "(Company_Name='' OR Company_Name IS NULL) AND SanMar_PO IS NOT NULL", 'q.limit': '500' }
+  );
+  const unlinkedList = Array.isArray(unlinked) ? unlinked : (unlinked?.Result || []);
+  console.log(`[QuickMatch] ${unlinkedList.length} unlinked orders`);
+
+  if (unlinkedList.length === 0) {
+    return { matched: 0, unmatched: 0, message: 'All orders already linked' };
+  }
+
+  // 2. Get all SanMar order items (styles per PO)
+  const allItems = await makeCaspioRequest('GET',
+    `/tables/${TABLES.items}/records`,
+    { 'q.limit': '5000', 'q.select': 'SanMar_PO,Style' }
+  );
+  const itemsList = Array.isArray(allItems) ? allItems : (allItems?.Result || []);
+
+  const poStyles = new Map(); // SanMar_PO → Set of styles
+  for (const item of itemsList) {
+    if (!item.SanMar_PO || !item.Style) continue;
+    if (!poStyles.has(item.SanMar_PO)) poStyles.set(item.SanMar_PO, new Set());
+    poStyles.get(item.SanMar_PO).add(item.Style.toUpperCase());
+  }
+
+  // 3. Build style→order index from ManageOrders_LineItems + ManageOrders_Orders (Caspio tables)
+  // Get all recent ManageOrders
+  const moOrders = await fetchAllCaspioPages('/tables/ManageOrders_Orders/records', {
+    'q.select': 'id_Order,id_Customer,CustomerName,CustomerServiceRep',
+    'q.limit': 1000
+  });
+  const orderMap = new Map(); // id_Order → order object
+  for (const o of (moOrders || [])) {
+    if (o.id_Order) orderMap.set(String(o.id_Order), o);
+  }
+
+  // Get line items and build style→order index
+  const moLineItems = await fetchAllCaspioPages('/tables/ManageOrders_LineItems/records', {
+    'q.select': 'id_Order,PartNumber',
+    'q.limit': 5000
+  });
+
+  const styleToOrders = new Map(); // style → Set of id_Order
+  for (const li of (moLineItems || [])) {
+    const pn = (li.PartNumber || '').toUpperCase();
+    if (!pn || FEE_PARTS.has(pn)) continue;
+    const baseStyle = pn.replace(/_\d?[xXsSmMlL]+$/i, '').replace(/_\d+$/, '');
+    if (!baseStyle || !li.id_Order) continue;
+
+    if (!styleToOrders.has(baseStyle)) styleToOrders.set(baseStyle, new Set());
+    styleToOrders.get(baseStyle).add(String(li.id_Order));
+  }
+
+  console.log(`[QuickMatch] Built index: ${orderMap.size} MO orders, ${styleToOrders.size} styles`);
+
+  // 4. Match each unlinked order by style overlap
+  let matched = 0, unmatched = 0;
+
+  for (const sanmarOrder of unlinkedList) {
+    const po = sanmarOrder.SanMar_PO;
+    const styles = poStyles.get(po);
+    if (!styles || styles.size === 0) { unmatched++; continue; }
+
+    // Score candidates
+    const scores = new Map(); // id_Order → score
+    for (const style of styles) {
+      const orderIds = styleToOrders.get(style);
+      if (!orderIds) continue;
+      for (const oid of orderIds) {
+        scores.set(oid, (scores.get(oid) || 0) + 1);
+      }
+    }
+
+    // Find best match
+    let bestId = null, bestScore = 0;
+    for (const [oid, score] of scores) {
+      if (score > bestScore) { bestScore = score; bestId = oid; }
+    }
+
+    if (bestId && bestScore >= 1) {
+      const mo = orderMap.get(bestId);
+      if (mo) {
+        try {
+          await makeCaspioRequest('PUT', `/tables/${TABLES.orders}/records`,
+            { 'q.where': `SanMar_PO='${xmlEscape(po)}'` },
+            {
+              Company_Name: (mo.CustomerName || '').trim(),
+              Sales_Rep: mo.CustomerServiceRep || '',
+              id_Customer: mo.id_Customer || 0,
+              id_Order: bestId,
+              Matched_By: `auto-quick-match (score:${bestScore})`
+            }
+          );
+          matched++;
+          if (matched % 10 === 0) console.log(`[QuickMatch] Matched ${matched} so far...`);
+        } catch (e) {
+          console.error(`[QuickMatch] Failed to update ${po}:`, e.message);
+        }
+      }
+    } else {
+      unmatched++;
+    }
+  }
+
+  const elapsed = Math.round((Date.now() - startTime) / 1000);
+  console.log(`[QuickMatch] Done: ${matched} matched, ${unmatched} unmatched in ${elapsed}s`);
+  return { matched, unmatched, elapsed, totalProcessed: unlinkedList.length };
+}
 
 // ── POST /match-manageorders — Match SanMar orders to ManageOrders by style ──
 // Fire-and-forget: returns 202, runs in background, poll /match-status
