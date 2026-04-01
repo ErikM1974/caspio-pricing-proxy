@@ -1074,17 +1074,72 @@ async function runQuickMatch() {
   }
 
   // 2. Get all SanMar order items (styles per PO)
-  const allItems = await makeCaspioRequest('GET',
-    `/tables/${TABLES.items}/records`,
-    { 'q.limit': '5000', 'q.select': 'SanMar_PO,Style' }
-  );
-  const itemsList = Array.isArray(allItems) ? allItems : (allItems?.Result || []);
+  const allItems = await fetchAllCaspioPages(`/tables/${TABLES.items}/records`, {
+    'q.limit': 1000, 'q.select': 'SanMar_PO,Style'
+  });
+  const itemsList = Array.isArray(allItems) ? allItems : [];
 
   const poStyles = new Map(); // SanMar_PO → Set of styles
   for (const item of itemsList) {
     if (!item.SanMar_PO || !item.Style) continue;
     if (!poStyles.has(item.SanMar_PO)) poStyles.set(item.SanMar_PO, new Set());
     poStyles.get(item.SanMar_PO).add(item.Style.toUpperCase());
+  }
+
+  // 2b. Backfill items from SanMar for POs with no items in Caspio
+  const posWithoutItems = unlinkedList
+    .map(o => o.SanMar_PO)
+    .filter(po => po && (!poStyles.has(po) || poStyles.get(po).size === 0));
+
+  if (posWithoutItems.length > 0) {
+    console.log(`[QuickMatch] ${posWithoutItems.length} POs missing items — backfilling from SanMar...`);
+    let backfilled = 0;
+
+    for (const po of posWithoutItems) {
+      try {
+        const soapBody = buildOrderStatusRequest('poSearch', {
+          referenceNumber: po,
+          returnProductDetail: true
+        });
+        const xml = await makeSoapRequest(ENDPOINTS.orderStatus, soapBody, {
+          timeout: 15000,
+          namespaces: { ns: NS.orderStatus, shar: NS.orderStatusShared }
+        });
+        const soapError = checkSoapError(xml);
+        if (soapError) continue;
+
+        const orders = parseOrderStatusResponse(xml);
+        for (const order of orders) {
+          for (const detail of order.details) {
+            for (const product of detail.products) {
+              if (!product.productId) continue;
+              const itemWhere = `SanMar_PO='${xmlEscape(po)}' AND Style='${xmlEscape(product.productId)}' AND Part_ID='${xmlEscape(product.partId || '')}'`;
+              const existing = await makeCaspioRequest('GET',
+                `/tables/${TABLES.items}/records`, { 'q.where': itemWhere }
+              );
+              if (Array.isArray(existing) && existing.length > 0) continue;
+
+              await makeCaspioRequest('POST', `/tables/${TABLES.items}/records`, {}, {
+                SanMar_PO: po,
+                Style: product.productId,
+                Part_ID: product.partId || '',
+                Qty_Ordered: parseInt(product.qtyOrdered) || 0,
+                Qty_Shipped: parseInt(product.qtyShipped) || 0,
+                Item_Status: product.status || detail.status || ''
+              });
+
+              // Update local map
+              if (!poStyles.has(po)) poStyles.set(po, new Set());
+              poStyles.get(po).add(product.productId.toUpperCase());
+            }
+          }
+        }
+        backfilled++;
+      } catch (e) {
+        console.error(`[QuickMatch] Item backfill failed for ${po}:`, e.message);
+      }
+    }
+    console.log(`[QuickMatch] Backfilled items for ${backfilled}/${posWithoutItems.length} POs`);
   }
 
   // 3. Build style→order index from ManageOrders_LineItems + ManageOrders_Orders (Caspio tables)
@@ -1256,13 +1311,11 @@ async function runManageOrdersMatch() {
       return;
     }
 
-    // 2. Get SanMar order items (styles) for matching
+    // 2. Get SanMar order items (styles) for matching — paginate to get ALL items
     moMatchStatus.progress.phase = 'fetching SanMar order items';
-    const sanmarItems = await makeCaspioRequest('GET',
-      `/tables/${TABLES.items}/records`,
-      { 'q.limit': '1000' }
-    );
-    const itemsList = Array.isArray(sanmarItems) ? sanmarItems : (sanmarItems?.Result || []);
+    const itemsList = await fetchAllCaspioPages(`/tables/${TABLES.items}/records`, {
+      'q.limit': 1000
+    }) || [];
 
     // Build map: SanMar_PO → Set of styles
     const poStyles = new Map();
