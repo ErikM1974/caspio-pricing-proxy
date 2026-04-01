@@ -1168,7 +1168,25 @@ async function runQuickMatch() {
 
   const elapsed = Math.round((Date.now() - startTime) / 1000);
   console.log(`[QuickMatch] Done: ${matched} matched, ${unmatched} unmatched in ${elapsed}s`);
-  return { matched, unmatched, elapsed, totalProcessed: unlinkedList.length };
+
+  // Debug info
+  const sampleUnlinked = unlinkedList.slice(0, 3).map(o => o.SanMar_PO);
+  const samplePoStyles = {};
+  for (const po of sampleUnlinked) {
+    samplePoStyles[po] = poStyles.has(po) ? [...poStyles.get(po)] : 'NO_ITEMS';
+  }
+
+  return {
+    matched, unmatched, elapsed, totalProcessed: unlinkedList.length,
+    debug: {
+      sanmarOrderItemsCount: itemsList.length,
+      poStylesMapSize: poStyles.size,
+      moOrdersCount: orderMap.size,
+      moStyleIndexSize: styleToOrders.size,
+      sampleUnlinkedPOs: sampleUnlinked,
+      samplePoStyles
+    }
+  };
 }
 
 // ── POST /match-manageorders — Match SanMar orders to ManageOrders by style ──
