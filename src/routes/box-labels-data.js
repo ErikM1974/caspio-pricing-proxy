@@ -21,7 +21,7 @@ router.get('/order-by-po/:po', async (req, res) => {
   try {
     const orders = await fetchAllCaspioPages('/tables/ManageOrders_Orders/records', {
       'q.where': `CustomerPurchaseOrder='${po.replace(/'/g, "''")}'`,
-      'q.select': 'id_Order,id_Customer,CustomerName,ContactFirstName,ContactLastName,ContactEmail,ContactPhone,CustomerServiceRep,CustomerPurchaseOrder,DesignName,id_Design,Order_Type_Name,TermsName,date_RequestedToShip',
+      'q.select': 'id_Order,id_Customer,CustomerName,ContactFirstName,ContactLastName,ContactEmail,ContactPhone,CustomerServiceRep,CustomerPurchaseOrder,DesignName,id_Design,Order_Type_Name,TermsName,date_RequestedToShip,cur_Balance,cur_Payments,cur_TotalInvoice',
       'q.limit': 5
     });
 
@@ -42,7 +42,7 @@ router.get('/order-by-po/:po', async (req, res) => {
           // Now fetch the full order from ManageOrders_Orders using id_Order
           const moOrders = await fetchAllCaspioPages('/tables/ManageOrders_Orders/records', {
             'q.where': `id_Order=${sm.id_Order}`,
-            'q.select': 'id_Order,id_Customer,CustomerName,ContactFirstName,ContactLastName,ContactEmail,ContactPhone,CustomerServiceRep,CustomerPurchaseOrder,DesignName,id_Design,Order_Type_Name,TermsName,date_RequestedToShip',
+            'q.select': 'id_Order,id_Customer,CustomerName,ContactFirstName,ContactLastName,ContactEmail,ContactPhone,CustomerServiceRep,CustomerPurchaseOrder,DesignName,id_Design,Order_Type_Name,TermsName,date_RequestedToShip,cur_Balance,cur_Payments,cur_TotalInvoice',
             'q.limit': 1
           });
           o = moOrders?.[0] || null;
@@ -84,7 +84,8 @@ router.get('/order-by-po/:po', async (req, res) => {
         designNumber: o.id_Design || '',
         orderType: o.Order_Type_Name || '',
         terms: o.TermsName || '',
-        requestedShipDate: o.date_RequestedToShip || ''
+        requestedShipDate: o.date_RequestedToShip || '',
+        paidStatus: (o.cur_Balance <= 0 && o.cur_TotalInvoice > 0) ? 'PAID' : (o.cur_Payments > 0) ? 'PARTIAL' : 'NOT PAID'
       }
     });
   } catch (err) {
@@ -100,7 +101,7 @@ router.get('/order/:orderId', async (req, res) => {
   try {
     const orders = await fetchAllCaspioPages('/tables/ManageOrders_Orders/records', {
       'q.where': `id_Order=${orderId}`,
-      'q.select': 'id_Order,id_Customer,CustomerName,ContactFirstName,ContactLastName,ContactEmail,ContactPhone,CustomerServiceRep,CustomerPurchaseOrder,DesignName,id_Design,Order_Type_Name,TermsName,date_RequestedToShip',
+      'q.select': 'id_Order,id_Customer,CustomerName,ContactFirstName,ContactLastName,ContactEmail,ContactPhone,CustomerServiceRep,CustomerPurchaseOrder,DesignName,id_Design,Order_Type_Name,TermsName,date_RequestedToShip,cur_Balance,cur_Payments,cur_TotalInvoice',
       'q.limit': 1
     });
 
