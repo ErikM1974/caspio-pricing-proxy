@@ -136,11 +136,21 @@ router.post('/resolve-parts', async (req, res) => {
 
     const partMap = {};
     for (const r of (records || [])) {
+      // Clean description: remove trailing ". STYLE" (e.g., "Polo. CS412" → "Polo")
+      let desc = r.PRODUCT_TITLE || '';
+      const style = r.STYLE || '';
+      if (style && desc.endsWith(`. ${style}`)) {
+        desc = desc.slice(0, -(style.length + 2));
+      }
+      if (style && desc.endsWith(` ${style}`)) {
+        desc = desc.slice(0, -(style.length + 1));
+      }
+
       partMap[String(r.UNIQUE_KEY)] = {
         size: r.SIZE || '',
         color: r.COLOR_NAME || '',
-        style: r.STYLE || '',
-        description: r.PRODUCT_TITLE || '',
+        style,
+        description: desc,
         brand: r.BRAND_NAME || ''
       };
     }
