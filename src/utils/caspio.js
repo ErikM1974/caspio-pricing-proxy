@@ -116,7 +116,10 @@ async function makeCaspioRequest(method, resourcePath, params = {}, data = null)
 async function fetchAllCaspioPages(resourcePath, initialParams = {}, options = {}) {
   let allResults = [];
   let params = { ...initialParams };
-  params['q.limit'] = params['q.limit'] || config.pagination.defaultLimit;
+  // Use q.pageSize for pagination — q.limit conflicts with q.pageNumber on Caspio v3 API
+  const pageSize = params['q.limit'] || params['q.pageSize'] || config.pagination.defaultLimit;
+  params['q.pageSize'] = pageSize;
+  delete params['q.limit']; // CRITICAL: q.limit + q.pageNumber causes overlapping pages on v3 API
   let nextPageUrl = `${config.caspio.apiBaseUrl}${resourcePath}`;
 
   const defaultOptions = {
@@ -150,7 +153,6 @@ async function fetchAllCaspioPages(resourcePath, initialParams = {}, options = {
         // For v3 API, use q.pageNumber and q.pageSize for pagination
         if (pageCount > 1) {
           currentRequestParams['q.pageNumber'] = pageCount;
-          currentRequestParams['q.pageSize'] = params['q.limit'];
         }
         currentUrl = `${config.caspio.apiBaseUrl}${resourcePath}`;
       } else {
@@ -217,13 +219,13 @@ async function fetchAllCaspioPages(resourcePath, initialParams = {}, options = {
         } else {
           // Fallback pagination for Caspio v3 API
           const resultsThisPage = response.data.Result ? response.data.Result.length : 0;
-          if (resultsThisPage >= params['q.limit']) {
+          if (resultsThisPage >= pageSize) {
             console.log(`[Pagination] No NextPageUrl, but got full page (${resultsThisPage} results). Continuing with pageNumber pagination.`);
             // Continue to next page - pageNumber will be set at top of next loop iteration
             nextPageUrl = `${config.caspio.apiBaseUrl}${resourcePath}`;
             morePages = true;
           } else {
-            console.log(`[Pagination] Got partial page (${resultsThisPage} < ${params['q.limit']}). This was the last page.`);
+            console.log(`[Pagination] Got partial page (${resultsThisPage} < ${pageSize}). This was the last page.`);
             morePages = false;
           }
         }
