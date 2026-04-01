@@ -766,6 +766,7 @@ router.get('/garment-tracker/config', (req, res) => {
             quarter: gtConfig.quarter,
             dateRange: gtConfig.dateRange,
             premiumItems: gtConfig.premiumItems,
+            itemGroups: gtConfig.itemGroups || [],
             richardsonStyles: gtConfig.richardsonStyles,
             richardsonBonus: gtConfig.richardsonBonus,
             trackedReps: gtConfig.trackedReps,
