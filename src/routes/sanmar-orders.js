@@ -1401,7 +1401,7 @@ async function runManageOrdersMatch() {
     moMatchStatus.progress.phase = 'fetching unlinked SanMar orders';
     const sanmarOrders = await makeCaspioRequest('GET',
       `/tables/${TABLES.orders}/records`,
-      { 'q.where': "Company_Name='' OR Company_Name IS NULL", 'q.limit': '1000' }
+      { 'q.where': "(Company_Name='' OR Company_Name IS NULL) AND SanMar_PO IS NOT NULL", 'q.limit': '1000' }
     );
     const unlinked = Array.isArray(sanmarOrders) ? sanmarOrders : (sanmarOrders?.Result || []);
     console.log(`[MO Match] ${unlinked.length} SanMar orders need linking`);
