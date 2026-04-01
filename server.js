@@ -400,6 +400,11 @@ const sanmarInvoiceRoutes = require('./src/routes/sanmar-invoices');
 app.use('/api/sanmar-invoices', sanmarLimiter, sanmarInvoiceRoutes);
 console.log('✓ SanMar Invoice routes loaded (invoices, unpaid, cost data)');
 
+// SanMar Shipment Notification Routes (box-level shipment data for Box Labels)
+const sanmarShipmentRoutes = require('./src/routes/sanmar-shipments');
+app.use('/api/sanmar-shipments', sanmarLimiter, sanmarShipmentRoutes);
+console.log('✓ SanMar Shipment routes loaded (box labels, tracking, shipment notifications)');
+
 // Thumbnail Lookup Routes
 const thumbnailsRoutes = require('./src/routes/thumbnails');
 app.use('/api', thumbnailsRoutes);
