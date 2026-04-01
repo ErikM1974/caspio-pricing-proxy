@@ -348,11 +348,16 @@ router.post('/link', async (req, res) => {
     );
 
     if (Array.isArray(existing) && existing.length > 0) {
-      // Update existing
+      // Update existing — include all provided fields
+      const updateData = { ShopWorks_PO: shopworksOrderNo, Company_Name: companyName, Sales_Rep: salesRep };
+      if (idCustomer) updateData.id_Customer = idCustomer;
+      if (matchedBy) updateData.Matched_By = matchedBy;
+      // Accept idOrder to set the ManageOrders order ID
+      if (req.body.idOrder) updateData.id_Order = req.body.idOrder;
       await makeCaspioRequest('PUT',
         `/tables/${TABLES.orders}/records`,
         { 'q.where': `SanMar_PO='${xmlEscape(sanmarPO)}'` },
-        { ShopWorks_PO: shopworksOrderNo, Company_Name: companyName, Sales_Rep: salesRep }
+        updateData
       );
       return res.json({ message: 'Mapping updated', sanmarPO, shopworksOrderNo });
     }
@@ -1196,7 +1201,9 @@ async function runQuickMatch() {
       if (score > bestScore) { bestScore = score; bestId = oid; }
     }
 
-    if (bestId && bestScore >= 1) {
+    // Require 50%+ style overlap to avoid false positives (e.g., 1/3 match)
+    const minScore = styles.size > 1 ? Math.ceil(styles.size / 2) : 1;
+    if (bestId && bestScore >= minScore) {
       const mo = orderMap.get(bestId);
       if (mo) {
         try {
@@ -1283,7 +1290,8 @@ async function runQuickMatch() {
             if (score > bestScore) { bestScore = score; bestId = oid; }
           }
 
-          if (bestId && bestScore >= 1) {
+          const minScore = styles.size > 1 ? Math.ceil(styles.size / 2) : 1;
+          if (bestId && bestScore >= minScore) {
             const mo = orderMap.get(bestId);
             if (mo) {
               try {
@@ -1504,7 +1512,8 @@ async function runManageOrdersMatch() {
         }
       }
 
-      if (bestMatch && bestScore >= 1) {
+      const minScore = sanmarStyles.size > 1 ? Math.ceil(sanmarStyles.size / 2) : 1;
+      if (bestMatch && bestScore >= minScore) {
         try {
           const updateData = {
             Company_Name: (bestMatch.CustomerName || '').trim(),
