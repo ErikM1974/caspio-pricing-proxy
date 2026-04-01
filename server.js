@@ -405,6 +405,11 @@ const sanmarShipmentRoutes = require('./src/routes/sanmar-shipments');
 app.use('/api/sanmar-shipments', sanmarLimiter, sanmarShipmentRoutes);
 console.log('✓ SanMar Shipment routes loaded (box labels, tracking, shipment notifications)');
 
+// Box Labels Data Routes (Caspio order lookup + partId resolution)
+const boxLabelsDataRoutes = require('./src/routes/box-labels-data');
+app.use('/api/box-labels', boxLabelsDataRoutes);
+console.log('✓ Box Labels Data routes loaded (order lookup, partId resolution)');
+
 // Thumbnail Lookup Routes
 const thumbnailsRoutes = require('./src/routes/thumbnails');
 app.use('/api', thumbnailsRoutes);
