@@ -188,10 +188,10 @@ router.get('/shipments/:po', async (req, res) => {
 
 // ── GET /lookup — Search by order#, company, rep, style, or PO ──
 router.get('/lookup', async (req, res) => {
-  const { orderNo, company, rep, style, po } = req.query;
+  const { orderNo, company, rep, style, po, woId } = req.query;
 
-  if (!orderNo && !company && !rep && !style && !po) {
-    return res.status(400).json({ error: 'Provide at least one search parameter: orderNo, company, rep, style, or po' });
+  if (!orderNo && !company && !rep && !style && !po && !woId) {
+    return res.status(400).json({ error: 'Provide at least one search parameter: orderNo, company, rep, style, po, or woId' });
   }
 
   try {
@@ -199,6 +199,7 @@ router.get('/lookup', async (req, res) => {
     const conditions = [];
     if (po) conditions.push(`SanMar_PO='${xmlEscape(po)}'`);
     if (orderNo) conditions.push(`ShopWorks_PO='${xmlEscape(orderNo)}'`);
+    if (woId) conditions.push(`id_Order='${xmlEscape(woId)}'`);
     if (company) conditions.push(`Company_Name LIKE '%${xmlEscape(company)}%'`);
     if (rep) conditions.push(`Sales_Rep LIKE '%${xmlEscape(rep)}%'`);
 
@@ -212,7 +213,9 @@ router.get('/lookup', async (req, res) => {
           `/tables/${TABLES.orders}/records`,
           { 'q.where': where, 'q.orderBy': 'Order_Date DESC', 'q.limit': 50 }
         );
-        if (caspioResult && caspioResult.Result) {
+        if (Array.isArray(caspioResult)) {
+          orders = caspioResult;
+        } else if (caspioResult && caspioResult.Result) {
           orders = caspioResult.Result;
         }
       } catch (caspioErr) {
