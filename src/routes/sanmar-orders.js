@@ -1213,26 +1213,18 @@ async function runQuickMatch() {
       }
     }
 
-    // Find best match — use date proximity as tiebreaker
-    // SanMar orders are typically placed within a few days of the ShopWorks order
-    const sanmarDate = sanmarOrder.Status_Updated_Date ? new Date(sanmarOrder.Status_Updated_Date).getTime() : 0;
-    let bestId = null, bestScore = 0, bestDateDiff = Infinity;
+    // Find best match — use PO↔WO number correlation as tiebreaker
+    // SanMar PO numbers correlate with ShopWorks order numbers: WO ≈ PO + ~28856
+    // This is far more reliable than date-based matching for repeat customers
+    const poNum = parseInt(extractPONumber(po)) || 0;
+    const expectedWO = poNum + 28856; // Empirical offset from reconciliation data
+    let bestId = null, bestScore = 0, bestProximity = Infinity;
     for (const [oid, score] of scores) {
-      if (score > bestScore) {
+      const proximity = Math.abs(parseInt(oid) - expectedWO);
+      if (score > bestScore || (score === bestScore && proximity < bestProximity)) {
         bestScore = score;
         bestId = oid;
-        const mo = orderMap.get(oid);
-        bestDateDiff = (mo && mo.date_Ordered && sanmarDate) ? Math.abs(sanmarDate - new Date(mo.date_Ordered).getTime()) : Infinity;
-      } else if (score === bestScore && sanmarDate) {
-        // Same score — pick the order with date_Ordered closest to the SanMar date
-        const mo = orderMap.get(oid);
-        if (mo && mo.date_Ordered) {
-          const dateDiff = Math.abs(sanmarDate - new Date(mo.date_Ordered).getTime());
-          if (dateDiff < bestDateDiff) {
-            bestId = oid;
-            bestDateDiff = dateDiff;
-          }
-        }
+        bestProximity = proximity;
       }
     }
 
@@ -1320,9 +1312,14 @@ async function runQuickMatch() {
             }
           }
 
-          let bestId = null, bestScore = 0;
+          const livePoNum = parseInt(extractPONumber(po)) || 0;
+          const liveExpectedWO = livePoNum + 28856;
+          let bestId = null, bestScore = 0, bestProx = Infinity;
           for (const [oid, score] of scores) {
-            if (score > bestScore) { bestScore = score; bestId = oid; }
+            const prox = Math.abs(parseInt(oid) - liveExpectedWO);
+            if (score > bestScore || (score === bestScore && prox < bestProx)) {
+              bestScore = score; bestId = oid; bestProx = prox;
+            }
           }
 
           const minScore = styles.size > 1 ? Math.ceil(styles.size / 2) : 1;
@@ -1537,22 +1534,18 @@ async function runManageOrdersMatch() {
         }
       }
 
-      // Find best match — highest style overlap, date proximity as tiebreaker
-      const sanmarDate = sanmarOrder.Status_Updated_Date ? new Date(sanmarOrder.Status_Updated_Date).getTime() : 0;
+      // Find best match — highest style overlap, PO↔WO number correlation as tiebreaker
+      const moPoNum = parseInt(extractPONumber(po)) || 0;
+      const moExpectedWO = moPoNum + 28856;
       let bestMatch = null;
       let bestScore = 0;
-      let bestDateDiff = Infinity;
+      let bestProximity = Infinity;
       for (const [orderId, { order, score }] of candidateScores) {
-        if (score > bestScore) {
+        const proximity = Math.abs(parseInt(orderId) - moExpectedWO);
+        if (score > bestScore || (score === bestScore && proximity < bestProximity)) {
           bestScore = score;
           bestMatch = order;
-          bestDateDiff = (order.date_Ordered && sanmarDate) ? Math.abs(sanmarDate - new Date(order.date_Ordered).getTime()) : Infinity;
-        } else if (score === bestScore && sanmarDate && order.date_Ordered) {
-          const dateDiff = Math.abs(sanmarDate - new Date(order.date_Ordered).getTime());
-          if (dateDiff < bestDateDiff) {
-            bestMatch = order;
-            bestDateDiff = dateDiff;
-          }
+          bestProximity = proximity;
         }
       }
 
