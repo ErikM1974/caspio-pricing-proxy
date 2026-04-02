@@ -1079,9 +1079,50 @@ router.post('/quick-match', async (req, res) => {
   }
 });
 
+// ── Dynamic PO↔WO offset — self-learning from confirmed matches ──
+const DEFAULT_PO_WO_OFFSET = 28856;
+
+async function calculateDynamicOffset() {
+  try {
+    // Get recent confirmed matches (have both numeric PO and id_Order)
+    const confirmed = await fetchAllCaspioPages('/tables/SanMar_Orders/records', {
+      'q.where': "id_Order IS NOT NULL AND id_Order<>'' AND Company_Name IS NOT NULL AND Company_Name<>''",
+      'q.select': 'SanMar_PO,id_Order',
+      'q.orderBy': 'Last_Sync_Date DESC',
+      'q.limit': 100
+    });
+
+    const offsets = [];
+    for (const row of (confirmed || [])) {
+      const poNum = parseInt(extractPONumber(row.SanMar_PO));
+      const woNum = parseInt(row.id_Order);
+      if (poNum > 100000 && woNum > 100000) {
+        offsets.push(woNum - poNum);
+      }
+    }
+
+    if (offsets.length < 5) {
+      console.log(`[DynamicOffset] Only ${offsets.length} confirmed matches — using default ${DEFAULT_PO_WO_OFFSET}`);
+      return DEFAULT_PO_WO_OFFSET;
+    }
+
+    // Use median (resistant to outliers)
+    offsets.sort((a, b) => a - b);
+    const median = offsets[Math.floor(offsets.length / 2)];
+    console.log(`[DynamicOffset] Calculated from ${offsets.length} matches: median=${median}, min=${offsets[0]}, max=${offsets[offsets.length - 1]}`);
+    return median;
+  } catch (e) {
+    console.error(`[DynamicOffset] Failed: ${e.message} — using default ${DEFAULT_PO_WO_OFFSET}`);
+    return DEFAULT_PO_WO_OFFSET;
+  }
+}
+
 async function runQuickMatch() {
   console.log('[QuickMatch] Starting Caspio-only matching...');
   const startTime = Date.now();
+
+  // 0. Calculate dynamic PO↔WO offset from confirmed matches
+  const poWoOffset = await calculateDynamicOffset();
 
   // 1. Get unlinked SanMar orders
   const unlinked = await makeCaspioRequest('GET',
@@ -1217,7 +1258,7 @@ async function runQuickMatch() {
     // SanMar PO numbers correlate with ShopWorks order numbers: WO ≈ PO + ~28856
     // This is far more reliable than date-based matching for repeat customers
     const poNum = parseInt(extractPONumber(po)) || 0;
-    const expectedWO = poNum + 28856; // Empirical offset from reconciliation data
+    const expectedWO = poNum + poWoOffset; // Dynamic offset from confirmed matches
     let bestId = null, bestScore = 0, bestProximity = Infinity;
     for (const [oid, score] of scores) {
       const proximity = Math.abs(parseInt(oid) - expectedWO);
@@ -1313,7 +1354,7 @@ async function runQuickMatch() {
           }
 
           const livePoNum = parseInt(extractPONumber(po)) || 0;
-          const liveExpectedWO = livePoNum + 28856;
+          const liveExpectedWO = livePoNum + poWoOffset;
           let bestId = null, bestScore = 0, bestProx = Infinity;
           for (const [oid, score] of scores) {
             const prox = Math.abs(parseInt(oid) - liveExpectedWO);
@@ -1428,6 +1469,9 @@ async function runManageOrdersMatch() {
   try {
     const { fetchOrders, fetchLineItems } = require('../utils/manageorders');
 
+    // 0. Calculate dynamic PO↔WO offset
+    const poWoOffset = await calculateDynamicOffset();
+
     // 1. Get SanMar orders missing Company_Name
     moMatchStatus.progress.phase = 'fetching unlinked SanMar orders';
     const sanmarOrders = await makeCaspioRequest('GET',
@@ -1536,7 +1580,7 @@ async function runManageOrdersMatch() {
 
       // Find best match — highest style overlap, PO↔WO number correlation as tiebreaker
       const moPoNum = parseInt(extractPONumber(po)) || 0;
-      const moExpectedWO = moPoNum + 28856;
+      const moExpectedWO = moPoNum + poWoOffset;
       let bestMatch = null;
       let bestScore = 0;
       let bestProximity = Infinity;
