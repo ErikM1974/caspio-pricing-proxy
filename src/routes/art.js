@@ -857,7 +857,8 @@ router.put('/art-requests/:designId/fields', express.json(), async (req, res) =>
         'Garm_Style_3', 'Garm_Color_3',
         'NOTES',
         'Prelim_Charges', 'Additional_Services',
-        'First_name', 'Last_name', 'Email_Contact', 'Phone'
+        'First_name', 'Last_name', 'Email_Contact', 'Phone',
+        'Mockup_1_Note', 'Mockup_2_Note', 'Mockup_3_Note'
     ];
 
     const updateData = {};
