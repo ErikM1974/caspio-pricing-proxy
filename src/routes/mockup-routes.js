@@ -9,6 +9,7 @@
 //   POST   /api/mockups          — Create new mockup
 //   PUT    /api/mockups/:id      — Update mockup
 //   PUT    /api/mockups/:id/status — Quick status update (with revision tracking)
+//   DELETE /api/mockups/:id      — Delete mockup + cascade children (status-guarded)
 //   GET    /api/mockup-notes/:mockupId — Get notes for a mockup
 //   POST   /api/mockup-notes     — Add a note to a mockup
 //   GET    /api/thread-colors    — List thread colors (cached 1hr, ?instock=true)
@@ -483,6 +484,128 @@ router.put('/mockups/:id/status', async (req, res) => {
     } catch (error) {
         console.error('Error updating mockup status:', error.response ? JSON.stringify(error.response.data) : error.message);
         res.status(500).json({ success: false, error: 'Failed to update status: ' + error.message });
+    }
+});
+
+// ── Delete Mockup ────────────────────────────────────────────────────
+
+/**
+ * DELETE /api/mockups/:id
+ *
+ * Delete a mockup and all child records (notes, versions, design files).
+ * Only allowed for Submitted / In Progress / Revision Requested statuses
+ * unless ?force=true is passed.
+ */
+router.delete('/mockups/:id', async (req, res) => {
+    const { id } = req.params;
+    const force = req.query.force === 'true';
+
+    if (!id) {
+        return res.status(400).json({ success: false, error: 'Missing required parameter: id' });
+    }
+
+    try {
+        const token = await getCaspioAccessToken();
+
+        // 1. Fetch the mockup to check status
+        const getUrl = `${caspioApiBaseUrl}/tables/${MOCKUPS_TABLE}/records?q.where=PK_ID=${id}`;
+        const mockupResp = await axios.get(getUrl, {
+            headers: { 'Authorization': `Bearer ${token}` },
+            timeout: 15000
+        });
+        const records = mockupResp.data.Result || [];
+        if (records.length === 0) {
+            return res.status(404).json({ success: false, error: 'Mockup not found' });
+        }
+
+        const mockup = records[0];
+        const status = (mockup.Status || '').toLowerCase().replace(/\s+/g, '');
+        const allowedStatuses = ['submitted', 'inprogress', 'revisionrequested'];
+
+        if (!force && !allowedStatuses.includes(status)) {
+            return res.status(400).json({
+                success: false,
+                error: `Cannot delete mockup in "${mockup.Status}" status. Only Submitted, In Progress, or Revision Requested mockups can be deleted.`
+            });
+        }
+
+        console.log(`Deleting mockup ${id} (${mockup.Company_Name} #${mockup.Design_Number}, status: ${mockup.Status})`);
+
+        const deletedChildren = { notes: 0, versions: 0, designFiles: 0 };
+
+        // 2. Delete child notes
+        try {
+            const notesUrl = `${caspioApiBaseUrl}/tables/${NOTES_TABLE}/records?q.where=Mockup_ID=${id}`;
+            const notesResp = await axios.get(notesUrl, {
+                headers: { 'Authorization': `Bearer ${token}` },
+                timeout: 15000
+            });
+            const notes = notesResp.data.Result || [];
+            for (const note of notes) {
+                await axios.delete(`${caspioApiBaseUrl}/tables/${NOTES_TABLE}/records?q.where=PK_ID=${note.PK_ID}`, {
+                    headers: { 'Authorization': `Bearer ${token}` },
+                    timeout: 15000
+                });
+                deletedChildren.notes++;
+            }
+        } catch (err) {
+            console.warn(`Warning: failed to delete some notes for mockup ${id}:`, err.message);
+        }
+
+        // 3. Delete child versions
+        try {
+            const versionsUrl = `${caspioApiBaseUrl}/tables/${VERSIONS_TABLE}/records?q.where=Mockup_ID=${id}`;
+            const versionsResp = await axios.get(versionsUrl, {
+                headers: { 'Authorization': `Bearer ${token}` },
+                timeout: 15000
+            });
+            const versions = versionsResp.data.Result || [];
+            for (const ver of versions) {
+                await axios.delete(`${caspioApiBaseUrl}/tables/${VERSIONS_TABLE}/records?q.where=PK_ID=${ver.PK_ID}`, {
+                    headers: { 'Authorization': `Bearer ${token}` },
+                    timeout: 15000
+                });
+                deletedChildren.versions++;
+            }
+        } catch (err) {
+            console.warn(`Warning: failed to delete some versions for mockup ${id}:`, err.message);
+        }
+
+        // 4. Delete child EMB design files
+        try {
+            const designUrl = `${caspioApiBaseUrl}/tables/EMB_Design_Files/records?q.where=Mockup_ID=${id}`;
+            const designResp = await axios.get(designUrl, {
+                headers: { 'Authorization': `Bearer ${token}` },
+                timeout: 15000
+            });
+            const designFiles = designResp.data.Result || [];
+            for (const df of designFiles) {
+                await axios.delete(`${caspioApiBaseUrl}/tables/EMB_Design_Files/records?q.where=PK_ID=${df.PK_ID}`, {
+                    headers: { 'Authorization': `Bearer ${token}` },
+                    timeout: 15000
+                });
+                deletedChildren.designFiles++;
+            }
+        } catch (err) {
+            console.warn(`Warning: failed to delete some design files for mockup ${id}:`, err.message);
+        }
+
+        // 5. Delete the mockup record itself
+        await axios.delete(`${caspioApiBaseUrl}/tables/${MOCKUPS_TABLE}/records?q.where=PK_ID=${id}`, {
+            headers: { 'Authorization': `Bearer ${token}` },
+            timeout: 15000
+        });
+
+        console.log(`Mockup ${id} deleted successfully. Children removed: ${JSON.stringify(deletedChildren)}`);
+        res.json({
+            success: true,
+            message: 'Mockup deleted successfully',
+            deletedChildren
+        });
+
+    } catch (error) {
+        console.error('Error deleting mockup:', error.response ? JSON.stringify(error.response.data) : error.message);
+        res.status(500).json({ success: false, error: 'Failed to delete mockup: ' + error.message });
     }
 });
 
