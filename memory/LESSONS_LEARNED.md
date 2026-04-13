@@ -4,6 +4,15 @@ A running log of problems solved and gotchas discovered. Add new entries at the 
 
 ---
 
+## Problem: Box mockup images not showing in Art Hub / AE Hub
+**Date:** 2026-04
+**Symptoms:** Images uploaded to Box weren't displaying in Art Hub or AE Hub
+**Root cause:** Direct Box file URLs aren't publicly accessible; they require authentication
+**Solution:** Added a shared-image proxy endpoint and updated uploads to use proxy URLs instead of direct Box links (commit 0d2f3e6)
+**Prevention:** Always use proxy URLs for Box-hosted images, never direct Box file links
+
+---
+
 ## Problem: OGIO brand missing from product list
 **Date:** 2025-12
 **Symptoms:** API returns products but OGIO brand not included
