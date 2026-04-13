@@ -443,13 +443,23 @@ router.post('/art-requests/:designId/upload-mockup', upload.single('file'), asyn
         }
         console.log(`Box upload: File uploaded as "${boxFile.name}" (ID: ${boxFile.id})`);
 
-        // 5. Create shared link (open access, no Box login needed)
-        const sharedLink = await createSharedLink(boxFile.id);
-        const sharedUrl = sharedLink.download_url || sharedLink.url;
-        console.log(`Box upload: Shared link created: ${sharedUrl}`);
+        // 5. Create shared link (keep for direct Box access) + build proxy URL
+        let sharedLinkUrl = '';
+        try {
+            const sharedLink = await createSharedLink(boxFile.id);
+            sharedLinkUrl = sharedLink.download_url || sharedLink.url;
+            console.log(`Box upload: Shared link created: ${sharedLinkUrl}`);
+        } catch (linkErr) {
+            console.warn(`Box upload: Shared link creation failed (non-blocking): ${linkErr.message}`);
+        }
 
-        // 6. Save shared link URL to Caspio
-        await saveMockupUrlToCaspio(pkId, slotField, sharedUrl);
+        // Use proxy URL for reliable image display (Box shared/static URLs are unreliable)
+        const origin = config.app?.publicUrl || `${req.protocol}://${req.get('host')}`;
+        const proxyUrl = `${origin}/api/box/thumbnail/${boxFile.id}`;
+        console.log(`Box upload: Using proxy URL: ${proxyUrl}`);
+
+        // 6. Save proxy URL to Caspio (works regardless of Box shared link status)
+        await saveMockupUrlToCaspio(pkId, slotField, proxyUrl);
 
         // 6b. Fire-and-forget: AI vision analysis of the mockup image
         try {
@@ -457,7 +467,7 @@ router.post('/art-requests/:designId/upload-mockup', upload.single('file'), asyn
             analyzeMockupImage(file.buffer, file.mimetype, {
                 designId,
                 slotField,
-                imageUrl: sharedUrl
+                imageUrl: proxyUrl
             }).catch(err => console.warn('[Vision] Analysis failed (non-blocking):', err.message));
         } catch (visionErr) {
             console.warn('[Vision] Module load failed (non-blocking):', visionErr.message);
@@ -467,7 +477,7 @@ router.post('/art-requests/:designId/upload-mockup', upload.single('file'), asyn
         res.json({
             success: true,
             field: slotField,
-            url: sharedUrl,
+            url: proxyUrl,
             boxFileId: boxFile.id,
             boxFileName: boxFile.name,
             folderId: folder.id,
@@ -570,15 +580,21 @@ router.post('/art-requests/:designId/upload-additional-art', upload.single('file
             }
         }
 
-        const sharedLink = await createSharedLink(boxFile.id);
-        const sharedUrl = sharedLink.download_url || sharedLink.url;
+        // Create shared link (keep for direct Box access) but use proxy URL for display
+        try {
+            await createSharedLink(boxFile.id);
+        } catch (linkErr) {
+            console.warn(`Additional art: Shared link creation failed (non-blocking): ${linkErr.message}`);
+        }
+        const origin = config.app?.publicUrl || `${req.protocol}://${req.get('host')}`;
+        const proxyUrl = `${origin}/api/box/thumbnail/${boxFile.id}`;
 
-        await saveMockupUrlToCaspio(pkId, slotField, sharedUrl);
+        await saveMockupUrlToCaspio(pkId, slotField, proxyUrl);
 
         res.json({
             success: true,
             field: slotField,
-            url: sharedUrl,
+            url: proxyUrl,
             boxFileId: boxFile.id,
             boxFileName: boxFile.name,
             folderId: folder.id,
@@ -1244,15 +1260,20 @@ router.post('/mockups/:id/upload-file', upload.single('file'), async (req, res) 
         }
         console.log(`Mockup upload: File uploaded as "${boxFile.name}" (ID: ${boxFile.id})`);
 
-        // 4. Create shared link
-        const sharedLink = await createSharedLink(boxFile.id);
-        const sharedUrl = sharedLink.download_url || sharedLink.url;
-        console.log(`Mockup upload: Shared link: ${sharedUrl}`);
+        // 4. Create shared link (keep for direct Box access) + build proxy URL
+        try {
+            await createSharedLink(boxFile.id);
+        } catch (linkErr) {
+            console.warn(`Mockup upload: Shared link creation failed (non-blocking): ${linkErr.message}`);
+        }
+        const origin = config.app?.publicUrl || `${req.protocol}://${req.get('host')}`;
+        const proxyUrl = `${origin}/api/box/thumbnail/${boxFile.id}`;
+        console.log(`Mockup upload: Using proxy URL: ${proxyUrl}`);
 
         // 5. Save URL to Caspio Digitizing_Mockups table
         const caspioToken = await getCaspioAccessToken();
         const updateData = {
-            [targetSlot]: sharedUrl,
+            [targetSlot]: proxyUrl,
             Box_Folder_ID: folder.id
         };
 
@@ -1310,7 +1331,7 @@ router.post('/mockups/:id/upload-file', upload.single('file'), async (req, res) 
         res.json({
             success: true,
             slot: targetSlot,
-            url: sharedUrl,
+            url: proxyUrl,
             boxFileId: boxFile.id,
             boxFileName: boxFile.name,
             folderId: folder.id,
@@ -1409,6 +1430,114 @@ router.get('/box/download/:fileId', async (req, res) => {
         console.error('Box download error:', err.response?.status, err.message);
         const status = err.response?.status || 500;
         res.status(status).json({ success: false, error: 'Box download failed: ' + err.message });
+    }
+});
+
+/**
+ * GET /api/box/shared-image?url={encodedBoxUrl}
+ *
+ * Proxy endpoint that resolves a Box shared link URL to the actual image content.
+ * Used as a fallback when Box shared/static download URLs return 404.
+ *
+ * Flow: shared URL → Box Shared Items API → file ID → download content → stream to client
+ */
+router.get('/box/shared-image', async (req, res) => {
+    const { url } = req.query;
+    if (!url) {
+        return res.status(400).json({ error: 'url parameter required' });
+    }
+
+    try {
+        const token = await getBoxAccessToken();
+
+        // Extract the shared link base URL (without /shared/static/ path)
+        // Box shared/static URLs: https://domain.box.com/shared/static/TOKEN.ext
+        // Box shared URLs: https://domain.box.com/s/TOKEN
+        let sharedUrl = url;
+        const staticMatch = url.match(/^(https?:\/\/[^/]+\.box\.com)\/shared\/static\/([^.]+)/);
+        if (staticMatch) {
+            // Convert shared/static URL to shared link URL format for the API
+            sharedUrl = `${staticMatch[1]}/s/${staticMatch[2]}`;
+        }
+
+        // Use Box Shared Items API to resolve shared link → file object
+        const sharedResp = await axios.get(`${BOX_API_BASE}/shared_items`, {
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'BoxApi': `shared_link=${sharedUrl}`
+            },
+            timeout: 10000
+        });
+
+        const fileId = sharedResp.data.id;
+        if (!fileId) {
+            return res.status(404).json({ error: 'Could not resolve shared link to file' });
+        }
+
+        // Check if full-size requested
+        const wantFull = req.query.full === '1';
+
+        if (wantFull) {
+            // Stream full file content
+            const contentResp = await axios.get(`${BOX_API_BASE}/files/${fileId}/content`, {
+                headers: { 'Authorization': `Bearer ${token}` },
+                responseType: 'arraybuffer',
+                timeout: 30000,
+                maxRedirects: 5
+            });
+            const ext = (sharedResp.data.name || '').split('.').pop().toLowerCase();
+            const mimeTypes = { 'jpg': 'image/jpeg', 'jpeg': 'image/jpeg', 'png': 'image/png', 'gif': 'image/gif', 'webp': 'image/webp' };
+            res.set('Content-Type', mimeTypes[ext] || 'image/jpeg');
+            res.set('Cache-Control', 'public, max-age=3600');
+            return res.send(Buffer.from(contentResp.data));
+        }
+
+        // Default: serve thumbnail (faster, smaller)
+        const thumbResp = await axios.get(`${BOX_API_BASE}/files/${fileId}/thumbnail.png`, {
+            params: { min_height: 320, min_width: 320 },
+            headers: { 'Authorization': `Bearer ${token}` },
+            responseType: 'arraybuffer',
+            timeout: 10000,
+            validateStatus: (s) => s === 200 || s === 202 || s === 302
+        });
+
+        if (thumbResp.status === 200 && thumbResp.data && thumbResp.data.length > 0) {
+            res.set('Content-Type', thumbResp.headers['content-type'] || 'image/png');
+            res.set('Cache-Control', 'public, max-age=3600');
+            return res.send(Buffer.from(thumbResp.data));
+        }
+
+        // Fallback: try representations API
+        const repResp = await axios.get(`${BOX_API_BASE}/files/${fileId}`, {
+            params: { fields: 'representations' },
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'X-Rep-Hints': '[jpg?dimensions=320x320]'
+            },
+            timeout: 5000
+        });
+        const reps = repResp.data.representations?.entries || [];
+        const jpgRep = reps.find(r => r.representation === 'jpg' && r.status?.state === 'success');
+        if (jpgRep?.content?.url_template) {
+            const repUrl = jpgRep.content.url_template.replace('{+asset_path}', '');
+            const imgResp = await axios.get(repUrl, {
+                headers: { 'Authorization': `Bearer ${token}` },
+                responseType: 'arraybuffer',
+                timeout: 8000
+            });
+            res.set('Content-Type', 'image/jpeg');
+            res.set('Cache-Control', 'public, max-age=3600');
+            return res.send(Buffer.from(imgResp.data));
+        }
+
+        res.status(404).json({ error: 'No image available for this file' });
+    } catch (err) {
+        if (err.response?.status === 401) {
+            boxAccessToken = null;
+            boxTokenExpiry = 0;
+        }
+        console.error('Box shared-image proxy error:', err.response?.status, err.message);
+        res.status(err.response?.status || 500).json({ error: 'Shared image proxy failed' });
     }
 });
 
