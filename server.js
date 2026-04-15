@@ -461,6 +461,19 @@ const monogramsRoutes = require('./src/routes/monograms');
 app.use('/api', monogramsLimiter, monogramsRoutes);
 console.log('✓ Monograms routes loaded (rate limited: 30 req/min)');
 
+// Names & Numbers Rosters Routes (team roster management with OCR)
+const rostersLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  message: { error: 'Too many requests to Rosters endpoints', retryAfter: '60 seconds' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  trustProxy: true
+});
+const rostersRoutes = require('./src/routes/rosters');
+app.use('/api', rostersLimiter, rostersRoutes);
+console.log('✓ Rosters routes loaded (rate limited: 30 req/min)');
+
 // Garment Tracker Routes (staff dashboard tracking optimization)
 const garmentTrackerRoutes = require('./src/routes/garment-tracker');
 app.use('/api', garmentTrackerRoutes);
