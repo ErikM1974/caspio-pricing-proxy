@@ -190,9 +190,29 @@ router.post('/rosters', express.json(), async (req, res) => {
             timeout: 15000
         });
 
+        // Caspio doesn't reliably return the new ID in the response.
+        // Query back to get the ID_Roster of the record we just created.
         let newId = null;
         if (response.headers.location) {
             newId = parseInt(response.headers.location.split('/').pop());
+        }
+
+        // Fallback: query by CreatedAt to find the record we just created
+        if (!newId || isNaN(newId)) {
+            try {
+                const lookupParams = {
+                    'q.where': `RosterName='${(requestData.RosterName || '').replace(/'/g, "''")}'`,
+                    'q.orderBy': 'ID_Roster DESC',
+                    'q.limit': 1,
+                    'q.select': 'ID_Roster'
+                };
+                const lookup = await fetchAllCaspioPages(`/tables/${TABLE_NAME}/records`, lookupParams);
+                if (lookup.length > 0) {
+                    newId = lookup[0].ID_Roster;
+                }
+            } catch (lookupErr) {
+                console.warn('Could not look up new roster ID:', lookupErr.message);
+            }
         }
 
         res.status(201).json({
