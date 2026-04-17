@@ -144,7 +144,7 @@ async function fetchAllCaspioPages(resourcePath, initialParams = {}, options = {
   };
 
   try {
-    const token = await getCaspioAccessToken();
+    let token = await getCaspioAccessToken();
     let pageCount = 0;
     let morePages = true;
     let currentRequestParams = { ...params };
@@ -168,7 +168,7 @@ async function fetchAllCaspioPages(resourcePath, initialParams = {}, options = {
       const requestConfig = {
         method: 'get',
         url: currentUrl,
-        headers: { 
+        headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
@@ -181,7 +181,29 @@ async function fetchAllCaspioPages(resourcePath, initialParams = {}, options = {
       console.log(`Caspio Request Params:`, JSON.stringify(currentRequestParams));
 
       try {
-        const response = await axios(requestConfig);
+        // Per-page auth retry: Caspio sometimes returns 400 "IncorrectQueryParameter"
+        // (not 401) when the access token is stale mid-request — likely a cache-flip
+        // race between concurrent requests. Null the token cache and retry once with
+        // a fresh token. Benefits ALL routes using this helper, not just rosters.
+        let authRetried = false;
+        let response;
+        while (!response) {
+          try {
+            response = await axios(requestConfig);
+          } catch (axiosErr) {
+            const errStatus = axiosErr.response?.status;
+            if ((errStatus === 400 || errStatus === 401) && !authRetried) {
+              console.warn(`[Caspio] ${errStatus} on ${resourcePath} page ${pageCount} — refreshing token and retrying once.`);
+              caspioAccessToken = null;
+              tokenExpiryTime = 0;
+              token = await getCaspioAccessToken();
+              requestConfig.headers.Authorization = `Bearer ${token}`;
+              authRetried = true;
+              continue; // retry inner loop with fresh token
+            }
+            throw axiosErr; // bubble to the normal 429/timeout/error handling below
+          }
+        }
 
         // Track this API call
         const tableName = resourcePath.split('/').filter(p => p).pop().replace('/records', '');
