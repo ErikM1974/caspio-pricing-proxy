@@ -797,32 +797,67 @@ router.get('/box/thumbnail/:fileId', async (req, res) => {
     try {
         const token = await getBoxAccessToken();
 
-        // Large path: skip PNG thumbnail endpoint (caps at 320x320) and go straight to
-        // Box's Representations API for a 1024x1024 JPG. Works for JPG/PNG/PSD/AI/PDF alike.
+        // Large path: for image source files, stream the full original content (that IS the
+        // "large" view). For design files (PSD/AI/PDF), use Box's Representations API at 1024x1024.
         if (wantLarge) {
-            const repResp = await axios.get(`${BOX_API_BASE}/files/${fileId}`, {
-                params: { fields: 'representations' },
+            const metaResp = await axios.get(`${BOX_API_BASE}/files/${fileId}`, {
+                params: { fields: 'name,extension,representations' },
                 headers: {
                     'Authorization': `Bearer ${token}`,
                     'X-Rep-Hints': '[jpg?dimensions=1024x1024]'
                 },
                 timeout: 8000
             });
-            const reps = repResp.data.representations?.entries || [];
-            const jpgRep = reps.find(r => r.representation === 'jpg' && r.status?.state === 'success');
+
+            const ext = (metaResp.data.extension || '').toLowerCase();
+            const directImageExts = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
+            const mimeMap = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp' };
+
+            // Image files: stream the original (that's the full-size)
+            if (directImageExts.includes(ext)) {
+                const contentResp = await axios.get(`${BOX_API_BASE}/files/${fileId}/content`, {
+                    headers: { 'Authorization': `Bearer ${token}` },
+                    responseType: 'arraybuffer',
+                    timeout: 20000,
+                    maxRedirects: 5
+                });
+                res.set('Content-Type', mimeMap[ext] || 'image/jpeg');
+                res.set('Cache-Control', 'public, max-age=3600');
+                return res.send(Buffer.from(contentResp.data));
+            }
+
+            // Non-image (PSD/AI/PDF/etc): use Representations API
+            const reps = metaResp.data.representations?.entries || [];
+            const jpgRep = reps.find(r => r.representation === 'jpg');
             if (jpgRep?.content?.url_template) {
+                // If still pending, trigger generation via info.url and wait briefly for success
+                if (jpgRep.status?.state !== 'success' && jpgRep.info?.url) {
+                    try {
+                        // Poll info.url a few times (Box returns JSON with status)
+                        for (let i = 0; i < 4; i++) {
+                            const statusResp = await axios.get(jpgRep.info.url, {
+                                headers: { 'Authorization': `Bearer ${token}` },
+                                timeout: 5000
+                            });
+                            if (statusResp.data?.status?.state === 'success') break;
+                            await new Promise(r => setTimeout(r, 800));
+                        }
+                    } catch (_) { /* fall through — we'll try the URL anyway */ }
+                }
                 const repUrl = jpgRep.content.url_template.replace('{+asset_path}', '');
                 const imgResp = await axios.get(repUrl, {
                     headers: { 'Authorization': `Bearer ${token}` },
                     responseType: 'arraybuffer',
-                    timeout: 15000
+                    timeout: 15000,
+                    validateStatus: (s) => s === 200 || s === 202
                 });
-                res.set('Content-Type', 'image/jpeg');
-                res.set('Cache-Control', 'public, max-age=3600');
-                return res.send(Buffer.from(imgResp.data));
+                if (imgResp.status === 200 && imgResp.data?.length > 0) {
+                    res.set('Content-Type', 'image/jpeg');
+                    res.set('Cache-Control', 'public, max-age=3600');
+                    return res.send(Buffer.from(imgResp.data));
+                }
             }
             // Representation not ready — fall through to small thumbnail as graceful fallback
-            // (better to show something than nothing)
         }
 
         // Default path: small thumbnail for gallery grids
