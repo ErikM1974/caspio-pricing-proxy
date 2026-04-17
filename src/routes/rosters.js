@@ -314,120 +314,166 @@ router.post('/rosters/parse-excel', upload.single('file'), async (req, res) => {
             const headers = data[headerRowIdx].map(h => String(h || '').trim());
             if (headers.filter(h => h).length < 2) continue;
 
-            // Create group from sheet
-            const groupId = sheetName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+$/, '');
-            const columns = [];
-            const columnLabels = [];
+            // Create group from sheet (v2 multi-garment shape)
+            const groupId = 'group-' + sheetName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+$/, '') + '-' + Math.random().toString(36).substr(2, 4);
+            // Per-header classification: { kind, key?, garmentIdx?, field? }
+            const headerMap = [];
+            // Detected garments per column group. Each has { id, label, hasBackPrint, hasFrontPrint, hasQty }
+            const detectedGarments = [];
 
-            // Map common Excel column names to standard field names
+            // Helper: extract garment label from a header like "T-shirt Size" → "T-shirt"
+            const extractGarmentLabel = (headerLower, field) => {
+                // Strip the field keyword from the header to get the garment label
+                const cleaned = headerLower
+                    .replace(/\b(size|sizes|back\s*print|front\s*print|qty|quantity|back\s*line\s*\d*)\b/gi, '')
+                    .replace(/[:\-()]/g, ' ')
+                    .replace(/\s+/g, ' ')
+                    .trim();
+                return cleaned || (field === 'size' ? 'Garment' : '');
+            };
+            const getOrCreateGarment = (label) => {
+                const normalized = (label || 'Garment').trim() || 'Garment';
+                let g = detectedGarments.find(dg => dg.label.toLowerCase() === normalized.toLowerCase());
+                if (!g) {
+                    g = {
+                        id: 'g-' + Math.random().toString(36).substr(2, 8),
+                        label: normalized,
+                        style: '', color: '',
+                        hasBackPrint: false, hasFrontPrint: false, hasQty: false, hasBackLines: false
+                    };
+                    detectedGarments.push(g);
+                }
+                return g;
+            };
+
+            // Classify each header
             for (const header of headers) {
-                if (!header) continue;
+                if (!header) { headerMap.push({ kind: 'skip' }); continue; }
                 const lower = header.toLowerCase();
-                let fieldName = header;
 
-                if (lower.includes('last name') || lower === 'name') fieldName = 'name';
-                else if (lower.includes('first name')) fieldName = 'firstName';
-                else if (lower.includes('jersey') || lower === 'number' || lower === '#') fieldName = 'number';
-                else if (lower.includes('size')) fieldName = 'size';
-                else if (lower.includes('style')) fieldName = 'style';
-                else if (lower.includes('color')) fieldName = 'color';
-                else if (lower.includes('qty') || lower === 'quantity') fieldName = 'qty';
-                else if (lower.includes('back line 1') || lower.includes('back print')) fieldName = 'backLine1';
-                else if (lower.includes('back line 2')) fieldName = 'backLine2';
-                else if (lower.includes('back line 3')) fieldName = 'backLine3';
-                else if (lower.includes('back line 4')) fieldName = 'backLine4';
-                else if (lower.includes('front')) fieldName = 'frontPrint';
-                else if (lower === 'back') fieldName = 'backPrint';
-                else if (lower.includes('goes by') || lower.includes('nickname')) fieldName = 'nickname';
-                else if (lower.includes('note')) fieldName = 'notes';
-                else if (lower.includes('item')) fieldName = 'item';
+                // Person columns
+                if (lower.includes('last name') || lower === 'name') { headerMap.push({ kind: 'person', key: 'name' }); continue; }
+                if (lower.includes('first name')) { headerMap.push({ kind: 'person', key: 'firstName' }); continue; }
+                if (lower.includes('full name') || lower.includes('handout') || (lower.includes('name') && lower.includes('student'))) { headerMap.push({ kind: 'person', key: 'fullName' }); continue; }
+                if (lower.includes('jersey') || lower === 'number' || lower === '#') { headerMap.push({ kind: 'person', key: 'number' }); continue; }
+                if (lower.includes('goes by') || lower.includes('nickname')) { headerMap.push({ kind: 'person', key: 'nickname' }); continue; }
+                if (lower.includes('note')) { headerMap.push({ kind: 'person', key: 'notes' }); continue; }
 
-                columns.push(fieldName);
-                columnLabels.push(header);
+                // Meta columns — used to enrich garments, not displayed as rows
+                if (lower.includes('style') || lower.includes('item')) { headerMap.push({ kind: 'meta', key: 'style' }); continue; }
+                if (lower.includes('color')) { headerMap.push({ kind: 'meta', key: 'color' }); continue; }
+
+                // Garment-specific columns
+                if (lower.includes('size')) {
+                    const g = getOrCreateGarment(extractGarmentLabel(lower, 'size') || 'Garment');
+                    headerMap.push({ kind: 'garment', garmentId: g.id, field: 'size' });
+                    continue;
+                }
+                if (lower.includes('back print') || lower.match(/name on back/)) {
+                    const g = getOrCreateGarment(extractGarmentLabel(lower, 'backPrint') || 'Garment');
+                    g.hasBackPrint = true;
+                    headerMap.push({ kind: 'garment', garmentId: g.id, field: 'backPrint' });
+                    continue;
+                }
+                if (lower.includes('front print') || lower.startsWith('front')) {
+                    const g = getOrCreateGarment(extractGarmentLabel(lower, 'frontPrint') || 'Garment');
+                    g.hasFrontPrint = true;
+                    headerMap.push({ kind: 'garment', garmentId: g.id, field: 'frontPrint' });
+                    continue;
+                }
+                if (lower.includes('qty') || lower === 'quantity') {
+                    const g = getOrCreateGarment(extractGarmentLabel(lower, 'qty') || 'Garment');
+                    g.hasQty = true;
+                    headerMap.push({ kind: 'garment', garmentId: g.id, field: 'qty' });
+                    continue;
+                }
+                const bl = lower.match(/back\s*line\s*(\d)/);
+                if (bl) {
+                    const g = getOrCreateGarment(extractGarmentLabel(lower, 'backLine') || 'Garment');
+                    g.hasBackLines = true;
+                    headerMap.push({ kind: 'garment', garmentId: g.id, field: 'backLine' + bl[1] });
+                    continue;
+                }
+
+                // Unknown header — treat as custom column (with the raw label)
+                const ccId = 'cc-' + Math.random().toString(36).substr(2, 8);
+                headerMap.push({ kind: 'custom', key: ccId, label: header });
             }
 
-            // Detect garment style/color from data rows
-            let garmentStyle = '';
-            let garmentColor = '';
-            const styleIdx = columns.indexOf('style');
-            const colorIdx = columns.indexOf('color');
-
-            for (let i = headerRowIdx + 1; i < data.length; i++) {
-                const row = data[i];
-                if (styleIdx >= 0 && row[styleIdx] && !garmentStyle) {
-                    garmentStyle = String(row[styleIdx]).trim();
-                }
-                if (colorIdx >= 0 && row[colorIdx] && !garmentColor) {
-                    garmentColor = String(row[colorIdx]).trim();
-                }
-                if (garmentStyle && garmentColor) break;
+            // If nothing was detected as a garment (no size column), still create a default one
+            if (detectedGarments.length === 0) {
+                detectedGarments.push({
+                    id: 'g-' + Math.random().toString(36).substr(2, 8),
+                    label: 'Garment', style: '', color: '',
+                    hasBackPrint: false, hasFrontPrint: false, hasQty: false, hasBackLines: false
+                });
             }
 
-            // Detect default values (same value in every data row)
-            const defaults = {};
-            for (let colIdx = 0; colIdx < columns.length; colIdx++) {
-                const col = columns[colIdx];
-                if (['style', 'color', 'number'].includes(col)) continue;
+            // Collect person columns + custom columns in detected order
+            const personColumns = [];
+            const customColumns = [];
+            for (const h of headerMap) {
+                if (h.kind === 'person' && !personColumns.includes(h.key)) personColumns.push(h.key);
+                if (h.kind === 'custom') customColumns.push({ id: h.key, label: h.label });
+            }
+            if (personColumns.length === 0) personColumns.push('name');
 
-                const values = [];
+            // Enrich detected garments with style/color from meta columns (if present)
+            const metaStyleIdx = headerMap.findIndex(h => h.kind === 'meta' && h.key === 'style');
+            const metaColorIdx = headerMap.findIndex(h => h.kind === 'meta' && h.key === 'color');
+            if (metaStyleIdx >= 0 || metaColorIdx >= 0) {
                 for (let i = headerRowIdx + 1; i < data.length; i++) {
-                    const val = data[i][colIdx];
-                    if (val != null && val !== '') values.push(String(val).trim());
-                }
-                if (values.length >= 2) {
-                    const unique = [...new Set(values)];
-                    if (unique.length === 1) {
-                        defaults[col] = unique[0];
-                    }
-                }
-            }
-
-            // Filter out style/color from display columns if they're uniform
-            const displayColumns = columns.filter(c => c !== 'style' && c !== 'color' && c !== 'item');
-            const displayLabels = [];
-            for (let i = 0; i < columns.length; i++) {
-                if (displayColumns.includes(columns[i])) {
-                    displayLabels.push(columnLabels[i]);
+                    const row = data[i];
+                    const style = metaStyleIdx >= 0 ? String(row[metaStyleIdx] || '').trim() : '';
+                    const color = metaColorIdx >= 0 ? String(row[metaColorIdx] || '').trim() : '';
+                    if (style && !detectedGarments[0].style) detectedGarments[0].style = style;
+                    if (color && !detectedGarments[0].color) detectedGarments[0].color = color;
+                    if (detectedGarments[0].style && detectedGarments[0].color) break;
                 }
             }
 
             groups.push({
                 id: groupId,
                 name: sheetName,
-                garmentStyle,
-                garmentColor,
-                columns: displayColumns,
-                columnLabels: displayLabels,
-                defaults
+                garments: detectedGarments,
+                personColumns,
+                customColumns,
+                defaults: {}
             });
 
-            // Parse data rows
+            // Parse data rows into v2-shape entries
             let lineNumber = 1;
             for (let i = headerRowIdx + 1; i < data.length; i++) {
                 const row = data[i];
-                // Skip empty rows and summary rows
                 const nonEmpty = row.filter(c => c !== '' && c != null).length;
                 if (nonEmpty < 2) continue;
 
-                // Skip rows that look like totals/notes
                 const firstCell = String(row[0] || '').toLowerCase();
                 if (firstCell.includes('total') || firstCell.includes('update') || firstCell === '') {
-                    // Check if this is just a row number being empty but has data
                     if (nonEmpty < 3) continue;
                 }
 
-                const entry = { groupId, lineNumber };
-                for (let colIdx = 0; colIdx < columns.length; colIdx++) {
-                    const col = columns[colIdx];
-                    if (col === 'style' || col === 'color' || col === 'item') continue;
+                const entry = { groupId, lineNumber, garmentData: {}, custom: {} };
+                for (let colIdx = 0; colIdx < headerMap.length; colIdx++) {
+                    const h = headerMap[colIdx];
+                    if (!h || h.kind === 'skip' || h.kind === 'meta') continue;
                     const val = row[colIdx];
-                    if (val != null && val !== '') {
-                        entry[col] = String(val).trim();
+                    if (val == null || val === '') continue;
+                    const strVal = String(val).trim();
+
+                    if (h.kind === 'person') {
+                        entry[h.key] = strVal;
+                    } else if (h.kind === 'garment') {
+                        if (!entry.garmentData[h.garmentId]) entry.garmentData[h.garmentId] = {};
+                        entry.garmentData[h.garmentId][h.field] = strVal;
+                    } else if (h.kind === 'custom') {
+                        entry.custom[h.key] = strVal;
                     }
                 }
 
                 // Only add if the row has meaningful data
-                if (entry.name || entry.number || entry.size || entry.backLine1 || entry.qty) {
+                const hasGarmentData = Object.values(entry.garmentData).some(gd => Object.keys(gd).length > 0);
+                if (entry.name || entry.fullName || entry.number || hasGarmentData) {
                     rows.push(entry);
                     lineNumber++;
                 }
@@ -453,39 +499,65 @@ router.post('/rosters/parse-excel', upload.single('file'), async (req, res) => {
 // =====================
 
 const OCR_PROMPT = `You are extracting roster/names data from an image for a custom apparel company.
-This image may be a handwritten roster, a printed form, a screenshot, or a photo of a list.
+This image may be a handwritten roster, a printed form, a screenshot, a photo, or a structured table.
 
-Extract ALL person entries you can see. For each person, extract whatever fields are visible:
-- name (last name or full name)
-- number (jersey number, player number)
-- size (shirt/garment size like S, M, L, XL, 2XL, etc.)
-- Any back print text or custom lines
+FIRST — Detect the layout:
+- Does the table have ONE size column, or MULTIPLE size columns (e.g. "T-shirt Size" AND "Hoodie Size")?
+- If multiple, each represents a different garment the same person is getting.
+- Are there garment-specific columns like "Name on Back of Hoodie" (back print only on that garment)?
+
+Extract ALL person entries. For each person, capture whatever fields are visible:
+- name (last name — if only full name is given, put last name here and full name in fullName)
+- number (jersey number)
+- fullName (if a column like "Full Name", "Name of Student", "Handout Name" exists)
+- per-garment sizes (one value per garment type)
+- per-garment back print text (only for garments that have a back-print column)
+- notes (formatting instructions like "Space between DE and J", or anything unusual)
 
 Also identify:
-- What type of group this appears to be (e.g. "Players", "Coaches", "Staff", "Team")
-- The team/organization name if visible
+- The team / organization name if visible (put in teamName)
+- A reasonable group label (e.g. "Players", "Staff") if the image suggests one (groupName)
 
-Return ONLY valid JSON (no markdown fencing, no explanation):
+Return ONLY valid JSON — no markdown fencing, no explanation.
+
+SHAPE when multiple garments detected:
+{
+  "teamName": "string or null",
+  "groupName": "string or null",
+  "garments": [
+    { "label": "T-shirt", "hasBackPrint": false },
+    { "label": "Hoodie",  "hasBackPrint": true  }
+  ],
+  "entries": [
+    {
+      "name": "Sander",
+      "fullName": "Addilyn Sander",
+      "number": null,
+      "sizes": { "T-shirt": "Youth Medium", "Hoodie": "Youth Medium" },
+      "backPrints": { "Hoodie": "SANDER" },
+      "notes": null
+    }
+  ],
+  "rawText": "full extracted text as-is"
+}
+
+SHAPE when only one garment / size column detected (backward-compatible, preferred for simple rosters):
 {
   "teamName": "string or null",
   "groupName": "string or null",
   "entries": [
-    {
-      "name": "string",
-      "number": "string or null",
-      "size": "string or null",
-      "backPrint": "string or null",
-      "notes": "string or null"
-    }
+    { "name": "Smith", "number": "6", "size": "L", "backPrint": null, "notes": null }
   ],
-  "rawText": "the full extracted text as-is for reference"
+  "rawText": "..."
 }
 
 IMPORTANT:
-- Extract EVERY person/name you can read, even if partially legible
-- For unclear text, make your best guess and add "(uncertain)" in notes
-- Sizes should be normalized: Small→S, Medium→M, Large→L, X-Large→XL, XX-Large→2XL
-- Numbers should be digits only (not spelled out)`;
+- Use the multi-garment shape ONLY if the image clearly shows 2+ size columns or 2+ garment types per person. Otherwise use the simple shape.
+- The "label" values in "garments" MUST match the keys used in each entry's "sizes"/"backPrints" map exactly.
+- Extract EVERY person you can read, even if partially legible.
+- For unclear text, make your best guess and add "(uncertain)" in notes.
+- Keep sizes verbatim when they are full words (e.g. "Youth Medium", "Adult Small") — customers often want this preserved. Only abbreviate when the source already uses abbreviations (S, M, L, XL, 2XL).
+- Numbers should be digits only.`;
 
 router.post('/rosters/ocr', upload.single('file'), async (req, res) => {
     try {
@@ -544,6 +616,7 @@ router.post('/rosters/ocr', upload.single('file'), async (req, res) => {
             parsed: true,
             teamName: parsed.teamName || null,
             groupName: parsed.groupName || null,
+            garments: Array.isArray(parsed.garments) ? parsed.garments : null,
             entries: parsed.entries || [],
             rawText: parsed.rawText || '',
             totalExtracted: (parsed.entries || []).length
