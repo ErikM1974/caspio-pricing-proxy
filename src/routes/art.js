@@ -858,7 +858,8 @@ router.put('/art-requests/:designId/fields', express.json(), async (req, res) =>
         'NOTES',
         'Prelim_Charges', 'Additional_Services',
         'First_name', 'Last_name', 'Email_Contact', 'Phone',
-        'Mockup_1_Note', 'Mockup_2_Note', 'Mockup_3_Note'
+        'Mockup_1_Note', 'Mockup_2_Note', 'Mockup_3_Note',
+        'Is_Rush', 'Rush_Requested_At'
     ];
 
     const updateData = {};
