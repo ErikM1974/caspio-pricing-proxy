@@ -8,6 +8,12 @@ const { requireCrmApiSecret } = require('./src/middleware');
 
 const app = express();
 
+// Heroku places the real client IP in X-Forwarded-For. Tell Express to trust
+// the first proxy hop so req.ip reflects the actual user, not Heroku's router.
+// Without this, express-rate-limit rate-limits ALL users as if they were one
+// (router IP), causing widespread 429s when a single dashboard is chatty.
+app.set('trust proxy', 1);
+
 // Extract configuration values
 const PORT = config.server.port;
 const caspioDomain = config.caspio.domain;

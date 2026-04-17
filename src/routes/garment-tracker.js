@@ -374,7 +374,8 @@ router.post('/garment-tracker/archive-from-live', express.json(), async (req, re
         let updated = 0;
         const errors = [];
 
-        for (const record of liveRecords) {
+        // Worker: archive one record (check-then-upsert). Returns 'created' | 'updated' | 'error'
+        const archiveOne = async (record) => {
             try {
                 const quarterInfo = getQuarterFromDate(record.DateInvoiced);
 
@@ -406,7 +407,6 @@ router.post('/garment-tracker/archive-from-live', express.json(), async (req, re
                 };
 
                 if (existing.length > 0) {
-                    // Update existing
                     const updateUrl = `${caspioApiBaseUrl}/tables/${ARCHIVE_TABLE_NAME}/records?q.where=${encodeURIComponent(whereClause)}`;
                     await axios({
                         method: 'put',
@@ -418,9 +418,8 @@ router.post('/garment-tracker/archive-from-live', express.json(), async (req, re
                         data: archiveData,
                         timeout: 15000
                     });
-                    updated++;
+                    return 'updated';
                 } else {
-                    // Create new
                     const createUrl = `${caspioApiBaseUrl}/tables/${ARCHIVE_TABLE_NAME}/records`;
                     await axios({
                         method: 'post',
@@ -432,7 +431,7 @@ router.post('/garment-tracker/archive-from-live', express.json(), async (req, re
                         data: archiveData,
                         timeout: 15000
                     });
-                    created++;
+                    return 'created';
                 }
             } catch (err) {
                 const errorDetail = err.response?.data?.Message || err.response?.data || err.message;
@@ -443,6 +442,21 @@ router.post('/garment-tracker/archive-from-live', express.json(), async (req, re
                     error: err.message,
                     detail: errorDetail
                 });
+                return 'error';
+            }
+        };
+
+        // Process in batches of 5 concurrent workers. Conservative — keeps us well
+        // under Caspio's rate limits while cutting sequential latency by ~5x. For
+        // ~200 records this brings total runtime from ~16s down to ~3s, leaving
+        // plenty of headroom under Heroku's 30s router timeout.
+        const CONCURRENCY = 5;
+        for (let i = 0; i < liveRecords.length; i += CONCURRENCY) {
+            const batch = liveRecords.slice(i, i + CONCURRENCY);
+            const results = await Promise.all(batch.map(archiveOne));
+            for (const r of results) {
+                if (r === 'created') created++;
+                else if (r === 'updated') updated++;
             }
         }
 
