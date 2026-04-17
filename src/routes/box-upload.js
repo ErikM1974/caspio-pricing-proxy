@@ -790,9 +790,42 @@ router.get('/box/folder-files', async (req, res) => {
  */
 router.get('/box/thumbnail/:fileId', async (req, res) => {
     const { fileId } = req.params;
+    // ?size=large → 1024x1024 JPG via Representations (used by lightbox/full-view).
+    // Default → 256x256 PNG (used by gallery grids).
+    const wantLarge = req.query.size === 'large';
+
     try {
         const token = await getBoxAccessToken();
-        // Use Box's simple thumbnail endpoint — returns image bytes directly
+
+        // Large path: skip PNG thumbnail endpoint (caps at 320x320) and go straight to
+        // Box's Representations API for a 1024x1024 JPG. Works for JPG/PNG/PSD/AI/PDF alike.
+        if (wantLarge) {
+            const repResp = await axios.get(`${BOX_API_BASE}/files/${fileId}`, {
+                params: { fields: 'representations' },
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'X-Rep-Hints': '[jpg?dimensions=1024x1024]'
+                },
+                timeout: 8000
+            });
+            const reps = repResp.data.representations?.entries || [];
+            const jpgRep = reps.find(r => r.representation === 'jpg' && r.status?.state === 'success');
+            if (jpgRep?.content?.url_template) {
+                const repUrl = jpgRep.content.url_template.replace('{+asset_path}', '');
+                const imgResp = await axios.get(repUrl, {
+                    headers: { 'Authorization': `Bearer ${token}` },
+                    responseType: 'arraybuffer',
+                    timeout: 15000
+                });
+                res.set('Content-Type', 'image/jpeg');
+                res.set('Cache-Control', 'public, max-age=3600');
+                return res.send(Buffer.from(imgResp.data));
+            }
+            // Representation not ready — fall through to small thumbnail as graceful fallback
+            // (better to show something than nothing)
+        }
+
+        // Default path: small thumbnail for gallery grids
         const thumbResp = await axios.get(`${BOX_API_BASE}/files/${fileId}/thumbnail.png`, {
             params: { min_height: 256, min_width: 256 },
             headers: { 'Authorization': `Bearer ${token}` },
