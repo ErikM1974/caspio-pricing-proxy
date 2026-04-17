@@ -565,31 +565,31 @@ router.post('/rosters/ocr', upload.single('file'), async (req, res) => {
             return res.status(400).json({ success: false, error: 'No file uploaded' });
         }
 
-        const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+        const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf'];
         if (!allowedTypes.includes(req.file.mimetype)) {
             return res.status(400).json({
                 success: false,
-                error: `Unsupported file type: ${req.file.mimetype}. Use JPEG, PNG, GIF, or WebP.`
+                error: `Unsupported file type: ${req.file.mimetype}. Use JPEG, PNG, GIF, WebP, or PDF.`
             });
         }
 
         const client = getAnthropicClient();
-        const base64Image = req.file.buffer.toString('base64');
+        const base64Data = req.file.buffer.toString('base64');
+        const isPdf = req.file.mimetype === 'application/pdf';
+
+        // Claude 4.5 accepts native PDFs via document blocks — both the text
+        // layer and visual layout come through, no rasterization needed.
+        const sourceBlock = isPdf
+            ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64Data } }
+            : { type: 'image',    source: { type: 'base64', media_type: req.file.mimetype, data: base64Data } };
 
         const response = await client.messages.create({
             model: 'claude-haiku-4-5-20251001',
-            max_tokens: 4096,
+            max_tokens: 8192,
             messages: [{
                 role: 'user',
                 content: [
-                    {
-                        type: 'image',
-                        source: {
-                            type: 'base64',
-                            media_type: req.file.mimetype,
-                            data: base64Image
-                        }
-                    },
+                    sourceBlock,
                     { type: 'text', text: OCR_PROMPT }
                 ]
             }]
