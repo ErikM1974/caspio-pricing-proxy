@@ -279,14 +279,21 @@ router.post('/mockups', async (req, res) => {
         const token = await getCaspioAccessToken();
         const url = `${caspioApiBaseUrl}/tables/${MOCKUPS_TABLE}/records`;
 
+        // Strip Caspio-managed / read-only fields before insert.
+        // AlterReadOnlyData (500) from Caspio if we send these.
+        // - PK_ID, ID: auto-number primary keys
+        // - Submitted_Date: Caspio Timestamp type auto-populates on insert
+        // - Rush_Requested_At: same — Timestamp field, read-only via REST API
+        //   (front-end stops sending this in mockup-submit-form.js but strip defensively too)
+        const READ_ONLY_FIELDS = ['PK_ID', 'ID', 'Submitted_Date', 'Rush_Requested_At'];
+        const data = { ...req.body };
+        READ_ONLY_FIELDS.forEach(f => delete data[f]);
+
         // Set defaults for new records
-        const submittedDate = new Date().toISOString();
-        const data = {
-            ...req.body,
-            Status: req.body.Status || 'Submitted',
-            Submitted_Date: req.body.Submitted_Date || submittedDate,
-            Revision_Count: 0
-        };
+        data.Status = data.Status || 'Submitted';
+        data.Revision_Count = 0;
+        // Submitted_Date intentionally NOT set — Caspio auto-populates Timestamp fields
+        // on insert. Leaving this to Caspio avoids the AlterReadOnlyData error.
 
         // Insert record — Caspio POST returns 201 with Location header containing the new record URL
         const insertResp = await axios.post(url, data, {
