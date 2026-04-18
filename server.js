@@ -328,6 +328,11 @@ const mockupRoutes = require('./src/routes/mockup-routes');
 app.use('/api', mockupRoutes);
 console.log('✓ Digitizing Mockup routes loaded');
 
+// Transfer Orders Routes (Bradley's Supacolor workflow — heat-transfer subcontractor)
+const transferOrdersRoutes = require('./src/routes/transfer-orders');
+app.use('/api', transferOrdersRoutes);
+console.log('✓ Transfer Orders routes loaded');
+
 // EMB Design Files Routes (parsed EMB metadata + colorways)
 const embDesignRoutes = require('./src/routes/emb-design-routes');
 app.use('/api', embDesignRoutes);
