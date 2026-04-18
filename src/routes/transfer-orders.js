@@ -51,13 +51,14 @@ async function generateTransferId(token) {
     const dd = String(now.getDate()).padStart(2, '0');
     const prefix = `ST-${yy}${mm}${dd}-`;
 
-    const url = `${caspioApiBaseUrl}/tables/${TABLE}/records`;
+    // Build URL manually — axios's params: auto-encoding mangles the % in LIKE patterns
+    // (Caspio sees %25 as literal, not URL-decoded back to %)
+    const whereClause = `ID_Transfer LIKE '${prefix}%'`;
+    const url = `${caspioApiBaseUrl}/tables/${TABLE}/records` +
+        `?q.where=${encodeURIComponent(whereClause)}` +
+        `&q.orderBy=${encodeURIComponent('ID_Transfer DESC')}` +
+        `&q.pageSize=1`;
     const resp = await axios.get(url, {
-        params: {
-            'q.where': `ID_Transfer LIKE '${prefix}%'`,
-            'q.orderBy': 'ID_Transfer DESC',
-            'q.pageSize': 1
-        },
         headers: { 'Authorization': `Bearer ${token}` },
         timeout: 15000
     });
