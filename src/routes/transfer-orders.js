@@ -273,6 +273,11 @@ router.post('/transfer-orders', async (req, res) => {
         const data = { ...req.body };
         READ_ONLY_FIELDS.forEach(f => delete data[f]);
 
+        // Requested_By_Name is a helper for the initial note — not a column.
+        // Pull it out before the Caspio insert (ColumnNotFound otherwise).
+        const requestedByName = data.Requested_By_Name;
+        delete data.Requested_By_Name;
+
         // Validate minimally
         if (!data.Requested_By) {
             return res.status(400).json({ success: false, error: 'Missing Requested_By' });
@@ -311,7 +316,7 @@ router.post('/transfer-orders', async (req, res) => {
             Note_Type: 'status_change',
             Note_Text: `Transfer request created. Status: ${data.Status}.${data.File_Notes ? ' Notes: ' + data.File_Notes : ''}`,
             Author_Email: data.Requested_By,
-            Author_Name: data.Requested_By_Name || data.Requested_By
+            Author_Name: requestedByName || data.Requested_By
         });
 
         console.log(`Transfer created: ${idTransfer} (${data.Company_Name || 'n/a'}, design ${data.Design_Number || 'n/a'}, by ${data.Requested_By})`);
