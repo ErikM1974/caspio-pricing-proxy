@@ -165,4 +165,130 @@ router.post('/extract-shopworks', async (req, res) => {
     }
 });
 
+// ── Supacolor Screenshot Extraction ─────────────────────────────────
+// Bradley pastes a screenshot of a Supacolor order page (integrate.supacolor.com/dashboard/jobs/<id>)
+// We extract the job #, requested ship date, tracking # (when present) so he doesn't retype.
+
+const SUPACOLOR_EXTRACTION_PROMPT = `You are extracting data from a Supacolor integrate dashboard screenshot. Supacolor is a heat-transfer printing subcontractor. The screenshot shows an order details page with sections like: a big "#" job number at the top, Job Details (with PO), Timeline (with Entered / Requested Ship / Shipped dates), Joblines (printed transfer line items), Shipping (address + carrier + method), and History.
+
+Extract ONLY the fields below. Return null for anything not visible.
+
+Fields to find:
+
+- **supacolorJobNumber**: The big 6-digit number at the top of the page, usually shown as "#637713" or similar. Return just the digits (e.g. "637713"), no "#".
+- **shopworksPO**: Under "Job Details", a label like "PO: 112659 BW". Return the full PO value including any suffix (e.g. "112659 BW").
+- **customerName**: The line under PO in Job Details (e.g. "Smith Brothers", "Holy Family School", "NW Utility", "Selden's").
+- **estimatedShipDate**: Under "Timeline", the date labeled "Requested Ship" (e.g. "Apr 20, 2026"). Normalize to ISO format YYYY-MM-DD (e.g. "2026-04-20").
+- **actualShipDate**: Under "Timeline", the date labeled "Shipped" IF it shows a real date (not "Pending"). Normalize to YYYY-MM-DD. Return null if Shipped = Pending.
+- **trackingNumber**: Usually shown on the dashboard home page as a shipment entry with carrier + tracking. If the screenshot shows a FedEx/UPS/USPS tracking number in a "Track" link or similar, return it. Otherwise null.
+- **carrier**: "FedEx", "UPS", "USPS", etc. — only if visible. Otherwise null.
+- **shippingMethod**: e.g. "2 Day Air", "Ground", "Overnight" — shown in the "Shipping" header.
+- **totalAmount**: The order total (e.g. $130.80 → 130.80) as a number, not a string. Look for a "Total" row.
+
+IMPORTANT:
+- Return ONLY valid JSON, no markdown fencing, no explanation.
+- For dates, ALWAYS output ISO format YYYY-MM-DD. If you see "Apr 20, 2026", return "2026-04-20".
+- For supacolorJobNumber, strip the "#" prefix.
+- If the screenshot is not a Supacolor page or no fields are recognizable, return {"error": "not_a_supacolor_page"}.
+
+JSON schema:
+{
+  "supacolorJobNumber": "string|null",
+  "shopworksPO": "string|null",
+  "customerName": "string|null",
+  "estimatedShipDate": "string|null",
+  "actualShipDate": "string|null",
+  "trackingNumber": "string|null",
+  "carrier": "string|null",
+  "shippingMethod": "string|null",
+  "totalAmount": "number|null"
+}`;
+
+// POST /api/vision/extract-supacolor
+router.post('/extract-supacolor', async (req, res) => {
+    const startTime = Date.now();
+
+    try {
+        const { image } = req.body;
+
+        if (!image) {
+            return res.status(400).json({ error: 'Missing image field. Send base64 data URI.' });
+        }
+
+        // Parse data URI (same pattern as extract-shopworks)
+        let mediaType = 'image/png';
+        let base64Data = image;
+
+        if (image.startsWith('data:')) {
+            const match = image.match(/^data:(image\/\w+);base64,(.+)$/);
+            if (!match) {
+                return res.status(400).json({ error: 'Invalid data URI format. Expected data:image/*;base64,...' });
+            }
+            mediaType = match[1];
+            base64Data = match[2];
+        }
+
+        const client = getClient();
+        const response = await client.messages.create({
+            model: MODEL_ID,
+            max_tokens: 1024,
+            messages: [{
+                role: 'user',
+                content: [
+                    {
+                        type: 'image',
+                        source: {
+                            type: 'base64',
+                            media_type: mediaType,
+                            data: base64Data
+                        }
+                    },
+                    {
+                        type: 'text',
+                        text: SUPACOLOR_EXTRACTION_PROMPT
+                    }
+                ]
+            }]
+        });
+
+        const responseText = response.content[0].text.trim();
+        let extracted;
+
+        try {
+            const jsonStr = responseText.replace(/^```json?\s*\n?/i, '').replace(/\n?```\s*$/i, '');
+            extracted = JSON.parse(jsonStr);
+        } catch (parseError) {
+            console.error('[Vision] Failed to parse Supacolor response:', responseText.substring(0, 200));
+            return res.status(500).json({
+                error: 'Failed to parse extraction results',
+                raw: responseText.substring(0, 500)
+            });
+        }
+
+        if (extracted.error === 'not_a_supacolor_page') {
+            return res.status(400).json({
+                success: false,
+                error: 'This doesn\'t look like a Supacolor order page. Paste a screenshot from integrate.supacolor.com.'
+            });
+        }
+
+        const duration = Date.now() - startTime;
+        const filledFields = Object.keys(extracted).filter(k => extracted[k] != null).length;
+        console.log(`[Vision] Supacolor extraction complete in ${duration}ms — job: ${extracted.supacolorJobNumber || 'n/a'}, ${filledFields} fields filled`);
+
+        res.json({
+            success: true,
+            data: extracted,
+            duration
+        });
+
+    } catch (error) {
+        console.error('[Vision] Supacolor extraction error:', error.message);
+        res.status(500).json({
+            error: 'Vision extraction failed',
+            details: error.message
+        });
+    }
+});
+
 module.exports = router;
