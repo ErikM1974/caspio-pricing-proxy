@@ -404,11 +404,25 @@ The screenshot has these sections:
    - Detail string (e.g. "Amount $531.20 paid with card Visa (xxxx-xxxx-xxxx-2562)")
    - Timestamp (e.g. "Apr 17, 2026  12:13 PM")
 
-Extract EVERY visible field. Convert dates to ISO format YYYY-MM-DD HH:MM:SS (24-hour). For dates without time, use 00:00:00.
+**CRITICAL EXTRACTION RULES:**
 
-For payment info, extract from the History "Job Payment Success" event:
-- paymentStatus = "Paid" if Job Payment Success exists, else "Unpaid"
-- paymentMethod = the card description (e.g. "Visa xxxx-xxxx-xxxx-2562")
+1. **Joblines: extract EVERY ROW visible in the Joblines section.** Even if the line has minimal data, include it. The header reads "Joblines (N)" — your output array MUST have exactly N items. If you see "Joblines (4)", return 4 joblines. If you see "Joblines (2)", return 2. Do NOT return an empty array unless the section is genuinely empty.
+
+2. **History: extract EVERY ROW visible in the History section.** Same rule — header "History (N)" means N events. Common event types: "Created", "Job Payment Success", "Job Dispatched". Include even short events like "Created — Creator set via api".
+
+3. **Job Details fields are at the top of the page.** "PO: 112641 BW", "Description: WCTTR" (large text), "Location: Los Angeles", "Created by Bradley Wright". Extract all four — they are short labels with values right next to them.
+
+4. **Timeline dates** are three columns: Entered / Requested Ship / Shipped, each with a date below. If a step has no date filled, use null. The Shipped date is critical.
+
+5. **Shipping panel** has Method (small text after "Shipping" header, e.g. "2 Day Air"), Address (multi-line block), Contact name/phone/email, and Tracking number (often a clickable blue link).
+
+6. Convert dates to ISO format YYYY-MM-DD HH:MM:SS (24-hour). For dates without time, use 00:00:00. Apr 17, 2026 → 2026-04-17 00:00:00. "Apr 17, 2026  12:13 PM" → 2026-04-17 12:13:00.
+
+7. For payment: extract from the History "Job Payment Success" event:
+   - paymentStatus = "Paid" if Job Payment Success exists, else "Unpaid"
+   - paymentMethod = the card description (e.g. "Visa xxxx-xxxx-xxxx-2562")
+
+8. **Be aggressive about extraction. If you can READ a value on the page, EXTRACT it.** Returning null is only correct when the field is genuinely absent or illegible.
 
 Return ONLY valid JSON, no markdown fencing.
 
