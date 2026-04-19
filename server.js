@@ -333,6 +333,11 @@ const transferOrdersRoutes = require('./src/routes/transfer-orders');
 app.use('/api', transferOrdersRoutes);
 console.log('✓ Transfer Orders routes loaded');
 
+// Supacolor Jobs Routes (local mirror of Supacolor's job dashboard)
+const supacolorJobsRoutes = require('./src/routes/supacolor-jobs');
+app.use('/api', supacolorJobsRoutes);
+console.log('✓ Supacolor Jobs routes loaded');
+
 // EMB Design Files Routes (parsed EMB metadata + colorways)
 const embDesignRoutes = require('./src/routes/emb-design-routes');
 app.use('/api', embDesignRoutes);

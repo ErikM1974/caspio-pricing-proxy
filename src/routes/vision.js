@@ -291,4 +291,227 @@ router.post('/extract-supacolor', async (req, res) => {
     }
 });
 
+// ── Supacolor JOBS LIST (bulk backfill) ─────────────────────────────────
+
+const SUPACOLOR_JOBS_LIST_PROMPT = `You are extracting data from a screenshot of the Supacolor "Jobs" list page (integrate.supacolor.com/dashboard/jobs).
+
+The screenshot shows a table of jobs. Each row contains:
+- Job # (e.g. "#637351") — strip the leading "#"
+- PO (e.g. "112641 BW")
+- Description (e.g. "WCTTR", "Takehara", "Downtown Tacoma Cleaners")
+- Status (e.g. "Closed", "Open")
+- Shipped date (e.g. "Apr 17, 2026")
+
+Extract EVERY visible row in the table. Convert dates to ISO format YYYY-MM-DD (e.g. "Apr 17, 2026" → "2026-04-17"). Use null for any missing field.
+
+Return ONLY valid JSON, no markdown fencing, no explanation.
+
+If this isn't a Supacolor jobs list screenshot, return: { "error": "not_a_supacolor_jobs_list" }
+
+JSON schema:
+{
+  "jobs": [
+    {
+      "supacolorJobNumber": "string",
+      "poNumber": "string|null",
+      "description": "string|null",
+      "status": "Open|Closed|Cancelled|null",
+      "dateShipped": "YYYY-MM-DD|null"
+    }
+  ]
+}`;
+
+// POST /api/vision/extract-supacolor-jobs-list
+router.post('/extract-supacolor-jobs-list', async (req, res) => {
+    const startTime = Date.now();
+    try {
+        const { image } = req.body;
+        if (!image) return res.status(400).json({ error: 'Missing image field. Send base64 data URI.' });
+
+        let mediaType = 'image/png';
+        let base64Data = image;
+        if (image.startsWith('data:')) {
+            const match = image.match(/^data:(image\/\w+);base64,(.+)$/);
+            if (!match) return res.status(400).json({ error: 'Invalid data URI format.' });
+            mediaType = match[1];
+            base64Data = match[2];
+        }
+
+        const client = getClient();
+        const response = await client.messages.create({
+            model: MODEL_ID,
+            max_tokens: 4096,
+            messages: [{
+                role: 'user',
+                content: [
+                    { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64Data } },
+                    { type: 'text', text: SUPACOLOR_JOBS_LIST_PROMPT }
+                ]
+            }]
+        });
+
+        const responseText = response.content[0].text.trim();
+        let extracted;
+        try {
+            const jsonStr = responseText.replace(/^```json?\s*\n?/i, '').replace(/\n?```\s*$/i, '');
+            extracted = JSON.parse(jsonStr);
+        } catch (parseError) {
+            console.error('[Vision] Failed to parse Supacolor jobs-list response:', responseText.substring(0, 200));
+            return res.status(500).json({ error: 'Failed to parse extraction results', raw: responseText.substring(0, 500) });
+        }
+
+        if (extracted.error === 'not_a_supacolor_jobs_list') {
+            return res.status(400).json({ success: false, error: 'This doesn\'t look like a Supacolor jobs list. Paste a screenshot from integrate.supacolor.com/dashboard/jobs.' });
+        }
+
+        const duration = Date.now() - startTime;
+        const jobCount = (extracted.jobs || []).length;
+        console.log(`[Vision] Supacolor jobs-list extraction: ${jobCount} jobs in ${duration}ms`);
+
+        res.json({ success: true, data: extracted, duration });
+    } catch (error) {
+        console.error('[Vision] Supacolor jobs-list error:', error.message);
+        res.status(500).json({ error: 'Vision extraction failed', details: error.message });
+    }
+});
+
+// ── Supacolor JOB DETAIL (single job, full data) ────────────────────────
+
+const SUPACOLOR_JOB_DETAIL_PROMPT = `You are extracting data from a screenshot of a single Supacolor JOB DETAIL page (integrate.supacolor.com/dashboard/jobs/{number}).
+
+The screenshot has these sections:
+
+1. **Header**: Job number (e.g. "#637351"), Status badge ("Closed"/"Open"/"Cancelled")
+
+2. **Job Details card**: PO (e.g. "112641 BW"), Description (e.g. "WCTTR"), Location (e.g. "Los Angeles"), Created by (e.g. "Bradley Wright")
+
+3. **Timeline**: Three dates — Entered, Requested Ship, Shipped (each in "MMM DD, YYYY" format)
+
+4. **Joblines (N)**: A list of line items. Each row has:
+   - Item code (e.g. "WE341568" for transfers, "SHIPPING" for shipping)
+   - Description (e.g. "WCTTR - 11.7\\" FB Retro" or "Shipment 1 fedex")
+   - Detail line below it (e.g. "Dark color fabric  11.7\\" wide x 5.85\\" high | WE_A4")
+   - Color line (sometimes present, e.g. "Safety Yellow")
+   - Right side: Line total (e.g. "$264.00") and "Qty × Unit" (e.g. "80 × $3.30")
+   - For shipping rows, the detail line is the tracking number (e.g. "380598212133")
+
+5. **Subtotal / Total** (currency at the bottom)
+
+6. **Shipping panel**: Method (e.g. "2 Day Air"), Address block (multi-line), Contact name, Phone, Email, Tracking number
+
+7. **History (N)**: A list of events. Each event has:
+   - Event type (e.g. "Created", "Job Payment Success", "Job Dispatched")
+   - Detail string (e.g. "Amount $531.20 paid with card Visa (xxxx-xxxx-xxxx-2562)")
+   - Timestamp (e.g. "Apr 17, 2026  12:13 PM")
+
+Extract EVERY visible field. Convert dates to ISO format YYYY-MM-DD HH:MM:SS (24-hour). For dates without time, use 00:00:00.
+
+For payment info, extract from the History "Job Payment Success" event:
+- paymentStatus = "Paid" if Job Payment Success exists, else "Unpaid"
+- paymentMethod = the card description (e.g. "Visa xxxx-xxxx-xxxx-2562")
+
+Return ONLY valid JSON, no markdown fencing.
+
+If this isn't a Supacolor job detail page, return: { "error": "not_a_supacolor_job_detail" }
+
+JSON schema:
+{
+  "supacolorJobNumber": "string",
+  "poNumber": "string|null",
+  "description": "string|null",
+  "status": "Open|Closed|Cancelled|null",
+  "location": "string|null",
+  "createdByName": "string|null",
+  "dateEntered": "YYYY-MM-DD HH:MM:SS|null",
+  "requestedShipDate": "YYYY-MM-DD HH:MM:SS|null",
+  "dateShipped": "YYYY-MM-DD HH:MM:SS|null",
+  "subtotal": "number|null",
+  "total": "number|null",
+  "paymentStatus": "Paid|Unpaid|null",
+  "paymentMethod": "string|null",
+  "carrier": "string|null",
+  "shippingMethod": "string|null",
+  "trackingNumber": "string|null",
+  "shipToName": "string|null",
+  "shipToAddress": "string|null",
+  "shipToContact": "string|null",
+  "shipToPhone": "string|null",
+  "shipToEmail": "string|null",
+  "joblines": [
+    {
+      "lineOrder": "number",
+      "lineType": "TRANSFER|SHIPPING|FEE",
+      "itemCode": "string",
+      "description": "string|null",
+      "detailLine": "string|null",
+      "color": "string|null",
+      "quantity": "number|null",
+      "unitPrice": "number|null",
+      "lineTotal": "number|null"
+    }
+  ],
+  "history": [
+    {
+      "eventType": "string",
+      "eventDetail": "string|null",
+      "eventAt": "YYYY-MM-DD HH:MM:SS|null"
+    }
+  ]
+}`;
+
+// POST /api/vision/extract-supacolor-job-detail
+router.post('/extract-supacolor-job-detail', async (req, res) => {
+    const startTime = Date.now();
+    try {
+        const { image } = req.body;
+        if (!image) return res.status(400).json({ error: 'Missing image field. Send base64 data URI.' });
+
+        let mediaType = 'image/png';
+        let base64Data = image;
+        if (image.startsWith('data:')) {
+            const match = image.match(/^data:(image\/\w+);base64,(.+)$/);
+            if (!match) return res.status(400).json({ error: 'Invalid data URI format.' });
+            mediaType = match[1];
+            base64Data = match[2];
+        }
+
+        const client = getClient();
+        const response = await client.messages.create({
+            model: MODEL_ID,
+            max_tokens: 4096,
+            messages: [{
+                role: 'user',
+                content: [
+                    { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64Data } },
+                    { type: 'text', text: SUPACOLOR_JOB_DETAIL_PROMPT }
+                ]
+            }]
+        });
+
+        const responseText = response.content[0].text.trim();
+        let extracted;
+        try {
+            const jsonStr = responseText.replace(/^```json?\s*\n?/i, '').replace(/\n?```\s*$/i, '');
+            extracted = JSON.parse(jsonStr);
+        } catch (parseError) {
+            console.error('[Vision] Failed to parse Supacolor job-detail response:', responseText.substring(0, 200));
+            return res.status(500).json({ error: 'Failed to parse extraction results', raw: responseText.substring(0, 500) });
+        }
+
+        if (extracted.error === 'not_a_supacolor_job_detail') {
+            return res.status(400).json({ success: false, error: 'This doesn\'t look like a Supacolor job detail page. Paste a screenshot from integrate.supacolor.com/dashboard/jobs/{number}.' });
+        }
+
+        const duration = Date.now() - startTime;
+        const lineCount = (extracted.joblines || []).length;
+        const histCount = (extracted.history || []).length;
+        console.log(`[Vision] Supacolor job-detail extraction in ${duration}ms — job: ${extracted.supacolorJobNumber || 'n/a'}, ${lineCount} lines, ${histCount} history events`);
+
+        res.json({ success: true, data: extracted, duration });
+    } catch (error) {
+        console.error('[Vision] Supacolor job-detail error:', error.message);
+        res.status(500).json({ error: 'Vision extraction failed', details: error.message });
+    }
+});
+
 module.exports = router;
