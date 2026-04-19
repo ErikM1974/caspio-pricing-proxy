@@ -344,6 +344,12 @@ app.use('/api', embDesignRoutes);
 console.log('✓ EMB Design Files routes loaded');
 
 // ManageOrders Routes (with rate limiting)
+// NOTE: This limiter is mounted at '/api' (not '/api/manageorders') because the
+// router defines its routes as '/manageorders/...'. Without the skip filter
+// below, the limiter counter increments for ANY /api/* request that falls
+// through to this point (including /api/vision/*, /api/supacolor-jobs/*, etc.),
+// which causes false 429s on unrelated endpoints once the budget is spent.
+// The skip filter scopes counting to actual ManageOrders paths only.
 const manageOrdersLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
   max: 30, // Max 30 requests per minute (increased from 10 due to caching)
@@ -354,7 +360,9 @@ const manageOrdersLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   // Trust Heroku's proxy
-  trustProxy: true
+  trustProxy: true,
+  // Only count actual /manageorders/* requests, not all /api/* traffic
+  skip: (req) => !req.path.startsWith('/manageorders/')
 });
 const manageOrdersRoutes = require('./src/routes/manageorders');
 app.use('/api', manageOrdersLimiter, manageOrdersRoutes);
