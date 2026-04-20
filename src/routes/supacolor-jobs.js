@@ -54,6 +54,19 @@ function stripFields(obj, fields) {
 }
 
 /**
+ * Business rule: a job with a tracking number or ship date is shipped → Closed.
+ * Applied to inserts and upserts so paste-backfills of shipped jobs land as Closed,
+ * not Open. Preserves explicit "Cancelled" so manually-cancelled jobs don't flip.
+ */
+function hasShippedSignal(data) {
+    const t = data && data.Tracking_Number;
+    const d = data && data.Date_Shipped;
+    const hasTracking = t != null && String(t).trim() !== '';
+    const hasDateShipped = d != null && String(d).trim() !== '';
+    return hasTracking || hasDateShipped;
+}
+
+/**
  * Fetch a single Supacolor_Jobs record by ID_Job (numeric PK).
  */
 async function fetchJobById(token, idJob) {
@@ -119,6 +132,10 @@ async function insertJob(token, data) {
     // Status is a free-form string — Supacolor uses Open, Closed, Cancelled,
     // Ganged, and possibly others (In Production, Ready to Ship, etc.)
     // Caspio's column is Text so any string is fine.
+    // Shipped jobs auto-close: tracking number or ship date means Closed.
+    if (hasShippedSignal(clean) && clean.Status !== 'Cancelled') {
+        clean.Status = 'Closed';
+    }
     const url = `${caspioApiBaseUrl}/tables/${TABLE_JOBS}/records?response=rows`;
     const resp = await axios.post(url, clean, {
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -307,6 +324,12 @@ router.post('/supacolor-jobs/upsert', async (req, res) => {
             }
         });
 
+        // Auto-close override: if incoming has tracking/ship-date, force Status='Closed'
+        // even when a stale Status already exists. Never flips a Cancelled job.
+        if (hasShippedSignal(data) && existing.Status !== 'Cancelled' && existing.Status !== 'Closed') {
+            patch.Status = 'Closed';
+        }
+
         if (Object.keys(patch).length === 0) {
             return res.json({ success: true, job: existing, action: 'noop' });
         }
@@ -361,6 +384,11 @@ router.post('/supacolor-jobs/bulk-upsert', async (req, res) => {
                         if (force) patch[k] = newVal;
                         else if (newVal != null && newVal !== '' && (oldVal == null || oldVal === '')) patch[k] = newVal;
                     });
+                    // Auto-close override: shipped-signal (tracking or ship date) forces Closed,
+                    // even when the pasted Status is stale/Open. Never flips a Cancelled job.
+                    if (hasShippedSignal(data) && existing.Status !== 'Cancelled' && existing.Status !== 'Closed') {
+                        patch.Status = 'Closed';
+                    }
                     if (Object.keys(patch).length === 0) {
                         results.push({ jobNumber: data.Supacolor_Job_Number, action: 'noop', ID_Job: existing.ID_Job });
                         noop++;
