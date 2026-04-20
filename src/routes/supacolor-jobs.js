@@ -116,9 +116,9 @@ async function deleteHistory(token, idJob) {
  */
 async function insertJob(token, data) {
     const clean = stripFields(data, READ_ONLY_JOB_FIELDS);
-    if (clean.Status && !VALID_STATUSES.includes(clean.Status)) {
-        throw new Error(`Invalid Status. Must be one of: ${VALID_STATUSES.join(', ')}`);
-    }
+    // Status is a free-form string — Supacolor uses Open, Closed, Cancelled,
+    // Ganged, and possibly others (In Production, Ready to Ship, etc.)
+    // Caspio's column is Text so any string is fine.
     const url = `${caspioApiBaseUrl}/tables/${TABLE_JOBS}/records?response=rows`;
     const resp = await axios.post(url, clean, {
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -139,9 +139,7 @@ async function insertJob(token, data) {
  */
 async function updateJob(token, idJob, data) {
     const clean = stripFields(data, READ_ONLY_JOB_FIELDS);
-    if (clean.Status && !VALID_STATUSES.includes(clean.Status)) {
-        throw new Error(`Invalid Status. Must be one of: ${VALID_STATUSES.join(', ')}`);
-    }
+    // Status is a free-form string (see insertJob comment).
     if (Object.keys(clean).length === 0) return null;
     const url = `${caspioApiBaseUrl}/tables/${TABLE_JOBS}/records?q.where=ID_Job=${parseInt(idJob, 10)}`;
     await axios.put(url, clean, {
@@ -211,9 +209,14 @@ router.get('/supacolor-jobs/stats', async (req, res) => {
             'q.select': 'Status',
             'q.pageSize': 1000
         });
-        const stats = {};
-        VALID_STATUSES.forEach(s => { stats[s] = 0; });
-        records.forEach(r => { if (stats[r.Status] !== undefined) stats[r.Status]++; });
+        // Active = anything that isn't Closed or Cancelled (covers Open, Ganged,
+        // In Production, Ready to Ship, and any other status Supacolor uses).
+        const stats = { Active: 0, Closed: 0, Cancelled: 0 };
+        records.forEach(r => {
+            if (r.Status === 'Closed') stats.Closed++;
+            else if (r.Status === 'Cancelled') stats.Cancelled++;
+            else stats.Active++;
+        });
         res.json({ success: true, stats, total: records.length });
     } catch (error) {
         console.error('Error fetching supacolor stats:', error.response ? JSON.stringify(error.response.data) : error.message);
