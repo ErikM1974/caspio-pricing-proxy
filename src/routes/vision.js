@@ -492,11 +492,11 @@ router.post('/extract-supacolor-job-detail', async (req, res) => {
 
         const client = getClient();
 
-        async function callVision() {
+        async function callVision(temperature) {
             const response = await client.messages.create({
                 model: MODEL_ID,
                 max_tokens: 4096,
-                temperature: 0,
+                temperature,
                 messages: [{
                     role: 'user',
                     content: [
@@ -522,24 +522,51 @@ router.post('/extract-supacolor-job-detail', async (req, res) => {
             return noLines && noHistory;
         }
 
-        let responseText = await callVision();
-        let extracted;
-        try {
-            extracted = parseJson(responseText);
-        } catch (parseError) {
-            console.error('[Vision] Failed to parse Supacolor job-detail response:', responseText.substring(0, 200));
-            return res.status(500).json({ error: 'Failed to parse extraction results', raw: responseText.substring(0, 500) });
+        // Attempt ladder: temp=0 (fast, deterministic) then temp=0.8 twice
+        // (fresh variance on thin retries — temp=0 retries are useless since
+        // same input + same temperature = same output).
+        const attempts = [
+            { label: 'primary', temperature: 0 },
+            { label: 'retry-1', temperature: 0.8 },
+            { label: 'retry-2', temperature: 0.8 }
+        ];
+
+        let extracted = null;
+        let lastParseError = null;
+        let lastRawResponse = null;
+
+        for (const attempt of attempts) {
+            let responseText;
+            try {
+                responseText = await callVision(attempt.temperature);
+                lastRawResponse = responseText;
+            } catch (e) {
+                console.error(`[Vision] ${attempt.label} call failed:`, e.message);
+                continue;
+            }
+            let parsed;
+            try {
+                parsed = parseJson(responseText);
+            } catch (parseError) {
+                lastParseError = parseError;
+                console.error(`[Vision] ${attempt.label} parse failed:`, responseText.substring(0, 200));
+                continue;
+            }
+            if (!isThin(parsed)) {
+                if (attempt.label !== 'primary') {
+                    console.warn(`[Vision] Supacolor job-detail: ${attempt.label} recovered (thin primary)`);
+                }
+                extracted = parsed;
+                break;
+            }
+            // thin — keep it as a fallback but keep trying
+            extracted = parsed;
+            console.warn(`[Vision] Supacolor job-detail: ${attempt.label} returned thin, continuing`);
         }
 
-        if (isThin(extracted)) {
-            console.warn('[Vision] Supacolor job-detail: thin first pass, retried');
-            const retryText = await callVision();
-            try {
-                const retried = parseJson(retryText);
-                if (!isThin(retried)) extracted = retried;
-            } catch (e) {
-                // keep the first (thin) result if retry parse fails
-            }
+        if (!extracted) {
+            console.error('[Vision] All Supacolor job-detail attempts failed');
+            return res.status(500).json({ error: 'Failed to parse extraction results', raw: (lastRawResponse || '').substring(0, 500) });
         }
 
         if (extracted.error === 'not_a_supacolor_job_detail') {
