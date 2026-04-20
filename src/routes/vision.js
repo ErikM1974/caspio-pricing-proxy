@@ -299,7 +299,7 @@ The screenshot shows a table of jobs. Each row contains:
 - Job # (e.g. "#637351") — strip the leading "#"
 - PO (e.g. "112641 BW")
 - Description (e.g. "WCTTR", "Takehara", "Downtown Tacoma Cleaners")
-- Status (e.g. "Closed", "Open")
+- Status — the exact text of the status badge (e.g. "Open", "Closed", "Cancelled", "Ganged", "In Production"). Copy it VERBATIM. Do NOT map unfamiliar statuses to a smaller set — if the badge says "Ganged", output "Ganged".
 - Shipped date (e.g. "Apr 17, 2026")
 
 Extract EVERY visible row in the table. Convert dates to ISO format YYYY-MM-DD (e.g. "Apr 17, 2026" → "2026-04-17"). Use null for any missing field.
@@ -315,7 +315,7 @@ JSON schema:
       "supacolorJobNumber": "string",
       "poNumber": "string|null",
       "description": "string|null",
-      "status": "Open|Closed|Cancelled|null",
+      "status": "string|null (the exact badge text — do NOT remap)",
       "dateShipped": "YYYY-MM-DD|null"
     }
   ]
@@ -382,7 +382,7 @@ const SUPACOLOR_JOB_DETAIL_PROMPT = `You are extracting data from a screenshot o
 
 The screenshot has these sections:
 
-1. **Header**: Job number (e.g. "#637351"), Status badge ("Closed"/"Open"/"Cancelled")
+1. **Header**: Job number (e.g. "#637351"), Status badge — the exact text shown (e.g. "Open", "Closed", "Cancelled", "Ganged", "In Production"). Copy it VERBATIM. Do NOT map unfamiliar statuses to a smaller set — if the badge says "Ganged", output "Ganged".
 
 2. **Job Details card**: PO (e.g. "112641 BW"), Description (e.g. "WCTTR"), Location (e.g. "Los Angeles"), Created by (e.g. "Bradley Wright")
 
