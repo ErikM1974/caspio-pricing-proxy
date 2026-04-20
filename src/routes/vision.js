@@ -341,6 +341,7 @@ router.post('/extract-supacolor-jobs-list', async (req, res) => {
         const response = await client.messages.create({
             model: MODEL_ID,
             max_tokens: 4096,
+            temperature: 0,
             messages: [{
                 role: 'user',
                 content: [
@@ -490,26 +491,54 @@ router.post('/extract-supacolor-job-detail', async (req, res) => {
         }
 
         const client = getClient();
-        const response = await client.messages.create({
-            model: MODEL_ID,
-            max_tokens: 4096,
-            messages: [{
-                role: 'user',
-                content: [
-                    { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64Data } },
-                    { type: 'text', text: SUPACOLOR_JOB_DETAIL_PROMPT }
-                ]
-            }]
-        });
 
-        const responseText = response.content[0].text.trim();
+        async function callVision() {
+            const response = await client.messages.create({
+                model: MODEL_ID,
+                max_tokens: 4096,
+                temperature: 0,
+                messages: [{
+                    role: 'user',
+                    content: [
+                        { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64Data } },
+                        { type: 'text', text: SUPACOLOR_JOB_DETAIL_PROMPT }
+                    ]
+                }]
+            });
+            return response.content[0].text.trim();
+        }
+
+        function parseJson(responseText) {
+            const jsonStr = responseText.replace(/^```json?\s*\n?/i, '').replace(/\n?```\s*$/i, '');
+            return JSON.parse(jsonStr);
+        }
+
+        function isThin(ext) {
+            if (!ext || ext.error) return false;
+            const noLines = !ext.joblines || ext.joblines.length === 0;
+            const noHistory = !ext.history || ext.history.length === 0;
+            const noPo = !ext.poNumber;
+            return noLines && noHistory && noPo;
+        }
+
+        let responseText = await callVision();
         let extracted;
         try {
-            const jsonStr = responseText.replace(/^```json?\s*\n?/i, '').replace(/\n?```\s*$/i, '');
-            extracted = JSON.parse(jsonStr);
+            extracted = parseJson(responseText);
         } catch (parseError) {
             console.error('[Vision] Failed to parse Supacolor job-detail response:', responseText.substring(0, 200));
             return res.status(500).json({ error: 'Failed to parse extraction results', raw: responseText.substring(0, 500) });
+        }
+
+        if (isThin(extracted)) {
+            console.warn('[Vision] Supacolor job-detail: thin first pass, retried');
+            const retryText = await callVision();
+            try {
+                const retried = parseJson(retryText);
+                if (!isThin(retried)) extracted = retried;
+            } catch (e) {
+                // keep the first (thin) result if retry parse fails
+            }
         }
 
         if (extracted.error === 'not_a_supacolor_job_detail') {
