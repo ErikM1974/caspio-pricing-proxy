@@ -517,8 +517,9 @@ router.post('/extract-supacolor-job-detail', async (req, res) => {
             if (!ext || ext.error) return false;
             const noLines = !ext.joblines || ext.joblines.length === 0;
             const noHistory = !ext.history || ext.history.length === 0;
-            const noPo = !ext.poNumber;
-            return noLines && noHistory && noPo;
+            // On a real Supacolor job detail page both joblines and history
+            // are always present. If both are empty, Vision gave a lazy pass.
+            return noLines && noHistory;
         }
 
         let responseText = await callVision();
