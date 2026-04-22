@@ -296,21 +296,36 @@ async function createSharedLink(fileId) {
 }
 
 /**
- * Verify a Box file is actually accessible to the service account.
- * Throws on any non-200. Used after upload to catch cases where the upload
- * returned a file ID but the file isn't truly fetchable (permission drift,
- * phantom ID, etc.) — prevents saving dead references to Caspio.
+ * Verify a Box file is accessible to the service account.
+ * Returns true on success, false if all retries exhausted. Never throws.
+ *
+ * Box has eventual-consistency: a freshly-uploaded file can return 404/5xx
+ * on HEAD for several seconds while Box's index catches up. Retry window
+ * covers typical Box propagation delay (~9s total).
+ *
+ * This is advisory only — callers log a warning on false and continue.
+ * The display-time defense (handleImageError in frontend) is the real
+ * backstop for truly phantom/deleted files.
  */
 async function verifyBoxFileAccessible(fileId) {
     const token = await getBoxAccessToken();
-    const resp = await axios.head(`${BOX_API_BASE}/files/${fileId}`, {
-        headers: { 'Authorization': `Bearer ${token}` },
-        timeout: 8000,
-        validateStatus: (s) => s >= 200 && s < 300
-    });
-    if (resp.status !== 200) {
-        throw new Error(`Box verify failed: status ${resp.status}`);
+    const delaysMs = [0, 1000, 3000, 5000]; // ~9s total window (was ~2s, too narrow — Steve hit the ceiling on legitimate uploads 2026-04-22)
+    for (let attempt = 0; attempt < delaysMs.length; attempt++) {
+        if (delaysMs[attempt] > 0) {
+            await new Promise(r => setTimeout(r, delaysMs[attempt]));
+        }
+        try {
+            const resp = await axios.head(`${BOX_API_BASE}/files/${fileId}`, {
+                headers: { 'Authorization': `Bearer ${token}` },
+                timeout: 5000,
+                validateStatus: (s) => s >= 200 && s < 300
+            });
+            if (resp.status === 200) return true;
+        } catch (err) {
+            console.warn(`Box verify attempt ${attempt + 1}/${delaysMs.length} failed for file ${fileId}: ${err.message}`);
+        }
     }
+    return false;
 }
 
 /**
@@ -461,18 +476,12 @@ router.post('/art-requests/:designId/upload-mockup', upload.single('file'), asyn
         }
         console.log(`Box upload: File uploaded as "${boxFile.name}" (ID: ${boxFile.id})`);
 
-        // 4b. Verify the uploaded file is actually accessible to our service account.
-        // Catches the rare case where Box returns an ID but the file isn't truly fetchable
-        // (permission drift / phantom IDs) — prevents saving dead references to Caspio.
-        try {
-            await verifyBoxFileAccessible(boxFile.id);
-        } catch (verifyErr) {
-            console.error(`Box upload: HEAD verify failed for file ${boxFile.id}: ${verifyErr.message}`);
-            return res.status(502).json({
-                success: false,
-                error: 'Uploaded file could not be verified in Box. Please try again.',
-                code: 'BOX_VALIDATION_FAILED'
-            });
+        // 4b. Advisory HEAD check. If Box's index hasn't caught up after ~9s
+        // of retries, log and continue — the display-time defense (handleImageError
+        // in art-request-detail.js) catches truly-broken files at render time.
+        const verified = await verifyBoxFileAccessible(boxFile.id);
+        if (!verified) {
+            console.warn(`[BOX_VERIFY_SOFT_FAIL] File ${boxFile.id} ("${boxFile.name}") uploaded but HEAD failed after retries. Saving to Caspio anyway — display-time check will catch if truly broken.`);
         }
 
         // 5. Create shared link (keep for direct Box access) + build proxy URL
@@ -612,16 +621,10 @@ router.post('/art-requests/:designId/upload-additional-art', upload.single('file
             }
         }
 
-        // Verify Box file is accessible before saving to Caspio
-        try {
-            await verifyBoxFileAccessible(boxFile.id);
-        } catch (verifyErr) {
-            console.error(`Additional art upload: HEAD verify failed for file ${boxFile.id}: ${verifyErr.message}`);
-            return res.status(502).json({
-                success: false,
-                error: 'Uploaded file could not be verified in Box. Please try again.',
-                code: 'BOX_VALIDATION_FAILED'
-            });
+        // Advisory HEAD check — log and continue on soft-fail (see upload-mockup notes).
+        const verified = await verifyBoxFileAccessible(boxFile.id);
+        if (!verified) {
+            console.warn(`[BOX_VERIFY_SOFT_FAIL] File ${boxFile.id} ("${boxFile.name}") uploaded but HEAD failed after retries. Saving to Caspio anyway — display-time check will catch if truly broken.`);
         }
 
         // Create shared link (keep for direct Box access) but use proxy URL for display
@@ -1641,16 +1644,10 @@ router.post('/mockups/:id/upload-file', upload.single('file'), async (req, res) 
         }
         console.log(`Mockup upload: File uploaded as "${boxFile.name}" (ID: ${boxFile.id})`);
 
-        // 3b. Verify Box file is accessible to our service account before saving to Caspio.
-        try {
-            await verifyBoxFileAccessible(boxFile.id);
-        } catch (verifyErr) {
-            console.error(`Mockup upload: HEAD verify failed for file ${boxFile.id}: ${verifyErr.message}`);
-            return res.status(502).json({
-                success: false,
-                error: 'Uploaded file could not be verified in Box. Please try again.',
-                code: 'BOX_VALIDATION_FAILED'
-            });
+        // 3b. Advisory HEAD check — log and continue on soft-fail (see upload-mockup notes).
+        const verified = await verifyBoxFileAccessible(boxFile.id);
+        if (!verified) {
+            console.warn(`[BOX_VERIFY_SOFT_FAIL] File ${boxFile.id} ("${boxFile.name}") uploaded but HEAD failed after retries. Saving to Caspio anyway — display-time check will catch if truly broken.`);
         }
 
         // 4. Create shared link (keep for direct Box access) + build proxy URL
