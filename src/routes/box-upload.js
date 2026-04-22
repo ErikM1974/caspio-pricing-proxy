@@ -1117,6 +1117,154 @@ router.delete('/box/file/:fileId', async (req, res) => {
     }
 });
 
+// ── Broken Mockups Health Check ────────────────────────────────────────
+// Cache results for 10 minutes — full scan is ~20-60s depending on record count.
+let brokenMockupsCache = { data: null, expiresAt: 0, inFlight: null };
+const BROKEN_CACHE_TTL_MS = 10 * 60 * 1000;
+
+/**
+ * GET /api/art-requests/broken-mockups
+ *
+ * Scans active ArtRequests (default: last 90 days, non-Completed statuses) and
+ * HEADs every Box fileId referenced in their mockup/art URL fields. Returns the
+ * records whose Box files return 404. Used by Steve's Art Hub widget to surface
+ * broken mockups before Nika/customers stumble across them.
+ *
+ * Query params:
+ *   - status: CSV of statuses to scan (default: non-Completed active statuses)
+ *   - since:  ISO date, oldest Date_Created to include (default: 90 days ago)
+ *   - limit:  max records to scan (default: 500, max: 1000)
+ *   - refresh: 'true' to bypass the 10-min cache
+ *
+ * Response: { checked, uniqueFileIds, broken, cachedAt, results: [...] }
+ */
+router.get('/art-requests/broken-mockups', async (req, res) => {
+    const force = req.query.refresh === 'true';
+    const now = Date.now();
+
+    // Serve from cache when fresh (unless ?refresh=true)
+    if (!force && brokenMockupsCache.data && now < brokenMockupsCache.expiresAt) {
+        return res.json({ ...brokenMockupsCache.data, cached: true });
+    }
+
+    // Coalesce concurrent scans so 5 dashboard loads don't each trigger a full scan
+    if (brokenMockupsCache.inFlight) {
+        try {
+            const shared = await brokenMockupsCache.inFlight;
+            return res.json({ ...shared, cached: true, coalesced: true });
+        } catch (err) {
+            // Fall through to run a fresh scan if the in-flight one failed
+        }
+    }
+
+    const scanPromise = (async () => {
+        const defaultSince = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        const sinceDate = req.query.since || defaultSince;
+        const statusFilter = (req.query.status || 'Submitted,In Progress,Awaiting Approval,Revision Requested')
+            .split(',').map(s => s.trim()).filter(Boolean);
+        const limit = Math.min(parseInt(req.query.limit, 10) || 500, 1000);
+        const fields = ['Box_File_Mockup', 'BoxFileLink', 'Company_Mockup', 'Additional_Art_1', 'Additional_Art_2'];
+
+        // 1. Pull candidate ArtRequests from Caspio
+        const caspioToken = await getCaspioAccessToken();
+        const statusesSQL = statusFilter.map(s => `'${s.replace(/'/g, "''")}'`).join(',');
+        const resp = await axios.get(`${config.caspio.apiBaseUrl}/tables/ArtRequests/records`, {
+            params: {
+                'q.where': `Status IN (${statusesSQL}) AND Date_Created>='${sinceDate}'`,
+                'q.select': ['PK_ID', 'ID_Design', 'CompanyName', 'Sales_Rep', 'User_Email', 'Status', 'Date_Created', ...fields].join(','),
+                'q.orderBy': 'Date_Created DESC',
+                'q.pageSize': limit
+            },
+            headers: { 'Authorization': `Bearer ${caspioToken}` },
+            timeout: 30000
+        });
+        const records = resp.data.Result || [];
+
+        // 2. Collect unique fileIds mapped back to their referencing records/slots
+        const fileIdMap = new Map(); // fileId -> [{record, field}, ...]
+        for (const rec of records) {
+            for (const field of fields) {
+                const url = rec[field];
+                if (!url || typeof url !== 'string') continue;
+                const m = url.match(/\/api\/box\/thumbnail\/(\d+)/);
+                if (!m) continue;
+                const fileId = m[1];
+                if (!fileIdMap.has(fileId)) fileIdMap.set(fileId, []);
+                fileIdMap.get(fileId).push({ record: rec, field });
+            }
+        }
+
+        // 3. HEAD each fileId in batches (Box recommends staying well below its rate limits)
+        const fileIds = Array.from(fileIdMap.keys());
+        const brokenFileIds = new Set();
+        const concurrency = 10;
+        const boxToken = await getBoxAccessToken();
+
+        for (let i = 0; i < fileIds.length; i += concurrency) {
+            const batch = fileIds.slice(i, i + concurrency);
+            const results = await Promise.allSettled(batch.map(id =>
+                axios.head(`${BOX_API_BASE}/files/${id}`, {
+                    headers: { 'Authorization': `Bearer ${boxToken}` },
+                    timeout: 8000,
+                    validateStatus: () => true
+                })
+            ));
+            results.forEach((r, idx) => {
+                // Only flag on a clean 404. Timeouts, 5xx, 429 = unknown; skip (don't false-alarm).
+                if (r.status === 'fulfilled' && r.value.status === 404) {
+                    brokenFileIds.add(batch[idx]);
+                }
+            });
+        }
+
+        // 4. Group broken hits by ArtRequest record (one record may have multiple broken slots)
+        const brokenByPkId = new Map();
+        for (const fileId of brokenFileIds) {
+            const refs = fileIdMap.get(fileId) || [];
+            for (const ref of refs) {
+                const pkId = ref.record.PK_ID;
+                if (!brokenByPkId.has(pkId)) {
+                    brokenByPkId.set(pkId, {
+                        pkId,
+                        designId: ref.record.ID_Design,
+                        companyName: ref.record.CompanyName || '',
+                        salesRep: ref.record.Sales_Rep || ref.record.User_Email || '',
+                        status: ref.record.Status || '',
+                        dateCreated: ref.record.Date_Created,
+                        brokenSlots: []
+                    });
+                }
+                brokenByPkId.get(pkId).brokenSlots.push({ field: ref.field, fileId });
+            }
+        }
+
+        const results = Array.from(brokenByPkId.values())
+            .sort((a, b) => new Date(b.dateCreated) - new Date(a.dateCreated));
+
+        return {
+            checked: records.length,
+            uniqueFileIds: fileIds.length,
+            broken: results.length,
+            cachedAt: new Date().toISOString(),
+            params: { status: statusFilter, since: sinceDate, limit },
+            results
+        };
+    })();
+
+    brokenMockupsCache.inFlight = scanPromise;
+
+    try {
+        const data = await scanPromise;
+        brokenMockupsCache = { data, expiresAt: Date.now() + BROKEN_CACHE_TTL_MS, inFlight: null };
+        console.log(`Broken mockups scan: ${data.checked} records, ${data.uniqueFileIds} files, ${data.broken} broken`);
+        res.json({ ...data, cached: false });
+    } catch (err) {
+        brokenMockupsCache.inFlight = null;
+        console.error('Broken mockups scan failed:', err.message);
+        res.status(500).json({ success: false, error: 'Scan failed: ' + err.message });
+    }
+});
+
 /**
  * POST /api/art-requests/:designId/upload-mockup-url
  *
