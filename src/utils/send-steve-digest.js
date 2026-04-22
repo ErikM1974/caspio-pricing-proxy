@@ -18,7 +18,8 @@ const emailjs = require('@emailjs/nodejs');
 const config = require('../../config');
 
 const SITE_ORIGIN = process.env.SITE_ORIGIN || 'https://www.teamnwca.com';
-const STEVE_EMAIL = process.env.STEVE_EMAIL || 'steve@nwcustomapparel.com';
+// Steve's inbox is the shared art department alias, not a personal address.
+const STEVE_EMAIL = process.env.STEVE_EMAIL || 'art@nwcustomapparel.com';
 
 // Slot field name → friendly label shown in the email list.
 const SLOT_LABELS = {
