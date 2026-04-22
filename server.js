@@ -687,7 +687,7 @@ const server = app.listen(PORT, async () => {
     console.log(`🔧 API Version: ${config.caspio.apiVersion}`);
     console.log(`🏃 Environment: ${config.server.env}`);
     console.log('========================================\n');
-    
+
     // Validate Caspio credentials on startup
     try {
         await getCaspioAccessToken();
@@ -695,6 +695,28 @@ const server = app.listen(PORT, async () => {
     } catch (error) {
         console.error('❌ Failed to validate Caspio credentials:', error.message);
         console.error('Please check your environment variables.\n');
+    }
+
+    // Schedule: daily broken-mockups digest email to Steve at 8 AM Pacific.
+    // Runs in-dyno. Skipped when not in production or when EmailJS config
+    // is missing (so local dev doesn't try to send real email).
+    try {
+        const cron = require('node-cron');
+        const { runDailyDigest } = require('./src/utils/send-steve-digest');
+        const digestConfigured = process.env.EMAILJS_PRIVATE_KEY
+            && process.env.EMAILJS_TEMPLATE_STEVE_DIGEST;
+        if (digestConfigured) {
+            cron.schedule('0 8 * * *', () => {
+                runDailyDigest().catch(err => {
+                    console.error('[Digest] Cron failed:', err.message);
+                });
+            }, { timezone: 'America/Los_Angeles' });
+            console.log('⏰ Steve digest cron scheduled: daily 8 AM Pacific');
+        } else {
+            console.log('⏰ Steve digest cron NOT scheduled — missing EmailJS env vars');
+        }
+    } catch (err) {
+        console.error('⏰ Failed to schedule Steve digest cron:', err.message);
     }
 });
 

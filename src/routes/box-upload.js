@@ -1266,6 +1266,39 @@ router.get('/art-requests/broken-mockups', async (req, res) => {
 });
 
 /**
+ * POST /api/art-requests/broken-mockups/send-digest
+ *
+ * Manual trigger for the daily digest. Protected by x-admin-key header so
+ * random callers can't spam Steve's inbox. Useful for: smoke-testing the
+ * email path after config changes, manually resending on a day when the
+ * cron misfired (dyno restart overlap), or verifying a new EmailJS template.
+ *
+ * Returns the same result object the scheduled cron run produces.
+ */
+router.post('/art-requests/broken-mockups/send-digest', async (req, res) => {
+    const expected = process.env.ADMIN_KEY_DIGEST;
+    const provided = req.headers['x-admin-key'];
+    if (!expected) {
+        return res.status(500).json({
+            success: false,
+            error: 'ADMIN_KEY_DIGEST env var not configured on server.'
+        });
+    }
+    if (provided !== expected) {
+        return res.status(401).json({ success: false, error: 'Unauthorized' });
+    }
+
+    try {
+        const { runDailyDigest } = require('../utils/send-steve-digest');
+        const result = await runDailyDigest();
+        res.json({ success: true, ...result });
+    } catch (err) {
+        console.error('[Digest] Manual trigger failed:', err.message);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+/**
  * POST /api/art-requests/:designId/upload-mockup-url
  *
  * Save a mockup URL (e.g., Box shared link) to the first empty Caspio slot.

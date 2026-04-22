@@ -33,6 +33,7 @@
   "license": "ISC",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.80.0",
+    "@emailjs/nodejs": "^5.0.2",
     "axios": "^1.8.4",
     "colors": "^1.4.0",
     "dotenv": "^16.5.0",
@@ -41,6 +42,7 @@
     "form-data": "^4.0.4",
     "multer": "^2.0.2",
     "node-cache": "^5.1.2",
+    "node-cron": "^3.0.3",
     "stripe": "^20.0.0",
     "xlsx": "^0.18.5"
   },
