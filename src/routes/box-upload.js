@@ -296,6 +296,24 @@ async function createSharedLink(fileId) {
 }
 
 /**
+ * Verify a Box file is actually accessible to the service account.
+ * Throws on any non-200. Used after upload to catch cases where the upload
+ * returned a file ID but the file isn't truly fetchable (permission drift,
+ * phantom ID, etc.) — prevents saving dead references to Caspio.
+ */
+async function verifyBoxFileAccessible(fileId) {
+    const token = await getBoxAccessToken();
+    const resp = await axios.head(`${BOX_API_BASE}/files/${fileId}`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+        timeout: 8000,
+        validateStatus: (s) => s >= 200 && s < 300
+    });
+    if (resp.status !== 200) {
+        throw new Error(`Box verify failed: status ${resp.status}`);
+    }
+}
+
+/**
  * Find the first empty mockup slot in the Caspio art request.
  * Returns the field name, or null if all slots are full.
  */
@@ -443,6 +461,20 @@ router.post('/art-requests/:designId/upload-mockup', upload.single('file'), asyn
         }
         console.log(`Box upload: File uploaded as "${boxFile.name}" (ID: ${boxFile.id})`);
 
+        // 4b. Verify the uploaded file is actually accessible to our service account.
+        // Catches the rare case where Box returns an ID but the file isn't truly fetchable
+        // (permission drift / phantom IDs) — prevents saving dead references to Caspio.
+        try {
+            await verifyBoxFileAccessible(boxFile.id);
+        } catch (verifyErr) {
+            console.error(`Box upload: HEAD verify failed for file ${boxFile.id}: ${verifyErr.message}`);
+            return res.status(502).json({
+                success: false,
+                error: 'Uploaded file could not be verified in Box. Please try again.',
+                code: 'BOX_VALIDATION_FAILED'
+            });
+        }
+
         // 5. Create shared link (keep for direct Box access) + build proxy URL
         let sharedLinkUrl = '';
         try {
@@ -578,6 +610,18 @@ router.post('/art-requests/:designId/upload-additional-art', upload.single('file
             } else {
                 throw uploadErr;
             }
+        }
+
+        // Verify Box file is accessible before saving to Caspio
+        try {
+            await verifyBoxFileAccessible(boxFile.id);
+        } catch (verifyErr) {
+            console.error(`Additional art upload: HEAD verify failed for file ${boxFile.id}: ${verifyErr.message}`);
+            return res.status(502).json({
+                success: false,
+                error: 'Uploaded file could not be verified in Box. Please try again.',
+                code: 'BOX_VALIDATION_FAILED'
+            });
         }
 
         // Create shared link (keep for direct Box access) but use proxy URL for display
@@ -943,16 +987,104 @@ router.post('/box/shared-link', async (req, res) => {
 });
 
 /**
+ * Find Caspio records that reference a given Box fileId in any mockup/art URL field.
+ * Returns [{ table, pkId, designId, slot }, ...]. Used to block deletion of files
+ * that are still referenced — see LESSONS_LEARNED.md "Box Mockup File 404" entries.
+ */
+async function findBoxFileReferences(fileId) {
+    const caspioToken = await getCaspioAccessToken();
+    const pattern = `thumbnail/${fileId}`;
+    const refs = [];
+
+    // 1. ArtRequests — 5 URL fields
+    try {
+        const artFields = ['Box_File_Mockup', 'BoxFileLink', 'Company_Mockup', 'Additional_Art_1', 'Additional_Art_2'];
+        const where = artFields.map(f => `${f} LIKE '%${pattern}%'`).join(' OR ');
+        const resp = await axios.get(`${config.caspio.apiBaseUrl}/tables/ArtRequests/records`, {
+            params: {
+                'q.where': where,
+                'q.select': 'PK_ID,ID_Design,' + artFields.join(','),
+                'q.pageSize': 50
+            },
+            headers: { 'Authorization': `Bearer ${caspioToken}` },
+            timeout: 10000
+        });
+        (resp.data.Result || []).forEach(row => {
+            artFields.forEach(f => {
+                if (row[f] && row[f].indexOf(pattern) !== -1) {
+                    refs.push({ table: 'ArtRequests', pkId: row.PK_ID, designId: row.ID_Design, slot: f });
+                }
+            });
+        });
+    } catch (e) {
+        console.warn('Box delete guard: ArtRequests lookup failed:', e.message);
+    }
+
+    // 2. Digitizing_Mockups — 6 Box_Mockup slots + Box_Reference_File
+    try {
+        const mFields = ['Box_Mockup_1', 'Box_Mockup_2', 'Box_Mockup_3', 'Box_Mockup_4', 'Box_Mockup_5', 'Box_Mockup_6', 'Box_Reference_File'];
+        const where = mFields.map(f => `${f} LIKE '%${pattern}%'`).join(' OR ');
+        const resp = await axios.get(`${config.caspio.apiBaseUrl}/tables/Digitizing_Mockups/records`, {
+            params: {
+                'q.where': where,
+                'q.select': 'PK_ID,' + mFields.join(','),
+                'q.pageSize': 50
+            },
+            headers: { 'Authorization': `Bearer ${caspioToken}` },
+            timeout: 10000
+        });
+        (resp.data.Result || []).forEach(row => {
+            mFields.forEach(f => {
+                if (row[f] && row[f].indexOf(pattern) !== -1) {
+                    refs.push({ table: 'Digitizing_Mockups', pkId: row.PK_ID, slot: f });
+                }
+            });
+        });
+    } catch (e) {
+        console.warn('Box delete guard: Digitizing_Mockups lookup failed:', e.message);
+    }
+
+    return refs;
+}
+
+/**
  * DELETE /api/box/file/:fileId
  *
  * Delete a file from Box permanently.
+ * Guarded: refuses if the fileId is still referenced by any ArtRequests or
+ * Digitizing_Mockups row (returns 409). Pass ?force=true to override.
  * Returns { success: true } on success. 404 treated as success (idempotent).
  */
 router.delete('/box/file/:fileId', async (req, res) => {
     const { fileId } = req.params;
+    const force = req.query.force === 'true';
 
     if (!fileId) {
         return res.status(400).json({ success: false, error: 'Missing fileId' });
+    }
+
+    // Reference check — protect against accidental deletes that break live mockups.
+    if (!force) {
+        try {
+            const refs = await findBoxFileReferences(fileId);
+            if (refs.length > 0) {
+                console.log(`Box delete blocked: file ${fileId} referenced by ${refs.length} record(s)`);
+                return res.status(409).json({
+                    success: false,
+                    error: 'File is referenced by existing records. Pass ?force=true to delete anyway.',
+                    code: 'FILE_IN_USE',
+                    references: refs
+                });
+            }
+        } catch (refErr) {
+            console.error(`Box delete guard: reference check failed for ${fileId}: ${refErr.message}`);
+            // Fail closed: if we can't verify, don't let the delete proceed.
+            return res.status(500).json({
+                success: false,
+                error: 'Could not verify file is unreferenced. Try again or use ?force=true.',
+                code: 'REFERENCE_CHECK_FAILED'
+            });
+        }
     }
 
     try {
@@ -963,8 +1095,8 @@ router.delete('/box/file/:fileId', async (req, res) => {
             timeout: 15000
         });
 
-        console.log(`Box: Deleted file ID ${fileId}`);
-        res.json({ success: true });
+        console.log(`Box: Deleted file ID ${fileId}${force ? ' (force)' : ''}`);
+        res.json({ success: true, forced: force });
 
     } catch (err) {
         console.error('Box delete error:', err.response ? JSON.stringify(err.response.data) : err.message);
@@ -1328,6 +1460,18 @@ router.post('/mockups/:id/upload-file', upload.single('file'), async (req, res) 
         }
         console.log(`Mockup upload: File uploaded as "${boxFile.name}" (ID: ${boxFile.id})`);
 
+        // 3b. Verify Box file is accessible to our service account before saving to Caspio.
+        try {
+            await verifyBoxFileAccessible(boxFile.id);
+        } catch (verifyErr) {
+            console.error(`Mockup upload: HEAD verify failed for file ${boxFile.id}: ${verifyErr.message}`);
+            return res.status(502).json({
+                success: false,
+                error: 'Uploaded file could not be verified in Box. Please try again.',
+                code: 'BOX_VALIDATION_FAILED'
+            });
+        }
+
         // 4. Create shared link (keep for direct Box access) + build proxy URL
         try {
             await createSharedLink(boxFile.id);
@@ -1380,7 +1524,7 @@ router.post('/mockups/:id/upload-file', upload.single('file'), async (req, res) 
                     Mockup_ID: parseInt(id),
                     Slot_Key: targetSlot,
                     Version_Number: nextVer,
-                    File_URL: sharedUrl,
+                    File_URL: proxyUrl,
                     File_Name: boxFile.name || file.originalname,
                     Box_File_ID: String(boxFile.id),
                     Uploaded_By: 'Ruth',
@@ -1497,6 +1641,15 @@ router.get('/box/download/:fileId', async (req, res) => {
     } catch (err) {
         console.error('Box download error:', err.response?.status, err.message);
         const status = err.response?.status || 500;
+        // Surface a specific code so the frontend can show a "file missing, re-upload" UI
+        // rather than a generic HTTP error message.
+        if (status === 404) {
+            return res.status(404).json({
+                success: false,
+                error: 'This file no longer exists in Box.',
+                code: 'BOX_FILE_NOT_FOUND'
+            });
+        }
         res.status(status).json({ success: false, error: 'Box download failed: ' + err.message });
     }
 });
