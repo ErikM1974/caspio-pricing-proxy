@@ -22,11 +22,14 @@
 //   GET    /api/supacolor-jobs/:id/history        — List history events
 //   POST   /api/supacolor-jobs/:id/history        — Append a single history event
 //   POST   /api/supacolor-jobs/:id/history/replace — Replace all history events
+//   POST   /api/supacolor-jobs/sync/all           — Pull all jobs from Supacolor API + upsert into Caspio
+//   POST   /api/supacolor-jobs/sync/:jobNumber    — Refresh one job (detail + history) from API
 
 const express = require('express');
 const router = express.Router();
 const axios = require('axios');
 const { getCaspioAccessToken, fetchAllCaspioPages } = require('../utils/caspio');
+const supacolorApi = require('../utils/supacolor-api');
 const config = require('../../config');
 
 const caspioApiBaseUrl = config.caspio.apiBaseUrl;
@@ -122,6 +125,44 @@ async function deleteHistory(token, idJob) {
         headers: { 'Authorization': `Bearer ${token}` },
         timeout: 15000
     });
+}
+
+/**
+ * Small helper: sleep for N milliseconds.
+ */
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Detect Caspio's rate-limit error payload.
+ * Caspio returns 400 status + body like: [{message: "You have exceeded your API call rate limits.", name: "api-calls-rate"}]
+ */
+function isCaspioRateLimitError(err) {
+    if (!err || !err.response) return false;
+    const data = err.response.data;
+    if (!data) return false;
+    const asString = typeof data === 'string' ? data : JSON.stringify(data);
+    return asString.indexOf('api-calls-rate') !== -1 || asString.indexOf('rate limit') !== -1;
+}
+
+/**
+ * Run a Caspio write with automatic retry on rate-limit errors.
+ * Exponential backoff: 1s, 2s, 4s. Max 3 retries.
+ */
+async function writeWithRateLimitRetry(writeFn, { maxRetries = 3, label = 'write' } = {}) {
+    let attempt = 0;
+    while (true) {
+        try {
+            return await writeFn();
+        } catch (err) {
+            if (!isCaspioRateLimitError(err) || attempt >= maxRetries) throw err;
+            const waitMs = 1000 * Math.pow(2, attempt);
+            console.warn(`[Caspio rate-limit] ${label} hit rate limit — sleeping ${waitMs}ms and retrying (attempt ${attempt + 1}/${maxRetries})`);
+            await sleep(waitMs);
+            attempt++;
+        }
+    }
 }
 
 /**
@@ -607,6 +648,472 @@ router.post('/supacolor-jobs/:id/history/replace', async (req, res) => {
     } catch (error) {
         console.error('Error replacing history:', error.response ? JSON.stringify(error.response.data) : error.message);
         res.status(500).json({ success: false, error: 'Failed to replace history: ' + error.message });
+    }
+});
+
+// ── API Sync (Supacolor Codewolf Control API → Caspio) ──────────────
+//
+// Hybrid model: we pull from api.supacolor.com and upsert into our 3 Caspio
+// tables. The dashboard keeps reading from Caspio (no live passthrough), which
+// preserves cross-referencing with Transfer_Orders + paste-OCR fallback.
+//
+// Two endpoints:
+//   POST /sync/all                  — walk /Jobs/active?includeClosedJobs=true,
+//                                     upsert each + replace joblines + replace history
+//   POST /sync/:jobNumber           — refresh a single job end-to-end
+//
+// Marks upserts with Backfill_Source='api' to distinguish from screenshot/live/manual.
+
+/**
+ * Supacolor statuses collapse into our 3-bucket Caspio schema.
+ * Anything that isn't Dispatched/Closed/Cancelled → Open (covers New, Waiting,
+ * In Progress, Ready, Delayed, Issue, Return, plus any future statuses).
+ */
+function mapApiStatusToBucket(apiStatus) {
+    if (!apiStatus) return 'Open';
+    const s = String(apiStatus).toLowerCase();
+    if (s === 'cancelled') return 'Cancelled';
+    if (s === 'dispatched' || s === 'closed') return 'Closed';
+    return 'Open';
+}
+
+/**
+ * Infer Carrier from the tracking URL's host.
+ * Falls back to the raw hostname if we don't recognize it.
+ */
+function inferCarrierFromTrackingLink(trackingLink) {
+    if (!trackingLink) return null;
+    try {
+        const host = new URL(trackingLink).hostname.toLowerCase();
+        if (host.indexOf('fedex') !== -1) return 'FedEx';
+        if (host.indexOf('ups.com') !== -1) return 'UPS';
+        if (host.indexOf('usps') !== -1) return 'USPS';
+        if (host.indexOf('dhl') !== -1) return 'DHL';
+        if (host.indexOf('ontrac') !== -1) return 'OnTrac';
+        return host;
+    } catch (e) {
+        return null;
+    }
+}
+
+/**
+ * Concat shippingAddresses[0] object into a single newline-separated string.
+ * API shape per 09-managing-jobs.md: {name, company, address1, address2, city, state, postalCode, country, phone, email}
+ */
+function concatShippingAddress(addr) {
+    if (!addr) return null;
+    const parts = [];
+    if (addr.address1) parts.push(addr.address1);
+    if (addr.address2) parts.push(addr.address2);
+    const cityStateZip = [
+        addr.city,
+        [addr.state, addr.postalCode].filter(Boolean).join(' ')
+    ].filter(Boolean).join(', ');
+    if (cityStateZip) parts.push(cityStateZip);
+    if (addr.country) parts.push(addr.country);
+    return parts.length ? parts.join('\n') : null;
+}
+
+/**
+ * Map API ActiveJobDto (from /Jobs/active list) → Supacolor_Jobs stub payload.
+ * Used by sync/all — lightweight sync that skips detail+history fetches to stay
+ * under Caspio's API rate limit when syncing 900+ jobs at once.
+ *
+ * ActiveJobDto fields: jobNumber, masterJobStatus, originCode, description,
+ *   mustDate, dateDue, dateOut, shippedDaysToProcess, orderNumber, permissions
+ *
+ * Deep fields (location, shipping, tracking, lines, history) require
+ * sync/:jobNumber which fetches /Jobs/{n} + /Jobs/{n}/history.
+ */
+function mapApiStubToCaspio(apiStub) {
+    if (!apiStub) return null;
+    const payload = {
+        Supacolor_Job_Number: apiStub.jobNumber != null ? String(apiStub.jobNumber) : null,
+        PO_Number: apiStub.orderNumber || null,
+        Description: apiStub.description || null,
+        Status: mapApiStatusToBucket(apiStub.masterJobStatus),
+        Requested_Ship_Date: apiStub.dateDue || null,
+        Date_Shipped: apiStub.dateOut || null,
+        Backfill_Source: 'api'
+    };
+    Object.keys(payload).forEach(k => {
+        if (payload[k] === null || payload[k] === undefined || payload[k] === '') delete payload[k];
+    });
+    return payload;
+}
+
+/**
+ * Map API JobDetail → Supacolor_Jobs payload.
+ * Returns a plain object ready for insertJob/updateJob (strips nothing — caller handles that).
+ */
+function mapApiJobToCaspio(apiJob) {
+    if (!apiJob) return null;
+    const lines = Array.isArray(apiJob.lines) ? apiJob.lines : [];
+    const subtotal = lines.reduce((acc, l) => {
+        const qty = Number(l.quantity) || 0;
+        const price = Number(l.unitPrice) || 0;
+        return acc + qty * price;
+    }, 0);
+    const taxTotal = Number(apiJob.taxTotal) || 0;
+    const total = subtotal + taxTotal;
+    const shipAddr = Array.isArray(apiJob.shippingAddresses) && apiJob.shippingAddresses[0];
+
+    const payload = {
+        Supacolor_Job_Number: apiJob.jobNumber != null ? String(apiJob.jobNumber) : null,
+        PO_Number: apiJob.orderNumber || null,
+        Description: apiJob.description || null,
+        Status: mapApiStatusToBucket(apiJob.jobStatus),
+        Date_Entered: apiJob.dateIn || null,
+        Requested_Ship_Date: apiJob.dateDue || null,
+        Date_Shipped: apiJob.dateOut || null,
+        Created_By_Name: apiJob.creator || null,
+        Location: (apiJob.location && apiJob.location.name) || null,
+        Shipping_Method: apiJob.deliveryMethod || null,
+        Tracking_Number: apiJob.trackingNumber || null,
+        Carrier: inferCarrierFromTrackingLink(apiJob.trackingLink),
+        Ship_To_Name: apiJob.contactName || null,
+        Ship_To_Company: apiJob.organisation || null,
+        Ship_To_Phone: apiJob.phone || null,
+        Ship_To_Email: apiJob.emailAddress || null,
+        Ship_To_Address: concatShippingAddress(shipAddr),
+        Subtotal: subtotal || null,
+        Tax_Total: taxTotal || null,
+        Total: total || null,
+        Currency: apiJob.currency || null,
+        Backfill_Source: 'api'
+    };
+
+    // Strip nulls so the patch-only upsert logic doesn't overwrite existing values with null.
+    Object.keys(payload).forEach(k => {
+        if (payload[k] === null || payload[k] === undefined || payload[k] === '') delete payload[k];
+    });
+    return payload;
+}
+
+/**
+ * Map API lines[] → Supacolor_Joblines payload array (ID_Job assigned by caller).
+ */
+function mapApiLinesToCaspio(apiLines) {
+    if (!Array.isArray(apiLines)) return [];
+    return apiLines.map((l, i) => {
+        const qty = Number(l.quantity);
+        const price = Number(l.unitPrice);
+        const lineTotal = (!isNaN(qty) && !isNaN(price)) ? qty * price : null;
+        const pc = (l.processCode || '').toUpperCase();
+        const lineType = pc === 'NU' ? 'NUMBERS'
+                        : pc === 'STOCK' ? 'STOCK'
+                        : 'TRANSFER';
+        const detailPieces = [l.garment, l.comments].filter(x => x && String(x).trim());
+        return {
+            Line_Order: i + 1,
+            Line_Type: lineType,
+            Item_Code: l.assetSku || '',
+            Description: l.description || null,
+            Detail_Line: detailPieces.length ? detailPieces.join('\n') : null,
+            Color: null,
+            Quantity: !isNaN(qty) ? qty : null,
+            Unit_Price: !isNaN(price) ? price : null,
+            Line_Total: lineTotal,
+            Thumbnail_URL: l.imageUrl || null
+        };
+    });
+}
+
+/**
+ * Map API history[] → Supacolor_Job_History payload array (ID_Job assigned by caller).
+ */
+function mapApiHistoryToCaspio(apiHistory) {
+    if (!Array.isArray(apiHistory)) return [];
+    return apiHistory
+        .map(h => ({
+            Event_Type: h.recordLogType || 'Event',
+            Event_Detail: h.eventDetail || null,
+            Event_At: h.dateTimeOccurred || null
+        }))
+        .filter(e => e.Event_Type);
+}
+
+/**
+ * Internal helper: fully sync one job from the API into Caspio.
+ * Fetches detail + history in parallel, upserts the job, then full-replaces
+ * its joblines + history.
+ *
+ * Returns { action: 'inserted'|'patched'|'noop', jobNumber, idJob, joblinesReplaced, historyReplaced }
+ * Throws on hard failure — caller handles error bookkeeping.
+ */
+async function syncOneJobFromApi(token, jobNumber, { force = false } = {}) {
+    const [apiJob, apiHistory] = await Promise.all([
+        supacolorApi.getJobDetail(jobNumber),
+        supacolorApi.getJobHistory(jobNumber).catch(e => {
+            // History endpoint is less critical — log and continue with empty.
+            console.warn(`[Supacolor sync] History fetch failed for job #${jobNumber}:`, e.message);
+            return [];
+        })
+    ]);
+
+    const jobPayload = mapApiJobToCaspio(apiJob);
+    if (!jobPayload || !jobPayload.Supacolor_Job_Number) {
+        throw new Error(`API returned unusable job detail for #${jobNumber}`);
+    }
+
+    // Upsert job (reuses existing helpers)
+    const existing = await fetchJobByNumber(token, jobPayload.Supacolor_Job_Number);
+    let action;
+    let idJob;
+    if (!existing) {
+        const created = await insertJob(token, jobPayload);
+        idJob = created && created.ID_Job;
+        action = 'inserted';
+    } else {
+        idJob = existing.ID_Job;
+        const patch = {};
+        Object.keys(jobPayload).forEach(k => {
+            if (READ_ONLY_JOB_FIELDS.includes(k)) return;
+            if (k === 'Supacolor_Job_Number') return;
+            const newVal = jobPayload[k];
+            const oldVal = existing[k];
+            if (force) {
+                patch[k] = newVal;
+            } else if (newVal != null && newVal !== '' && (oldVal == null || oldVal === '')) {
+                patch[k] = newVal;
+            }
+        });
+        // Auto-close override matches existing upsert route semantics.
+        if (hasShippedSignal(jobPayload) && existing.Status !== 'Cancelled' && existing.Status !== 'Closed') {
+            patch.Status = 'Closed';
+        }
+        if (Object.keys(patch).length === 0) {
+            action = 'noop';
+        } else {
+            await updateJob(token, idJob, patch);
+            action = 'patched';
+        }
+    }
+
+    // Full-replace joblines + history (same semantics as paste-OCR flow)
+    const lines = mapApiLinesToCaspio(apiJob.lines);
+    let joblinesReplaced = 0;
+    if (idJob) {
+        try { await deleteJoblines(token, idJob); } catch (e) { console.warn(`Joblines delete (job ${idJob}):`, e.message); }
+        for (let i = 0; i < lines.length; i++) {
+            const line = stripFields(lines[i], READ_ONLY_LINE_FIELDS);
+            line.ID_Job = idJob;
+            const url = `${caspioApiBaseUrl}/tables/${TABLE_LINES}/records`;
+            await axios.post(url, line, {
+                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                timeout: 15000
+            });
+            joblinesReplaced++;
+        }
+    }
+
+    const historyEvents = mapApiHistoryToCaspio(apiHistory);
+    let historyReplaced = 0;
+    if (idJob) {
+        try { await deleteHistory(token, idJob); } catch (e) { console.warn(`History delete (job ${idJob}):`, e.message); }
+        for (const ev of historyEvents) {
+            const event = stripFields(ev, READ_ONLY_HISTORY_FIELDS);
+            event.ID_Job = idJob;
+            const url = `${caspioApiBaseUrl}/tables/${TABLE_HISTORY}/records`;
+            await axios.post(url, event, {
+                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                timeout: 15000
+            });
+            historyReplaced++;
+        }
+    }
+
+    return {
+        action,
+        jobNumber: jobPayload.Supacolor_Job_Number,
+        idJob,
+        joblinesReplaced,
+        historyReplaced
+    };
+}
+
+/**
+ * POST /api/supacolor-jobs/sync/all
+ *
+ * LIGHTWEIGHT list sync. Pulls `/Jobs/active?includeClosedJobs=true` (stub data
+ * only: jobNumber, status, dates, orderNumber, description) and upserts each
+ * into Caspio. Does NOT fetch per-job detail/history — that's what
+ * `sync/:jobNumber` is for (used when a user opens a detail page).
+ *
+ * Strategy:
+ *  1. Fetch all API stubs (single paginated Supacolor call, ~5-10 pages)
+ *  2. Fetch all existing Caspio Supacolor_Jobs once (paginated)
+ *  3. Build an in-memory map of existing rows → diff against API stubs
+ *  4. Batch inserts for new jobs + patches for status/date changes
+ *  5. Most jobs = noop (no write). Only ~5-50 writes per sync typically.
+ *
+ * This keeps Caspio write pressure low enough to stay under rate limits even
+ * with 900+ total jobs, and completes in under 30s (Heroku's HTTP timeout).
+ *
+ * Optional query: ?force=true — overwrite existing Caspio fields with API values.
+ *
+ * Returns: { success, fetched, inserted, patched, noop, errored, durationMs, errors: [...], errorsTruncated }
+ */
+router.post('/supacolor-jobs/sync/all', async (req, res) => {
+    const started = Date.now();
+    const force = req.query.force === 'true';
+    // Default to active-only (non-closed) for fast dashboard refreshes.
+    // Closed jobs rarely change, so skipping them keeps Caspio write pressure low.
+    // Pass ?includeClosed=true for a full historical resync (slower, ~900+ jobs).
+    const includeClosed = req.query.includeClosed === 'true';
+    const MAX_ERRORS_RETURNED = 20;
+    const SLEEP_BETWEEN_WRITES_MS = 100; // Cap Caspio writes at ~10/sec to stay under rate limit
+    // Soft time cap: Heroku kills HTTP requests after 30s. Leave a 5s buffer.
+    // If we blow past this, stop processing new jobs and return what we have.
+    const TIME_CAP_MS = 25000;
+
+    try {
+        // 1. Pull stubs from Supacolor
+        const stubs = await supacolorApi.fetchAllActiveJobs({ includeClosedJobs: includeClosed });
+        console.log(`[Supacolor sync/all] Fetched ${stubs.length} job stubs from API (includeClosed=${includeClosed})`);
+
+        // 2. Pull all existing Supacolor_Jobs from Caspio in one paginated scan
+        const existingRows = await fetchAllCaspioPages(`/tables/${TABLE_JOBS}/records`, {
+            'q.pageSize': 1000
+        });
+        const existingByJobNumber = new Map();
+        existingRows.forEach(row => {
+            if (row.Supacolor_Job_Number) {
+                existingByJobNumber.set(String(row.Supacolor_Job_Number), row);
+            }
+        });
+        console.log(`[Supacolor sync/all] Loaded ${existingRows.length} existing Caspio rows`);
+
+        const token = await getCaspioAccessToken();
+
+        // 3. Diff + batch upserts (sequential to keep Caspio write pressure low)
+        let inserted = 0, patched = 0, noop = 0, errored = 0;
+        const errors = [];
+
+        let timedOut = false;
+        for (const stub of stubs) {
+            if (Date.now() - started > TIME_CAP_MS) {
+                timedOut = true;
+                console.warn(`[Supacolor sync/all] Hit ${TIME_CAP_MS}ms soft cap — stopping early. ${inserted + patched + noop}/${stubs.length} processed.`);
+                break;
+            }
+            const jobPayload = mapApiStubToCaspio(stub);
+            if (!jobPayload || !jobPayload.Supacolor_Job_Number) {
+                errored++;
+                if (errors.length < MAX_ERRORS_RETURNED) {
+                    errors.push({ jobNumber: stub && stub.jobNumber, error: 'API stub missing jobNumber' });
+                }
+                continue;
+            }
+
+            const existing = existingByJobNumber.get(jobPayload.Supacolor_Job_Number);
+            try {
+                if (!existing) {
+                    await writeWithRateLimitRetry(
+                        () => insertJob(token, jobPayload),
+                        { label: `insert #${jobPayload.Supacolor_Job_Number}` }
+                    );
+                    inserted++;
+                    await sleep(SLEEP_BETWEEN_WRITES_MS);
+                } else {
+                    // Patch: only write if a field is actually different (or empty in Caspio)
+                    const patch = {};
+                    Object.keys(jobPayload).forEach(k => {
+                        if (READ_ONLY_JOB_FIELDS.includes(k)) return;
+                        if (k === 'Supacolor_Job_Number') return;
+                        if (k === 'Backfill_Source') return; // don't overwrite existing provenance
+                        const newVal = jobPayload[k];
+                        const oldVal = existing[k];
+                        if (force) {
+                            if (String(oldVal || '') !== String(newVal || '')) patch[k] = newVal;
+                        } else if (newVal != null && newVal !== '' && (oldVal == null || oldVal === '')) {
+                            patch[k] = newVal;
+                        } else if (k === 'Status' && newVal && newVal !== oldVal) {
+                            // Status transitions (Open → Closed, Open → Cancelled) always flow through
+                            patch[k] = newVal;
+                        } else if ((k === 'Date_Shipped' || k === 'Requested_Ship_Date') && newVal && newVal !== oldVal) {
+                            // Date changes always flow through even if existing had a stale value
+                            patch[k] = newVal;
+                        }
+                    });
+                    // Auto-close override: shipped-signal forces Closed (unless Cancelled)
+                    if (hasShippedSignal(jobPayload) && existing.Status !== 'Cancelled' && existing.Status !== 'Closed') {
+                        patch.Status = 'Closed';
+                    }
+                    if (Object.keys(patch).length === 0) {
+                        noop++;
+                    } else {
+                        await writeWithRateLimitRetry(
+                            () => updateJob(token, existing.ID_Job, patch),
+                            { label: `patch #${jobPayload.Supacolor_Job_Number}` }
+                        );
+                        patched++;
+                        await sleep(SLEEP_BETWEEN_WRITES_MS);
+                    }
+                }
+            } catch (err) {
+                errored++;
+                const msg = err.response ? JSON.stringify(err.response.data) : err.message;
+                if (errors.length < MAX_ERRORS_RETURNED) {
+                    errors.push({ jobNumber: jobPayload.Supacolor_Job_Number, error: msg });
+                }
+                console.error(`[Supacolor sync/all] Job #${jobPayload.Supacolor_Job_Number} failed:`, msg);
+            }
+        }
+
+        const durationMs = Date.now() - started;
+        console.log(`[Supacolor sync/all] Done in ${durationMs}ms — ${inserted} inserted, ${patched} patched, ${noop} noop, ${errored} errored`);
+        res.json({
+            success: true,
+            fetched: stubs.length,
+            processed: inserted + patched + noop + errored,
+            inserted,
+            patched,
+            noop,
+            errored,
+            durationMs,
+            timedOut,
+            errors,
+            errorsTruncated: errored > MAX_ERRORS_RETURNED
+        });
+    } catch (error) {
+        console.error('[Supacolor sync/all] Fatal error:', error.response ? JSON.stringify(error.response.data) : error.message);
+        res.status(500).json({
+            success: false,
+            error: 'Sync failed: ' + (error.message || 'unknown error'),
+            durationMs: Date.now() - started
+        });
+    }
+});
+
+/**
+ * POST /api/supacolor-jobs/sync/:jobNumber
+ *
+ * Refresh a single job (detail + history) from the Supacolor API.
+ * :jobNumber is the Supacolor job number (NOT the Caspio ID_Job).
+ *
+ * Optional query: ?force=true — overwrite existing Caspio fields.
+ */
+router.post('/supacolor-jobs/sync/:jobNumber', async (req, res) => {
+    const jobNumber = req.params.jobNumber;
+    const force = req.query.force === 'true';
+    if (!jobNumber) {
+        return res.status(400).json({ success: false, error: 'Missing jobNumber in path' });
+    }
+
+    try {
+        const token = await getCaspioAccessToken();
+        const result = await syncOneJobFromApi(token, jobNumber, { force });
+        console.log(`[Supacolor sync/:jobNumber] #${jobNumber} → ${result.action} (ID_Job=${result.idJob}, ${result.joblinesReplaced} lines, ${result.historyReplaced} events)`);
+        res.json({ success: true, ...result });
+    } catch (error) {
+        // 404 → the API doesn't know this job number
+        const status = error.response && error.response.status;
+        if (status === 404) {
+            return res.status(404).json({ success: false, error: `Supacolor API does not have job #${jobNumber}` });
+        }
+        console.error(`[Supacolor sync/:jobNumber] #${jobNumber} failed:`, error.response ? JSON.stringify(error.response.data) : error.message);
+        res.status(500).json({ success: false, error: 'Sync failed: ' + (error.message || 'unknown error') });
     }
 });
 
