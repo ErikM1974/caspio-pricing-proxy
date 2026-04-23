@@ -4,12 +4,15 @@
 // Endpoints:
 //   GET    /api/mockup-versions/:mockupId — Get version history for a mockup
 //   POST   /api/mockup-versions  — Insert a new version record (auto-increments)
-//   GET    /api/mockups          — List mockups (with filters)
-//   GET    /api/mockups/:id      — Get single mockup
+//   GET    /api/mockups          — List mockups (with filters; soft-deleted hidden unless ?includeDeleted=true)
+//   GET    /api/mockups/:id      — Get single mockup (returns soft-deleted rows too, so detail page can show "Restore?")
 //   POST   /api/mockups          — Create new mockup
 //   PUT    /api/mockups/:id      — Update mockup
 //   PUT    /api/mockups/:id/status — Quick status update (with revision tracking)
-//   DELETE /api/mockups/:id      — Delete mockup + cascade children (status-guarded)
+//   DELETE /api/mockups/:id      — Soft-delete mockup (sets Is_Deleted=true; keeps row + children for restore)
+//   POST   /api/mockups/:id/restore — Undo soft-delete
+//   GET    /api/mockups/orphan-scan — Detect Box folders not indexed in Caspio (admin)
+//   POST   /api/mockups/orphan-digest/send — Manually trigger orphan digest email (admin)
 //   GET    /api/mockup-notes/:mockupId — Get notes for a mockup
 //   POST   /api/mockup-notes     — Add a note to a mockup
 //   GET    /api/thread-colors    — List thread colors (cached 1hr, ?instock=true)
@@ -204,6 +207,11 @@ router.get('/mockups', async (req, res) => {
             whereConditions.push(`Submitted_Date<='${req.query.dateTo}'`);
         }
 
+        // Soft-delete filter — hide Is_Deleted=true rows unless ?includeDeleted=true
+        if (req.query.includeDeleted !== 'true') {
+            whereConditions.push(`(Is_Deleted=false OR Is_Deleted IS NULL)`);
+        }
+
         if (whereConditions.length > 0) {
             params['q.where'] = whereConditions.join(' AND ');
         }
@@ -288,6 +296,35 @@ router.post('/mockups', async (req, res) => {
         const READ_ONLY_FIELDS = ['PK_ID', 'ID', 'Submitted_Date', 'Rush_Requested_At'];
         const data = { ...req.body };
         READ_ONLY_FIELDS.forEach(f => delete data[f]);
+
+        // Dedup guard: prevent creating a second row for the same (Design_Number, Company_Name)
+        // when an active (non-deleted) row already exists. This is the primary defense against
+        // the "submit twice → two Box folders" drift that produced 34 orphans before. Bypass
+        // with ?allowDuplicate=true only for the backfill script or explicit admin re-imports.
+        if (data.Design_Number && data.Company_Name && req.query.allowDuplicate !== 'true') {
+            const safeDesign = String(data.Design_Number).replace(/'/g, "''");
+            const safeCompany = String(data.Company_Name).replace(/'/g, "''");
+            const dedupResp = await axios.get(`${caspioApiBaseUrl}/tables/${MOCKUPS_TABLE}/records`, {
+                params: {
+                    'q.where': `Design_Number='${safeDesign}' AND Company_Name='${safeCompany}' AND (Is_Deleted=false OR Is_Deleted IS NULL)`,
+                    'q.select': 'ID,Box_Folder_ID,Status'
+                },
+                headers: { 'Authorization': `Bearer ${token}` },
+                timeout: 15000
+            });
+            const existing = (dedupResp.data.Result || [])[0];
+            if (existing) {
+                console.log(`[Dedup] Blocked duplicate mockup: Design=${data.Design_Number} Company=${data.Company_Name} → existing ID=${existing.ID}`);
+                return res.status(409).json({
+                    success: false,
+                    error: `A mockup request for "${data.Company_Name}" with design #${data.Design_Number} already exists. Open that request instead of creating a new one.`,
+                    code: 'DUPLICATE_MOCKUP',
+                    existingId: existing.ID,
+                    existingBoxFolderId: existing.Box_Folder_ID,
+                    existingStatus: existing.Status
+                });
+            }
+        }
 
         // Set defaults for new records
         data.Status = data.Status || 'Submitted';
@@ -494,18 +531,21 @@ router.put('/mockups/:id/status', async (req, res) => {
     }
 });
 
-// ── Delete Mockup ────────────────────────────────────────────────────
+// ── Soft-Delete Mockup ───────────────────────────────────────────────
 
 /**
  * DELETE /api/mockups/:id
  *
- * Delete a mockup and all child records (notes, versions, design files).
- * Only allowed for Submitted / In Progress / Revision Requested statuses
- * unless ?force=true is passed.
+ * Soft-delete a mockup. Sets Is_Deleted=true, Deleted_At=now, Deleted_By=<body.deletedBy>.
+ * Row + child notes/versions/EMB design files are all preserved so restore is lossless.
+ *
+ * Guard: only Submitted / In Progress / Revision Requested statuses unless ?force=true.
+ * Idempotent: if already deleted, returns success without rewriting timestamps.
  */
 router.delete('/mockups/:id', async (req, res) => {
     const { id } = req.params;
     const force = req.query.force === 'true';
+    const deletedBy = (req.body && req.body.deletedBy) || 'unknown';
 
     if (!id) {
         return res.status(400).json({ success: false, error: 'Missing required parameter: id' });
@@ -514,8 +554,8 @@ router.delete('/mockups/:id', async (req, res) => {
     try {
         const token = await getCaspioAccessToken();
 
-        // 1. Fetch the mockup to check status
-        const getUrl = `${caspioApiBaseUrl}/tables/${MOCKUPS_TABLE}/records?q.where=PK_ID=${id}`;
+        // 1. Fetch the mockup to check status (uses ID — consistent with every other verb in this file)
+        const getUrl = `${caspioApiBaseUrl}/tables/${MOCKUPS_TABLE}/records?q.where=ID=${id}`;
         const mockupResp = await axios.get(getUrl, {
             headers: { 'Authorization': `Bearer ${token}` },
             timeout: 15000
@@ -526,6 +566,17 @@ router.delete('/mockups/:id', async (req, res) => {
         }
 
         const mockup = records[0];
+
+        // Idempotency: already soft-deleted → just confirm
+        if (mockup.Is_Deleted === true) {
+            return res.json({
+                success: true,
+                message: 'Mockup was already deleted',
+                deletedAt: mockup.Deleted_At,
+                deletedBy: mockup.Deleted_By
+            });
+        }
+
         const status = (mockup.Status || '').toLowerCase().replace(/\s+/g, '');
         const allowedStatuses = ['submitted', 'inprogress', 'revisionrequested'];
 
@@ -536,83 +587,89 @@ router.delete('/mockups/:id', async (req, res) => {
             });
         }
 
-        console.log(`Deleting mockup ${id} (${mockup.Company_Name} #${mockup.Design_Number}, status: ${mockup.Status})`);
-
-        const deletedChildren = { notes: 0, versions: 0, designFiles: 0 };
-
-        // 2. Delete child notes
-        try {
-            const notesUrl = `${caspioApiBaseUrl}/tables/${NOTES_TABLE}/records?q.where=Mockup_ID=${id}`;
-            const notesResp = await axios.get(notesUrl, {
-                headers: { 'Authorization': `Bearer ${token}` },
-                timeout: 15000
-            });
-            const notes = notesResp.data.Result || [];
-            for (const note of notes) {
-                await axios.delete(`${caspioApiBaseUrl}/tables/${NOTES_TABLE}/records?q.where=PK_ID=${note.PK_ID}`, {
-                    headers: { 'Authorization': `Bearer ${token}` },
-                    timeout: 15000
-                });
-                deletedChildren.notes++;
-            }
-        } catch (err) {
-            console.warn(`Warning: failed to delete some notes for mockup ${id}:`, err.message);
-        }
-
-        // 3. Delete child versions
-        try {
-            const versionsUrl = `${caspioApiBaseUrl}/tables/${VERSIONS_TABLE}/records?q.where=Mockup_ID=${id}`;
-            const versionsResp = await axios.get(versionsUrl, {
-                headers: { 'Authorization': `Bearer ${token}` },
-                timeout: 15000
-            });
-            const versions = versionsResp.data.Result || [];
-            for (const ver of versions) {
-                await axios.delete(`${caspioApiBaseUrl}/tables/${VERSIONS_TABLE}/records?q.where=PK_ID=${ver.PK_ID}`, {
-                    headers: { 'Authorization': `Bearer ${token}` },
-                    timeout: 15000
-                });
-                deletedChildren.versions++;
-            }
-        } catch (err) {
-            console.warn(`Warning: failed to delete some versions for mockup ${id}:`, err.message);
-        }
-
-        // 4. Delete child EMB design files
-        try {
-            const designUrl = `${caspioApiBaseUrl}/tables/EMB_Design_Files/records?q.where=Mockup_ID=${id}`;
-            const designResp = await axios.get(designUrl, {
-                headers: { 'Authorization': `Bearer ${token}` },
-                timeout: 15000
-            });
-            const designFiles = designResp.data.Result || [];
-            for (const df of designFiles) {
-                await axios.delete(`${caspioApiBaseUrl}/tables/EMB_Design_Files/records?q.where=PK_ID=${df.PK_ID}`, {
-                    headers: { 'Authorization': `Bearer ${token}` },
-                    timeout: 15000
-                });
-                deletedChildren.designFiles++;
-            }
-        } catch (err) {
-            console.warn(`Warning: failed to delete some design files for mockup ${id}:`, err.message);
-        }
-
-        // 5. Delete the mockup record itself
-        await axios.delete(`${caspioApiBaseUrl}/tables/${MOCKUPS_TABLE}/records?q.where=PK_ID=${id}`, {
-            headers: { 'Authorization': `Bearer ${token}` },
+        // 2. Soft-delete via PUT (children untouched — preserved for restore)
+        const deletedAt = new Date().toISOString();
+        const putUrl = `${caspioApiBaseUrl}/tables/${MOCKUPS_TABLE}/records?q.where=ID=${id}`;
+        await axios.put(putUrl, {
+            Is_Deleted: true,
+            Deleted_At: deletedAt,
+            Deleted_By: String(deletedBy).substring(0, 255)
+        }, {
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
             timeout: 15000
         });
 
-        console.log(`Mockup ${id} deleted successfully. Children removed: ${JSON.stringify(deletedChildren)}`);
+        console.log(`Mockup ${id} soft-deleted by ${deletedBy} (${mockup.Company_Name} #${mockup.Design_Number}, was ${mockup.Status})`);
         res.json({
             success: true,
-            message: 'Mockup deleted successfully',
-            deletedChildren
+            message: 'Mockup soft-deleted successfully',
+            deletedAt,
+            deletedBy
         });
 
     } catch (error) {
-        console.error('Error deleting mockup:', error.response ? JSON.stringify(error.response.data) : error.message);
+        console.error('Error soft-deleting mockup:', error.response ? JSON.stringify(error.response.data) : error.message);
         res.status(500).json({ success: false, error: 'Failed to delete mockup: ' + error.message });
+    }
+});
+
+/**
+ * POST /api/mockups/:id/restore
+ *
+ * Undo a soft-delete. Flips Is_Deleted=false and clears Deleted_At / Deleted_By.
+ * No-op if the mockup is not currently soft-deleted.
+ */
+router.post('/mockups/:id/restore', async (req, res) => {
+    const { id } = req.params;
+
+    if (!id) {
+        return res.status(400).json({ success: false, error: 'Missing required parameter: id' });
+    }
+
+    try {
+        const token = await getCaspioAccessToken();
+
+        const getUrl = `${caspioApiBaseUrl}/tables/${MOCKUPS_TABLE}/records?q.where=ID=${id}`;
+        const mockupResp = await axios.get(getUrl, {
+            headers: { 'Authorization': `Bearer ${token}` },
+            timeout: 15000
+        });
+        const records = mockupResp.data.Result || [];
+        if (records.length === 0) {
+            return res.status(404).json({ success: false, error: 'Mockup not found' });
+        }
+
+        const mockup = records[0];
+        if (mockup.Is_Deleted !== true) {
+            return res.json({
+                success: true,
+                message: 'Mockup was not deleted; nothing to restore',
+                alreadyLive: true
+            });
+        }
+
+        const putUrl = `${caspioApiBaseUrl}/tables/${MOCKUPS_TABLE}/records?q.where=ID=${id}`;
+        await axios.put(putUrl, {
+            Is_Deleted: false,
+            Deleted_At: null,
+            Deleted_By: null
+        }, {
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            timeout: 15000
+        });
+
+        console.log(`Mockup ${id} restored (was deleted by ${mockup.Deleted_By} on ${mockup.Deleted_At})`);
+        res.json({ success: true, message: 'Mockup restored successfully' });
+
+    } catch (error) {
+        console.error('Error restoring mockup:', error.response ? JSON.stringify(error.response.data) : error.message);
+        res.status(500).json({ success: false, error: 'Failed to restore mockup: ' + error.message });
     }
 });
 
@@ -745,6 +802,57 @@ router.get('/mockup-notifications', (req, res) => {
     });
 
     res.json({ success: true, notifications });
+});
+
+// ── Orphan Box-folder detection ──────────────────────────────────────
+
+/**
+ * GET /api/mockups/orphan-scan
+ *
+ * Run the orphan detection without sending email. Returns the same structured
+ * report the cron uses. Admin-only (guarded by ORPHAN_SCAN_KEY env).
+ *
+ * Optional query params:
+ *   includeAll=true         — disable test-data + empty-folder quality filters
+ *   inspectContents=false   — skip Box file listing (faster, no mockup1Url)
+ */
+router.get('/mockups/orphan-scan', async (req, res) => {
+    const adminKey = process.env.ORPHAN_SCAN_KEY;
+    if (adminKey && req.headers['x-admin-key'] !== adminKey) {
+        return res.status(401).json({ success: false, error: 'Unauthorized' });
+    }
+    try {
+        const { detectOrphans } = require('../utils/detect-orphan-mockups');
+        const report = await detectOrphans({
+            applyQualityFilters: req.query.includeAll !== 'true',
+            inspectFolderContents: req.query.inspectContents !== 'false'
+        });
+        res.json({ success: true, ...report });
+    } catch (err) {
+        console.error('[OrphanScan] Error:', err.message);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+/**
+ * POST /api/mockups/orphan-digest/send
+ *
+ * Manual trigger for the monthly orphan digest email to Erik. Useful for
+ * testing or on-demand runs between cron cycles. Admin-only.
+ */
+router.post('/mockups/orphan-digest/send', async (req, res) => {
+    const adminKey = process.env.ORPHAN_SCAN_KEY;
+    if (adminKey && req.headers['x-admin-key'] !== adminKey) {
+        return res.status(401).json({ success: false, error: 'Unauthorized' });
+    }
+    try {
+        const { runOrphanDigest } = require('../utils/send-orphan-digest');
+        const result = await runOrphanDigest();
+        res.json({ success: true, ...result });
+    } catch (err) {
+        console.error('[OrphanDigest] Manual trigger error:', err.message);
+        res.status(500).json({ success: false, error: err.message });
+    }
 });
 
 // ── Thread Colors & Locations Endpoints ──────────────────────────────

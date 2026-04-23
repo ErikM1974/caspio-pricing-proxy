@@ -718,6 +718,30 @@ const server = app.listen(PORT, async () => {
     } catch (err) {
         console.error('⏰ Failed to schedule Steve digest cron:', err.message);
     }
+
+    // Schedule: monthly orphan-Box-folder digest email to Erik at 8 AM Pacific
+    // on the 1st of each month. Catches any folder that lands in Ruth's Box
+    // area without a matching Caspio row (e.g. manual right-click → New Folder
+    // in the Box UI). Uses the same EmailJS pipe as the Steve digest.
+    try {
+        const cron = require('node-cron');
+        const { runOrphanDigest } = require('./src/utils/send-orphan-digest');
+        const orphanDigestConfigured = process.env.EMAILJS_PRIVATE_KEY
+            && process.env.EMAILJS_TEMPLATE_ORPHAN_DIGEST
+            && process.env.BOX_CLIENT_ID;
+        if (orphanDigestConfigured) {
+            cron.schedule('0 8 1 * *', () => {
+                runOrphanDigest().catch(err => {
+                    console.error('[Orphan Digest] Cron failed:', err.message);
+                });
+            }, { timezone: 'America/Los_Angeles' });
+            console.log('⏰ Orphan digest cron scheduled: 1st of month 8 AM Pacific');
+        } else {
+            console.log('⏰ Orphan digest cron NOT scheduled — missing env vars (EMAILJS_TEMPLATE_ORPHAN_DIGEST and/or BOX_CLIENT_ID)');
+        }
+    } catch (err) {
+        console.error('⏰ Failed to schedule orphan digest cron:', err.message);
+    }
 });
 
 // Export for testing and route modules
