@@ -207,9 +207,11 @@ router.get('/mockups', async (req, res) => {
             whereConditions.push(`Submitted_Date<='${req.query.dateTo}'`);
         }
 
-        // Soft-delete filter — hide Is_Deleted=true rows unless ?includeDeleted=true
+        // Soft-delete filter — hide Is_Deleted=true rows unless ?includeDeleted=true.
+        // Caspio Yes/No fields use 1/0 literals in q.where (NOT true/false — that
+        // throws "Invalid column name 'false'" at the SQL layer).
         if (req.query.includeDeleted !== 'true') {
-            whereConditions.push(`(Is_Deleted=false OR Is_Deleted IS NULL)`);
+            whereConditions.push(`(Is_Deleted=0 OR Is_Deleted IS NULL)`);
         }
 
         if (whereConditions.length > 0) {
@@ -242,6 +244,60 @@ router.get('/mockups', async (req, res) => {
     } catch (error) {
         console.error('Error fetching mockups:', error.response ? JSON.stringify(error.response.data) : error.message);
         res.status(500).json({ success: false, error: 'Failed to fetch mockups: ' + error.message });
+    }
+});
+
+// ── Orphan Box-folder detection ──────────────────────────────────────
+// IMPORTANT: these static-path routes MUST be declared BEFORE `/mockups/:id`.
+// Express matches in order, so without this ordering `/mockups/orphan-scan`
+// falls into `/mockups/:id` with id='orphan-scan' and Caspio rejects the query.
+
+/**
+ * GET /api/mockups/orphan-scan
+ *
+ * Run the orphan detection without sending email. Returns the same structured
+ * report the cron uses. Admin-only (guarded by ORPHAN_SCAN_KEY env).
+ *
+ * Optional query params:
+ *   includeAll=true         — disable test-data + empty-folder quality filters
+ *   inspectContents=false   — skip Box file listing (faster, no mockup1Url)
+ */
+router.get('/mockups/orphan-scan', async (req, res) => {
+    const adminKey = process.env.ORPHAN_SCAN_KEY;
+    if (adminKey && req.headers['x-admin-key'] !== adminKey) {
+        return res.status(401).json({ success: false, error: 'Unauthorized' });
+    }
+    try {
+        const { detectOrphans } = require('../utils/detect-orphan-mockups');
+        const report = await detectOrphans({
+            applyQualityFilters: req.query.includeAll !== 'true',
+            inspectFolderContents: req.query.inspectContents !== 'false'
+        });
+        res.json({ success: true, ...report });
+    } catch (err) {
+        console.error('[OrphanScan] Error:', err.message);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+/**
+ * POST /api/mockups/orphan-digest/send
+ *
+ * Manual trigger for the monthly orphan digest email to Erik. Useful for
+ * testing or on-demand runs between cron cycles. Admin-only.
+ */
+router.post('/mockups/orphan-digest/send', async (req, res) => {
+    const adminKey = process.env.ORPHAN_SCAN_KEY;
+    if (adminKey && req.headers['x-admin-key'] !== adminKey) {
+        return res.status(401).json({ success: false, error: 'Unauthorized' });
+    }
+    try {
+        const { runOrphanDigest } = require('../utils/send-orphan-digest');
+        const result = await runOrphanDigest();
+        res.json({ success: true, ...result });
+    } catch (err) {
+        console.error('[OrphanDigest] Manual trigger error:', err.message);
+        res.status(500).json({ success: false, error: err.message });
     }
 });
 
@@ -306,7 +362,7 @@ router.post('/mockups', async (req, res) => {
             const safeCompany = String(data.Company_Name).replace(/'/g, "''");
             const dedupResp = await axios.get(`${caspioApiBaseUrl}/tables/${MOCKUPS_TABLE}/records`, {
                 params: {
-                    'q.where': `Design_Number='${safeDesign}' AND Company_Name='${safeCompany}' AND (Is_Deleted=false OR Is_Deleted IS NULL)`,
+                    'q.where': `Design_Number='${safeDesign}' AND Company_Name='${safeCompany}' AND (Is_Deleted=0 OR Is_Deleted IS NULL)`,
                     'q.select': 'ID,Box_Folder_ID,Status'
                 },
                 headers: { 'Authorization': `Bearer ${token}` },
@@ -802,57 +858,6 @@ router.get('/mockup-notifications', (req, res) => {
     });
 
     res.json({ success: true, notifications });
-});
-
-// ── Orphan Box-folder detection ──────────────────────────────────────
-
-/**
- * GET /api/mockups/orphan-scan
- *
- * Run the orphan detection without sending email. Returns the same structured
- * report the cron uses. Admin-only (guarded by ORPHAN_SCAN_KEY env).
- *
- * Optional query params:
- *   includeAll=true         — disable test-data + empty-folder quality filters
- *   inspectContents=false   — skip Box file listing (faster, no mockup1Url)
- */
-router.get('/mockups/orphan-scan', async (req, res) => {
-    const adminKey = process.env.ORPHAN_SCAN_KEY;
-    if (adminKey && req.headers['x-admin-key'] !== adminKey) {
-        return res.status(401).json({ success: false, error: 'Unauthorized' });
-    }
-    try {
-        const { detectOrphans } = require('../utils/detect-orphan-mockups');
-        const report = await detectOrphans({
-            applyQualityFilters: req.query.includeAll !== 'true',
-            inspectFolderContents: req.query.inspectContents !== 'false'
-        });
-        res.json({ success: true, ...report });
-    } catch (err) {
-        console.error('[OrphanScan] Error:', err.message);
-        res.status(500).json({ success: false, error: err.message });
-    }
-});
-
-/**
- * POST /api/mockups/orphan-digest/send
- *
- * Manual trigger for the monthly orphan digest email to Erik. Useful for
- * testing or on-demand runs between cron cycles. Admin-only.
- */
-router.post('/mockups/orphan-digest/send', async (req, res) => {
-    const adminKey = process.env.ORPHAN_SCAN_KEY;
-    if (adminKey && req.headers['x-admin-key'] !== adminKey) {
-        return res.status(401).json({ success: false, error: 'Unauthorized' });
-    }
-    try {
-        const { runOrphanDigest } = require('../utils/send-orphan-digest');
-        const result = await runOrphanDigest();
-        res.json({ success: true, ...result });
-    } catch (err) {
-        console.error('[OrphanDigest] Manual trigger error:', err.message);
-        res.status(500).json({ success: false, error: err.message });
-    }
 });
 
 // ── Thread Colors & Locations Endpoints ──────────────────────────────
