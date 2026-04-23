@@ -14,6 +14,7 @@
 //   GET    /api/supacolor-jobs/:id                — Get one job + joblines + history
 //   POST   /api/supacolor-jobs                    — Create new
 //   POST   /api/supacolor-jobs/upsert             — Upsert by Supacolor_Job_Number (idempotent)
+//   GET    /api/supacolor-jobs/by-number/:jobNumber — Lookup by business key (no joblines/history)
 //   POST   /api/supacolor-jobs/bulk-upsert        — Batch upsert (jobs-list backfill)
 //   PUT    /api/supacolor-jobs/:id                — Update fields
 //   DELETE /api/supacolor-jobs/:id                — Delete job + cascade joblines + history
@@ -279,6 +280,34 @@ router.get('/supacolor-jobs/stats', async (req, res) => {
     } catch (error) {
         console.error('Error fetching supacolor stats:', error.response ? JSON.stringify(error.response.data) : error.message);
         res.status(500).json({ success: false, error: 'Failed to fetch stats: ' + error.message });
+    }
+});
+
+/**
+ * GET /api/supacolor-jobs/by-number/:jobNumber
+ * Returns the Supacolor_Jobs row matching Supacolor_Job_Number (business key).
+ * Used by transfer-detail.html to resolve a job# → full record for the
+ * "Live Supacolor Status" card without running a deep API sync.
+ *
+ * NOTE: the :jobNumber wildcard MUST be registered before /:id to avoid
+ * being swallowed by Express (/:id matches anything).
+ */
+router.get('/supacolor-jobs/by-number/:jobNumber', async (req, res) => {
+    try {
+        const { jobNumber } = req.params;
+        if (!jobNumber) return res.status(400).json({ success: false, error: 'Missing jobNumber' });
+
+        const token = await getCaspioAccessToken();
+        const job = await fetchJobByNumber(token, jobNumber);
+        if (!job) return res.status(404).json({ success: false, error: 'Job not found for number: ' + jobNumber });
+
+        // For the live-status card on transfer-detail we only need the job row itself
+        // (status + shipping fields). Joblines/history are skipped — the supacolor detail
+        // page is the place to show those.
+        res.json({ success: true, job });
+    } catch (error) {
+        console.error('Error fetching supacolor job by number:', error.response ? JSON.stringify(error.response.data) : error.message);
+        res.status(500).json({ success: false, error: 'Failed to fetch job: ' + error.message });
     }
 });
 
