@@ -13,6 +13,7 @@
 //   PUT    /api/transfer-orders/:id/status — Status transition (writes note + stamps)
 //   PUT    /api/transfer-orders/:id/rush   — Toggle rush flag (writes note)
 //   DELETE /api/transfer-orders/:id        — Soft delete (sets Status='Cancelled')
+//                                            | ?hard=true + Status ∈ (Requested, On_Hold) → physically removes row + cascades notes
 //   GET    /api/transfer-orders/:id/notes  — Get notes for a transfer
 //   POST   /api/transfer-order-notes       — Add a comment/note
 
@@ -533,7 +534,9 @@ router.put('/transfer-orders/:id/rush', async (req, res) => {
  * DELETE /api/transfer-orders/:id
  *
  * Soft delete: sets Status='Cancelled' and stamps Cancelled_By/_At/Cancel_Reason.
- * Hard delete only allowed via ?hard=true AND current Status='Requested'.
+ * Hard delete via ?hard=true — only allowed when Status IN ('Requested', 'On_Hold'),
+ * i.e., before Bradley has placed the Supacolor order. For true cancellations once
+ * ordering has started, use soft delete to preserve the audit trail.
  *
  * Body: { author, authorName?, reason? }
  */
@@ -552,11 +555,14 @@ router.delete('/transfer-orders/:id', async (req, res) => {
         const safeId = escapeSQL(id);
 
         if (hard) {
-            // Hard delete only allowed from Requested state
-            if (current.Status !== 'Requested') {
+            // Hard delete only allowed before Bradley has placed the Supacolor order.
+            // After Ordered/PO_Created/Shipped/Received, Cancel (soft delete) is the correct action
+            // to preserve the audit trail of what was ordered from Supacolor.
+            const HARD_DELETE_ALLOWED_STATUSES = ['Requested', 'On_Hold'];
+            if (!HARD_DELETE_ALLOWED_STATUSES.includes(current.Status)) {
                 return res.status(400).json({
                     success: false,
-                    error: `Hard delete only allowed for 'Requested' status. Current: '${current.Status}'. Use soft delete (omit ?hard=true) to cancel.`
+                    error: `Hard delete only allowed for 'Requested' or 'On_Hold' status. Current: '${current.Status}'. Use soft delete (omit ?hard=true) to cancel.`
                 });
             }
             // Delete child notes first
