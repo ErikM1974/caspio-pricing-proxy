@@ -31,6 +31,7 @@ const router = express.Router();
 const axios = require('axios');
 const { getCaspioAccessToken, fetchAllCaspioPages } = require('../utils/caspio');
 const supacolorApi = require('../utils/supacolor-api');
+const { mirrorShippedToTransfer } = require('../utils/transfer-status-mirror');
 const config = require('../../config');
 
 const caspioApiBaseUrl = config.caspio.apiBaseUrl;
@@ -377,6 +378,8 @@ router.post('/supacolor-jobs/upsert', async (req, res) => {
 
         if (!existing) {
             const created = await insertJob(token, data);
+            // D.2 — mirror shipped signal onto any linked Transfer_Orders
+            try { await mirrorShippedToTransfer(token, created || data); } catch (e) { console.warn('[upsert] mirror:', e.message); }
             return res.status(201).json({ success: true, job: created, action: 'inserted' });
         }
 
@@ -401,10 +404,20 @@ router.post('/supacolor-jobs/upsert', async (req, res) => {
         }
 
         if (Object.keys(patch).length === 0) {
+            // Even on noop, run the mirror — existing state may already be shipped
+            // but a prior mirror attempt could have failed silently.
+            try { await mirrorShippedToTransfer(token, existing); } catch (e) { console.warn('[upsert noop] mirror:', e.message); }
             return res.json({ success: true, job: existing, action: 'noop' });
         }
 
         const updated = await updateJob(token, existing.ID_Job, patch);
+        // D.2 — merge existing + patch so the mirror sees the final shape
+        try {
+            const merged = Object.assign({}, existing, patch);
+            await mirrorShippedToTransfer(token, merged);
+        } catch (e) {
+            console.warn('[upsert patched] mirror:', e.message);
+        }
         res.json({ success: true, job: updated, action: 'patched', updatedFields: Object.keys(patch) });
     } catch (error) {
         console.error('Error upserting supacolor job:', error.response ? JSON.stringify(error.response.data) : error.message);
@@ -952,12 +965,22 @@ async function syncOneJobFromApi(token, jobNumber, { force = false } = {}) {
         }
     }
 
+    // D.2 — If this Supacolor job has shipped, flip matching Transfer_Orders to Shipped.
+    // Non-blocking: the sync itself should succeed even if the mirror fails.
+    let transferMirror = null;
+    try {
+        transferMirror = await mirrorShippedToTransfer(token, jobPayload);
+    } catch (err) {
+        console.warn(`[Supacolor syncOneJob #${jobNumber}] transfer-mirror raised:`, err.message);
+    }
+
     return {
         action,
         jobNumber: jobPayload.Supacolor_Job_Number,
         idJob,
         joblinesReplaced,
-        historyReplaced
+        historyReplaced,
+        transferMirror
     };
 }
 
@@ -1036,6 +1059,7 @@ router.post('/supacolor-jobs/sync/all', async (req, res) => {
             }
 
             const existing = existingByJobNumber.get(jobPayload.Supacolor_Job_Number);
+            let jobUpsertedOrChanged = false;
             try {
                 if (!existing) {
                     await writeWithRateLimitRetry(
@@ -1043,6 +1067,7 @@ router.post('/supacolor-jobs/sync/all', async (req, res) => {
                         { label: `insert #${jobPayload.Supacolor_Job_Number}` }
                     );
                     inserted++;
+                    jobUpsertedOrChanged = true;
                     await sleep(SLEEP_BETWEEN_WRITES_MS);
                 } else {
                     // Patch: only write if a field is actually different (or empty in Caspio)
@@ -1077,6 +1102,7 @@ router.post('/supacolor-jobs/sync/all', async (req, res) => {
                             { label: `patch #${jobPayload.Supacolor_Job_Number}` }
                         );
                         patched++;
+                        jobUpsertedOrChanged = true;
                         await sleep(SLEEP_BETWEEN_WRITES_MS);
                     }
                 }
@@ -1087,6 +1113,22 @@ router.post('/supacolor-jobs/sync/all', async (req, res) => {
                     errors.push({ jobNumber: jobPayload.Supacolor_Job_Number, error: msg });
                 }
                 console.error(`[Supacolor sync/all] Job #${jobPayload.Supacolor_Job_Number} failed:`, msg);
+            }
+
+            // D.2 — After a successful upsert/patch, mirror the shipped signal to any
+            // linked Transfer_Orders. Non-blocking — cron tolerance matters more than
+            // immediate consistency here.
+            if (jobUpsertedOrChanged) {
+                try {
+                    // Merge the stub payload with the existing Caspio row so fields only
+                    // present on existing (e.g., Tracking_Number populated by a prior
+                    // deep sync) still flow to the mirror. Stub is source-of-truth for
+                    // Status + Date_Shipped — those shape isShippedSignal().
+                    const merged = Object.assign({}, existing || {}, jobPayload);
+                    await mirrorShippedToTransfer(token, merged);
+                } catch (mirrorErr) {
+                    console.warn(`[Supacolor sync/all] transfer-mirror for #${jobPayload.Supacolor_Job_Number}:`, mirrorErr.message);
+                }
             }
         }
 
