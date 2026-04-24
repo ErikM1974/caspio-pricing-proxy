@@ -25,6 +25,9 @@
 //   POST   /api/supacolor-jobs/:id/history/replace — Replace all history events
 //   POST   /api/supacolor-jobs/sync/all           — Pull all jobs from Supacolor API + upsert into Caspio
 //   POST   /api/supacolor-jobs/sync/:jobNumber    — Refresh one job (detail + history) from API
+//   GET    /api/supacolor-jobs/proxy-image        — Proxy a Supacolor CDN image with Content-Disposition: attachment
+//                                                   so browsers trigger a true 1-click download. Whitelisted to
+//                                                   *.supacolor.com to prevent SSRF.
 
 const express = require('express');
 const router = express.Router();
@@ -1185,6 +1188,76 @@ router.post('/supacolor-jobs/sync/:jobNumber', async (req, res) => {
         }
         console.error(`[Supacolor sync/:jobNumber] #${jobNumber} failed:`, error.response ? JSON.stringify(error.response.data) : error.message);
         res.status(500).json({ success: false, error: 'Sync failed: ' + (error.message || 'unknown error') });
+    }
+});
+
+// ── Image Proxy (1-click download for the detail-page lightbox) ────────
+//
+// Supacolor's CDN returns images with Content-Disposition: inline and no CORS
+// headers, which defeats both fetch→blob downloads AND the HTML5 `download`
+// attribute (which is same-origin-only). We proxy through this endpoint so:
+//   - Response lands same-origin → `download` attribute is honored
+//   - Content-Disposition: attachment → browser downloads instead of navigating
+//
+// SSRF mitigation: only fetch URLs whose hostname ends in .supacolor.com.
+// This is a known pattern for sanitizing external fetches.
+router.get('/supacolor-jobs/proxy-image', async (req, res) => {
+    const { url, name } = req.query;
+    if (!url) {
+        return res.status(400).json({ success: false, error: 'Missing url query param' });
+    }
+
+    // Parse + validate URL (SSRF guard)
+    let parsed;
+    try {
+        parsed = new URL(url);
+    } catch (e) {
+        return res.status(400).json({ success: false, error: 'Invalid url' });
+    }
+    if (parsed.protocol !== 'https:') {
+        return res.status(400).json({ success: false, error: 'Only https URLs allowed' });
+    }
+    const hostname = parsed.hostname.toLowerCase();
+    // Allow supacolor.com + any subdomain (intranet.supacolor.com, cdn.supacolor.com, etc.)
+    const isSupacolor = hostname === 'supacolor.com' || hostname.endsWith('.supacolor.com');
+    if (!isSupacolor) {
+        return res.status(403).json({ success: false, error: 'Only *.supacolor.com URLs are allowed' });
+    }
+
+    try {
+        const upstream = await axios.get(url, {
+            responseType: 'arraybuffer',
+            timeout: 20000,
+            validateStatus: () => true, // handle non-2xx ourselves instead of throwing
+            maxContentLength: 50 * 1024 * 1024 // 50MB cap (transfer art is typically < 2MB)
+        });
+
+        if (upstream.status >= 400) {
+            console.warn(`[proxy-image] Upstream ${upstream.status} for ${url}`);
+            return res.status(upstream.status).json({
+                success: false,
+                error: `Upstream returned ${upstream.status}`
+            });
+        }
+
+        // Sanitize filename — strip path traversal, control chars, and anything
+        // that could break Content-Disposition header parsing.
+        const safeName = String(name || 'supacolor-image.jpg')
+            .replace(/[\r\n"]/g, '')       // header-injection chars
+            .replace(/[\/\\]/g, '-')        // path separators
+            .replace(/[^\w.\-\s()]/g, '-')  // keep alphanumerics + common filename chars
+            .slice(0, 120) || 'supacolor-image.jpg';
+
+        const contentType = upstream.headers['content-type'] || 'application/octet-stream';
+
+        res.set('Content-Type', contentType);
+        res.set('Content-Disposition', `attachment; filename="${safeName}"`);
+        res.set('Cache-Control', 'private, max-age=300'); // 5-min browser cache is fine
+        res.set('X-Content-Type-Options', 'nosniff');
+        res.send(Buffer.from(upstream.data));
+    } catch (err) {
+        console.error('[proxy-image] Error:', err.message);
+        res.status(500).json({ success: false, error: 'Proxy fetch failed: ' + err.message });
     }
 });
 
