@@ -722,6 +722,63 @@ router.get('/box/art-folders', async (req, res) => {
 });
 
 /**
+ * GET /api/box/search?query=asphalt&type=folder&limit=20
+ *
+ * Scoped-search endpoint for the Send-to-Supacolor picker (Phase v3.1).
+ * Wraps Box's /search API and constrains results to under BOX_ART_FOLDER_ID
+ * (Steve's art root), so Steve can find a job folder by design # or company
+ * name without leaving the modal.
+ *
+ * Params:
+ *   query  — required, the search text (trimmed, 2+ chars)
+ *   type   — "folder" (default) | "file"
+ *   limit  — 1..50, default 20
+ *
+ * Response: { success: true, entries: [{ id, name, type, parent_id? }] }
+ */
+router.get('/box/search', async (req, res) => {
+    const query = String(req.query.query || '').trim();
+    const type = req.query.type === 'file' ? 'file' : 'folder';
+    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit, 10) || 20));
+
+    if (query.length < 2) {
+        return res.status(400).json({ success: false, error: 'query must be at least 2 chars' });
+    }
+    if (!BOX_ART_FOLDER_ID) {
+        return res.status(500).json({ success: false, error: 'BOX_ART_FOLDER_ID not configured' });
+    }
+
+    try {
+        const token = await getBoxAccessToken();
+        const resp = await axios.get(`${BOX_API_BASE}/search`, {
+            params: {
+                query,
+                type,
+                ancestor_folder_ids: BOX_ART_FOLDER_ID,
+                fields: 'id,name,type',
+                limit,
+                // Sort by newest first so freshly-uploaded jobs float to the top
+                // (Box's 'modified_at desc' ordering). Actually Box /search orders
+                // by relevance; modified_at would require client-side sort. Accept
+                // relevance ordering — good enough for a design# / company query.
+            },
+            headers: { 'Authorization': `Bearer ${token}` },
+            timeout: 15000
+        });
+
+        const entries = (resp.data.entries || []).map(e => ({
+            id: e.id,
+            name: e.name,
+            type: e.type
+        }));
+        res.json({ success: true, entries, count: entries.length });
+    } catch (err) {
+        console.error('[box/search] error:', err.response ? JSON.stringify(err.response.data) : err.message);
+        res.status(500).json({ success: false, error: 'Search failed: ' + (err.message || 'unknown') });
+    }
+});
+
+/**
  * GET /api/box/folder-files?designNumber=40246
  * GET /api/box/folder-files?folderId=123456789
  *
