@@ -26,6 +26,13 @@ const config = require('../../config');
 const caspioApiBaseUrl = config.caspio.apiBaseUrl;
 const TABLE = 'Transfer_Orders';
 const NOTES_TABLE = 'Transfer_Order_Notes';
+const LINES_TABLE = 'Transfer_Order_Lines';
+
+// Fields that are valid on a Transfer_Order_Lines row (strip unknown keys defensively)
+const LINE_FIELDS = [
+    'Transfer_ID', 'Line_Order', 'Quantity', 'Transfer_Size',
+    'Press_Count', 'Transfer_Width_In', 'Transfer_Height_In', 'File_Notes'
+];
 
 // Valid Status values (state machine)
 // Happy path: Requested → Ordered → PO_Created → Shipped → Received
@@ -114,6 +121,65 @@ async function fetchTransfer(token, idTransfer) {
     return records[0] || null;
 }
 
+/**
+ * Normalize and insert one or more Transfer_Order_Lines rows for a parent.
+ * Returns the count of rows successfully inserted. Throws on the first failure
+ * so callers can trigger compensating cleanup (Caspio has no transactions).
+ */
+async function insertLines(token, idTransfer, lines) {
+    if (!Array.isArray(lines) || lines.length === 0) return 0;
+    const url = `${caspioApiBaseUrl}/tables/${LINES_TABLE}/records`;
+    let inserted = 0;
+    for (let i = 0; i < lines.length; i++) {
+        const src = lines[i] || {};
+        const row = { Transfer_ID: idTransfer, Line_Order: i + 1 };
+        LINE_FIELDS.forEach(f => {
+            if (f === 'Transfer_ID' || f === 'Line_Order') return;
+            if (src[f] === undefined || src[f] === null || src[f] === '') return;
+            if (f === 'Quantity' || f === 'Press_Count') {
+                const n = parseInt(src[f], 10);
+                if (!Number.isNaN(n)) row[f] = n;
+            } else if (f === 'Transfer_Width_In' || f === 'Transfer_Height_In') {
+                const n = parseFloat(src[f]);
+                if (!Number.isNaN(n)) row[f] = n;
+            } else {
+                row[f] = src[f];
+            }
+        });
+        await axios.post(url, row, {
+            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            timeout: 15000
+        });
+        inserted++;
+    }
+    return inserted;
+}
+
+/**
+ * Fetch all child lines for a transfer, ordered by Line_Order ASC.
+ */
+async function fetchLines(token, idTransfer) {
+    const safeId = escapeSQL(idTransfer);
+    const url = `${caspioApiBaseUrl}/tables/${LINES_TABLE}/records?q.where=Transfer_ID='${safeId}'&q.orderBy=Line_Order ASC`;
+    const resp = await axios.get(url, {
+        headers: { 'Authorization': `Bearer ${token}` },
+        timeout: 15000
+    });
+    return resp.data.Result || [];
+}
+
+/**
+ * Delete all child lines for a transfer. Used by replace-lines PUT and hard-delete cascade.
+ */
+async function deleteLines(token, idTransfer) {
+    const safeId = escapeSQL(idTransfer);
+    const url = `${caspioApiBaseUrl}/tables/${LINES_TABLE}/records?q.where=Transfer_ID='${safeId}'`;
+    await axios.delete(url, {
+        headers: { 'Authorization': `Bearer ${token}` },
+        timeout: 15000
+    });
+}
+
 // ── CRUD Endpoints ────────────────────────────────────────────────────
 
 /**
@@ -180,6 +246,30 @@ router.get('/transfer-orders', async (req, res) => {
 
         const records = await fetchAllCaspioPages(resource, params);
 
+        // Optionally attach line_count per row (Bradley's queue wants "3 transfers" pills).
+        // One batched fetch against Transfer_Order_Lines, aggregate in memory.
+        if ((req.query.includeLineCount === 'true' || req.query.includeLineCount === '1') && records.length > 0) {
+            try {
+                const ids = records.map(r => r.ID_Transfer).filter(Boolean);
+                const inClause = ids.map(i => `'${escapeSQL(i)}'`).join(',');
+                const linesRes = `/tables/${LINES_TABLE}/records`;
+                const linesParams = {
+                    'q.select': 'Transfer_ID',
+                    'q.where': `Transfer_ID IN (${inClause})`,
+                    'q.pageSize': 1000
+                };
+                const lineRows = await fetchAllCaspioPages(linesRes, linesParams);
+                const counts = {};
+                lineRows.forEach(l => {
+                    counts[l.Transfer_ID] = (counts[l.Transfer_ID] || 0) + 1;
+                });
+                records.forEach(r => { r.line_count = counts[r.ID_Transfer] || 0; });
+            } catch (err) {
+                // Non-fatal — log and return records without counts.
+                console.warn('Line count attach failed (records returned without counts):', err.message);
+            }
+        }
+
         res.json({ success: true, count: records.length, records });
 
     } catch (error) {
@@ -236,17 +326,23 @@ router.get('/transfer-orders/:id', async (req, res) => {
             return res.status(404).json({ success: false, error: 'Transfer order not found' });
         }
 
-        // Fetch child notes in parallel-friendly shape
-        const notesUrl = `${caspioApiBaseUrl}/tables/${NOTES_TABLE}/records?q.where=Transfer_ID='${escapeSQL(id)}'&q.orderBy=Created_At ASC`;
-        const notesResp = await axios.get(notesUrl, {
-            headers: { 'Authorization': `Bearer ${token}` },
-            timeout: 15000
-        });
+        const safeId = escapeSQL(id);
+
+        // Fetch child notes + lines in parallel
+        const notesUrl = `${caspioApiBaseUrl}/tables/${NOTES_TABLE}/records?q.where=Transfer_ID='${safeId}'&q.orderBy=Created_At ASC`;
+        const [notesResp, lines] = await Promise.all([
+            axios.get(notesUrl, {
+                headers: { 'Authorization': `Bearer ${token}` },
+                timeout: 15000
+            }),
+            fetchLines(token, id)
+        ]);
 
         res.json({
             success: true,
             record,
-            notes: notesResp.data.Result || []
+            notes: notesResp.data.Result || [],
+            lines
         });
 
     } catch (error) {
@@ -279,6 +375,24 @@ router.post('/transfer-orders', async (req, res) => {
         const requestedByName = data.Requested_By_Name;
         delete data.Requested_By_Name;
 
+        // Extract child lines (not a column on Transfer_Orders)
+        let lines = Array.isArray(data.lines) ? data.lines : [];
+        delete data.lines;
+
+        // Backward compat: if caller didn't send lines[] but DID send single-row spec fields
+        // at the top level (legacy mockup-detail / art-request-detail flow), auto-wrap into
+        // a single synthetic line so the child table gets populated.
+        if (lines.length === 0 && (data.Quantity || data.Transfer_Size)) {
+            lines = [{
+                Quantity: data.Quantity,
+                Transfer_Size: data.Transfer_Size,
+                Press_Count: data.Press_Count,
+                Transfer_Width_In: data.Transfer_Width_In,
+                Transfer_Height_In: data.Transfer_Height_In,
+                File_Notes: data.File_Notes
+            }];
+        }
+
         // Validate minimally
         if (!data.Requested_By) {
             return res.status(400).json({ success: false, error: 'Missing Requested_By' });
@@ -291,6 +405,19 @@ router.post('/transfer-orders', async (req, res) => {
             data.Is_Rush = false;
         }
 
+        // Normalize Is_Reorder to boolean
+        if (data.Is_Reorder !== undefined) {
+            data.Is_Reorder = (data.Is_Reorder === true || data.Is_Reorder === 'true' || data.Is_Reorder === 'Yes' || data.Is_Reorder === 1);
+        } else {
+            data.Is_Reorder = false;
+        }
+
+        // Reorder mode requires a Supacolor_Order_Number (artwork is already on file at Supacolor,
+        // so Bradley needs the reference number to find it).
+        if (data.Is_Reorder && !data.Supacolor_Order_Number) {
+            return res.status(400).json({ success: false, error: 'Reorder requires Supacolor_Order_Number' });
+        }
+
         // Default status
         data.Status = data.Status || 'Requested';
         if (!VALID_STATUSES.includes(data.Status)) {
@@ -301,28 +428,57 @@ router.post('/transfer-orders', async (req, res) => {
         const idTransfer = await generateTransferId(token);
         data.ID_Transfer = idTransfer;
 
-        // Insert
+        // Insert parent
         const url = `${caspioApiBaseUrl}/tables/${TABLE}/records`;
         await axios.post(url, data, {
             headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
             timeout: 15000
         });
 
-        // Fetch the created record back (so we have Requested_At populated)
+        // Insert child lines. If any line insert fails, compensate by deleting the
+        // parent (Caspio REST has no transactions — this is best-effort cleanup).
+        let linesInserted = 0;
+        try {
+            linesInserted = await insertLines(token, idTransfer, lines);
+        } catch (lineErr) {
+            console.error(`Line insert failed for ${idTransfer} after ${linesInserted}/${lines.length} rows:`, lineErr.message);
+            try {
+                // Delete any lines that did get created, then the parent.
+                await deleteLines(token, idTransfer);
+                const safeId = escapeSQL(idTransfer);
+                await axios.delete(`${caspioApiBaseUrl}/tables/${TABLE}/records?q.where=ID_Transfer='${safeId}'`, {
+                    headers: { 'Authorization': `Bearer ${token}` },
+                    timeout: 15000
+                });
+            } catch (rollbackErr) {
+                console.error(`Rollback failed for ${idTransfer} — orphan record may remain:`, rollbackErr.message);
+            }
+            return res.status(500).json({
+                success: false,
+                error: 'Failed to insert transfer lines: ' + lineErr.message,
+                lines_inserted: linesInserted,
+                lines_attempted: lines.length
+            });
+        }
+
+        // Fetch the created record back (so we have Requested_At populated) + child lines
         const created = await fetchTransfer(token, idTransfer);
+        const createdLines = await fetchLines(token, idTransfer);
 
         // Write initial status_change note
+        const noteLineSummary = lines.length > 1 ? ` (${lines.length} transfer lines)` : '';
+        const noteReorderTag = data.Is_Reorder ? ` [REORDER #${data.Supacolor_Order_Number}]` : '';
         await writeNote(token, {
             Transfer_ID: idTransfer,
             Note_Type: 'status_change',
-            Note_Text: `Transfer request created. Status: ${data.Status}.${data.File_Notes ? ' Notes: ' + data.File_Notes : ''}`,
+            Note_Text: `Transfer request created${noteReorderTag}${noteLineSummary}. Status: ${data.Status}.${data.File_Notes ? ' Notes: ' + data.File_Notes : ''}`,
             Author_Email: data.Requested_By,
             Author_Name: requestedByName || data.Requested_By
         });
 
-        console.log(`Transfer created: ${idTransfer} (${data.Company_Name || 'n/a'}, design ${data.Design_Number || 'n/a'}, by ${data.Requested_By})`);
+        console.log(`Transfer created: ${idTransfer} (${data.Company_Name || 'n/a'}, design ${data.Design_Number || 'n/a'}, ${lines.length} lines, by ${data.Requested_By})${data.Is_Reorder ? ' [REORDER]' : ''}`);
 
-        res.status(201).json({ success: true, record: created || { ID_Transfer: idTransfer, ...data } });
+        res.status(201).json({ success: true, record: created || { ID_Transfer: idTransfer, ...data }, lines: createdLines });
 
     } catch (error) {
         console.error('Error creating transfer order:', error.response ? JSON.stringify(error.response.data) : error.message);
@@ -531,6 +687,65 @@ router.put('/transfer-orders/:id/rush', async (req, res) => {
 });
 
 /**
+ * PUT /api/transfer-orders/:id/lines
+ *
+ * Replace all child Transfer_Order_Lines for this transfer. Full replace
+ * (delete all, insert new) rather than per-line PATCH — edits are rare and
+ * the simpler semantics avoid ID reconciliation.
+ *
+ * Body: { lines: [{Quantity, Transfer_Size, Press_Count, Transfer_Width_In,
+ *                  Transfer_Height_In, File_Notes}], author, authorName? }
+ */
+router.put('/transfer-orders/:id/lines', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { lines, author, authorName } = req.body;
+
+        if (!Array.isArray(lines)) {
+            return res.status(400).json({ success: false, error: 'Missing lines array' });
+        }
+        if (!author) {
+            return res.status(400).json({ success: false, error: 'Missing author' });
+        }
+
+        const token = await getCaspioAccessToken();
+        const current = await fetchTransfer(token, id);
+        if (!current) return res.status(404).json({ success: false, error: 'Transfer not found' });
+
+        // Full replace: delete all existing lines, then insert the new set.
+        await deleteLines(token, id);
+        let inserted = 0;
+        try {
+            inserted = await insertLines(token, id, lines);
+        } catch (lineErr) {
+            console.error(`Line replace failed for ${id} after ${inserted}/${lines.length}:`, lineErr.message);
+            return res.status(500).json({
+                success: false,
+                error: 'Line replace failed mid-insert: ' + lineErr.message,
+                lines_inserted: inserted,
+                lines_attempted: lines.length
+            });
+        }
+
+        await writeNote(token, {
+            Transfer_ID: id,
+            Note_Type: 'comment',
+            Note_Text: `Transfer lines updated (${lines.length} line${lines.length === 1 ? '' : 's'})`,
+            Author_Email: author,
+            Author_Name: authorName || author
+        });
+
+        const fresh = await fetchLines(token, id);
+        console.log(`Transfer ${id} lines replaced: ${inserted} line(s) (by ${author})`);
+        res.json({ success: true, lines: fresh, lines_inserted: inserted });
+
+    } catch (error) {
+        console.error('Error replacing transfer lines:', error.response ? JSON.stringify(error.response.data) : error.message);
+        res.status(500).json({ success: false, error: 'Failed to replace lines: ' + error.message });
+    }
+});
+
+/**
  * DELETE /api/transfer-orders/:id
  *
  * Soft delete: sets Status='Cancelled' and stamps Cancelled_By/_At/Cancel_Reason.
@@ -565,7 +780,7 @@ router.delete('/transfer-orders/:id', async (req, res) => {
                     error: `Hard delete only allowed for 'Requested' or 'On_Hold' status. Current: '${current.Status}'. Use soft delete (omit ?hard=true) to cancel.`
                 });
             }
-            // Delete child notes first
+            // Delete child notes + lines first (cascade)
             try {
                 const notesUrl = `${caspioApiBaseUrl}/tables/${NOTES_TABLE}/records?q.where=Transfer_ID='${safeId}'`;
                 await axios.delete(notesUrl, {
@@ -574,6 +789,11 @@ router.delete('/transfer-orders/:id', async (req, res) => {
                 });
             } catch (err) {
                 console.warn(`Warning: failed to delete notes for transfer ${id}:`, err.message);
+            }
+            try {
+                await deleteLines(token, id);
+            } catch (err) {
+                console.warn(`Warning: failed to delete lines for transfer ${id}:`, err.message);
             }
             // Delete the transfer itself
             await axios.delete(`${caspioApiBaseUrl}/tables/${TABLE}/records?q.where=ID_Transfer='${safeId}'`, {
