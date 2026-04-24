@@ -721,7 +721,7 @@ function mediaTypeFromExtension(ext) {
  * Returns:
  *   { success: true, data: {11 structured fields}, durationMs, cached, fileId? }
  */
-router.post('/vision/extract-mockup-info', async (req, res) => {
+router.post('/extract-mockup-info', async (req, res) => {
     const startTime = Date.now();
     const { fileId, sharedLink, imageBase64 } = req.body || {};
 
