@@ -368,15 +368,30 @@ router.get('/supacolor-jobs/proxy-image', async (req, res) => {
             });
         }
 
+        const contentType = upstream.headers['content-type'] || 'application/octet-stream';
+
         // Sanitize filename — strip path traversal, control chars, and anything
         // that could break Content-Disposition header parsing.
-        const safeName = String(name || 'supacolor-image.jpg')
+        let safeName = String(name || 'supacolor-image')
             .replace(/[\r\n"]/g, '')       // header-injection chars
             .replace(/[\/\\]/g, '-')        // path separators
             .replace(/[^\w.\-\s()]/g, '-')  // keep alphanumerics + common filename chars
-            .slice(0, 120) || 'supacolor-image.jpg';
+            .slice(0, 120) || 'supacolor-image';
 
-        const contentType = upstream.headers['content-type'] || 'application/octet-stream';
+        // Fix the extension to match the actual response type. Supacolor URLs like
+        // .../customer-asset/3YrR9Tlq/WE319816 have no extension in the path and
+        // serve PNG (not JPG) as of 2026-04-24, so client-side guesses land wrong.
+        const extForType = {
+            'image/png': 'png', 'image/jpeg': 'jpg', 'image/jpg': 'jpg',
+            'image/gif': 'gif', 'image/webp': 'webp', 'image/svg+xml': 'svg'
+        }[String(contentType).split(';')[0].trim().toLowerCase()];
+        if (extForType) {
+            if (/\.[a-z0-9]+$/i.test(safeName)) {
+                safeName = safeName.replace(/\.[a-z0-9]+$/i, '.' + extForType);
+            } else {
+                safeName += '.' + extForType;
+            }
+        }
 
         res.set('Content-Type', contentType);
         res.set('Content-Disposition', `attachment; filename="${safeName}"`);
