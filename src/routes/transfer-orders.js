@@ -301,10 +301,13 @@ router.post('/transfer-orders/analyze-link', async (req, res) => {
             return res.json({ ...cached, cached: true });
         }
 
-        // Metadata + bytes in parallel (both cheap on Box)
+        // Metadata + bytes in parallel (both cheap on Box).
+        // 128KB Range covers PNG/JPEG/PDF metadata reliably. PNG pHYs + IHDR
+        // live in first few KB, but JPEG SOF markers can sit past EXIF/APP
+        // blobs (~30-60KB in practice); 16KB was too small for mockup JPGs.
         const [info, bytes] = await Promise.all([
             boxGetFileInfo(fileId, ['name', 'size', 'extension', 'type'], sharedLink),
-            boxFetchFileBytes(fileId, { rangeBytes: 16384, sharedLink })
+            boxFetchFileBytes(fileId, { rangeBytes: 131072, sharedLink })
         ]);
 
         const fileName = info.name || '';

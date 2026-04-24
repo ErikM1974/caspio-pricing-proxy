@@ -111,7 +111,7 @@ function extractPdfMediaBox(buf) {
  */
 function extractImageMetadata(buf) {
     if (!buf || buf.length < 12) {
-        return { fileType: 'unknown', confidence: 'low', error: 'buffer too small' };
+        return { fileType: null, confidence: 'low', error: 'buffer too small' };
     }
 
     // Magic-byte detection
@@ -142,7 +142,12 @@ function extractImageMetadata(buf) {
     try {
         size = imageSize(buf);
     } catch (e) {
-        return { fileType: 'unknown', confidence: 'low', error: e.message || 'imageSize failed' };
+        // Return null fileType so callers can fall back to Box-reported extension.
+        // Preserve magic-byte detection so we still say "it's a JPG" even when
+        // image-size couldn't parse it (usually happens when the Range fetch
+        // was truncated before the SOF marker on large JPEGs).
+        const fallbackType = isPng ? 'PNG' : isJpeg ? 'JPG' : null;
+        return { fileType: fallbackType, confidence: 'low', error: e.message || 'imageSize failed' };
     }
 
     const dpiInfo = isPng ? extractPngDpi(buf)
