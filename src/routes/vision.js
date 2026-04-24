@@ -4,6 +4,7 @@
 const express = require('express');
 const router = express.Router();
 const Anthropic = require('@anthropic-ai/sdk');
+const { boxFetchFileBytes, boxGetFileInfo } = require('../utils/box-client');
 
 // Lazy-init Anthropic client (same pattern as mockup-vision.js)
 let anthropicClient = null;
@@ -585,4 +586,200 @@ router.post('/extract-supacolor-job-detail', async (req, res) => {
     }
 });
 
+// ── Mockup info extraction (paste-links v3 modal) ─────────────────────
+// Reads the structured info block at the bottom of Steve's mockup template.
+// Fields: (Design#:) 39721  (Order#:)  (Sales Rep.) Nika
+//         Customer Name: Asphalt Patch Systems
+//         Garment Color & Style: DM130 Heathered Gray
+//         Size & Placement: FF
+//         Date: 4.21.26       Time: 3:41am
+// Plus the transfer-type banner (DTF / DTG / EMB / SCP) above the block.
+
+const MOCKUP_EXTRACTION_PROMPT = `You are extracting job info from a Northwest Custom Apparel mockup template.
+
+The image shows a t-shirt (or similar garment) with artwork on it, and at the BOTTOM of the image there is a structured info block with labeled fields in this layout:
+
+- Banner: a colored bar near the bottom containing JUST the transfer type in large white text (DTF, DTG, EMB, SCP, SS, or similar)
+- "Customer Approved" checkbox
+- "Files Prepaired for DTG & Digital Transfer" checkbox
+- "(Design#:)" followed by a number like 39721
+- "(Order#:)" followed by a number (may be empty)
+- "(Sales Rep.)" followed by a first name (e.g. "Nika", "Ruth", "Taneisha")
+- "Customer Name:" followed by the customer company
+- "Garment Color & Style:" followed by a SanMar-style style+color (e.g. "DM130 Heathered Gray")
+- "Size & Placement:" followed by a code like "FF" (Full Front), "FB" (Full Back), "LC" (Left Chest)
+- "Date:" M.D.YY format and "Time:" H:MMam/pm
+
+Extract each field exactly as it appears. Return ONLY valid JSON — no markdown fencing, no explanation.
+
+Rules:
+- If a field is empty or unreadable, return empty string (not null, not "N/A")
+- For transfer_type, return just the code (e.g. "DTF", "DTG"), not the full name
+- customer_approved / files_prepaired are booleans — true only if the checkbox is clearly checked
+- Don't invent values; prefer empty string over guessing
+
+JSON schema:
+{
+  "design_number": "",
+  "order_number": "",
+  "sales_rep": "",
+  "customer_name": "",
+  "garment_color_style": "",
+  "size_placement": "",
+  "transfer_type": "",
+  "date": "",
+  "time": "",
+  "customer_approved": false,
+  "files_prepaired": false
+}`;
+
+// In-memory cache: fileId → extraction result. 1hr TTL.
+const MOCKUP_VISION_CACHE = new Map();
+const MOCKUP_VISION_TTL_MS = 60 * 60 * 1000;
+const MOCKUP_VISION_MAX = 100;
+function mockupCacheGet(k) {
+    const e = MOCKUP_VISION_CACHE.get(k);
+    if (!e) return null;
+    if (Date.now() - e.t > MOCKUP_VISION_TTL_MS) { MOCKUP_VISION_CACHE.delete(k); return null; }
+    return e.v;
+}
+function mockupCacheSet(k, v) {
+    if (MOCKUP_VISION_CACHE.size >= MOCKUP_VISION_MAX) {
+        const firstKey = MOCKUP_VISION_CACHE.keys().next().value;
+        if (firstKey) MOCKUP_VISION_CACHE.delete(firstKey);
+    }
+    MOCKUP_VISION_CACHE.set(k, { v, t: Date.now() });
+}
+
+/**
+ * Core mockup-info extraction — reusable from both the /extract-mockup-info
+ * HTTP route AND from other routes (e.g. /analyze-link) that want mockup data
+ * without an extra network hop.
+ *
+ * @param {Buffer} bytes - full image bytes
+ * @param {string} mediaType - e.g. "image/jpeg", "image/png"
+ * @param {string} [cacheKey] - if provided, caches result under this key
+ * @returns {Promise<object>} normalized 11-field result (see data shape below)
+ */
+async function extractMockupInfo(bytes, mediaType, cacheKey) {
+    if (cacheKey) {
+        const cached = mockupCacheGet(cacheKey);
+        if (cached) return { ...cached, _cached: true };
+    }
+
+    const base64Data = bytes.toString('base64');
+    const client = getClient();
+    const response = await client.messages.create({
+        model: MODEL_ID,
+        max_tokens: 512,
+        messages: [{
+            role: 'user',
+            content: [
+                { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64Data } },
+                { type: 'text', text: MOCKUP_EXTRACTION_PROMPT }
+            ]
+        }]
+    });
+
+    const responseText = (response.content[0] && response.content[0].text || '').trim();
+    const jsonStr = responseText.replace(/^```json?\s*\n?/i, '').replace(/\n?```\s*$/i, '');
+    const extracted = JSON.parse(jsonStr); // throws on bad JSON; caller handles
+
+    const data = {
+        design_number: String(extracted.design_number || ''),
+        order_number: String(extracted.order_number || ''),
+        sales_rep: String(extracted.sales_rep || ''),
+        customer_name: String(extracted.customer_name || ''),
+        garment_color_style: String(extracted.garment_color_style || ''),
+        size_placement: String(extracted.size_placement || ''),
+        transfer_type: String(extracted.transfer_type || '').toUpperCase(),
+        date: String(extracted.date || ''),
+        time: String(extracted.time || ''),
+        customer_approved: !!extracted.customer_approved,
+        files_prepaired: !!extracted.files_prepaired
+    };
+
+    if (cacheKey) mockupCacheSet(cacheKey, data);
+    return data;
+}
+
+function mediaTypeFromExtension(ext) {
+    const e = String(ext || '').toLowerCase();
+    if (e === 'png') return 'image/png';
+    if (e === 'webp') return 'image/webp';
+    if (e === 'gif') return 'image/gif';
+    return 'image/jpeg'; // jpg/jpeg + unknown fallback
+}
+
+/**
+ * POST /api/vision/extract-mockup-info
+ *
+ * Input (one of):
+ *   { fileId: "1815321", sharedLink?: "https://...box.com/s/abc" }   — preferred
+ *   { imageBase64: "data:image/jpeg;base64,..." }                     — fallback
+ *
+ * Returns:
+ *   { success: true, data: {11 structured fields}, durationMs, cached, fileId? }
+ */
+router.post('/vision/extract-mockup-info', async (req, res) => {
+    const startTime = Date.now();
+    const { fileId, sharedLink, imageBase64 } = req.body || {};
+
+    if (!fileId && !imageBase64) {
+        return res.status(400).json({
+            success: false,
+            error: 'Missing fileId or imageBase64'
+        });
+    }
+
+    try {
+        let bytes;
+        let mediaType;
+        let cacheKey = null;
+
+        if (fileId) {
+            cacheKey = `file:${fileId}`;
+            const [info, fetched] = await Promise.all([
+                boxGetFileInfo(fileId, ['name', 'extension'], sharedLink),
+                boxFetchFileBytes(fileId, { sharedLink })
+            ]);
+            bytes = fetched;
+            mediaType = mediaTypeFromExtension(info.extension);
+        } else {
+            if (imageBase64.startsWith('data:')) {
+                const m = imageBase64.match(/^data:(image\/\w+);base64,(.+)$/);
+                if (!m) return res.status(400).json({ success: false, error: 'Invalid data URI' });
+                mediaType = m[1];
+                bytes = Buffer.from(m[2], 'base64');
+            } else {
+                mediaType = 'image/jpeg';
+                bytes = Buffer.from(imageBase64, 'base64');
+            }
+        }
+
+        const data = await extractMockupInfo(bytes, mediaType, cacheKey);
+        const duration = Date.now() - startTime;
+        console.log(`[Vision mockup] ${fileId || 'base64'} → rep=${data.sales_rep}, type=${data.transfer_type}, ${duration}ms${data._cached ? ' (cached)' : ''}`);
+
+        res.json({
+            success: true,
+            data,
+            durationMs: duration,
+            cached: !!data._cached,
+            fileId: fileId || null
+        });
+
+    } catch (error) {
+        console.error('[Vision mockup] error:', error.response ? JSON.stringify(error.response.data) : error.message);
+        const status = error instanceof SyntaxError ? 502 : 500;
+        res.status(status).json({
+            success: false,
+            error: 'Mockup vision extraction failed: ' + (error.message || 'unknown')
+        });
+    }
+});
+
 module.exports = router;
+// Exported helper for in-process reuse from analyze-link (avoids loopback HTTP)
+module.exports.extractMockupInfo = extractMockupInfo;
+module.exports.mediaTypeFromExtension = mediaTypeFromExtension;

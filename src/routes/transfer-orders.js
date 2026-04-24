@@ -34,6 +34,11 @@ const {
 } = require('../utils/box-client');
 const { extractImageMetadata } = require('../utils/image-metadata');
 const { parseFilename } = require('../utils/filename-parser');
+const { resolveSalesRep } = require('../utils/resolve-sales-rep');
+// Vision helper is attached to the router export (see bottom of vision.js)
+const visionRouter = require('./vision');
+const extractMockupInfo = visionRouter.extractMockupInfo;
+const mediaTypeFromExtension = visionRouter.mediaTypeFromExtension;
 const config = require('../../config');
 
 const caspioApiBaseUrl = config.caspio.apiBaseUrl;
@@ -346,8 +351,44 @@ router.post('/transfer-orders/analyze-link', async (req, res) => {
             filenameParsed: filenameParsed.ok ? filenameParsed : null,
             filenameError: filenameParsed.ok ? null : filenameParsed.reason,
             dimensionMismatch,
+            mockupVision: null,
+            mockupVisionError: null,
+            salesRepMatch: null,
             cached: false
         };
+
+        // Mockup files: run vision extraction in the same response so the
+        // frontend only makes ONE /analyze-link call per file. If vision fails,
+        // we still return the filename+metadata result with mockupVisionError set
+        // (per the "allow Send with warning" decision).
+        if (filenameParsed.ok && filenameParsed.type === 'mockup' && extractMockupInfo) {
+            try {
+                // Need the FULL file for vision, not just 16KB. Fetch again.
+                const fullBytes = await boxFetchFileBytes(fileId, { sharedLink });
+                const mediaType = mediaTypeFromExtension(info.extension);
+                const vision = await extractMockupInfo(fullBytes, mediaType, `file:${fileId}`);
+                result.mockupVision = {
+                    designNumber: vision.design_number,
+                    orderNumber: vision.order_number,
+                    salesRep: vision.sales_rep,
+                    customerName: vision.customer_name,
+                    garmentColorStyle: vision.garment_color_style,
+                    sizePlacement: vision.size_placement,
+                    transferType: vision.transfer_type,
+                    date: vision.date,
+                    time: vision.time,
+                    customerApproved: vision.customer_approved,
+                    filesPrepaired: vision.files_prepaired
+                };
+                // Resolve sales rep to CRM email (if we recognize the first name)
+                if (vision.sales_rep) {
+                    result.salesRepMatch = resolveSalesRep(vision.sales_rep);
+                }
+            } catch (vErr) {
+                console.warn('[analyze-link] mockup vision failed (non-fatal):', vErr.message);
+                result.mockupVisionError = vErr.message || 'vision failed';
+            }
+        }
 
         analyzeCacheSet(fileId, result);
         res.json(result);
