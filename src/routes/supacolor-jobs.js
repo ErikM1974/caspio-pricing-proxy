@@ -35,6 +35,7 @@ const axios = require('axios');
 const { getCaspioAccessToken, fetchAllCaspioPages } = require('../utils/caspio');
 const supacolorApi = require('../utils/supacolor-api');
 const { mirrorShippedToTransfer } = require('../utils/transfer-status-mirror');
+const { linkPendingSteveSubmissions } = require('../utils/transfer-auto-link');
 const config = require('../../config');
 
 const caspioApiBaseUrl = config.caspio.apiBaseUrl;
@@ -312,6 +313,33 @@ router.get('/supacolor-jobs/by-number/:jobNumber', async (req, res) => {
     } catch (error) {
         console.error('Error fetching supacolor job by number:', error.response ? JSON.stringify(error.response.data) : error.message);
         res.status(500).json({ success: false, error: 'Failed to fetch job: ' + error.message });
+    }
+});
+
+// ── Auto-link sweep (Phase 4) ─────────────────────────────────────────
+//
+// Manual-trigger endpoint. Sweeps all unlinked Transfer_Orders and tries to
+// link each one to a recent Supacolor job (by company name + date proximity,
+// with Design#/PO exact match as a nice-to-have bonus). Normally this fires
+// automatically at the end of POST /sync/all when new jobs were inserted —
+// this route exists for on-demand testing and recovery.
+//
+// MUST be defined BEFORE /supacolor-jobs/:id (Express route ordering).
+//
+// Query: ?dryRun=true — log what would happen, don't write.
+router.post('/supacolor-jobs/auto-link-sweep', async (req, res) => {
+    const dryRun = req.query.dryRun === 'true';
+    try {
+        const token = await getCaspioAccessToken();
+        const result = await linkPendingSteveSubmissions(token, { dryRun });
+        res.json({
+            success: true,
+            dryRun,
+            ...result
+        });
+    } catch (err) {
+        console.error('[auto-link-sweep] error:', err.response ? JSON.stringify(err.response.data) : err.message);
+        res.status(500).json({ success: false, error: err.message || 'unknown error' });
     }
 });
 
@@ -1224,6 +1252,20 @@ router.post('/supacolor-jobs/sync/all', async (req, res) => {
             }
         }
 
+        // After the sync settles, try to auto-link Steve's unlinked submissions
+        // to matching Supacolor jobs (Phase 4 auto-link). Only runs if at least
+        // one new job was inserted — no point sweeping when nothing changed.
+        // Non-blocking: any error is logged but doesn't fail the sync response.
+        let autoLinkResult = null;
+        if (inserted > 0) {
+            try {
+                autoLinkResult = await linkPendingSteveSubmissions(token);
+                console.log(`[Supacolor sync/all] auto-link: processed=${autoLinkResult.processed}, linked=${autoLinkResult.linked}, ambiguous=${autoLinkResult.ambiguous}, noMatch=${autoLinkResult.noMatch}`);
+            } catch (linkErr) {
+                console.warn('[Supacolor sync/all] auto-link failed (non-fatal):', linkErr.message);
+            }
+        }
+
         const durationMs = Date.now() - started;
         console.log(`[Supacolor sync/all] Done in ${durationMs}ms — ${inserted} inserted, ${patched} patched, ${noop} noop, ${errored} errored`);
         res.json({
@@ -1237,7 +1279,13 @@ router.post('/supacolor-jobs/sync/all', async (req, res) => {
             durationMs,
             timedOut,
             errors,
-            errorsTruncated: errored > MAX_ERRORS_RETURNED
+            errorsTruncated: errored > MAX_ERRORS_RETURNED,
+            autoLink: autoLinkResult ? {
+                processed: autoLinkResult.processed,
+                linked: autoLinkResult.linked,
+                ambiguous: autoLinkResult.ambiguous,
+                noMatch: autoLinkResult.noMatch
+            } : null
         });
     } catch (error) {
         console.error('[Supacolor sync/all] Fatal error:', error.response ? JSON.stringify(error.response.data) : error.message);
