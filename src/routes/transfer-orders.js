@@ -16,11 +16,24 @@
 //                                            | ?hard=true + Status ∈ (Requested, On_Hold) → physically removes row + cascades notes
 //   GET    /api/transfer-orders/:id/notes  — Get notes for a transfer
 //   POST   /api/transfer-order-notes       — Add a comment/note
+//   POST   /api/transfer-orders/analyze-link — Crack a Box URL → filename parse +
+//                                              image metadata (used by the paste-
+//                                              links v3 modal). Must be declared
+//                                              BEFORE /:id routes or Express
+//                                              matches "analyze-link" as an ID.
 
 const express = require('express');
 const router = express.Router();
 const axios = require('axios');
 const { getCaspioAccessToken, fetchAllCaspioPages } = require('../utils/caspio');
+const {
+    boxGetFileInfo,
+    boxFetchFileBytes,
+    boxResolveSharedLink,
+    parseBoxFileUrl
+} = require('../utils/box-client');
+const { extractImageMetadata } = require('../utils/image-metadata');
+const { parseFilename } = require('../utils/filename-parser');
 const config = require('../../config');
 
 const caspioApiBaseUrl = config.caspio.apiBaseUrl;
@@ -179,6 +192,182 @@ async function deleteLines(token, idTransfer) {
         timeout: 15000
     });
 }
+
+// ── Analyze Link (paste-links v3 modal) ───────────────────────────────
+
+// Small LRU-style cache keyed on Box fileId → last analysis. 1-hour TTL.
+// Prevents duplicate Box fetches + image parsing when Steve re-pastes or
+// re-opens a modal. Entries expire on access when past TTL.
+const ANALYZE_CACHE = new Map();
+const ANALYZE_CACHE_TTL_MS = 60 * 60 * 1000;
+const ANALYZE_CACHE_MAX = 200;
+
+function analyzeCacheGet(fileId) {
+    const entry = ANALYZE_CACHE.get(fileId);
+    if (!entry) return null;
+    if (Date.now() - entry.t > ANALYZE_CACHE_TTL_MS) {
+        ANALYZE_CACHE.delete(fileId);
+        return null;
+    }
+    return entry.v;
+}
+
+function analyzeCacheSet(fileId, value) {
+    if (ANALYZE_CACHE.size >= ANALYZE_CACHE_MAX) {
+        // Drop the oldest entry (first insertion order)
+        const firstKey = ANALYZE_CACHE.keys().next().value;
+        if (firstKey) ANALYZE_CACHE.delete(firstKey);
+    }
+    ANALYZE_CACHE.set(fileId, { v: value, t: Date.now() });
+}
+
+/**
+ * POST /api/transfer-orders/analyze-link
+ *
+ * Takes a pasted Box URL and returns everything we can extract automatically:
+ *   - Box metadata (name, size, MIME)
+ *   - Image metadata (pixel W/H, DPI, physical inches)
+ *   - Filename parse (design#, customer, placement, filename-claimed dims, type)
+ *
+ * Vision extraction on mockups is a separate endpoint (Phase 2) — the frontend
+ * will call /api/vision/extract-mockup-info after this route returns when
+ * `filenameParsed.type === 'mockup'`.
+ *
+ * Body: { url: "https://...box.com/file/12345" | "https://...box.com/s/abc" }
+ *
+ * Response shape (on success):
+ *   {
+ *     success: true,
+ *     fileId, fileName, sizeBytes, mimeType,
+ *     pixelWidth, pixelHeight, dpiX, dpiY, physicalWidthIn, physicalHeightIn,
+ *     filenameParsed: {...} | null,
+ *     dimensionMismatch: { claimed: "13.5x4.1", actual: "13.5x4.09" } | null
+ *   }
+ *
+ * Error responses preserve HTTP semantics (400 invalid URL, 403 not a Box URL,
+ * 404 file not accessible, 502 Box upstream failure, 500 internal).
+ */
+router.post('/transfer-orders/analyze-link', async (req, res) => {
+    const { url } = req.body || {};
+    if (!url || typeof url !== 'string') {
+        return res.status(400).json({ success: false, error: 'Missing url in body' });
+    }
+
+    const parsed = parseBoxFileUrl(url);
+    if (!parsed) {
+        return res.status(400).json({
+            success: false,
+            error: 'Not a recognized Box URL. Paste a /file/<id> or /s/<token> link.'
+        });
+    }
+    if (parsed.kind === 'folder') {
+        return res.status(400).json({
+            success: false,
+            error: 'Folder URLs are not supported — paste individual file links.'
+        });
+    }
+
+    try {
+        // Resolve to fileId + sharedLink (if the latter is needed for access)
+        let fileId = parsed.fileId;
+        let sharedLink = null;
+
+        if (parsed.kind === 'shared' || parsed.kind === 'static') {
+            sharedLink = parsed.sharedUrl || url;
+            if (!fileId) {
+                const resolved = await boxResolveSharedLink(sharedLink);
+                if (!resolved || resolved.type !== 'file') {
+                    return res.status(400).json({
+                        success: false,
+                        error: 'Shared link does not resolve to a file.'
+                    });
+                }
+                fileId = String(resolved.id);
+            }
+        }
+
+        if (!fileId) {
+            return res.status(400).json({ success: false, error: 'Could not resolve fileId' });
+        }
+
+        // Cache check
+        const cached = analyzeCacheGet(fileId);
+        if (cached) {
+            return res.json({ ...cached, cached: true });
+        }
+
+        // Metadata + bytes in parallel (both cheap on Box)
+        const [info, bytes] = await Promise.all([
+            boxGetFileInfo(fileId, ['name', 'size', 'extension', 'type'], sharedLink),
+            boxFetchFileBytes(fileId, { rangeBytes: 16384, sharedLink })
+        ]);
+
+        const fileName = info.name || '';
+        const sizeBytes = info.size || null;
+
+        const imageMeta = extractImageMetadata(bytes);
+        const filenameParsed = parseFilename(fileName);
+
+        // Cross-check filename-claimed dims vs actual image dims (if both present)
+        let dimensionMismatch = null;
+        if (filenameParsed && filenameParsed.ok && filenameParsed.type === 'transfer'
+            && imageMeta.physicalWidthIn && imageMeta.physicalHeightIn) {
+            const claimedW = filenameParsed.filenameWidth;
+            const claimedH = filenameParsed.filenameHeight;
+            const actualW = imageMeta.physicalWidthIn;
+            const actualH = imageMeta.physicalHeightIn;
+            const diffW = Math.abs(claimedW - actualW);
+            const diffH = Math.abs(claimedH - actualH);
+            // Mismatch if >0.25" in either direction (absorbs 300-dpi rounding)
+            if (diffW > 0.25 || diffH > 0.25) {
+                dimensionMismatch = {
+                    claimed: `${claimedW}x${claimedH}`,
+                    actual: `${actualW}x${actualH}`,
+                    diffW, diffH
+                };
+            }
+        }
+
+        const result = {
+            success: true,
+            fileId,
+            fileName,
+            sharedLink: sharedLink || null,
+            sizeBytes,
+            mimeType: imageMeta.fileType || (info.extension || '').toUpperCase() || null,
+            pixelWidth: imageMeta.pixelWidth || null,
+            pixelHeight: imageMeta.pixelHeight || null,
+            dpiX: imageMeta.dpiX || null,
+            dpiY: imageMeta.dpiY || null,
+            physicalWidthIn: imageMeta.physicalWidthIn || null,
+            physicalHeightIn: imageMeta.physicalHeightIn || null,
+            metadataConfidence: imageMeta.confidence,
+            metadataError: imageMeta.error || null,
+            filenameParsed: filenameParsed.ok ? filenameParsed : null,
+            filenameError: filenameParsed.ok ? null : filenameParsed.reason,
+            dimensionMismatch,
+            cached: false
+        };
+
+        analyzeCacheSet(fileId, result);
+        res.json(result);
+
+    } catch (err) {
+        console.error('[analyze-link] error:', err.response ? JSON.stringify(err.response.data) : err.message);
+        const status = (err.response && err.response.status) || 500;
+        // Normalize common Box errors
+        if (status === 404) {
+            return res.status(404).json({
+                success: false,
+                error: 'File not accessible from this Box account (may be in a folder the service user can\'t read).'
+            });
+        }
+        return res.status(status >= 400 && status < 600 ? 502 : 500).json({
+            success: false,
+            error: 'analyze-link failed: ' + (err.message || 'unknown error')
+        });
+    }
+});
 
 // ── CRUD Endpoints ────────────────────────────────────────────────────
 
