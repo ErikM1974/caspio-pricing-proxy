@@ -100,8 +100,11 @@ function companyMatchScore(a, b) {
 async function fetchUnlinkedTransfers(token) {
     const cutoffIso = new Date(Date.now() - MATCH_WINDOW_DAYS * 24 * 60 * 60 * 1000)
         .toISOString().slice(0, 19);
+    // Caspio returns Text fields as empty string, not NULL — accept both
+    // (2026-04-25 fix: Erik's first real submission ST-260425-0001 had
+    // Supacolor_Order_Number='' and was excluded by the IS NULL-only check).
     const whereClauses = [
-        `Supacolor_Order_Number IS NULL`,
+        `(Supacolor_Order_Number IS NULL OR Supacolor_Order_Number='')`,
         `(${ELIGIBLE_STATUSES.map(s => `Status='${s}'`).join(' OR ')})`,
         `Requested_At>='${escapeSQL(cutoffIso)}'`
     ];
