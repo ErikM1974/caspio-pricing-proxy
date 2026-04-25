@@ -69,6 +69,29 @@ function tokenOverlap(a, b) {
     return overlap / Math.max(aTokens.size, bTokens.size);
 }
 
+/**
+ * Company-name similarity score that handles Bradley's short Supacolor
+ * descriptions ("Asphalt Patch") vs Steve's full company names ("Asphalt
+ * Patch Systems"). Combines containment checks with the token-overlap fallback.
+ *
+ * 2026-04-25: added because real-world test (ST-260425-0001 ↔ #639515) showed
+ * tokenOverlap("asphalt patch", "asphalt patch systems") = 0.67 — below the
+ * 0.75 threshold — even though they're clearly the same company.
+ *
+ * Returns 0..1.
+ */
+function companyMatchScore(a, b) {
+    const na = normalizeCompany(a);
+    const nb = normalizeCompany(b);
+    if (!na || !nb) return 0;
+    if (na === nb) return 1.0;
+    const shorter = na.length <= nb.length ? na : nb;
+    const longer  = na.length <= nb.length ? nb : na;
+    if (longer.startsWith(shorter)) return 0.95;  // prefix → high confidence
+    if (longer.includes(shorter)) return 0.85;    // substring → medium-high
+    return tokenOverlap(na, nb);                  // fall back to token overlap
+}
+
 // ── Caspio queries ──────────────────────────────────────────────────
 
 /**
@@ -171,14 +194,19 @@ function findSupacolorMatchForTransfer(transfer, supaJobs) {
 
     const transferDate = parseDate(transfer.Requested_At);
 
-    // Only consider jobs entered AFTER the transfer was submitted. Small
-    // 24h pre-window for clock-skew tolerance (rare but possible).
+    // Symmetric 14-day window in EITHER direction (2026-04-25 fix).
+    // Original "must be after Steve" assumption was wrong: Bradley sometimes
+    // places Supacolor orders DAYS before Steve creates the audit-trail
+    // submission (legacy flow — Bradley already had the Box files via Slack).
+    // Real-world repro: ST-260425-0001 (Steve, today) ↔ #639515 (Bradley, 3
+    // days ago) failed under the old rule because the SC job was entered
+    // BEFORE the transfer.
     const timeFiltered = transferDate
         ? supaJobs.filter(j => {
             const sd = parseDate(j.Date_Entered);
             if (!sd) return false;
             const h = hoursAfter(transferDate, sd);
-            return h !== null && h >= -24; // allow 24h pre-submission tolerance
+            return h !== null && Math.abs(h) <= MATCH_WINDOW_DAYS * 24;
         })
         : supaJobs;
 
@@ -192,20 +220,15 @@ function findSupacolorMatchForTransfer(transfer, supaJobs) {
         );
         if (exact.length === 1) return { match: exact[0], confidence: 'exact' };
         if (exact.length > 1) {
-            // Multiple exact PO matches — prefer the closest-in-time one
+            // Multiple exact PO matches — prefer the absolutely-closest in time
+            // (in either direction; v3.1 fix from signed direction).
             const withTime = exact.map(j => {
                 const sd = parseDate(j.Date_Entered);
-                return { job: j, hoursAfterTransfer: hoursAfter(transferDate, sd) };
-            }).sort((a, b) => {
-                // Positive (after) is closer to zero = better; null goes last
-                const ax = a.hoursAfterTransfer === null ? Infinity : a.hoursAfterTransfer;
-                const bx = b.hoursAfterTransfer === null ? Infinity : b.hoursAfterTransfer;
-                return ax - bx;
-            });
-            // If the closest match is clearly closer than the runner-up (more than 48h gap), take it
-            if (withTime[0].hoursAfterTransfer !== null &&
-                withTime[1].hoursAfterTransfer !== null &&
-                (withTime[1].hoursAfterTransfer - withTime[0].hoursAfterTransfer) >= 48) {
+                const h = hoursAfter(transferDate, sd);
+                return { job: j, absHours: h === null ? Infinity : Math.abs(h) };
+            }).sort((a, b) => a.absHours - b.absHours);
+            // Clear winner if next-closest is at least 48h further away
+            if (withTime[1].absHours - withTime[0].absHours >= 48) {
                 return { match: withTime[0].job, confidence: 'exact' };
             }
             return {
@@ -216,23 +239,26 @@ function findSupacolorMatchForTransfer(transfer, supaJobs) {
         }
     }
 
-    // Step B: fuzzy on Company_Name vs Description
-    const company = normalizeCompany(transfer.Company_Name);
-    if (!company) return null;
+    // Step B: fuzzy on Company_Name vs Description (now using companyMatchScore
+    // which adds prefix/substring containment for short Bradley descriptions).
+    if (!normalizeCompany(transfer.Company_Name)) return null;
 
     const scored = timeFiltered
-        .map(j => ({
-            job: j,
-            score: tokenOverlap(company, normalizeCompany(j.Description)),
-            hoursAfterTransfer: hoursAfter(transferDate, parseDate(j.Date_Entered))
-        }))
+        .map(j => {
+            const sd = parseDate(j.Date_Entered);
+            const h = hoursAfter(transferDate, sd);
+            return {
+                job: j,
+                score: companyMatchScore(transfer.Company_Name, j.Description),
+                absHours: h === null ? Infinity : Math.abs(h)
+            };
+        })
         .filter(s => s.score >= FUZZY_THRESHOLD)
-        // Primary sort: score desc. Tiebreak: temporally-closest AFTER the transfer.
+        // Primary sort: score desc. Tiebreak: absolutely-closest in time
+        // (either direction).
         .sort((a, b) => {
             if (Math.abs(a.score - b.score) > 0.01) return b.score - a.score;
-            const ax = a.hoursAfterTransfer === null ? Infinity : a.hoursAfterTransfer;
-            const bx = b.hoursAfterTransfer === null ? Infinity : b.hoursAfterTransfer;
-            return ax - bx;
+            return a.absHours - b.absHours;
         });
 
     if (scored.length === 0) return null;
@@ -243,9 +269,7 @@ function findSupacolorMatchForTransfer(transfer, supaJobs) {
     const top = scored[0];
     const runner = scored[1];
     const scoreDelta = top.score - runner.score;
-    const timeDelta = (runner.hoursAfterTransfer !== null && top.hoursAfterTransfer !== null)
-        ? (runner.hoursAfterTransfer - top.hoursAfterTransfer)
-        : 0;
+    const timeDelta = runner.absHours - top.absHours;
 
     if (scoreDelta >= 0.1 || (scoreDelta < 0.01 && timeDelta >= 48)) {
         return { match: top.job, confidence: 'fuzzy' };
