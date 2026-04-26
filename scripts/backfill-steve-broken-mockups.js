@@ -221,11 +221,15 @@ async function findArtFolderByCompany(companyName) {
 }
 
 // ─── Step 3: Find the right mockup file for a design # ───────────────
-// Filtering by design# in filename matters: some folders contain unrelated
-// files (e.g., "40342 US Forest Service" had a "40343 Lincoln Football" file
-// as its newest image). Always prefer files that contain the design# in
-// their filename.
-async function findMockupFile(folderId, designStr) {
+// Confidence tiers:
+//   HIGH:    filename contains the design# (e.g., "40282 Sticker.jpg")
+//   MEDIUM:  folder name starts with `${designStr} ` (exact prefix +
+//            separator) AND has images. Steve sometimes mistypes the design#
+//            in filenames but the folder name is canonical. Real cases:
+//            folder "40282 Sassy Cat" had file "40802 Sassy Cat..." — typo
+//            in the filename, but folder confirms it's the right design.
+//   SKIP:    no high or medium confidence match.
+async function findMockupFile(folderId, folderName, designStr) {
     const token = await getBoxToken();
     try {
         const resp = await axios.get(`${BOX_API_BASE}/folders/${folderId}/items`, {
@@ -239,16 +243,23 @@ async function findMockupFile(folderId, designStr) {
 
         if (allImages.length === 0) return { file: null, reason: 'NO_IMAGE' };
 
-        // Prefer images whose filename contains the design# (most reliable signal
-        // that this is the right mockup, not an unrelated file dropped in the folder).
+        // HIGH: design# appears in filename
         const designMatched = allImages.filter(f => (f.name || '').indexOf(designStr) !== -1);
         if (designMatched.length > 0) {
-            return { file: designMatched[0], reason: 'DESIGN_NUMBER_MATCH' };
+            return { file: designMatched[0], reason: 'DESIGN_NUMBER_MATCH', confidence: 'HIGH' };
         }
 
-        // Fallback: no file in the folder has the design# in its name. This is
-        // suspicious — the folder might contain only unrelated files or older
-        // mockups under different design#s. Skip rather than risk wrong match.
+        // MEDIUM: folder name canonical leads with `${designStr} ` separator.
+        // findArtFolderByDesign required folder.name.startsWith(designStr), but
+        // accidental prefix collisions could match (e.g., "40280" vs "40288").
+        // This stricter check requires a non-digit char immediately after the
+        // design# to confirm exact match.
+        const sep = (folderName || '').charAt(designStr.length);
+        const folderExactPrefix = (folderName || '').startsWith(designStr) && (sep === '' || /[^\d]/.test(sep));
+        if (folderExactPrefix) {
+            return { file: allImages[0], reason: 'FOLDER_NAME_TRUST', confidence: 'MEDIUM' };
+        }
+
         return { file: null, reason: 'NO_FILENAME_MATCH', candidates: allImages.slice(0, 3).map(f => f.name) };
     } catch (err) {
         if (VERBOSE) console.log(`  Box folder list failed for ${folderId}: ${err.message}`);
@@ -338,7 +349,7 @@ async function main() {
             continue;
         }
 
-        const result = await findMockupFile(folder.id, designStr);
+        const result = await findMockupFile(folder.id, folder.name, designStr);
         if (result.reason === 'NO_IMAGE') {
             console.log(`NO IMAGE in folder "${folder.name}"`);
             noImageInFolder.push({ rec, folder });
@@ -365,8 +376,9 @@ async function main() {
         }
 
         const newUrl = `${PROXY_BASE}/api/box/thumbnail/${file.id}`;
-        updates.push({ rec, folder, file, newUrl });
-        console.log(`UPDATE: fileId ${currentFileId || '(non-proxy)'} → ${file.id} (${file.name})`);
+        updates.push({ rec, folder, file, newUrl, confidence: result.confidence });
+        const confTag = result.confidence === 'HIGH' ? '' : ` [${result.confidence} via ${result.reason}]`;
+        console.log(`UPDATE: fileId ${currentFileId || '(non-proxy)'} → ${file.id} (${file.name})${confTag}`);
     }
 
     console.log(`\n[3/4] Match summary:`);
