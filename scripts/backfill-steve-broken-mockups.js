@@ -220,8 +220,12 @@ async function findArtFolderByCompany(companyName) {
     return null;
 }
 
-// ─── Step 3: First image in folder ────────────────────────────────────
-async function firstImageInFolder(folderId) {
+// ─── Step 3: Find the right mockup file for a design # ───────────────
+// Filtering by design# in filename matters: some folders contain unrelated
+// files (e.g., "40342 US Forest Service" had a "40343 Lincoln Football" file
+// as its newest image). Always prefer files that contain the design# in
+// their filename.
+async function findMockupFile(folderId, designStr) {
     const token = await getBoxToken();
     try {
         const resp = await axios.get(`${BOX_API_BASE}/folders/${folderId}/items`, {
@@ -229,15 +233,26 @@ async function firstImageInFolder(folderId) {
             headers: { 'Authorization': `Bearer ${token}` },
             timeout: 30000
         });
-        // Sort newest-first within images so the actual mockup floats above
-        // any source PSDs / older revisions.
-        const images = (resp.data.entries || [])
+        const allImages = (resp.data.entries || [])
             .filter(e => e.type === 'file' && IMAGE_EXT_RE.test(e.name || ''))
             .sort((a, b) => String(b.modified_at || '').localeCompare(String(a.modified_at || '')));
-        return images[0] || null;
+
+        if (allImages.length === 0) return { file: null, reason: 'NO_IMAGE' };
+
+        // Prefer images whose filename contains the design# (most reliable signal
+        // that this is the right mockup, not an unrelated file dropped in the folder).
+        const designMatched = allImages.filter(f => (f.name || '').indexOf(designStr) !== -1);
+        if (designMatched.length > 0) {
+            return { file: designMatched[0], reason: 'DESIGN_NUMBER_MATCH' };
+        }
+
+        // Fallback: no file in the folder has the design# in its name. This is
+        // suspicious — the folder might contain only unrelated files or older
+        // mockups under different design#s. Skip rather than risk wrong match.
+        return { file: null, reason: 'NO_FILENAME_MATCH', candidates: allImages.slice(0, 3).map(f => f.name) };
     } catch (err) {
         if (VERBOSE) console.log(`  Box folder list failed for ${folderId}: ${err.message}`);
-        return null;
+        return { file: null, reason: 'ERROR' };
     }
 }
 
@@ -298,6 +313,7 @@ async function main() {
     const updates = [];
     const noFolderMatch = [];
     const noImageInFolder = [];
+    const noFilenameMatch = [];
     const noDesignNum = [];
     let alreadyOk = 0;
 
@@ -322,15 +338,25 @@ async function main() {
             continue;
         }
 
-        const file = await firstImageInFolder(folder.id);
-        if (!file) {
+        const result = await findMockupFile(folder.id, designStr);
+        if (result.reason === 'NO_IMAGE') {
             console.log(`NO IMAGE in folder "${folder.name}"`);
             noImageInFolder.push({ rec, folder });
             continue;
         }
+        if (result.reason === 'NO_FILENAME_MATCH') {
+            console.log(`SKIP — folder "${folder.name}" has images but none contain "${designStr}" (candidates: ${(result.candidates || []).join(', ')})`);
+            noFilenameMatch.push({ rec, folder, candidates: result.candidates });
+            continue;
+        }
+        if (!result.file) {
+            console.log(`SKIP (folder list error)`);
+            continue;
+        }
 
+        const file = result.file;
         // Box says this is the file. If Caspio already points at the same
-        // fileId (or a healthy proxy URL with the same fileId), skip.
+        // fileId, skip.
         if (currentFileId === file.id) {
             alreadyOk++;
             if (VERBOSE) console.log(`OK (already pointing at Box's current file ${file.id})`);
@@ -348,6 +374,7 @@ async function main() {
     console.log(`  ✓ Will update fileId:      ${updates.length}`);
     console.log(`  · No Box folder found:     ${noFolderMatch.length}`);
     console.log(`  · Folder found, no image:  ${noImageInFolder.length}`);
+    console.log(`  · No filename match:       ${noFilenameMatch.length}  (folder has images but none contain design#)`);
     console.log(`  · No Design_Num_SW:        ${noDesignNum.length}`);
     console.log(`  · Cancelled (filtered):    ${skippedCancelled}`);
 
