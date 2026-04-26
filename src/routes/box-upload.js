@@ -419,7 +419,7 @@ async function findEmptyAdditionalArtSlot(pkId) {
  */
 router.post('/art-requests/:designId/upload-mockup', upload.single('file'), async (req, res) => {
     const { designId } = req.params;
-    const { pkId, customerId, companyName } = req.body;
+    const { pkId, customerId, companyName, targetSlotField } = req.body;
 
     // Validate required fields
     if (!req.file) {
@@ -435,14 +435,26 @@ router.post('/art-requests/:designId/upload-mockup', upload.single('file'), asyn
     console.log(`Box upload: Design #${designId}, file "${file.originalname}" (${(file.size / 1024).toFixed(1)} KB), customerId: ${customerId || '(none, using designId)'}`);
 
     try {
-        // 1. Find empty mockup slot in Caspio BEFORE uploading
-        const slotField = await findEmptyMockupSlot(pkId);
-        if (!slotField) {
-            return res.status(409).json({
-                success: false,
-                error: 'All mockup slots are full (5/5)',
-                code: 'SLOTS_FULL'
-            });
+        // 1. Pick the slot to write to.
+        //    Default: first empty slot (existing behavior — used by detail pages
+        //    and Express Form for fresh mockups).
+        //    Override: caller passes targetSlotField (e.g., Steve's "Broken Links"
+        //    modal Re-upload, where the slot has a broken URL we want to overwrite
+        //    on purpose). targetSlotField must be one of MOCKUP_FIELDS to prevent
+        //    arbitrary field writes.
+        let slotField;
+        if (targetSlotField && MOCKUP_FIELDS.indexOf(targetSlotField) !== -1) {
+            slotField = targetSlotField;
+            console.log(`Box upload: targetSlotField override → writing to ${slotField}`);
+        } else {
+            slotField = await findEmptyMockupSlot(pkId);
+            if (!slotField) {
+                return res.status(409).json({
+                    success: false,
+                    error: 'All mockup slots are full (5/5)',
+                    code: 'SLOTS_FULL'
+                });
+            }
         }
 
         // 2. Find or create art folder in Box (search by design #, then company name)
@@ -501,6 +513,13 @@ router.post('/art-requests/:designId/upload-mockup', upload.single('file'), asyn
 
         // 6. Save proxy URL to Caspio (works regardless of Box shared link status)
         await saveMockupUrlToCaspio(pkId, slotField, proxyUrl);
+
+        // 6a. If this upload was a Re-upload over a broken slot, the dashboard's
+        // 10-min broken-mockups cache is now stale (it still reports this record
+        // as broken). Bust it so the next gallery refresh reflects the fix.
+        if (targetSlotField) {
+            try { invalidateBrokenMockupsCache(); } catch (e) { /* defensive — function defined later in module */ }
+        }
 
         // 6b. Fire-and-forget: AI vision analysis of the mockup image
         try {
@@ -1231,7 +1250,11 @@ router.get('/art-requests/broken-mockups', async (req, res) => {
         const resp = await axios.get(`${config.caspio.apiBaseUrl}/tables/ArtRequests/records`, {
             params: {
                 'q.where': `Status IN (${statusesSQL}) AND Date_Created>='${sinceDate}'`,
-                'q.select': ['PK_ID', 'ID_Design', 'CompanyName', 'Sales_Rep', 'User_Email', 'Status', 'Date_Created', ...fields].join(','),
+                // Design_Num_SW is needed by the auto-recover route for Box folder
+                // matching (Steve's folders are named "{Design_Num_SW} {Company}").
+                // ID_Design is the surrogate ArtRequests primary key, not the
+                // design number used in Box.
+                'q.select': ['PK_ID', 'ID_Design', 'Design_Num_SW', 'CompanyName', 'Sales_Rep', 'User_Email', 'Status', 'Date_Created', ...fields].join(','),
                 'q.orderBy': 'Date_Created DESC',
                 'q.pageSize': limit
             },
@@ -1287,6 +1310,7 @@ router.get('/art-requests/broken-mockups', async (req, res) => {
                     brokenByPkId.set(pkId, {
                         pkId,
                         designId: ref.record.ID_Design,
+                        designNumSw: ref.record.Design_Num_SW || '',
                         companyName: ref.record.CompanyName || '',
                         salesRep: ref.record.Sales_Rep || ref.record.User_Email || '',
                         status: ref.record.Status || '',
@@ -1355,6 +1379,131 @@ router.post('/art-requests/broken-mockups/send-digest', async (req, res) => {
     } catch (err) {
         console.error('[Digest] Manual trigger failed:', err.message);
         res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// Reset the 10-min broken-mockups cache. Called by auto-recover routes after
+// a successful Caspio update so the next dashboard fetch reflects the fix
+// without waiting for TTL expiry.
+function invalidateBrokenMockupsCache() {
+    brokenMockupsCache = { data: null, expiresAt: 0, inFlight: null };
+}
+
+/**
+ * POST /api/art-requests/:pkId/auto-recover-mockup
+ *
+ * Single-record auto-recovery for a broken Box_File_Mockup. Searches the
+ * design's Box folder, picks the best image, rewrites Caspio. Same algorithm
+ * as scripts/backfill-steve-broken-mockups.js (extracted to
+ * src/utils/recover-broken-mockup.js).
+ *
+ * Body: { designNumber, companyName? }
+ *
+ * Response 200: { success: true, status: 'recovered', newUrl, newFileId,
+ *                 newFileName, confidence: 'high'|'medium', folder }
+ * Response 404: { success: false, status: 'no-folder' | 'empty-folder' | 'no-match',
+ *                 folder?, candidates? }
+ * Response 400: { success: false, error: 'missing designNumber' }
+ * Response 500: { success: false, error }
+ */
+router.post('/art-requests/:pkId/auto-recover-mockup', async (req, res) => {
+    const pkId = req.params.pkId;
+    const designNumber = (req.body && req.body.designNumber) || '';
+    const companyName = (req.body && req.body.companyName) || '';
+
+    if (!designNumber) {
+        return res.status(400).json({ success: false, error: 'Missing designNumber in request body' });
+    }
+
+    try {
+        const { recoverBrokenMockup } = require('../utils/recover-broken-mockup');
+        const publicUrl = (config.app && config.app.publicUrl)
+            || `${req.protocol}://${req.get('host')}`;
+
+        const result = await recoverBrokenMockup({
+            pkId,
+            designNumber,
+            companyName,
+            getBoxToken: getBoxAccessToken,
+            publicUrl
+        });
+
+        if (result.status === 'recovered') {
+            invalidateBrokenMockupsCache();
+            console.log(`[auto-recover] PK=${pkId} #${designNumber} → file ${result.newFileId} (${result.confidence})`);
+            return res.json({ success: true, ...result });
+        }
+        if (result.status === 'error') {
+            console.error(`[auto-recover] PK=${pkId} error: ${result.error}`);
+            return res.status(500).json({ success: false, ...result });
+        }
+        // no-folder / empty-folder / no-match
+        return res.status(404).json({ success: false, ...result });
+    } catch (err) {
+        console.error('[auto-recover-mockup] uncaught:', err);
+        return res.status(500).json({ success: false, error: err.message || String(err) });
+    }
+});
+
+/**
+ * POST /api/art-requests/auto-recover-mockups-bulk
+ *
+ * Bulk auto-recovery — used by Steve's "Run auto-recover on all" button.
+ * Loops one-at-a-time (Box Search API rate-limits favor sequential calls).
+ * ~1-2 Box calls per record × 50 max ≈ <30s, well within the request timeout.
+ *
+ * Body: { records: [{ pkId, designNumber, companyName? }, ...] }   // max 50
+ *
+ * Response 200: {
+ *   success: true,
+ *   recovered: <count>,
+ *   total: <count>,
+ *   results: [
+ *     { pkId, status, newUrl?, newFileId?, confidence?, folder?,
+ *       candidates?, error? }
+ *   ]
+ * }
+ */
+router.post('/art-requests/auto-recover-mockups-bulk', async (req, res) => {
+    const records = req.body && req.body.records;
+    if (!Array.isArray(records) || records.length === 0) {
+        return res.status(400).json({ success: false, error: 'Missing or empty records array' });
+    }
+    if (records.length > 50) {
+        return res.status(400).json({ success: false, error: 'Max 50 records per call' });
+    }
+
+    try {
+        const { recoverBrokenMockup } = require('../utils/recover-broken-mockup');
+        const publicUrl = (config.app && config.app.publicUrl)
+            || `${req.protocol}://${req.get('host')}`;
+
+        const results = [];
+        let recovered = 0;
+        for (const rec of records) {
+            const r = await recoverBrokenMockup({
+                pkId: rec.pkId,
+                designNumber: rec.designNumber || '',
+                companyName: rec.companyName || '',
+                getBoxToken: getBoxAccessToken,
+                publicUrl
+            });
+            results.push({ pkId: rec.pkId, ...r });
+            if (r.status === 'recovered') recovered++;
+        }
+
+        if (recovered > 0) invalidateBrokenMockupsCache();
+        console.log(`[auto-recover-bulk] ${recovered}/${records.length} recovered`);
+
+        return res.json({
+            success: true,
+            recovered,
+            total: records.length,
+            results
+        });
+    } catch (err) {
+        console.error('[auto-recover-mockups-bulk] uncaught:', err);
+        return res.status(500).json({ success: false, error: err.message || String(err) });
     }
 });
 
