@@ -94,21 +94,49 @@ async function getCaspioToken() {
     return caspioToken;
 }
 
-// ─── Step 1: Pull broken ArtRequests ──────────────────────────────────
-async function fetchBrokenRecords() {
+// ─── Step 1: Pull all candidate ArtRequests ──────────────────────────
+// Pull every record with a non-null Box_File_Mockup, then HEAD-test each
+// URL to find the actually-broken ones. This catches three failure modes:
+//   (a) Stale `box.com/shared/static/{token}.jpg` shared links (Box 404)
+//   (b) `/api/box/thumbnail/{fileId}` proxy URLs whose Box file was deleted
+//   (c) Anything else that returns non-2xx
+async function fetchAllRecordsWithMockup() {
     const token = await getCaspioToken();
     const select = 'PK_ID,ID_Design,Design_Num_SW,CompanyName,Status,Box_File_Mockup';
-    // Caspio LIKE filter on Box_File_Mockup. Pull modest page; fewer than 500
-    // records to scan.
     const url = `${CASPIO_API_BASE}/tables/${ART_REQUESTS_TABLE}/records` +
-        `?q.where=${encodeURIComponent("Box_File_Mockup LIKE '%shared/static%'")}` +
+        `?q.where=${encodeURIComponent("Box_File_Mockup IS NOT NULL")}` +
         `&q.select=${encodeURIComponent(select)}` +
-        `&q.limit=500`;
+        `&q.limit=1000`;
     const resp = await axios.get(url, {
         headers: { 'Authorization': `Bearer ${token}` },
         timeout: 30000
     });
     return resp.data.Result || [];
+}
+
+// HEAD-test a Box_File_Mockup URL. Returns true if the URL is broken
+// (404 / 5xx / non-image content type / network error).
+async function isUrlBroken(rawUrl) {
+    if (!rawUrl) return false;
+    let testUrl = rawUrl;
+    // Older shared/static URLs go through the proxy; HEAD that endpoint
+    if (testUrl.indexOf('/api/box/') === -1 && /box\.com\/shared\/static/i.test(testUrl)) {
+        testUrl = `${PROXY_BASE}/api/box/shared-image?url=${encodeURIComponent(rawUrl)}`;
+    }
+    try {
+        const resp = await axios.head(testUrl, {
+            timeout: 10000,
+            validateStatus: () => true,
+            maxRedirects: 3
+        });
+        if (resp.status >= 400) return true;
+        const ct = resp.headers['content-type'] || '';
+        // If proxy returns JSON instead of image, it's an error response
+        if (ct.indexOf('application/json') !== -1) return true;
+        return false;
+    } catch (err) {
+        return true;
+    }
 }
 
 // ─── Step 2: Box folder search by design# ─────────────────────────────
@@ -224,27 +252,50 @@ async function main() {
     console.log('Mode:', APPLY ? 'APPLY (writing to Caspio)' : 'DRY-RUN (no writes)');
     console.log('='.repeat(72));
 
-    console.log('\n[1/4] Fetching broken ArtRequests records from Caspio...');
-    const broken = await fetchBrokenRecords();
-    console.log(`  Found ${broken.length} records with Box_File_Mockup containing /shared/static/`);
+    console.log('\n[1/5] Fetching all ArtRequests with non-null Box_File_Mockup...');
+    const allRecs = await fetchAllRecordsWithMockup();
+    console.log(`  Pulled ${allRecs.length} records with a Box_File_Mockup value`);
 
-    if (broken.length === 0) {
+    if (allRecs.length === 0) {
         console.log('\nNothing to do. Exiting.');
         return;
     }
 
-    // Filter out cancelled records
-    const candidates = broken.filter(r => {
+    // Filter out cancelled records up front
+    const active = allRecs.filter(r => {
         const status = normalizeStatus(r.Status).toLowerCase();
         if (status === 'cancelled' || status === 'cancel' || status === 'canceled') return false;
         return true;
     });
-    const skippedCancelled = broken.length - candidates.length;
+    const skippedCancelled = allRecs.length - active.length;
     if (skippedCancelled > 0) {
         console.log(`  Skipping ${skippedCancelled} cancelled records.`);
     }
 
-    console.log(`\n[2/4] Searching Box for matching folders + images (this may take a minute)...`);
+    console.log(`\n[2/5] HEAD-testing each Box_File_Mockup URL (this may take a minute)...`);
+    const broken = [];
+    let healthy = 0;
+    for (let i = 0; i < active.length; i++) {
+        const rec = active[i];
+        const isBroken = await isUrlBroken(rec.Box_File_Mockup);
+        if (isBroken) {
+            broken.push(rec);
+            if (VERBOSE) console.log(`  [BROKEN] PK=${rec.PK_ID} #${rec.Design_Num_SW} ${rec.CompanyName}`);
+        } else {
+            healthy++;
+        }
+        if ((i + 1) % 20 === 0) process.stdout.write(`  Tested ${i + 1}/${active.length}...\n`);
+    }
+    console.log(`  Healthy URLs: ${healthy}`);
+    console.log(`  Broken URLs:  ${broken.length}`);
+
+    if (broken.length === 0) {
+        console.log('\nNo broken URLs found. Nothing to backfill.');
+        return;
+    }
+
+    const candidates = broken;
+    console.log(`\n[3/5] Searching Box for matching folders + images...`);
     const updates = [];
     const noFolderMatch = [];
     const noImageInFolder = [];
@@ -286,7 +337,7 @@ async function main() {
         console.log(`MATCHED → ${file.name}`);
     }
 
-    console.log(`\n[3/4] Match summary:`);
+    console.log(`\n[4/5] Match summary:`);
     console.log(`  ✓ Matched + would update:  ${updates.length}`);
     console.log(`  · No Box folder found:     ${noFolderMatch.length}`);
     console.log(`  · Folder found, no image:  ${noImageInFolder.length}`);
@@ -307,7 +358,7 @@ async function main() {
         return;
     }
 
-    console.log(`\n[4/4] ${APPLY ? 'Applying' : 'Would apply'} ${updates.length} updates:`);
+    console.log(`\n[5/5] ${APPLY ? 'Applying' : 'Would apply'} ${updates.length} updates:`);
     let applied = 0;
     let failed = 0;
     for (const u of updates) {
