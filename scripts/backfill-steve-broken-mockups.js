@@ -114,27 +114,40 @@ async function fetchAllRecordsWithMockup() {
     return resp.data.Result || [];
 }
 
-// HEAD-test a Box_File_Mockup URL. Returns true if the URL is broken
+// Test a Box_File_Mockup URL. Returns true if the URL is broken
 // (404 / 5xx / non-image content type / network error).
+//
+// Earlier version used axios.head — got false-negatives for proxy 404s
+// (Heroku-internal HEAD response was lying). Switched to GET with arraybuffer
+// + tiny range, validates BOTH status AND content-type to catch the proxy's
+// JSON error responses.
 async function isUrlBroken(rawUrl) {
     if (!rawUrl) return false;
     let testUrl = rawUrl;
-    // Older shared/static URLs go through the proxy; HEAD that endpoint
+    // Older shared/static URLs go through the proxy
     if (testUrl.indexOf('/api/box/') === -1 && /box\.com\/shared\/static/i.test(testUrl)) {
         testUrl = `${PROXY_BASE}/api/box/shared-image?url=${encodeURIComponent(rawUrl)}`;
     }
     try {
-        const resp = await axios.head(testUrl, {
-            timeout: 10000,
+        const resp = await axios.get(testUrl, {
+            timeout: 12000,
             validateStatus: () => true,
-            maxRedirects: 3
+            maxRedirects: 3,
+            responseType: 'arraybuffer',
+            // Range header makes most servers return only first byte —
+            // saves bandwidth, still confirms file existence
+            headers: { 'Range': 'bytes=0-0' }
         });
+        // 4xx/5xx → broken
         if (resp.status >= 400) return true;
-        const ct = resp.headers['content-type'] || '';
-        // If proxy returns JSON instead of image, it's an error response
+        // Proxy error responses come back as application/json
+        const ct = String(resp.headers['content-type'] || '').toLowerCase();
         if (ct.indexOf('application/json') !== -1) return true;
+        // Empty response body when we expected an image → broken
+        if (!resp.data || resp.data.byteLength === 0) return true;
         return false;
     } catch (err) {
+        // Timeout / network error / DNS — treat as broken (we'll try to relink)
         return true;
     }
 }
