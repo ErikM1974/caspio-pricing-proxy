@@ -94,24 +94,30 @@ async function getCaspioToken() {
     return caspioToken;
 }
 
-// ─── Step 1: Pull all candidate ArtRequests ──────────────────────────
-// Pull every record with a non-null Box_File_Mockup, then HEAD-test each
-// URL to find the actually-broken ones. This catches three failure modes:
-//   (a) Stale `box.com/shared/static/{token}.jpg` shared links (Box 404)
-//   (b) `/api/box/thumbnail/{fileId}` proxy URLs whose Box file was deleted
-//   (c) Anything else that returns non-2xx
-async function fetchAllRecordsWithMockup() {
+// ─── Step 1: Pull recent ArtRequests with non-null Box_File_Mockup ───
+// Limited to dateCreated since 2026-03-15 (the gallery cutoff). Older
+// records aren't visible in Steve's UI; backfilling them isn't useful.
+async function fetchRecentRecordsWithMockup() {
     const token = await getCaspioToken();
     const select = 'PK_ID,ID_Design,Design_Num_SW,CompanyName,Status,Box_File_Mockup';
+    const where = "Box_File_Mockup IS NOT NULL AND Date_Created >= '2026-03-15'";
     const url = `${CASPIO_API_BASE}/tables/${ART_REQUESTS_TABLE}/records` +
-        `?q.where=${encodeURIComponent("Box_File_Mockup IS NOT NULL")}` +
+        `?q.where=${encodeURIComponent(where)}` +
         `&q.select=${encodeURIComponent(select)}` +
-        `&q.limit=1000`;
+        `&q.limit=500`;
     const resp = await axios.get(url, {
         headers: { 'Authorization': `Bearer ${token}` },
         timeout: 30000
     });
     return resp.data.Result || [];
+}
+
+// Extract Box fileId from a /api/box/thumbnail/{id} URL. Returns null for
+// other URL shapes (shared/static, etc.).
+function extractFileId(url) {
+    if (!url) return null;
+    const m = String(url).match(/\/api\/box\/thumbnail\/(\d+)/);
+    return m ? m[1] : null;
 }
 
 // Test a Box_File_Mockup URL. Returns true if the URL is broken
@@ -265,8 +271,8 @@ async function main() {
     console.log('Mode:', APPLY ? 'APPLY (writing to Caspio)' : 'DRY-RUN (no writes)');
     console.log('='.repeat(72));
 
-    console.log('\n[1/5] Fetching all ArtRequests with non-null Box_File_Mockup...');
-    const allRecs = await fetchAllRecordsWithMockup();
+    console.log('\n[1/4] Fetching recent ArtRequests (dateCreated >= 2026-03-15)...');
+    const allRecs = await fetchRecentRecordsWithMockup();
     console.log(`  Pulled ${allRecs.length} records with a Box_File_Mockup value`);
 
     if (allRecs.length === 0) {
@@ -275,49 +281,31 @@ async function main() {
     }
 
     // Filter out cancelled records up front
-    const active = allRecs.filter(r => {
+    const candidates = allRecs.filter(r => {
         const status = normalizeStatus(r.Status).toLowerCase();
         if (status === 'cancelled' || status === 'cancel' || status === 'canceled') return false;
         return true;
     });
-    const skippedCancelled = allRecs.length - active.length;
+    const skippedCancelled = allRecs.length - candidates.length;
     if (skippedCancelled > 0) {
         console.log(`  Skipping ${skippedCancelled} cancelled records.`);
     }
 
-    console.log(`\n[2/5] HEAD-testing each Box_File_Mockup URL (this may take a minute)...`);
-    const broken = [];
-    let healthy = 0;
-    for (let i = 0; i < active.length; i++) {
-        const rec = active[i];
-        const isBroken = await isUrlBroken(rec.Box_File_Mockup);
-        if (isBroken) {
-            broken.push(rec);
-            if (VERBOSE) console.log(`  [BROKEN] PK=${rec.PK_ID} #${rec.Design_Num_SW} ${rec.CompanyName}`);
-        } else {
-            healthy++;
-        }
-        if ((i + 1) % 20 === 0) process.stdout.write(`  Tested ${i + 1}/${active.length}...\n`);
-    }
-    console.log(`  Healthy URLs: ${healthy}`);
-    console.log(`  Broken URLs:  ${broken.length}`);
-
-    if (broken.length === 0) {
-        console.log('\nNo broken URLs found. Nothing to backfill.');
-        return;
-    }
-
-    const candidates = broken;
-    console.log(`\n[3/5] Searching Box for matching folders + images...`);
+    console.log(`\n[2/4] Searching Box for canonical fileId of each record...`);
+    console.log('  Strategy: trust Box. Each record\'s Box_File_Mockup must point at');
+    console.log('  the FIRST IMAGE in the design#-named folder. If Caspio\'s stored');
+    console.log('  fileId differs from Box\'s actual file, update.\n');
     const updates = [];
     const noFolderMatch = [];
     const noImageInFolder = [];
     const noDesignNum = [];
+    let alreadyOk = 0;
 
     for (let i = 0; i < candidates.length; i++) {
         const rec = candidates[i];
         const designStr = String(rec.Design_Num_SW || '').trim();
         const company = rec.CompanyName || '';
+        const currentFileId = extractFileId(rec.Box_File_Mockup);
         process.stdout.write(`  [${i + 1}/${candidates.length}] PK=${rec.PK_ID} #${designStr || '(none)'} ${company.slice(0, 30)}... `);
 
         if (!designStr) {
@@ -341,17 +329,23 @@ async function main() {
             continue;
         }
 
-        const newUrl = `${PROXY_BASE}/api/box/thumbnail/${file.id}`;
-        if (newUrl === rec.Box_File_Mockup) {
-            console.log('ALREADY OK (skipping)');
+        // Box says this is the file. If Caspio already points at the same
+        // fileId (or a healthy proxy URL with the same fileId), skip.
+        if (currentFileId === file.id) {
+            alreadyOk++;
+            if (VERBOSE) console.log(`OK (already pointing at Box's current file ${file.id})`);
+            else process.stdout.write('\r');
             continue;
         }
+
+        const newUrl = `${PROXY_BASE}/api/box/thumbnail/${file.id}`;
         updates.push({ rec, folder, file, newUrl });
-        console.log(`MATCHED → ${file.name}`);
+        console.log(`UPDATE: fileId ${currentFileId || '(non-proxy)'} → ${file.id} (${file.name})`);
     }
 
-    console.log(`\n[4/5] Match summary:`);
-    console.log(`  ✓ Matched + would update:  ${updates.length}`);
+    console.log(`\n[3/4] Match summary:`);
+    console.log(`  ✓ Already matches Box:     ${alreadyOk}`);
+    console.log(`  ✓ Will update fileId:      ${updates.length}`);
     console.log(`  · No Box folder found:     ${noFolderMatch.length}`);
     console.log(`  · Folder found, no image:  ${noImageInFolder.length}`);
     console.log(`  · No Design_Num_SW:        ${noDesignNum.length}`);
@@ -371,7 +365,7 @@ async function main() {
         return;
     }
 
-    console.log(`\n[5/5] ${APPLY ? 'Applying' : 'Would apply'} ${updates.length} updates:`);
+    console.log(`\n[4/4] ${APPLY ? 'Applying' : 'Would apply'} ${updates.length} updates:`);
     let applied = 0;
     let failed = 0;
     for (const u of updates) {
