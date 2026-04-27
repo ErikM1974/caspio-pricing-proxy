@@ -378,7 +378,13 @@ router.get('/mockups/broken-mockups', async (req, res) => {
         // 1. Pull candidates from Caspio
         const caspioToken = await getCaspioAccessToken();
         const statusesSQL = statusFilter.map(s => `'${s.replace(/'/g, "''")}'`).join(',');
-        const where = `Status IN (${statusesSQL}) AND Submitted_Date>='${sinceDate}'`
+        // Submitted_Date can be null on older / pre-form records (Caspio
+        // imports, manual rows). Null-tolerant date filter so those rows
+        // still get checked — otherwise they're invisible to the scan
+        // forever (real case 2026-04-27: Nika's mockup #63 had null
+        // Submitted_Date and broken Box_Reference_File but never appeared).
+        const where = `Status IN (${statusesSQL})`
+            + ` AND (Submitted_Date>='${sinceDate}' OR Submitted_Date IS NULL)`
             + ` AND (Is_Deleted=0 OR Is_Deleted IS NULL)`;
         // Note: Digitizing_Mockups uses `Submitted_By` (not `User_Email` like
         // ArtRequests). Steve's broken-mockups query falls back to User_Email
