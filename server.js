@@ -742,6 +742,28 @@ const server = app.listen(PORT, async () => {
     } catch (err) {
         console.error('⏰ Failed to schedule orphan digest cron:', err.message);
     }
+
+    // Schedule: weekday AE Awaiting-Approval digest at 8 AM Pacific (Mon-Fri).
+    // One email per AE listing their Awaiting Approval items, oldest first,
+    // colored by days-waiting urgency. AEs with zero items get no email.
+    try {
+        const cron = require('node-cron');
+        const { runAEApprovalDigest } = require('./src/utils/send-ae-approval-digest');
+        const aeDigestConfigured = process.env.EMAILJS_PRIVATE_KEY
+            && process.env.EMAILJS_TEMPLATE_AE_APPROVAL_DIGEST;
+        if (aeDigestConfigured) {
+            cron.schedule('0 8 * * 1-5', () => {
+                runAEApprovalDigest().catch(err => {
+                    console.error('[AE Digest] Cron failed:', err.message);
+                });
+            }, { timezone: 'America/Los_Angeles' });
+            console.log('⏰ AE approval digest cron scheduled: weekdays 8 AM Pacific');
+        } else {
+            console.log('⏰ AE approval digest cron NOT scheduled — missing EMAILJS_TEMPLATE_AE_APPROVAL_DIGEST');
+        }
+    } catch (err) {
+        console.error('⏰ Failed to schedule AE approval digest cron:', err.message);
+    }
 });
 
 // Export for testing and route modules

@@ -946,6 +946,56 @@ router.post('/art-requests/:designId/note', express.json(), async (req, res) => 
     }
 });
 
+// --- AE Awaiting-Approval Digest Admin Routes ---
+
+/**
+ * GET /api/art-requests/ae-approval-digest/scan
+ *
+ * Pure scan — returns the per-AE grouping that the daily digest WOULD send,
+ * without sending email. Useful for verifying grouping before flipping the
+ * cron on, or debugging "why didn't AE X get an email today".
+ */
+router.get('/art-requests/ae-approval-digest/scan', async (req, res) => {
+    try {
+        const { runAEApprovalDigest } = require('../utils/send-ae-approval-digest');
+        const result = await runAEApprovalDigest({ dryRun: true });
+        res.json({ success: true, ...result });
+    } catch (err) {
+        console.error('[AE Digest] Scan failed:', err.message);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+/**
+ * POST /api/art-requests/ae-approval-digest/send
+ *
+ * Manual trigger for the AE digest. Protected by x-admin-key header so
+ * random callers can't spam every AE inbox. Mirrors the Steve digest
+ * trigger pattern.
+ */
+router.post('/art-requests/ae-approval-digest/send', async (req, res) => {
+    const expected = process.env.ADMIN_KEY_DIGEST;
+    const provided = req.headers['x-admin-key'];
+    if (!expected) {
+        return res.status(500).json({
+            success: false,
+            error: 'ADMIN_KEY_DIGEST env var not configured on server.'
+        });
+    }
+    if (provided !== expected) {
+        return res.status(401).json({ success: false, error: 'Unauthorized' });
+    }
+
+    try {
+        const { runAEApprovalDigest } = require('../utils/send-ae-approval-digest');
+        const result = await runAEApprovalDigest();
+        res.json({ success: true, ...result });
+    } catch (err) {
+        console.error('[AE Digest] Manual trigger failed:', err.message);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
 // --- Art Charges Endpoints ---
 
 // GET /api/art-charges?id_design=XXXXX — List charges for a design
