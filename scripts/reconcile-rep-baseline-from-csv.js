@@ -136,7 +136,15 @@ async function main() {
   console.log(`Cutoff:   ${CUTOFF_DATE}  (rolling window starts ${ROLLING_START})`);
   console.log('='.repeat(72));
 
-  // 1. Parse CSV → per-rep totals
+  // 1. Parse CSV → per-rep totals.
+  //
+  // IMPORTANT: trim rep names. Caspio normalizes trailing whitespace on its
+  // primary-key composite, so "House" and "House " collide on insert. If we
+  // accumulate them as separate keys here, the second /import call updates
+  // the first row (overwriting the positive baseline with the negative one)
+  // instead of inserting alongside. We learned this the hard way on the
+  // first apply attempt — the House baseline ended up at -$3066 instead of
+  // the intended $4538 (sum of the two trimmed-equivalent variants).
   console.log('\n[1/5] Reading CSV…');
   const rows = readCsv(opts.csv);
   const csvTotals = {};
@@ -164,7 +172,14 @@ async function main() {
   const inWindowReps = inWindowResp.data?.summary?.reps || [];
   const inWindowMap = {};
   for (const r of inWindowReps) {
-    inWindowMap[r.name] = { revenue: r.totalRevenue || 0, orders: r.totalOrders || 0 };
+    // Trim to merge "House" + "House " into the same bucket — Caspio sees them
+    // as the same primary key, so the script must too.
+    const trimmedName = (r.name || '').trim();
+    if (!inWindowMap[trimmedName]) {
+      inWindowMap[trimmedName] = { revenue: 0, orders: 0 };
+    }
+    inWindowMap[trimmedName].revenue += r.totalRevenue || 0;
+    inWindowMap[trimmedName].orders += r.totalOrders || 0;
   }
   console.log(`  In-window: $${(inWindowResp.data?.summary?.totalRevenue || 0).toFixed(2)} / ${inWindowResp.data?.summary?.totalOrders || 0} orders, ${inWindowReps.length} reps`);
 
