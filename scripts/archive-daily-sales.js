@@ -164,6 +164,88 @@ function dateNDaysAgo(daysAgo) {
   return d.toISOString().split('T')[0];
 }
 
+/**
+ * Archive a date range by looping day-by-day, calling archive-date for each.
+ * Why not call archive-range directly? Heroku's router enforces a 30-second
+ * response timeout on HTTP requests. archive-range for 60 days exceeds this
+ * (it fetches all orders in one go + does dozens of Caspio upserts). Day-by-day
+ * keeps each request short (~1-2s) and is also more resilient — one failed
+ * day won't kill the whole run.
+ */
+async function archiveRollingWindow(start, end) {
+  // Build inclusive list of dates from start through end (UTC)
+  const dates = [];
+  const cursor = new Date(start + 'T00:00:00Z');
+  const endDate = new Date(end + 'T00:00:00Z');
+  while (cursor <= endDate) {
+    dates.push(cursor.toISOString().split('T')[0]);
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+
+  console.log(`Will archive ${dates.length} day(s) one at a time…`);
+
+  const summary = {
+    succeeded: 0,
+    failed: 0,
+    skippedZeroOrderDays: 0,
+    totalCreated: 0,
+    totalUpdated: 0,
+    totalRevenueChanges: [],  // dates where revenue changed (records updated)
+    failures: []
+  };
+
+  // 500ms between days — gentle on ManageOrders + Caspio. 60 days × (~2s call + 0.5s pause) ≈ 2.5 min.
+  const DAY_DELAY_MS = 500;
+
+  for (let i = 0; i < dates.length; i++) {
+    const date = dates[i];
+    const r = await archiveDate(date);
+
+    if (!r.success) {
+      summary.failed++;
+      summary.failures.push({ date, error: r.error });
+      continue;
+    }
+
+    const created = r.result?.archived?.created || 0;
+    const updated = r.result?.archived?.updated || 0;
+    const totalOrders = r.result?.totalOrders || 0;
+
+    summary.succeeded++;
+    summary.totalCreated += created;
+    summary.totalUpdated += updated;
+
+    if (totalOrders === 0) {
+      summary.skippedZeroOrderDays++;
+    }
+    if (updated > 0) {
+      // A day with updated records means at least one rep's totals changed since
+      // the last archive — likely an order modification we just caught.
+      summary.totalRevenueChanges.push({ date, repsChanged: updated });
+    }
+
+    if ((i + 1) % 10 === 0 || i === dates.length - 1) {
+      console.log(`Progress: ${i + 1}/${dates.length} days complete (${summary.totalUpdated} reps updated, ${summary.totalCreated} created so far)`);
+    }
+
+    if (i < dates.length - 1) {
+      await new Promise(r => setTimeout(r, DAY_DELAY_MS));
+    }
+  }
+
+  return {
+    success: summary.failed === 0,
+    error: summary.failed > 0 ? `${summary.failed} day(s) failed` : null,
+    daysProcessed: summary.succeeded,
+    daysFailed: summary.failed,
+    skippedZeroOrderDays: summary.skippedZeroOrderDays,
+    totalCreated: summary.totalCreated,
+    totalUpdated: summary.totalUpdated,
+    totalRevenueChanges: summary.totalRevenueChanges,
+    failures: summary.failures
+  };
+}
+
 async function main() {
   const options = parseArgs();
 
@@ -176,13 +258,14 @@ async function main() {
   let result;
 
   if (options.backfill) {
-    // Explicit backfill: archive a user-specified range
+    // Explicit backfill: archive a user-specified range, day-by-day to stay
+    // under Heroku's 30s router timeout per request.
     if (!options.start || !options.end) {
       console.error('ERROR: --backfill requires --start and --end dates');
       console.error('Example: npm run archive-daily-sales -- --backfill --start 2026-01-01 --end 2026-01-24');
       process.exit(1);
     }
-    result = await archiveRange(options.start, options.end);
+    result = await archiveRollingWindow(options.start, options.end);
   } else if (options.date) {
     // Re-archive a single specific date
     result = await archiveDate(options.date);
@@ -200,7 +283,7 @@ async function main() {
     const end = getYesterday();
     const start = dateNDaysAgo(days);
     console.log(`Mode: Rolling ${days}-day re-archive (${start} through ${end})`);
-    result = await archiveRange(start, end);
+    result = await archiveRollingWindow(start, end);
   }
 
   console.log('\n' + '='.repeat(60));
@@ -208,6 +291,26 @@ async function main() {
   console.log('='.repeat(60));
   console.log(`Completed: ${new Date().toISOString()}`);
   console.log(`Status: ${result.success ? 'SUCCESS' : 'FAILED'}`);
+
+  // Surface what actually changed — the whole point of the rolling re-archive
+  if (result.daysProcessed !== undefined) {
+    console.log(`Days processed: ${result.daysProcessed}`);
+    console.log(`Days with zero orders (weekends/holidays): ${result.skippedZeroOrderDays || 0}`);
+    console.log(`Total rep-day records created: ${result.totalCreated || 0}`);
+    console.log(`Total rep-day records updated (= changes detected): ${result.totalUpdated || 0}`);
+
+    if (result.totalRevenueChanges?.length > 0) {
+      console.log(`\nDays with detected modifications:`);
+      result.totalRevenueChanges.forEach(c => {
+        console.log(`  ${c.date}: ${c.repsChanged} rep total(s) updated`);
+      });
+    }
+
+    if (result.failures?.length > 0) {
+      console.log(`\nFAILURES:`);
+      result.failures.forEach(f => console.log(`  ${f.date}: ${f.error}`));
+    }
+  }
 
   if (!result.success) {
     console.log(`Error: ${result.error}`);
