@@ -17,6 +17,12 @@ const { resolveAEEmail, resolveAEName } = require('./rep-email-map');
 
 const SITE_ORIGIN = process.env.SITE_ORIGIN || 'https://www.teamnwca.com';
 
+// Items older than this are considered abandoned (customer ghosted, AE
+// already moved on) — including them in the digest just creates noise.
+// The Caspio Status field doesn't auto-expire, so old "Awaiting Approval"
+// rows accumulate forever without a cutoff. Tune here.
+const RECENT_DAYS = 30;
+
 function escapeHtml(str) {
     return String(str == null ? '' : str).replace(/[&<>"']/g, function (c) {
         return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c];
@@ -84,6 +90,26 @@ async function fetchAwaitingApprovalItems() {
             return [];
         })
     ]);
+
+    // Drop rows older than RECENT_DAYS or missing Approval_Sent_Date
+    // entirely (pre-timestamp-fix legacy rows). Filter post-fetch to avoid
+    // Caspio date-syntax fragility — 84 rows is small.
+    var cutoffMs = Date.now() - RECENT_DAYS * 24 * 60 * 60 * 1000;
+    var withinWindow = function (row) {
+        var d = parseCaspioDate(row.Approval_Sent_Date);
+        return d && d.getTime() >= cutoffMs;
+    };
+    var artRecent    = (artRows    || []).filter(withinWindow);
+    var mockupRecent = (mockupRows || []).filter(withinWindow);
+    var droppedArt    = (artRows    || []).length - artRecent.length;
+    var droppedMockup = (mockupRows || []).length - mockupRecent.length;
+    if (droppedArt || droppedMockup) {
+        console.log('[AE Digest] Dropped ' + (droppedArt + droppedMockup)
+            + ' rows older than ' + RECENT_DAYS + ' days ('
+            + droppedArt + ' art, ' + droppedMockup + ' mockup).');
+    }
+    artRows    = artRecent;
+    mockupRows = mockupRecent;
 
     var normalizedArt = (artRows || []).map(function (r) {
         return {
