@@ -74,9 +74,11 @@ async function fetchAwaitingApprovalItems() {
         'q.select': 'PK_ID,ID_Design,Design_Num_SW,CompanyName,Sales_Rep,User_Email,Approval_Sent_Date,Status',
         'q.limit':  1000
     };
+    // Digitizing_Mockups uses Submitted_By (the AE who submitted the form)
+    // instead of User_Email, which only exists on ArtRequests.
     var mockupParams = {
         'q.where':  "Status='Awaiting Approval'",
-        'q.select': 'ID,PK_ID,Design_Number,Company_Name,Sales_Rep,User_Email,Approval_Sent_Date',
+        'q.select': 'ID,PK_ID,Design_Number,Company_Name,Sales_Rep,Submitted_By,Approval_Sent_Date',
         'q.limit':  1000
     };
 
@@ -131,7 +133,7 @@ async function fetchAwaitingApprovalItems() {
             designNumber:  r.Design_Number || r.ID,
             companyName:   r.Company_Name || '(no name)',
             salesRep:      r.Sales_Rep || '',
-            userEmail:     r.User_Email || '',
+            userEmail:     r.Submitted_By || '',
             approvalSent:  r.Approval_Sent_Date,
             detailUrl:     SITE_ORIGIN + '/mockup/' + encodeURIComponent(r.ID) + '?view=ae'
         };
@@ -298,8 +300,17 @@ async function runAEApprovalDigest(opts) {
             console.log('[AE Digest] Sent ' + g.items.length + ' items to ' + g.aeEmail
                 + ' (status ' + resp.status + ')');
         } catch (err) {
-            sendResults.push({ ae: g.aeEmail, items: g.items.length, error: err.message, ok: false });
-            console.error('[AE Digest] Send failed for ' + g.aeEmail + ': ' + err.message);
+            // @emailjs/nodejs throws EmailJSResponseStatus objects with
+            // {status, text} fields — they don't have err.message. Capture
+            // both shapes so logs are useful.
+            var errText = (err && (err.text || err.message)) || JSON.stringify(err);
+            var errStatus = err && err.status;
+            sendResults.push({
+                ae: g.aeEmail, items: g.items.length, ok: false,
+                error: errText, status: errStatus
+            });
+            console.error('[AE Digest] Send failed for ' + g.aeEmail
+                + ' (status ' + errStatus + '): ' + errText);
         }
     }
 
