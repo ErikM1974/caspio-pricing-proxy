@@ -826,12 +826,32 @@ router.get('/garment-tracker/:id', async (req, res) => {
     }
 });
 
+// Writable columns on the GarmentTracker live table. Anything outside this list
+// is dropped before forwarding to Caspio so a future config drift can't repeat
+// the Quarter/Year incident (sync script writing fields the table didn't have →
+// Caspio 500 → script ate the error → cron logged "SUCCESS" with 0 records for
+// weeks). ID_Garment is auto-generated; TrackedAt is managed by this route.
+const ALLOWED_LIVE_FIELDS = [
+    'OrderNumber', 'DateInvoiced', 'Quarter', 'Year',
+    'RepName', 'CustomerName', 'CompanyName',
+    'PartNumber', 'StyleCategory', 'Quantity', 'BonusAmount',
+    'TrackedAt'
+];
+
+function pickAllowedFields(body) {
+    const out = {};
+    for (const key of ALLOWED_LIVE_FIELDS) {
+        if (body[key] !== undefined) out[key] = body[key];
+    }
+    return out;
+}
+
 // POST /api/garment-tracker - Create or update record (UPSERT)
 // Checks if OrderNumber + PartNumber already exists. If so, updates; otherwise creates.
-// Body: { OrderNumber, DateInvoiced, RepName, CustomerName, CompanyName, PartNumber, StyleCategory, Quantity, BonusAmount, TrackedAt }
+// Body: { OrderNumber, DateInvoiced, Quarter, Year, RepName, CustomerName, CompanyName, PartNumber, StyleCategory, Quantity, BonusAmount, TrackedAt }
 router.post('/garment-tracker', express.json(), async (req, res) => {
     try {
-        const requestData = { ...req.body };
+        const requestData = pickAllowedFields(req.body);
 
         // Validate required fields (both needed for uniqueness check)
         if (!requestData.OrderNumber) {
@@ -922,9 +942,19 @@ router.post('/garment-tracker', express.json(), async (req, res) => {
             record: { ID_Garment: newId, ...requestData }
         });
     } catch (error) {
+        // Surface the underlying Caspio error code/message so issues like
+        // ColumnNotFound, BadRequest, or AlterReadOnlyData are immediately
+        // diagnosable from the client and from logs.
+        const caspio = error.response?.data;
         console.error('[GarmentTracker] Error creating/updating record:',
-            error.response ? JSON.stringify(error.response.data) : error.message);
-        res.status(500).json({ success: false, error: 'Failed to create/update record' });
+            caspio ? JSON.stringify(caspio) : error.message);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to create/update record',
+            caspioCode: caspio?.Code,
+            caspioMessage: caspio?.Message,
+            caspioRequestId: caspio?.RequestId
+        });
     }
 });
 

@@ -133,7 +133,11 @@ async function main() {
         // Step 2: Fetch line items and extract garment records
         console.log('\n[2/4] Fetching line items and extracting garment records...');
         const garmentRecords = [];
-        const MAX_RETRIES = 3;
+        // Bumped 3→5 with 32s ceiling: ManageOrders 429s come in clusters and the
+        // previous 8s max routinely lost orders that a longer backoff would catch.
+        const MAX_RETRIES = 5;
+        const MAX_BACKOFF_MS = 32000;
+        const failedOrderIds = [];
 
         for (let i = 0; i < repOrders.length; i++) {
             const order = repOrders[i];
@@ -180,13 +184,15 @@ async function main() {
                 } catch (e) {
                     retries++;
                     if (e.message.includes('429') && retries < MAX_RETRIES) {
-                        const backoff = Math.pow(2, retries) * 2000;
+                        const backoff = Math.min(Math.pow(2, retries) * 2000, MAX_BACKOFF_MS);
                         console.log(`  Rate limited on order ${order.id_Order}, retry ${retries} in ${backoff}ms`);
                         await delay(backoff);
                     } else if (retries >= MAX_RETRIES) {
                         console.warn(`  Failed order ${order.id_Order} after ${MAX_RETRIES} retries: ${e.message}`);
+                        failedOrderIds.push(order.id_Order);
                     } else {
                         console.warn(`  Error on order ${order.id_Order}: ${e.message}`);
+                        failedOrderIds.push(order.id_Order);
                         break;
                     }
                 }
@@ -233,6 +239,7 @@ async function main() {
 
         // Step 4: Also archive (fire-and-forget, non-critical)
         console.log('\n[4/4] Archiving to permanent table...');
+        let archiveFailed = false;
         try {
             const archiveResp = await axios.post(
                 `${BASE_URL}/api/garment-tracker/archive-from-live`,
@@ -241,17 +248,30 @@ async function main() {
             );
             console.log(`  Archive: ${archiveResp.data?.created || 0} created, ${archiveResp.data?.updated || 0} updated`);
         } catch (e) {
+            archiveFailed = true;
             console.warn(`  Archive failed (non-critical): ${e.message}`);
         }
 
-        // Summary
+        // Summary — Status reflects actual error counts. Previously hard-coded to
+        // SUCCESS, which masked the Quarter/Year column bug for an unknown number
+        // of cron runs because every line-item failure was silently dropped.
+        const hasFailures = liveErrors > 0 || failedOrderIds.length > 0;
         console.log('\n' + '='.repeat(60));
         console.log('SYNC SUMMARY');
         console.log('='.repeat(60));
         console.log(`Orders processed: ${repOrders.length}`);
+        console.log(`Orders failed (line items unavailable): ${failedOrderIds.length}` +
+            (failedOrderIds.length ? ` — ${failedOrderIds.join(', ')}` : ''));
         console.log(`Garment records found: ${garmentRecords.length}`);
-        console.log(`Live table: ${liveCreated} new, ${liveUpdated} existing`);
-        console.log(`Status: SUCCESS`);
+        console.log(`Live table: ${liveCreated} new, ${liveUpdated} existing, ${liveErrors} errors`);
+        console.log(`Archive step: ${archiveFailed ? 'FAILED' : 'OK'}`);
+        console.log(`Status: ${hasFailures ? 'PARTIAL' : 'SUCCESS'}`);
+
+        // Exit non-zero on real failures so Heroku Scheduler logs surface red and
+        // the daily digest infrastructure can detect drift.
+        if (liveErrors > 0) {
+            process.exit(2);
+        }
     } catch (error) {
         console.error('\nFATAL ERROR:', error.message);
         process.exit(1);
