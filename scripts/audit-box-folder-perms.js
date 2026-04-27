@@ -51,6 +51,15 @@ const TARGET_ROLE = 'viewer uploader';
 // Roles that grant delete capability — these get downgraded.
 const DOWNGRADE_ROLES = new Set(['editor', 'co-owner']);
 
+// Automation/service accounts use this email domain. We DO NOT downgrade
+// them — these are our own backend service accounts (NWCA Art Upload +
+// SanMar Inventory Import). Our backend uses them to upload AND to call
+// DELETE /api/box/file/:fileId (which is guarded by reference-check).
+// Stripping their delete capability would break the legitimate cleanup path.
+// The whole point of this audit is to remove HUMAN delete access via the
+// Box web UI — humans are the source of accidental deletions.
+const AUTOMATION_DOMAIN = '@boxdevedition.com';
+
 const FOLDERS = [
     { name: "Steve's Art Hub",                envVar: 'BOX_ART_FOLDER_ID' },
     { name: "Ruth's Digitizing Mockups",      envVar: 'BOX_MOCKUP_FOLDER_ID' }
@@ -169,21 +178,29 @@ async function main() {
 
         for (const c of collabs) {
             const target = c.accessible_by || {};
-            const who = `${target.name || '(unknown)'} <${target.login || target.id || '?'}>`;
+            const login = String(target.login || '');
+            const who = `${target.name || '(unknown)'} <${login || target.id || '?'}>`;
             const role = c.role;
             const status = c.status;
-            const isDowngradable = DOWNGRADE_ROLES.has(role);
+            const hasDeletePower = DOWNGRADE_ROLES.has(role);
+            const isAutomation = login.endsWith(AUTOMATION_DOMAIN);
+            const isDowngradable = hasDeletePower && !isAutomation;
 
             if (isDowngradable) totalEditorsFound++;
 
-            const indicator = isDowngradable ? '⚠' : '·';
+            let indicator = '·';
+            if (hasDeletePower && isAutomation) indicator = '🔧';   // automation, skipped
+            else if (isDowngradable) indicator = '⚠';
+
             console.log(`│  ${indicator}  [${role.padEnd(16)}] ${status.padEnd(8)} ${who}`);
 
             if (VERBOSE && c.created_at) {
                 console.log(`│      collab id ${c.id} · created ${c.created_at}`);
             }
 
-            if (isDowngradable) {
+            if (hasDeletePower && isAutomation) {
+                console.log(`│      → automation account, leaving editor role intact`);
+            } else if (isDowngradable) {
                 if (!APPLY) {
                     console.log(`│      → would downgrade to "${TARGET_ROLE}" (dry-run)`);
                 } else {
