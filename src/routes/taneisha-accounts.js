@@ -725,11 +725,20 @@ router.post('/taneisha-accounts/sync-sales', express.json(), async (req, res) =>
         orders.forEach(order => {
             const customerId = order.id_Customer;
 
-            // Only process orders for Taneisha's customers
+            // Only process orders for Taneisha's currently-assigned customers.
+            // accountMap is built from Taneisha_Accounts, which sync-ownership
+            // populates from Sales_Reps_2026 (the source-of-truth customer →
+            // current account manager mapping). So this filter alone gives us
+            // the territory view: every order Taneisha's customers placed counts
+            // toward her revenue, regardless of who personally invoiced it.
+            //
+            // Removed (2026-04-27): a second filter on order.CustomerServiceRep
+            // === 'Taneisha Clark' that excluded orders Taneisha's customers
+            // placed but someone else invoiced. That was the order-time snapshot
+            // field, which doesn't survive customer reassignment, and made this
+            // dashboard's YTD diverge from the Team Performance widget by
+            // ~$4-5k. Both views now read territory from Sales_Reps_2026.
             if (!accountMap.has(customerId)) return;
-
-            // Only count orders where Taneisha is the rep (some customers may have orders from other reps)
-            if (order.CustomerServiceRep !== 'Taneisha Clark') return;
 
             // Only count current year invoiced orders
             const invoiceDate = new Date(order.date_Invoiced);
