@@ -128,9 +128,12 @@ function groupByAE(items) {
             return;
         }
         if (!groups.has(key)) {
+            // Derive the displayed name from the RESOLVED email, not the
+            // original Sales_Rep, so redirects (e.g. Taylor → sales@) show
+            // up under "Sales" instead of the former employee's name.
             groups.set(key, {
                 aeEmail: key,
-                aeName:  resolveAEName(item.salesRep || item.userEmail),
+                aeName:  resolveAEName(key),
                 items:   []
             });
         }

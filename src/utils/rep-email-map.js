@@ -19,14 +19,13 @@ const REP_EMAIL_MAP = {
 // must end in @nwcustomapparel.com or it's discarded as unsafe.
 var INTERNAL_DOMAIN = '@nwcustomapparel.com';
 
-// Former employees / disabled accounts. Their items still exist in Caspio
-// (Sales_Rep field carries the old name), but we don't want digest emails
-// piling up in an inbox nobody reads. Listing them here makes the items
-// drop into the "unassigned" bucket so they show up in /scan output and
-// someone can reassign Sales_Rep in Caspio.
-var FORMER_EMPLOYEE_EMAILS = new Set([
-    'taylar@nwcustomapparel.com'
-]);
+// Former employees / disabled accounts → redirect to a still-active inbox.
+// Their items still exist in Caspio (Sales_Rep field carries the old name),
+// and someone has to chase them. Mapping them here lets the digest land in
+// a real inbox without requiring a Caspio backfill of every old record.
+var EMPLOYEE_REDIRECTS = {
+    'taylar@nwcustomapparel.com': 'sales@nwcustomapparel.com'
+};
 
 /**
  * Resolve a Sales_Rep value (or a User_Email fallback) to an internal email.
@@ -51,7 +50,9 @@ function resolveAEEmail(value) {
     } else if (Object.prototype.hasOwnProperty.call(REP_EMAIL_MAP, trimmed)) {
         resolved = REP_EMAIL_MAP[trimmed];
     }
-    if (resolved && FORMER_EMPLOYEE_EMAILS.has(resolved)) return null;
+    if (resolved && Object.prototype.hasOwnProperty.call(EMPLOYEE_REDIRECTS, resolved)) {
+        return EMPLOYEE_REDIRECTS[resolved];
+    }
     return resolved;
 }
 
