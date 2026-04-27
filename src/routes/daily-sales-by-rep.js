@@ -755,6 +755,51 @@ router.post('/caspio/daily-sales-by-rep/archive-range', async (req, res) => {
 });
 
 /**
+ * DELETE /api/caspio/daily-sales-by-rep/bulk
+ * Bulk delete archive rows by Caspio WHERE clause.
+ *
+ * Used by the one-time CSV reconciliation script to wipe the locked
+ * pre-rolling-window rows (Jan 1 → Feb 25) before re-inserting CSV-derived
+ * baseline rows. Mirrors the bulk-delete pattern on the garment-tracker
+ * route. Locked behind a manual call — no cron uses this.
+ *
+ * Body: { "where": "SalesDate <= '2026-02-25' AND RepName = 'Nika Lao'" }
+ * Returns: { success, recordsAffected }
+ */
+router.delete('/caspio/daily-sales-by-rep/bulk', express.json(), async (req, res) => {
+  const { where } = req.body || {};
+
+  if (!where) {
+    return res.status(400).json({
+      error: 'Missing required field: where',
+      example: { where: "SalesDate <= '2026-02-25' AND RepName = 'Nika Lao'" }
+    });
+  }
+
+  try {
+    console.log(`Bulk delete on ${TABLE_NAME} with WHERE: ${where}`);
+    const result = await makeCaspioRequest(
+      'delete',
+      `/tables/${TABLE_NAME}/records`,
+      { 'q.where': where }
+    );
+    const recordsAffected = result?.RecordsAffected || 0;
+    console.log(`Bulk delete completed: ${recordsAffected} records affected`);
+    res.json({ success: true, recordsAffected });
+  } catch (error) {
+    const caspio = error.response?.data;
+    console.error('Bulk delete error:',
+      caspio ? JSON.stringify(caspio) : error.message);
+    res.status(500).json({
+      error: 'Bulk delete failed',
+      details: error.message,
+      caspioCode: caspio?.Code,
+      caspioMessage: caspio?.Message
+    });
+  }
+});
+
+/**
  * POST /api/caspio/daily-sales-by-rep/import
  * Manual import for dates outside 60-day ManageOrders window.
  * Use this when rep assignments change on orders older than 60 days.
