@@ -395,14 +395,28 @@ router.post('/caspio/daily-sales-by-rep/archive-date', async (req, res) => {
   try {
     const { fetchOrders } = require('../utils/manageorders');
 
-    // Fetch all orders invoiced on this date
-    console.log(`Fetching orders for ${date} from ManageOrders...`);
-    const orders = await fetchOrders({
-      date_Invoiced_start: date,
-      date_Invoiced_end: date
-    });
+    // Fetch orders + current rep assignments in parallel.
+    //
+    // Why Sales_Reps_2026 instead of order.CustomerServiceRep:
+    // ShopWorks bakes CustomerServiceRep onto the order at creation time, so
+    // it's a stale snapshot — when an account is reassigned to a different
+    // rep, old orders keep the old rep on them. The CSV-of-truth Erik exports
+    // joins orders → customers → Sales_Reps_2026, which gives the CURRENT
+    // assignment. To match that, we look up the rep at archive time too.
+    // Same pattern as company-contacts.js, house-accounts.js, commission-payouts.js.
+    console.log(`Fetching orders + Sales_Reps_2026 for ${date}...`);
+    const [orders, salesReps2026] = await Promise.all([
+      fetchOrders({ date_Invoiced_start: date, date_Invoiced_end: date }),
+      fetchAllCaspioPages('/tables/Sales_Reps_2026/records', {})
+    ]);
 
-    console.log(`Fetched ${orders.length} orders for ${date}`);
+    const salesRepsMap = new Map();
+    salesReps2026.forEach(r => {
+      if (r.ID_Customer && r.CustomerServiceRep) {
+        salesRepsMap.set(r.ID_Customer, r.CustomerServiceRep);
+      }
+    });
+    console.log(`Fetched ${orders.length} orders for ${date}; loaded ${salesRepsMap.size} rep assignments from Sales_Reps_2026`);
 
     // Deduplicate by order ID (just in case)
     const seenOrderIds = new Set();
@@ -412,11 +426,12 @@ router.post('/caspio/daily-sales-by-rep/archive-date', async (req, res) => {
       return true;
     });
 
-    // Aggregate by rep
+    // Aggregate by rep — Sales_Reps_2026 first, fallback to order's snapshot,
+    // final fallback to 'Unknown' so phantom-delete still cleans up later.
     const repSales = new Map();
 
     uniqueOrders.forEach(order => {
-      const rep = order.CustomerServiceRep || 'Unknown';
+      const rep = salesRepsMap.get(order.id_Customer) || order.CustomerServiceRep || 'Unknown';
       const amount = parseFloat(order.cur_SubTotal) || 0;
 
       if (!repSales.has(rep)) {
@@ -612,14 +627,24 @@ router.post('/caspio/daily-sales-by-rep/archive-range', async (req, res) => {
 
     console.log(`Processing ${dates.length} days from ${start} to ${end}`);
 
-    // Fetch all orders for the range at once (more efficient than day-by-day)
-    console.log(`Fetching orders from ManageOrders for range ${start} to ${end}...`);
-    const orders = await fetchOrders({
-      date_Invoiced_start: start,
-      date_Invoiced_end: end
-    });
+    // Fetch orders + Sales_Reps_2026 in parallel.
+    // Rep attribution comes from Sales_Reps_2026 (current customer→rep mapping),
+    // NOT order.CustomerServiceRep (stale snapshot baked at order-creation time).
+    // See archive-date for full reasoning. This keeps the cron's per-rep totals
+    // matching the by-Sales-Rep CSV export (which joins through the same table).
+    console.log(`Fetching orders + Sales_Reps_2026 for range ${start} to ${end}...`);
+    const [orders, salesReps2026] = await Promise.all([
+      fetchOrders({ date_Invoiced_start: start, date_Invoiced_end: end }),
+      fetchAllCaspioPages('/tables/Sales_Reps_2026/records', {})
+    ]);
 
-    console.log(`Fetched ${orders.length} orders for range`);
+    const salesRepsMap = new Map();
+    salesReps2026.forEach(r => {
+      if (r.ID_Customer && r.CustomerServiceRep) {
+        salesRepsMap.set(r.ID_Customer, r.CustomerServiceRep);
+      }
+    });
+    console.log(`Fetched ${orders.length} orders for range; loaded ${salesRepsMap.size} rep assignments from Sales_Reps_2026`);
 
     // Deduplicate by order ID
     const seenOrderIds = new Set();
@@ -629,14 +654,14 @@ router.post('/caspio/daily-sales-by-rep/archive-range', async (req, res) => {
       return true;
     });
 
-    // Group by date and rep
+    // Group by date and rep — Sales_Reps_2026 first, fall back to order's snapshot
     const dailyRepSales = new Map(); // date -> Map(rep -> {revenue, orderCount})
 
     uniqueOrders.forEach(order => {
       const invoiceDate = order.date_Invoiced ? order.date_Invoiced.split('T')[0] : null;
       if (!invoiceDate) return;
 
-      const rep = order.CustomerServiceRep || 'Unknown';
+      const rep = salesRepsMap.get(order.id_Customer) || order.CustomerServiceRep || 'Unknown';
       const amount = parseFloat(order.cur_SubTotal) || 0;
 
       if (!dailyRepSales.has(invoiceDate)) {
