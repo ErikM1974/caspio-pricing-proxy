@@ -437,21 +437,54 @@ router.post('/caspio/daily-sales-by-rep/archive-date', async (req, res) => {
 
     console.log(`Aggregated ${date}: ${reps.length} reps, $${reps.reduce((sum, r) => sum + r.revenue, 0).toFixed(2)} total`);
 
-    // Archive to Caspio (upsert each rep)
-    const results = { created: 0, updated: 0, errors: [] };
+    // Archive to Caspio (upsert each rep, plus delete phantoms).
+    //
+    // Phantom = a row in Caspio for (date, rep) that ManageOrders no longer has
+    // any order for. This happens when an order is voided / deleted / had its
+    // invoice date moved after the original archive ran. Deleting phantoms
+    // keeps the dashboard in sync with ShopWorks' current state instead of
+    // accumulating drift over time.
+    //
+    // Per-rep upserts use the actual subtotal sums computed above. We fetch
+    // existing rows for this date once, diff against the current rep set, and
+    // issue one DELETE per stale row.
+    const results = { created: 0, updated: 0, deleted: 0, errors: [] };
+
+    let existingForDate = [];
+    try {
+      existingForDate = await fetchAllCaspioPages(`/tables/${TABLE_NAME}/records`, {
+        'q.where': `SalesDate='${date}'`
+      });
+    } catch (e) {
+      console.warn(`Could not fetch existing archive rows for ${date} — continuing without phantom cleanup:`, e.message);
+    }
+
+    const liveRepNames = new Set(reps.map(r => r.name));
+    const phantoms = existingForDate.filter(row => !liveRepNames.has(row.RepName));
+
+    for (const phantom of phantoms) {
+      try {
+        await makeCaspioRequest(
+          'delete',
+          `/tables/${TABLE_NAME}/records`,
+          { 'q.where': `SalesDate='${date}' AND RepName='${String(phantom.RepName).replace(/'/g, "''")}'` }
+        );
+        results.deleted++;
+        console.log(`Deleted phantom row ${date} / ${phantom.RepName} (was Revenue=${phantom.Revenue}, OrderCount=${phantom.OrderCount})`);
+      } catch (delErr) {
+        results.errors.push({ rep: phantom.RepName, error: `phantom delete failed: ${delErr.message}` });
+      }
+    }
 
     for (const rep of reps) {
       try {
-        const existing = await fetchAllCaspioPages(`/tables/${TABLE_NAME}/records`, {
-          'q.where': `SalesDate='${date}' AND RepName='${rep.name}'`,
-          'q.limit': 1
-        });
+        const wasPresent = existingForDate.some(row => row.RepName === rep.name);
 
-        if (existing.length > 0) {
+        if (wasPresent) {
           await makeCaspioRequest(
             'put',
             `/tables/${TABLE_NAME}/records`,
-            { 'q.where': `SalesDate='${date}' AND RepName='${rep.name}'` },
+            { 'q.where': `SalesDate='${date}' AND RepName='${String(rep.name).replace(/'/g, "''")}'` },
             {
               Revenue: rep.revenue,
               OrderCount: rep.orderCount
