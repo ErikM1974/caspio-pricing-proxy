@@ -380,8 +380,11 @@ router.get('/mockups/broken-mockups', async (req, res) => {
         const statusesSQL = statusFilter.map(s => `'${s.replace(/'/g, "''")}'`).join(',');
         const where = `Status IN (${statusesSQL}) AND Submitted_Date>='${sinceDate}'`
             + ` AND (Is_Deleted=0 OR Is_Deleted IS NULL)`;
+        // Note: Digitizing_Mockups uses `Submitted_By` (not `User_Email` like
+        // ArtRequests). Steve's broken-mockups query falls back to User_Email
+        // when Sales_Rep is empty; here we fall back to Submitted_By.
         const select = ['ID', 'Design_Number', 'Company_Name', 'Sales_Rep',
-            'User_Email', 'Status', 'Submitted_Date',
+            'Submitted_By', 'Status', 'Submitted_Date',
             ...RUTH_MOCKUP_SLOT_FIELDS].join(',');
         const resp = await axios.get(`${caspioApiBaseUrl}/tables/${MOCKUPS_TABLE}/records`, {
             params: {
@@ -443,7 +446,7 @@ router.get('/mockups/broken-mockups', async (req, res) => {
                         id,
                         designNumber: ref.record.Design_Number || '',
                         companyName: ref.record.Company_Name || '',
-                        salesRep: ref.record.Sales_Rep || ref.record.User_Email || '',
+                        salesRep: ref.record.Sales_Rep || ref.record.Submitted_By || '',
                         status: ref.record.Status || '',
                         submittedDate: ref.record.Submitted_Date,
                         brokenSlots: []
