@@ -23,6 +23,14 @@
  * Env vars required:
  *   CASPIO_ACCOUNT_DOMAIN, CASPIO_CLIENT_ID, CASPIO_CLIENT_SECRET
  *   BOX_CLIENT_ID, BOX_CLIENT_SECRET, BOX_ENTERPRISE_ID, BOX_ART_FOLDER_ID
+ *
+ * Related: same recovery algorithm is exposed as an HTTP route at
+ *   POST /api/art-requests/:pkId/auto-recover-mockup
+ *   POST /api/art-requests/auto-recover-mockups-bulk
+ * implemented via `src/utils/recover-broken-mockup.js`. Steve's dashboard
+ * "Broken Links" modal calls those routes for on-demand recovery. This
+ * script remains for batch validation runs (full sweep + reporting summary).
+ * If the algorithm changes here, mirror the change in the util.
  */
 
 require('dotenv').config();
@@ -118,6 +126,69 @@ function extractFileId(url) {
     if (!url) return null;
     const m = String(url).match(/\/api\/box\/thumbnail\/(\d+)/);
     return m ? m[1] : null;
+}
+
+// Verify a Box fileId actually exists. Returns true if Box has a file at
+// that ID (active OR in trash), false if 404. Used to decide whether
+// the current Box_File_Mockup is recoverable or a phantom URL.
+async function fileIdExists(fileId) {
+    if (!fileId) return false;
+    const token = await getBoxToken();
+    try {
+        const resp = await axios.get(`${BOX_API_BASE}/files/${fileId}`, {
+            params: { fields: 'id' },
+            headers: { 'Authorization': `Bearer ${token}` },
+            timeout: 10000,
+            validateStatus: () => true
+        });
+        if (resp.status === 200) return true;
+        // Try trash
+        const trashResp = await axios.get(`${BOX_API_BASE}/files/${fileId}/trash`, {
+            params: { fields: 'id' },
+            headers: { 'Authorization': `Bearer ${token}` },
+            timeout: 10000,
+            validateStatus: () => true
+        });
+        return trashResp.status === 200;
+    } catch (err) {
+        return false;
+    }
+}
+
+// Broad search Box by company name (recursive within BOX_ART_FOLDER_ID),
+// pick best image candidate matching the design#. Used as Pass 2 for
+// records whose primary folder turned up no image.
+async function broadBoxSearch(companyName, designStr) {
+    if (!companyName || !companyName.trim()) return null;
+    const token = await getBoxToken();
+    try {
+        const resp = await axios.get(`${BOX_API_BASE}/search`, {
+            params: {
+                query: companyName.trim(),
+                type: 'file',
+                ancestor_folder_ids: process.env.BOX_ART_FOLDER_ID,
+                fields: 'id,name,modified_at,parent',
+                limit: 50
+            },
+            headers: { 'Authorization': `Bearer ${token}` },
+            timeout: 15000
+        });
+        const entries = (resp.data.entries || [])
+            .filter(e => e.type === 'file' && IMAGE_EXT_RE.test(e.name || ''));
+        if (entries.length === 0) return null;
+        // Strict: filename contains the design#
+        const designMatched = entries.filter(f => (f.name || '').indexOf(designStr) !== -1);
+        if (designMatched.length > 0) {
+            designMatched.sort((a, b) => String(b.modified_at || '').localeCompare(String(a.modified_at || '')));
+            return { file: designMatched[0], reason: 'BROAD_SEARCH_DESIGN_MATCH' };
+        }
+        // Don't auto-pick non-design# matches — too risky to grab an unrelated
+        // file just because it shares the company name. Return null + log
+        // candidates upstream so staff can review.
+        return { file: null, reason: 'BROAD_SEARCH_NO_DESIGN_MATCH', candidates: entries.slice(0, 3).map(f => f.name) };
+    } catch (err) {
+        return null;
+    }
 }
 
 // Test a Box_File_Mockup URL. Returns true if the URL is broken

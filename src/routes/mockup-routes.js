@@ -13,6 +13,10 @@
 //   POST   /api/mockups/:id/restore — Undo soft-delete
 //   GET    /api/mockups/orphan-scan — Detect Box folders not indexed in Caspio (admin)
 //   POST   /api/mockups/orphan-digest/send — Manually trigger orphan digest email (admin)
+//   GET    /api/mockups/broken-mockups — Detect Caspio rows whose Box fileIds 404 (10-min cache)
+//   POST   /api/mockups/broken-mockups/send-digest — Manually trigger Ruth daily digest (admin)
+//   POST   /api/mockups/:id/auto-recover-mockup — Single-slot Box folder relink
+//   POST   /api/mockups/auto-recover-mockups-bulk — Bulk auto-recover (max 50 entries)
 //   GET    /api/mockup-notes/:mockupId — Get notes for a mockup
 //   POST   /api/mockup-notes     — Add a note to a mockup
 //   GET    /api/thread-colors    — List thread colors (cached 1hr, ?instock=true)
@@ -22,11 +26,28 @@ const express = require('express');
 const router = express.Router();
 const axios = require('axios');
 const { getCaspioAccessToken, fetchAllCaspioPages } = require('../utils/caspio');
+const { getBoxAccessToken, BOX_API_BASE } = require('../utils/box-client');
 const config = require('../../config');
 
 const caspioApiBaseUrl = config.caspio.apiBaseUrl;
 const MOCKUPS_TABLE = 'Digitizing_Mockups';
 const NOTES_TABLE = 'Digitizing_Mockup_Notes';
+
+// Mockup slot fields scanned by /api/mockups/broken-mockups. Mirrors VALID_SLOTS
+// in box-upload.js + the MOCKUP_SLOT_FIELDS export from recover-broken-ruth-mockup.js.
+const RUTH_MOCKUP_SLOT_FIELDS = [
+    'Box_Mockup_1', 'Box_Mockup_2', 'Box_Mockup_3',
+    'Box_Mockup_4', 'Box_Mockup_5', 'Box_Mockup_6',
+    'Box_Reference_File'
+];
+
+// Broken-mockups scan cache (10-min TTL). Separate from Steve's cache in
+// box-upload.js — different table, different scan params.
+let ruthBrokenMockupsCache = { data: null, expiresAt: 0, inFlight: null };
+const RUTH_BROKEN_CACHE_TTL_MS = 10 * 60 * 1000;
+function invalidateRuthBrokenMockupsCache() {
+    ruthBrokenMockupsCache = { data: null, expiresAt: 0, inFlight: null };
+}
 
 // ── In-Memory Caches (1-hour TTL) ───────────────────────────────────
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
@@ -298,6 +319,309 @@ router.post('/mockups/orphan-digest/send', async (req, res) => {
     } catch (err) {
         console.error('[OrphanDigest] Manual trigger error:', err.message);
         res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// ── Broken-mockups detection + auto-recovery ─────────────────────────
+// IMPORTANT: these static-path routes MUST be declared BEFORE `/mockups/:id`
+// (see the orphan-scan comment above re: Express ordering).
+//
+// Sister of `/api/art-requests/broken-mockups` in box-upload.js but for
+// Ruth's `Digitizing_Mockups` table, which has 7 mockup slot fields per
+// row instead of 1. Same algorithm: pull recent rows, HEAD every Box
+// fileId referenced, group 404s by row + slot. Powers the Broken Links
+// Recovery Modal on Ruth's Digitizing Mockup Dashboard.
+
+/**
+ * GET /api/mockups/broken-mockups
+ *
+ * Scan active Digitizing_Mockups (default: last 90 days, non-Completed
+ * statuses) and HEAD every Box fileId across all 7 mockup slot fields.
+ * Returns the records whose Box files return 404. Used by Ruth's dashboard
+ * widget + the daily digest cron.
+ *
+ * Query params:
+ *   - status: CSV of statuses to scan (default: non-Completed active)
+ *   - since:  ISO date, oldest Submitted_Date to include (default: 90 days)
+ *   - limit:  max records to scan (default: 500, max: 1000)
+ *   - refresh: 'true' to bypass the 10-min cache
+ *
+ * Response: { checked, uniqueFileIds, broken, cachedAt, results: [...] }
+ *   results[i] = {
+ *     id, designNumber, companyName, salesRep, status, submittedDate,
+ *     brokenSlots: [{ field, fileId }, ...]
+ *   }
+ */
+router.get('/mockups/broken-mockups', async (req, res) => {
+    const force = req.query.refresh === 'true';
+    const now = Date.now();
+
+    if (!force && ruthBrokenMockupsCache.data && now < ruthBrokenMockupsCache.expiresAt) {
+        return res.json({ ...ruthBrokenMockupsCache.data, cached: true });
+    }
+    if (ruthBrokenMockupsCache.inFlight) {
+        try {
+            const shared = await ruthBrokenMockupsCache.inFlight;
+            return res.json({ ...shared, cached: true, coalesced: true });
+        } catch (err) { /* fall through */ }
+    }
+
+    const scanPromise = (async () => {
+        const defaultSince = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
+            .toISOString().split('T')[0];
+        const sinceDate = req.query.since || defaultSince;
+        const statusFilter = (req.query.status
+            || 'Submitted,In Progress,Awaiting Approval,Revision Requested')
+            .split(',').map(s => s.trim()).filter(Boolean);
+        const limit = Math.min(parseInt(req.query.limit, 10) || 500, 1000);
+
+        // 1. Pull candidates from Caspio
+        const caspioToken = await getCaspioAccessToken();
+        const statusesSQL = statusFilter.map(s => `'${s.replace(/'/g, "''")}'`).join(',');
+        const where = `Status IN (${statusesSQL}) AND Submitted_Date>='${sinceDate}'`
+            + ` AND (Is_Deleted=0 OR Is_Deleted IS NULL)`;
+        const select = ['ID', 'Design_Number', 'Company_Name', 'Sales_Rep',
+            'User_Email', 'Status', 'Submitted_Date',
+            ...RUTH_MOCKUP_SLOT_FIELDS].join(',');
+        const resp = await axios.get(`${caspioApiBaseUrl}/tables/${MOCKUPS_TABLE}/records`, {
+            params: {
+                'q.where': where,
+                'q.select': select,
+                'q.orderBy': 'Submitted_Date DESC',
+                'q.pageSize': limit
+            },
+            headers: { 'Authorization': `Bearer ${caspioToken}` },
+            timeout: 30000
+        });
+        const records = resp.data.Result || [];
+
+        // 2. Collect unique fileIds → list of {record, field}
+        const fileIdMap = new Map();
+        for (const rec of records) {
+            for (const field of RUTH_MOCKUP_SLOT_FIELDS) {
+                const url = rec[field];
+                if (!url || typeof url !== 'string') continue;
+                const m = url.match(/\/api\/box\/thumbnail\/(\d+)/);
+                if (!m) continue;
+                const fileId = m[1];
+                if (!fileIdMap.has(fileId)) fileIdMap.set(fileId, []);
+                fileIdMap.get(fileId).push({ record: rec, field });
+            }
+        }
+
+        // 3. HEAD each fileId in batches (concurrency 10)
+        const fileIds = Array.from(fileIdMap.keys());
+        const brokenFileIds = new Set();
+        const concurrency = 10;
+        const boxToken = await getBoxAccessToken();
+
+        for (let i = 0; i < fileIds.length; i += concurrency) {
+            const batch = fileIds.slice(i, i + concurrency);
+            const batchResults = await Promise.allSettled(batch.map(id =>
+                axios.head(`${BOX_API_BASE}/files/${id}`, {
+                    headers: { 'Authorization': `Bearer ${boxToken}` },
+                    timeout: 8000,
+                    validateStatus: () => true
+                })
+            ));
+            batchResults.forEach((r, idx) => {
+                // Only flag clean 404s; timeouts/5xx/429 are unknown — don't false-alarm.
+                if (r.status === 'fulfilled' && r.value.status === 404) {
+                    brokenFileIds.add(batch[idx]);
+                }
+            });
+        }
+
+        // 4. Group broken hits by record (one row may have multiple broken slots)
+        const brokenById = new Map();
+        for (const fileId of brokenFileIds) {
+            const refs = fileIdMap.get(fileId) || [];
+            for (const ref of refs) {
+                const id = ref.record.ID;
+                if (!brokenById.has(id)) {
+                    brokenById.set(id, {
+                        id,
+                        designNumber: ref.record.Design_Number || '',
+                        companyName: ref.record.Company_Name || '',
+                        salesRep: ref.record.Sales_Rep || ref.record.User_Email || '',
+                        status: ref.record.Status || '',
+                        submittedDate: ref.record.Submitted_Date,
+                        brokenSlots: []
+                    });
+                }
+                brokenById.get(id).brokenSlots.push({ field: ref.field, fileId });
+            }
+        }
+
+        const results = Array.from(brokenById.values())
+            .sort((a, b) => new Date(b.submittedDate) - new Date(a.submittedDate));
+
+        return {
+            checked: records.length,
+            uniqueFileIds: fileIds.length,
+            broken: results.length,
+            cachedAt: new Date().toISOString(),
+            params: { status: statusFilter, since: sinceDate, limit },
+            results
+        };
+    })();
+
+    ruthBrokenMockupsCache.inFlight = scanPromise;
+
+    try {
+        const data = await scanPromise;
+        ruthBrokenMockupsCache = {
+            data, expiresAt: Date.now() + RUTH_BROKEN_CACHE_TTL_MS, inFlight: null
+        };
+        console.log(`[Ruth broken-mockups] ${data.checked} records, ${data.uniqueFileIds} files, ${data.broken} broken`);
+        res.json({ ...data, cached: false });
+    } catch (err) {
+        ruthBrokenMockupsCache.inFlight = null;
+        console.error('[Ruth broken-mockups] scan failed:', err.message);
+        res.status(500).json({ success: false, error: 'Scan failed: ' + err.message });
+    }
+});
+
+/**
+ * POST /api/mockups/broken-mockups/send-digest
+ *
+ * Manual trigger for the daily Ruth digest. Admin-key gated.
+ */
+router.post('/mockups/broken-mockups/send-digest', async (req, res) => {
+    const expected = process.env.ADMIN_KEY_DIGEST;
+    const provided = req.headers['x-admin-key'];
+    if (!expected) {
+        return res.status(500).json({
+            success: false,
+            error: 'ADMIN_KEY_DIGEST env var not configured on server.'
+        });
+    }
+    if (provided !== expected) {
+        return res.status(401).json({ success: false, error: 'Unauthorized' });
+    }
+    try {
+        const { runDailyDigest } = require('../utils/send-ruth-digest');
+        const result = await runDailyDigest();
+        res.json({ success: true, ...result });
+    } catch (err) {
+        console.error('[Ruth Digest] Manual trigger failed:', err.message);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+/**
+ * POST /api/mockups/:id/auto-recover-mockup
+ *
+ * Single-slot auto-recovery for a broken Box mockup URL on a
+ * Digitizing_Mockups row. Mirrors the Steve route at
+ * /api/art-requests/:pkId/auto-recover-mockup.
+ *
+ * Body: { slotField, designNumber, companyName? }
+ *   slotField: one of Box_Mockup_1..6 or Box_Reference_File
+ *
+ * Response 200: { success: true, status: 'recovered', slotField, newUrl, ... }
+ * Response 404: { success: false, status: 'no-folder'|'empty-folder'|'no-match' }
+ * Response 400: { success: false, error: '...' }
+ */
+router.post('/mockups/:id/auto-recover-mockup', async (req, res) => {
+    const id = req.params.id;
+    const slotField = (req.body && req.body.slotField) || '';
+    const designNumber = (req.body && req.body.designNumber) || '';
+    const companyName = (req.body && req.body.companyName) || '';
+
+    if (!slotField || !RUTH_MOCKUP_SLOT_FIELDS.includes(slotField)) {
+        return res.status(400).json({
+            success: false,
+            error: `slotField required, must be one of: ${RUTH_MOCKUP_SLOT_FIELDS.join(', ')}`
+        });
+    }
+    if (!designNumber) {
+        return res.status(400).json({ success: false, error: 'Missing designNumber in request body' });
+    }
+
+    try {
+        const { recoverBrokenRuthMockup } = require('../utils/recover-broken-ruth-mockup');
+        const publicUrl = (config.app && config.app.publicUrl)
+            || `${req.protocol}://${req.get('host')}`;
+
+        const result = await recoverBrokenRuthMockup({
+            id,
+            slotField,
+            designNumber,
+            companyName,
+            getBoxToken: getBoxAccessToken,
+            publicUrl
+        });
+
+        if (result.status === 'recovered') {
+            invalidateRuthBrokenMockupsCache();
+            console.log(`[Ruth auto-recover] ID=${id} ${slotField} #${designNumber} → file ${result.newFileId} (${result.confidence})`);
+            return res.json({ success: true, ...result });
+        }
+        if (result.status === 'error') {
+            console.error(`[Ruth auto-recover] ID=${id} ${slotField} error: ${result.error}`);
+            return res.status(500).json({ success: false, ...result });
+        }
+        return res.status(404).json({ success: false, ...result });
+    } catch (err) {
+        console.error('[Ruth auto-recover-mockup] uncaught:', err);
+        return res.status(500).json({ success: false, error: err.message || String(err) });
+    }
+});
+
+/**
+ * POST /api/mockups/auto-recover-mockups-bulk
+ *
+ * Bulk auto-recovery — used by Ruth's "Auto-recover all" button. Each entry
+ * is one (id, slotField) pair (a single row may appear multiple times if
+ * it has multiple broken slots).
+ *
+ * Body: { entries: [{ id, slotField, designNumber, companyName? }, ...] }
+ *   max 50 entries per call (Box Search API rate limits favor sequential).
+ *
+ * Response 200: {
+ *   success: true,
+ *   recovered: <count>,
+ *   total: <count>,
+ *   results: [{ id, slotField, status, newUrl?, newFileId?, ... }, ...]
+ * }
+ */
+router.post('/mockups/auto-recover-mockups-bulk', async (req, res) => {
+    const entries = req.body && req.body.entries;
+    if (!Array.isArray(entries) || entries.length === 0) {
+        return res.status(400).json({ success: false, error: 'Missing or empty entries array' });
+    }
+    if (entries.length > 50) {
+        return res.status(400).json({ success: false, error: 'Max 50 entries per call' });
+    }
+
+    try {
+        const { recoverBrokenRuthMockup } = require('../utils/recover-broken-ruth-mockup');
+        const publicUrl = (config.app && config.app.publicUrl)
+            || `${req.protocol}://${req.get('host')}`;
+
+        const results = [];
+        let recovered = 0;
+        for (const entry of entries) {
+            const r = await recoverBrokenRuthMockup({
+                id: entry.id,
+                slotField: entry.slotField,
+                designNumber: entry.designNumber || '',
+                companyName: entry.companyName || '',
+                getBoxToken: getBoxAccessToken,
+                publicUrl
+            });
+            results.push({ id: entry.id, ...r });
+            if (r.status === 'recovered') recovered++;
+        }
+
+        if (recovered > 0) invalidateRuthBrokenMockupsCache();
+        console.log(`[Ruth auto-recover-bulk] ${recovered}/${entries.length} recovered`);
+
+        return res.json({ success: true, recovered, total: entries.length, results });
+    } catch (err) {
+        console.error('[Ruth auto-recover-mockups-bulk] uncaught:', err);
+        return res.status(500).json({ success: false, error: err.message || String(err) });
     }
 });
 

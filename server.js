@@ -719,6 +719,31 @@ const server = app.listen(PORT, async () => {
         console.error('⏰ Failed to schedule Steve digest cron:', err.message);
     }
 
+    // Schedule: daily broken-mockups digest email to Ruth at 8 AM Pacific.
+    // Sister of Steve's digest above — same pattern but scans
+    // Digitizing_Mockups (Ruth's table) and emails ruth@nwcustomapparel.com.
+    // Reuses EMAILJS_TEMPLATE_STEVE_DIGEST unless EMAILJS_TEMPLATE_RUTH_DIGEST
+    // is set, so a single template can serve both audiences.
+    try {
+        const cron = require('node-cron');
+        const { runDailyDigest: runRuthDigest } = require('./src/utils/send-ruth-digest');
+        const ruthDigestConfigured = process.env.EMAILJS_PRIVATE_KEY
+            && (process.env.EMAILJS_TEMPLATE_RUTH_DIGEST
+                || process.env.EMAILJS_TEMPLATE_STEVE_DIGEST);
+        if (ruthDigestConfigured) {
+            cron.schedule('0 8 * * *', () => {
+                runRuthDigest().catch(err => {
+                    console.error('[Ruth Digest] Cron failed:', err.message);
+                });
+            }, { timezone: 'America/Los_Angeles' });
+            console.log('⏰ Ruth digest cron scheduled: daily 8 AM Pacific');
+        } else {
+            console.log('⏰ Ruth digest cron NOT scheduled — missing EmailJS env vars');
+        }
+    } catch (err) {
+        console.error('⏰ Failed to schedule Ruth digest cron:', err.message);
+    }
+
     // Schedule: monthly orphan-Box-folder digest email to Erik at 8 AM Pacific
     // on the 1st of each month. Catches any folder that lands in Ruth's Box
     // area without a matching Caspio row (e.g. manual right-click → New Folder
