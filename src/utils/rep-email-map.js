@@ -13,21 +13,32 @@ const REP_EMAIL_MAP = {
     'Erik':     'erik@nwcustomapparel.com'
 };
 
+// Only the internal domain is allowed to receive AE digests. User_Email on
+// ArtRequests is sometimes a CUSTOMER email (when Sales_Rep is blank and a
+// customer-facing form populated it), so any string that's already an email
+// must end in @nwcustomapparel.com or it's discarded as unsafe.
+var INTERNAL_DOMAIN = '@nwcustomapparel.com';
+
 /**
- * Resolve a Sales_Rep value (or a User_Email fallback) to an email address.
- * Returns null if we can't resolve, so callers can skip cleanly and log.
+ * Resolve a Sales_Rep value (or a User_Email fallback) to an internal email.
+ * Returns null if we can't resolve OR if the input is an external email
+ * (e.g. a customer address). Callers treat null as "skip cleanly + log".
  *
  * Examples:
- *   resolveAEEmail('Taneisha')                  → 'taneisha@nwcustomapparel.com'
- *   resolveAEEmail('taneisha@nwcustomapparel.com') → same string (already email)
- *   resolveAEEmail('Unknown')                   → null
- *   resolveAEEmail('')                          → null
+ *   resolveAEEmail('Taneisha')                       → 'taneisha@nwcustomapparel.com'
+ *   resolveAEEmail('taneisha@nwcustomapparel.com')   → same string (already internal email)
+ *   resolveAEEmail('archterra@comcast.net')          → null  (customer leak — don't email)
+ *   resolveAEEmail('Unknown')                        → null
+ *   resolveAEEmail('')                               → null
  */
 function resolveAEEmail(value) {
     if (!value || typeof value !== 'string') return null;
     var trimmed = value.trim();
     if (!trimmed) return null;
-    if (trimmed.indexOf('@') !== -1) return trimmed.toLowerCase();
+    if (trimmed.indexOf('@') !== -1) {
+        var lower = trimmed.toLowerCase();
+        return lower.endsWith(INTERNAL_DOMAIN) ? lower : null;
+    }
     if (Object.prototype.hasOwnProperty.call(REP_EMAIL_MAP, trimmed)) {
         return REP_EMAIL_MAP[trimmed];
     }
