@@ -497,10 +497,18 @@ router.post('/caspio/daily-sales-by-rep/archive-date', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error archiving date:', error.message);
+    // Forward Caspio's structured error if present so schema/auth issues are
+    // diagnosable from the response, not just buried in console logs. Same
+    // pattern as the garment-tracker route fix on 2026-04-27.
+    const caspio = error.response?.data;
+    console.error('Error archiving date:',
+      caspio ? JSON.stringify(caspio) : error.message);
     res.status(500).json({
       error: 'Failed to archive date',
-      details: error.message
+      details: error.message,
+      caspioCode: caspio?.Code,
+      caspioMessage: caspio?.Message,
+      caspioRequestId: caspio?.RequestId
     });
   }
 });
@@ -621,6 +629,12 @@ router.post('/caspio/daily-sales-by-rep/archive-range', async (req, res) => {
       errors: []
     };
 
+    // 250ms between Caspio calls — backfills can issue dozens of upserts in a row;
+    // this keeps us well under any plausible Caspio rate limit while only adding a
+    // few seconds to a multi-day run. Same defensive shape we shipped for the
+    // garment-tracker sync on 2026-04-27.
+    const REP_DELAY_MS = 250;
+
     for (const date of dates) {
       const dayMap = dailyRepSales.get(date);
 
@@ -630,7 +644,9 @@ router.post('/caspio/daily-sales-by-rep/archive-range', async (req, res) => {
       }
 
       // Archive each rep for this day
-      for (const [repName, data] of dayMap) {
+      const repEntries = Array.from(dayMap.entries());
+      for (let i = 0; i < repEntries.length; i++) {
+        const [repName, data] = repEntries[i];
         try {
           const existing = await fetchAllCaspioPages(`/tables/${TABLE_NAME}/records`, {
             'q.where': `SalesDate='${date}' AND RepName='${repName}'`,
@@ -657,7 +673,20 @@ router.post('/caspio/daily-sales-by-rep/archive-range', async (req, res) => {
             results.totalCreated++;
           }
         } catch (err) {
-          results.errors.push({ date, rep: repName, error: err.message });
+          // Surface Caspio's structured error if we can — same pattern as archive-date.
+          const caspio = err.response?.data;
+          results.errors.push({
+            date,
+            rep: repName,
+            error: err.message,
+            caspioCode: caspio?.Code,
+            caspioMessage: caspio?.Message
+          });
+        }
+
+        // Pace remaining upserts within the day; final rep on the day skips delay
+        if (i < repEntries.length - 1) {
+          await new Promise(r => setTimeout(r, REP_DELAY_MS));
         }
       }
 
@@ -679,10 +708,15 @@ router.post('/caspio/daily-sales-by-rep/archive-range', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error archiving range:', error.message);
+    const caspio = error.response?.data;
+    console.error('Error archiving range:',
+      caspio ? JSON.stringify(caspio) : error.message);
     res.status(500).json({
       error: 'Failed to archive date range',
-      details: error.message
+      details: error.message,
+      caspioCode: caspio?.Code,
+      caspioMessage: caspio?.Message,
+      caspioRequestId: caspio?.RequestId
     });
   }
 });
