@@ -15,6 +15,8 @@
     "postman-list": "node scripts/postman-api-client.js list",
     "archive-daily-sales": "node scripts/archive-daily-sales.js",
     "reconcile-rep-baseline": "node scripts/reconcile-rep-baseline-from-csv.js",
+    "rebuild-rep-archive": "node scripts/rebuild-rep-archive-from-manageorders.js",
+    "rebuild-account-ytd": "node scripts/rebuild-account-ytd-from-manageorders.js",
     "archive-garment-tracker": "node scripts/archive-garment-tracker.js",
     "sync-garment-tracker": "node scripts/sync-garment-tracker.js",
     "sync-crm-dashboards": "node scripts/sync-crm-dashboards.js",
