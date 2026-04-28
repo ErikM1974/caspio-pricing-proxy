@@ -1160,6 +1160,12 @@ router.post('/supacolor-jobs/sync/all', async (req, res) => {
 
         // 3. Diff + batch upserts (sequential to keep Caspio write pressure low)
         let inserted = 0, patched = 0, noop = 0, errored = 0;
+        // Enrichment: the active-list stub doesn't carry trackingNumber — only
+        // /Jobs/{n} does. For shipped jobs missing tracking, we follow up with a
+        // detail fetch and patch tracking + carrier. Bounded per run to protect
+        // the 25s soft cap (a detail fetch + Caspio PUT is ~700ms each).
+        const MAX_ENRICHMENTS_PER_RUN = 20;
+        let enriched = 0, enrichmentSkipped = 0;
         const errors = [];
 
         let timedOut = false;
@@ -1179,15 +1185,17 @@ router.post('/supacolor-jobs/sync/all', async (req, res) => {
             }
 
             const existing = existingByJobNumber.get(jobPayload.Supacolor_Job_Number);
+            let currentRow = existing || null; // live Caspio row (existing OR freshly inserted)
             let jobUpsertedOrChanged = false;
             try {
                 if (!existing) {
-                    await writeWithRateLimitRetry(
+                    const newRow = await writeWithRateLimitRetry(
                         () => insertJob(token, jobPayload),
                         { label: `insert #${jobPayload.Supacolor_Job_Number}` }
                     );
                     inserted++;
                     jobUpsertedOrChanged = true;
+                    if (newRow && newRow.ID_Job) currentRow = newRow;
                     await sleep(SLEEP_BETWEEN_WRITES_MS);
                 } else {
                     // Patch: only write if a field is actually different (or empty in Caspio)
@@ -1235,6 +1243,59 @@ router.post('/supacolor-jobs/sync/all', async (req, res) => {
                 console.error(`[Supacolor sync/all] Job #${jobPayload.Supacolor_Job_Number} failed:`, msg);
             }
 
+            // D.1 — Enrich shipped jobs that are missing tracking. The active-list
+            // stub doesn't carry trackingNumber/trackingLink — only /Jobs/{n} does.
+            // Without this, newly-shipped jobs land as Closed but with empty
+            // Tracking_Number until someone opens the detail page and triggers
+            // sync/:jobNumber. Bound the per-run count + check the time cap so a
+            // big backlog doesn't blow the 25s budget.
+            const shippedSignal = hasShippedSignal(jobPayload) ||
+                (currentRow && currentRow.Status === 'Closed' && currentRow.Date_Shipped);
+            const trackingMissing = !currentRow ||
+                !currentRow.Tracking_Number ||
+                String(currentRow.Tracking_Number).trim() === '';
+            if (shippedSignal && trackingMissing) {
+                if (enriched >= MAX_ENRICHMENTS_PER_RUN) {
+                    enrichmentSkipped++;
+                } else if (Date.now() - started > TIME_CAP_MS - 3000) {
+                    enrichmentSkipped++;
+                } else {
+                    try {
+                        const detail = await supacolorApi.getJobDetail(jobPayload.Supacolor_Job_Number);
+                        const detailPayload = mapApiJobToCaspio(detail);
+                        const trackingPatch = {};
+                        ['Tracking_Number', 'Carrier', 'Shipping_Method'].forEach(k => {
+                            if (detailPayload && detailPayload[k]) trackingPatch[k] = detailPayload[k];
+                        });
+                        if (Object.keys(trackingPatch).length > 0) {
+                            let targetIdJob = currentRow && currentRow.ID_Job;
+                            if (!targetIdJob) {
+                                const fresh = await fetchJobByNumber(token, jobPayload.Supacolor_Job_Number);
+                                targetIdJob = fresh && fresh.ID_Job;
+                            }
+                            if (targetIdJob) {
+                                await writeWithRateLimitRetry(
+                                    () => updateJob(token, targetIdJob, trackingPatch),
+                                    { label: `enrich-tracking #${jobPayload.Supacolor_Job_Number}` }
+                                );
+                                enriched++;
+                                jobUpsertedOrChanged = true;
+                                // Merge tracking into the stub payload so the transfer
+                                // mirror below sees it on this same loop iteration.
+                                Object.assign(jobPayload, trackingPatch);
+                                await sleep(SLEEP_BETWEEN_WRITES_MS);
+                            } else {
+                                enrichmentSkipped++;
+                            }
+                        }
+                    } catch (enrichErr) {
+                        const eMsg = enrichErr.response ? JSON.stringify(enrichErr.response.data) : enrichErr.message;
+                        console.warn(`[Supacolor sync/all] enrichment for #${jobPayload.Supacolor_Job_Number}:`, eMsg);
+                        enrichmentSkipped++;
+                    }
+                }
+            }
+
             // D.2 — After a successful upsert/patch, mirror the shipped signal to any
             // linked Transfer_Orders. Non-blocking — cron tolerance matters more than
             // immediate consistency here.
@@ -1267,7 +1328,7 @@ router.post('/supacolor-jobs/sync/all', async (req, res) => {
         }
 
         const durationMs = Date.now() - started;
-        console.log(`[Supacolor sync/all] Done in ${durationMs}ms — ${inserted} inserted, ${patched} patched, ${noop} noop, ${errored} errored`);
+        console.log(`[Supacolor sync/all] Done in ${durationMs}ms — ${inserted} inserted, ${patched} patched, ${noop} noop, ${errored} errored, ${enriched} enriched (${enrichmentSkipped} enrichment-skipped)`);
         res.json({
             success: true,
             fetched: stubs.length,
@@ -1276,6 +1337,8 @@ router.post('/supacolor-jobs/sync/all', async (req, res) => {
             patched,
             noop,
             errored,
+            enriched,
+            enrichmentSkipped,
             durationMs,
             timedOut,
             errors,
