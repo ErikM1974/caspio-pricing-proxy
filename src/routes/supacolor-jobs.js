@@ -859,6 +859,34 @@ function inferCarrierFromTrackingLink(trackingLink) {
 }
 
 /**
+ * Tracking is NOT on the top-level apiJob.trackingNumber for most jobs — it
+ * lives on the SHIPPING line item (assetSku='SHIPPING'). The line's comments
+ * or garment field holds the raw tracking number, and the description holds a
+ * carrier hint like "Shipment 1 fedex". Used as a fallback when the top-level
+ * trackingNumber/trackingLink are empty.
+ */
+function extractFromShippingLine(apiJob) {
+    const lines = Array.isArray(apiJob && apiJob.lines) ? apiJob.lines : [];
+    for (const l of lines) {
+        const sku = String(l.assetSku || '').toUpperCase();
+        if (sku !== 'SHIPPING') continue;
+        const candidates = [l.comments, l.garment, l.trackingNumber]
+            .map(x => (x == null ? '' : String(x).trim()))
+            .filter(Boolean);
+        const tracking = candidates.length ? candidates[0] : null;
+        const desc = String(l.description || '').toLowerCase();
+        let carrier = null;
+        if (desc.indexOf('fedex') !== -1) carrier = 'FedEx';
+        else if (desc.indexOf('ups') !== -1) carrier = 'UPS';
+        else if (desc.indexOf('usps') !== -1) carrier = 'USPS';
+        else if (desc.indexOf('dhl') !== -1) carrier = 'DHL';
+        else if (desc.indexOf('ontrac') !== -1) carrier = 'OnTrac';
+        return { tracking, carrier, shippingDescription: l.description || null };
+    }
+    return { tracking: null, carrier: null, shippingDescription: null };
+}
+
+/**
  * Concat shippingAddresses[0] object into a single newline-separated string.
  * API shape per 09-managing-jobs.md: {name, company, address1, address2, city, state, postalCode, country, phone, email}
  */
@@ -919,6 +947,10 @@ function mapApiJobToCaspio(apiJob) {
     const taxTotal = Number(apiJob.taxTotal) || 0;
     const total = subtotal + taxTotal;
     const shipAddr = Array.isArray(apiJob.shippingAddresses) && apiJob.shippingAddresses[0];
+    // Tracking + carrier fallback: on most Supacolor jobs the top-level
+    // trackingNumber/trackingLink are empty — the real tracking lives on the
+    // SHIPPING line item. Look there if the top-level fields don't have it.
+    const fromShipLine = extractFromShippingLine(apiJob);
 
     const payload = {
         Supacolor_Job_Number: apiJob.jobNumber != null ? String(apiJob.jobNumber) : null,
@@ -930,9 +962,9 @@ function mapApiJobToCaspio(apiJob) {
         Date_Shipped: apiJob.dateOut || null,
         Created_By_Name: apiJob.creator || null,
         Location: (apiJob.location && apiJob.location.name) || null,
-        Shipping_Method: apiJob.deliveryMethod || null,
-        Tracking_Number: apiJob.trackingNumber || null,
-        Carrier: inferCarrierFromTrackingLink(apiJob.trackingLink),
+        Shipping_Method: apiJob.deliveryMethod || fromShipLine.shippingDescription || null,
+        Tracking_Number: apiJob.trackingNumber || fromShipLine.tracking || null,
+        Carrier: inferCarrierFromTrackingLink(apiJob.trackingLink) || fromShipLine.carrier,
         Ship_To_Name: apiJob.contactName || null,
         Ship_To_Company: apiJob.organisation || null,
         Ship_To_Phone: apiJob.phone || null,
