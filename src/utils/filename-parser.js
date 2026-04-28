@@ -135,6 +135,38 @@ function parseFilename(name) {
         };
     }
 
+    // Loose mockup detection (v2026.04.28 round 2): catches the looser
+    // convention Steve uses in practice — digit-suffixed variants like
+    // "mock2", short forms ("MU"), and "proof" exports. Strict path above
+    // still wins for well-formed names so structured fields (placement,
+    // dimensions) get filled. This branch only fires when strict failed AND
+    // the filename gives us reasonable mockup signal — better than defaulting
+    // to "working" and forcing Steve to manual-toggle every upload.
+    //
+    // Match either:
+    //   - "mock" followed by any word chars (mock2, mockup, mocks, MockFinal)
+    //   - bare "MU" (Mockup Up shorthand)
+    //   - "proof" anywhere
+    const looseMockMatch = rest.match(/\bmock\w*\b|\bMU\b|\bproof\b/i);
+    if (looseMockMatch) {
+        const mockIdx = rest.search(/\bmock\w*\b|\bMU\b|\bproof\b/i);
+        const customer = rest.slice(0, mockIdx).trim();
+        if (customer) {
+            return {
+                ok: true,
+                type: 'mockup',
+                designNumber,
+                customer,
+                placementCode: null,
+                placementLabel: null,
+                filenameWidth: null,
+                filenameHeight: null,
+                originalName,
+                _looseMatch: true // flag so callers can tell strict vs loose
+            };
+        }
+    }
+
     return {
         ok: false,
         reason: 'not a transfer or mockup (missing Transfer/Mock suffix)',

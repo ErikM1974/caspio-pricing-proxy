@@ -692,6 +692,28 @@ const server = app.listen(PORT, async () => {
         console.error('Please check your environment variables.\n');
     }
 
+    // Smoke check: Transfer_Order_Files child table reachability.
+    // The transfer-orders route silently falls back to legacy-column synthesis
+    // if this table is missing/dropped/permissioned-out, which masks a real
+    // operational issue. Log a clear OK or WARN so Heroku log readers notice.
+    try {
+        const axios = require('axios');
+        const token = await getCaspioAccessToken();
+        const url = `${config.caspio.apiBaseUrl}/tables/Transfer_Order_Files/records?q.pageSize=1`;
+        const resp = await axios.get(url, {
+            headers: { 'Authorization': `Bearer ${token}` },
+            timeout: 10000,
+            validateStatus: () => true
+        });
+        if (resp.status === 200) {
+            console.log('✅ [transfer-files] OK — Transfer_Order_Files reachable\n');
+        } else {
+            console.warn(`⚠️  [transfer-files] WARN — Transfer_Order_Files returned HTTP ${resp.status}. Falling back to legacy-column synthesis. Verify the table exists in Caspio.\n`);
+        }
+    } catch (error) {
+        console.warn('⚠️  [transfer-files] WARN — Transfer_Order_Files smoke check failed:', error.message, '\n   Falling back to legacy-column synthesis until the table is reachable.\n');
+    }
+
     // Schedule: daily broken-mockups digest email to Steve at 8 AM Pacific.
     // Runs in-dyno. Skipped when not in production or when EmailJS config
     // is missing (so local dev doesn't try to send real email).

@@ -302,12 +302,84 @@ async function deleteFiles(token, idTransfer) {
 }
 
 /**
+ * Resolve a Box shared link URL to the proxy thumbnail URL we can render
+ * directly as <img src=>. Returns null on miss/error so callers can fall
+ * back to a placeholder icon — never throws.
+ *
+ * Mockup thumbnails on legacy rows live as `box.com/s/{token}` shared
+ * URLs, which return Box's HTML viewer (not an image). Resolving the
+ * shared link to a fileId lets us point at /api/box/thumbnail/{id}
+ * instead, which returns image bytes.
+ *
+ * @param {string} sharedUrl — Box shared link (e.g. https://*.box.com/s/abc)
+ * @param {string|null} proxyBase — origin of this proxy server (e.g.
+ *   "https://caspio-pricing-proxy.herokuapp.com"). When null, we skip
+ *   resolution entirely (no point — caller can't render the proxy URL).
+ * @param {Map<string,string|null>} cache — shared resolution cache for
+ *   this request. Keyed by sharedUrl, value is the proxy URL or null.
+ *   Avoids resolving the same URL twice when the list endpoint
+ *   synthesizes 100 records.
+ * @returns {Promise<string|null>}
+ */
+async function resolveBoxThumbnail(sharedUrl, proxyBase, cache) {
+    if (!sharedUrl || !proxyBase) return null;
+    if (cache && cache.has(sharedUrl)) return cache.get(sharedUrl);
+
+    try {
+        const parsed = parseBoxFileUrl(sharedUrl);
+        if (!parsed) {
+            // Not a Box URL — caller probably already had a direct image. Skip.
+            if (cache) cache.set(sharedUrl, null);
+            return null;
+        }
+
+        let fileId = parsed.fileId || null;
+        if (!fileId && (parsed.kind === 'shared' || parsed.kind === 'static')) {
+            const cleanUrl = parsed.sharedUrl || sharedUrl.split('?')[0];
+            const resolved = await boxResolveSharedLink(cleanUrl);
+            if (resolved && resolved.type === 'file' && resolved.id) {
+                fileId = String(resolved.id);
+            }
+        }
+
+        if (!fileId) {
+            if (cache) cache.set(sharedUrl, null);
+            return null;
+        }
+
+        const proxyUrl = `${proxyBase.replace(/\/$/, '')}/api/box/thumbnail/${encodeURIComponent(fileId)}`;
+        if (cache) cache.set(sharedUrl, proxyUrl);
+        return proxyUrl;
+    } catch (err) {
+        // Box API down, rate-limited, link expired — log once and move on
+        // so the GET response doesn't fail because a thumbnail can't render.
+        console.warn(`[transfer-files] thumbnail resolve failed for ${sharedUrl.slice(0, 60)}...:`, err.message);
+        if (cache) cache.set(sharedUrl, null);
+        return null;
+    }
+}
+
+/**
  * Synthesize a files[] array from the legacy flat columns on a Transfer_Orders
  * record. Used when the row was created before Transfer_Order_Files existed
  * (no child rows). Mirrors the auto-line-wrap fallback for legacy single-line transfers.
+ *
+ * @param {object} record — Transfer_Orders row
+ * @param {object} [opts]
+ * @param {string|null} [opts.proxyBase] — origin of this proxy server, used
+ *   to resolve Box shared links → /api/box/thumbnail/{id} for the mockup row.
+ *   When null, mockup keeps the raw shared URL (caller falls back to
+ *   placeholder icon when img fails to render).
+ * @param {Map} [opts.cache] — per-request resolution cache, shared across
+ *   multiple synthesizeFilesFromLegacy calls in the list-endpoint loop.
+ * @returns {Promise<Array>} files[] — async because thumbnail resolution
+ *   hits Box. Callers MUST await.
  */
-function synthesizeFilesFromLegacy(record) {
+async function synthesizeFilesFromLegacy(record, opts) {
     if (!record) return [];
+    opts = opts || {};
+    const proxyBase = opts.proxyBase || null;
+    const cache = opts.cache || null;
     const synthesized = [];
     let order = 1;
     if (record.Working_File_URL) {
@@ -318,7 +390,7 @@ function synthesizeFilesFromLegacy(record) {
             File_Name: record.Working_File_Name || null,
             File_MIME: record.Working_File_Type || null,
             Box_File_ID: record.Box_File_ID || null,
-            Thumbnail_URL: null,
+            Thumbnail_URL: await resolveBoxThumbnail(record.Working_File_URL, proxyBase, cache),
             _synthesized: true
         });
     }
@@ -331,7 +403,7 @@ function synthesizeFilesFromLegacy(record) {
             File_Name: record.Additional_File_1_Name || null,
             File_MIME: null,
             Box_File_ID: null,
-            Thumbnail_URL: null,
+            Thumbnail_URL: await resolveBoxThumbnail(record.Additional_File_1_URL, proxyBase, cache),
             _synthesized: true
         });
     }
@@ -343,7 +415,7 @@ function synthesizeFilesFromLegacy(record) {
             File_Name: record.Additional_File_2_Name || null,
             File_MIME: null,
             Box_File_ID: null,
-            Thumbnail_URL: null,
+            Thumbnail_URL: await resolveBoxThumbnail(record.Additional_File_2_URL, proxyBase, cache),
             _synthesized: true
         });
     }
@@ -657,7 +729,13 @@ router.get('/transfer-orders', async (req, res) => {
                 console.warn('Line count attach failed (records returned without counts):', err.message);
             }
 
-            // Files: count + first mockup's Thumbnail_URL
+            // Files: count + first mockup's Thumbnail_URL.
+            // proxyBase + shared resolveCache allow synthesizeFilesFromLegacy to
+            // turn legacy `box.com/s/{token}` mockup URLs into renderable
+            // /api/box/thumbnail/{fileId} proxy URLs. Cache is per-request so
+            // duplicate URLs across rows get resolved once.
+            const proxyBase = `${req.protocol}://${req.get('host')}`;
+            const resolveCache = new Map();
             try {
                 const filesRes = `/tables/${FILES_TABLE}/records`;
                 const filesParams = {
@@ -675,10 +753,12 @@ router.get('/transfer-orders', async (req, res) => {
                         mockupThumbs[f.Transfer_ID] = f.Thumbnail_URL || f.File_URL || null;
                     }
                 });
-                records.forEach(r => {
-                    // Synthesis fallback: if no child rows exist, derive from legacy flat columns.
+                // Synthesis pass for legacy rows (no child rows). Run all in
+                // parallel — the per-request cache dedupes overlapping URLs and
+                // each Box call is independent.
+                await Promise.all(records.map(async r => {
                     if ((fileCounts[r.ID_Transfer] || 0) === 0) {
-                        const synth = synthesizeFilesFromLegacy(r);
+                        const synth = await synthesizeFilesFromLegacy(r, { proxyBase, cache: resolveCache });
                         r.file_count = synth.length;
                         const m = synth.find(s => s.File_Type === 'mockup');
                         r.mockup_thumbnail_url = m ? (m.Thumbnail_URL || m.File_URL) : null;
@@ -686,16 +766,16 @@ router.get('/transfer-orders', async (req, res) => {
                         r.file_count = fileCounts[r.ID_Transfer];
                         r.mockup_thumbnail_url = mockupThumbs[r.ID_Transfer] || null;
                     }
-                });
+                }));
             } catch (err) {
                 console.warn('File count attach failed (records returned without file metadata):', err.message);
                 // Synthesis fallback if the FILES_TABLE call failed entirely.
-                records.forEach(r => {
-                    const synth = synthesizeFilesFromLegacy(r);
+                await Promise.all(records.map(async r => {
+                    const synth = await synthesizeFilesFromLegacy(r, { proxyBase, cache: resolveCache });
                     r.file_count = synth.length;
                     const m = synth.find(s => s.File_Type === 'mockup');
                     r.mockup_thumbnail_url = m ? (m.Thumbnail_URL || m.File_URL) : null;
-                });
+                }));
             }
         }
 
@@ -770,9 +850,12 @@ router.get('/transfer-orders/:id', async (req, res) => {
 
         // If no child file rows exist, synthesize from legacy flat columns so
         // the detail page renders uniformly across pre/post-migration records.
+        // Pass proxyBase so legacy mockup URLs resolve to /api/box/thumbnail/{id}
+        // proxy URLs that actually render as images.
+        const proxyBase = `${req.protocol}://${req.get('host')}`;
         const files = filesFromTable.length > 0
             ? filesFromTable
-            : synthesizeFilesFromLegacy(record);
+            : await synthesizeFilesFromLegacy(record, { proxyBase, cache: new Map() });
 
         res.json({
             success: true,
@@ -1449,5 +1532,11 @@ router.post('/transfer-order-notes', async (req, res) => {
         res.status(500).json({ success: false, error: 'Failed to add note: ' + error.message });
     }
 });
+
+// Attach pure helpers to the router for unit-test consumption (matches the
+// pattern used by vision.js for extractMockupInfo). Tests can import these
+// without spinning up the full Express stack.
+router.synthesizeFilesFromLegacy = synthesizeFilesFromLegacy;
+router.resolveBoxThumbnail = resolveBoxThumbnail;
 
 module.exports = router;
