@@ -449,12 +449,7 @@ const designsRoutes = require('./src/routes/designs');
 app.use('/api', designsRoutes);
 console.log('✓ Designs routes loaded');
 
-// Daily Sales Archive Routes
-const dailySalesRoutes = require('./src/routes/daily-sales');
-app.use('/api', dailySalesRoutes);
-console.log('✓ Daily Sales routes loaded');
-
-// Daily Sales By Rep Archive Routes
+// Daily Sales By Rep Archive Routes (master truth for YTD displays)
 const dailySalesByRepRoutes = require('./src/routes/daily-sales-by-rep');
 app.use('/api', dailySalesByRepRoutes);
 console.log('✓ Daily Sales By Rep routes loaded');
