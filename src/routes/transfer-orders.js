@@ -6,14 +6,18 @@
 //
 // Endpoints:
 //   GET    /api/transfer-orders            — List (with filters + pagination)
+//                                          | ?includeLineCount=true → attaches line_count + file_count + mockup_thumbnail_url
 //   GET    /api/transfer-orders/stats      — Count per status (for dashboard chips)
-//   GET    /api/transfer-orders/:id        — Get one (by ID_Transfer) + child notes
+//   GET    /api/transfer-orders/:id        — Get one (by ID_Transfer) + child notes + lines + files
 //   POST   /api/transfer-orders            — Create (generates ID_Transfer, writes initial note)
+//                                          | accepts lines:[] + files:[] arrays at root
 //   PUT    /api/transfer-orders/:id        — Update general fields (rejects Status)
 //   PUT    /api/transfer-orders/:id/status — Status transition (writes note + stamps)
 //   PUT    /api/transfer-orders/:id/rush   — Toggle rush flag (writes note)
+//   PUT    /api/transfer-orders/:id/lines  — Replace all child lines (full replace)
+//   PUT    /api/transfer-orders/:id/files  — Replace all child files (full replace)
 //   DELETE /api/transfer-orders/:id        — Soft delete (sets Status='Cancelled')
-//                                            | ?hard=true + Status ∈ (Requested, On_Hold) → physically removes row + cascades notes
+//                                            | ?hard=true + Status ∈ (Requested, On_Hold) → physically removes row + cascades notes/lines/files
 //   GET    /api/transfer-orders/:id/notes  — Get notes for a transfer
 //   POST   /api/transfer-order-notes       — Add a comment/note
 //   POST   /api/transfer-orders/analyze-link — Crack a Box URL → filename parse +
@@ -45,12 +49,23 @@ const caspioApiBaseUrl = config.caspio.apiBaseUrl;
 const TABLE = 'Transfer_Orders';
 const NOTES_TABLE = 'Transfer_Order_Notes';
 const LINES_TABLE = 'Transfer_Order_Lines';
+const FILES_TABLE = 'Transfer_Order_Files';
 
 // Fields that are valid on a Transfer_Order_Lines row (strip unknown keys defensively)
 const LINE_FIELDS = [
     'Transfer_ID', 'Line_Order', 'Quantity', 'Transfer_Size',
     'Press_Count', 'Transfer_Width_In', 'Transfer_Height_In', 'File_Notes'
 ];
+
+// Fields that are valid on a Transfer_Order_Files row.
+// Multi-file flow (v2026.04.28): Steve sends N working files + 1 mockup as
+// child rows instead of the legacy 3 flat columns on Transfer_Orders.
+const FILE_FIELDS = [
+    'Transfer_ID', 'File_Order', 'File_Type', 'File_URL', 'File_Name',
+    'File_MIME', 'Box_File_ID', 'Thumbnail_URL',
+    'Width_Px', 'Height_Px', 'Width_In', 'Height_In', 'File_Notes'
+];
+const VALID_FILE_TYPES = ['working', 'mockup', 'reference'];
 
 // Valid Status values (state machine)
 // Happy path: Requested → Ordered → PO_Created → Shipped → Received
@@ -196,6 +211,143 @@ async function deleteLines(token, idTransfer) {
         headers: { 'Authorization': `Bearer ${token}` },
         timeout: 15000
     });
+}
+
+/**
+ * Normalize and insert one or more Transfer_Order_Files rows for a parent.
+ * Returns the count of rows successfully inserted. Throws on first failure.
+ *
+ * Multi-file flow: Steve sends N working files + 1 mockup as separate rows.
+ * Single-mockup constraint is enforced at the route level (see POST handler).
+ */
+async function insertFiles(token, idTransfer, files) {
+    if (!Array.isArray(files) || files.length === 0) return 0;
+    const url = `${caspioApiBaseUrl}/tables/${FILES_TABLE}/records`;
+    let inserted = 0;
+    for (let i = 0; i < files.length; i++) {
+        const src = files[i] || {};
+        const row = { Transfer_ID: idTransfer, File_Order: i + 1 };
+        FILE_FIELDS.forEach(f => {
+            if (f === 'Transfer_ID' || f === 'File_Order') return;
+            if (src[f] === undefined || src[f] === null || src[f] === '') return;
+            if (f === 'Width_Px' || f === 'Height_Px') {
+                const n = parseInt(src[f], 10);
+                if (!Number.isNaN(n)) row[f] = n;
+            } else if (f === 'Width_In' || f === 'Height_In') {
+                const n = parseFloat(src[f]);
+                if (!Number.isNaN(n)) row[f] = n;
+            } else {
+                row[f] = src[f];
+            }
+        });
+        // Default File_Type if missing — most rows are working files.
+        if (!row.File_Type) row.File_Type = 'working';
+        if (!VALID_FILE_TYPES.includes(row.File_Type)) {
+            throw new Error(`Invalid File_Type '${row.File_Type}' on file ${i + 1}. Must be one of: ${VALID_FILE_TYPES.join(', ')}`);
+        }
+        await axios.post(url, row, {
+            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            timeout: 15000
+        });
+        inserted++;
+    }
+    return inserted;
+}
+
+/**
+ * Fetch all child files for a transfer, ordered by File_Order ASC.
+ * Tolerates the FILES_TABLE not existing yet (returns []) so the route
+ * still works during the rollout window before Erik creates the table.
+ */
+async function fetchFiles(token, idTransfer) {
+    const safeId = escapeSQL(idTransfer);
+    const url = `${caspioApiBaseUrl}/tables/${FILES_TABLE}/records?q.where=Transfer_ID='${safeId}'&q.orderBy=File_Order ASC`;
+    try {
+        const resp = await axios.get(url, {
+            headers: { 'Authorization': `Bearer ${token}` },
+            timeout: 15000
+        });
+        return resp.data.Result || [];
+    } catch (err) {
+        // 404 or 400 → table likely doesn't exist yet. Log once, return empty
+        // so the synthesis fallback can take over from legacy flat columns.
+        const status = err.response && err.response.status;
+        if (status === 404 || status === 400) {
+            console.warn(`[transfer-files] ${FILES_TABLE} unavailable (HTTP ${status}) — falling back to legacy columns`);
+            return [];
+        }
+        throw err;
+    }
+}
+
+/**
+ * Delete all child files for a transfer. Used by replace PUT and hard-delete cascade.
+ */
+async function deleteFiles(token, idTransfer) {
+    const safeId = escapeSQL(idTransfer);
+    const url = `${caspioApiBaseUrl}/tables/${FILES_TABLE}/records?q.where=Transfer_ID='${safeId}'`;
+    try {
+        await axios.delete(url, {
+            headers: { 'Authorization': `Bearer ${token}` },
+            timeout: 15000
+        });
+    } catch (err) {
+        const status = err.response && err.response.status;
+        if (status === 404 || status === 400) {
+            // Table doesn't exist or no rows — both fine for delete.
+            return;
+        }
+        throw err;
+    }
+}
+
+/**
+ * Synthesize a files[] array from the legacy flat columns on a Transfer_Orders
+ * record. Used when the row was created before Transfer_Order_Files existed
+ * (no child rows). Mirrors the auto-line-wrap fallback for legacy single-line transfers.
+ */
+function synthesizeFilesFromLegacy(record) {
+    if (!record) return [];
+    const synthesized = [];
+    let order = 1;
+    if (record.Working_File_URL) {
+        synthesized.push({
+            File_Order: order++,
+            File_Type: 'working',
+            File_URL: record.Working_File_URL,
+            File_Name: record.Working_File_Name || null,
+            File_MIME: record.Working_File_Type || null,
+            Box_File_ID: record.Box_File_ID || null,
+            Thumbnail_URL: null,
+            _synthesized: true
+        });
+    }
+    if (record.Additional_File_1_URL) {
+        synthesized.push({
+            File_Order: order++,
+            // Legacy slot 1 was reserved for the mockup per the original v3 design.
+            File_Type: 'mockup',
+            File_URL: record.Additional_File_1_URL,
+            File_Name: record.Additional_File_1_Name || null,
+            File_MIME: null,
+            Box_File_ID: null,
+            Thumbnail_URL: null,
+            _synthesized: true
+        });
+    }
+    if (record.Additional_File_2_URL) {
+        synthesized.push({
+            File_Order: order++,
+            File_Type: 'reference',
+            File_URL: record.Additional_File_2_URL,
+            File_Name: record.Additional_File_2_Name || null,
+            File_MIME: null,
+            Box_File_ID: null,
+            Thumbnail_URL: null,
+            _synthesized: true
+        });
+    }
+    return synthesized;
 }
 
 // ── Analyze Link (paste-links v3 modal) ───────────────────────────────
@@ -479,12 +631,16 @@ router.get('/transfer-orders', async (req, res) => {
 
         const records = await fetchAllCaspioPages(resource, params);
 
-        // Optionally attach line_count per row (Bradley's queue wants "3 transfers" pills).
-        // One batched fetch against Transfer_Order_Lines, aggregate in memory.
+        // Optionally attach line_count + file_count + mockup_thumbnail_url per row
+        // (Bradley's queue wants "3 transfers"/"5 files" pills + a mockup hero).
+        // One batched fetch each against Transfer_Order_Lines and Transfer_Order_Files,
+        // aggregate in memory.
         if ((req.query.includeLineCount === 'true' || req.query.includeLineCount === '1') && records.length > 0) {
+            const ids = records.map(r => r.ID_Transfer).filter(Boolean);
+            const inClause = ids.map(i => `'${escapeSQL(i)}'`).join(',');
+
+            // Lines
             try {
-                const ids = records.map(r => r.ID_Transfer).filter(Boolean);
-                const inClause = ids.map(i => `'${escapeSQL(i)}'`).join(',');
                 const linesRes = `/tables/${LINES_TABLE}/records`;
                 const linesParams = {
                     'q.select': 'Transfer_ID',
@@ -498,8 +654,48 @@ router.get('/transfer-orders', async (req, res) => {
                 });
                 records.forEach(r => { r.line_count = counts[r.ID_Transfer] || 0; });
             } catch (err) {
-                // Non-fatal — log and return records without counts.
                 console.warn('Line count attach failed (records returned without counts):', err.message);
+            }
+
+            // Files: count + first mockup's Thumbnail_URL
+            try {
+                const filesRes = `/tables/${FILES_TABLE}/records`;
+                const filesParams = {
+                    'q.select': 'Transfer_ID,File_Type,File_Order,Thumbnail_URL,File_URL',
+                    'q.where': `Transfer_ID IN (${inClause})`,
+                    'q.orderBy': 'File_Order ASC',
+                    'q.pageSize': 1000
+                };
+                const fileRows = await fetchAllCaspioPages(filesRes, filesParams);
+                const fileCounts = {};
+                const mockupThumbs = {};
+                fileRows.forEach(f => {
+                    fileCounts[f.Transfer_ID] = (fileCounts[f.Transfer_ID] || 0) + 1;
+                    if (f.File_Type === 'mockup' && !mockupThumbs[f.Transfer_ID]) {
+                        mockupThumbs[f.Transfer_ID] = f.Thumbnail_URL || f.File_URL || null;
+                    }
+                });
+                records.forEach(r => {
+                    // Synthesis fallback: if no child rows exist, derive from legacy flat columns.
+                    if ((fileCounts[r.ID_Transfer] || 0) === 0) {
+                        const synth = synthesizeFilesFromLegacy(r);
+                        r.file_count = synth.length;
+                        const m = synth.find(s => s.File_Type === 'mockup');
+                        r.mockup_thumbnail_url = m ? (m.Thumbnail_URL || m.File_URL) : null;
+                    } else {
+                        r.file_count = fileCounts[r.ID_Transfer];
+                        r.mockup_thumbnail_url = mockupThumbs[r.ID_Transfer] || null;
+                    }
+                });
+            } catch (err) {
+                console.warn('File count attach failed (records returned without file metadata):', err.message);
+                // Synthesis fallback if the FILES_TABLE call failed entirely.
+                records.forEach(r => {
+                    const synth = synthesizeFilesFromLegacy(r);
+                    r.file_count = synth.length;
+                    const m = synth.find(s => s.File_Type === 'mockup');
+                    r.mockup_thumbnail_url = m ? (m.Thumbnail_URL || m.File_URL) : null;
+                });
             }
         }
 
@@ -561,21 +757,29 @@ router.get('/transfer-orders/:id', async (req, res) => {
 
         const safeId = escapeSQL(id);
 
-        // Fetch child notes + lines in parallel
+        // Fetch child notes + lines + files in parallel
         const notesUrl = `${caspioApiBaseUrl}/tables/${NOTES_TABLE}/records?q.where=Transfer_ID='${safeId}'&q.orderBy=Created_At ASC`;
-        const [notesResp, lines] = await Promise.all([
+        const [notesResp, lines, filesFromTable] = await Promise.all([
             axios.get(notesUrl, {
                 headers: { 'Authorization': `Bearer ${token}` },
                 timeout: 15000
             }),
-            fetchLines(token, id)
+            fetchLines(token, id),
+            fetchFiles(token, id)
         ]);
+
+        // If no child file rows exist, synthesize from legacy flat columns so
+        // the detail page renders uniformly across pre/post-migration records.
+        const files = filesFromTable.length > 0
+            ? filesFromTable
+            : synthesizeFilesFromLegacy(record);
 
         res.json({
             success: true,
             record,
             notes: notesResp.data.Result || [],
-            lines
+            lines,
+            files
         });
 
     } catch (error) {
@@ -624,6 +828,19 @@ router.post('/transfer-orders', async (req, res) => {
                 Transfer_Height_In: data.Transfer_Height_In,
                 File_Notes: data.File_Notes
             }];
+        }
+
+        // Extract child files (multi-file flow). Not a column on Transfer_Orders.
+        let files = Array.isArray(data.files) ? data.files : [];
+        delete data.files;
+
+        // Single-mockup guard: at most one row may be File_Type='mockup'.
+        const mockupCount = files.filter(f => f && f.File_Type === 'mockup').length;
+        if (mockupCount > 1) {
+            return res.status(400).json({
+                success: false,
+                error: `Only one mockup file is allowed per transfer (got ${mockupCount}). Mark the others as 'working' or 'reference'.`
+            });
         }
 
         // Validate minimally
@@ -694,24 +911,56 @@ router.post('/transfer-orders', async (req, res) => {
             });
         }
 
-        // Fetch the created record back (so we have Requested_At populated) + child lines
+        // Insert child files (multi-file flow). Same compensating-delete pattern as lines.
+        let filesInserted = 0;
+        try {
+            filesInserted = await insertFiles(token, idTransfer, files);
+        } catch (fileErr) {
+            console.error(`File insert failed for ${idTransfer} after ${filesInserted}/${files.length} rows:`, fileErr.message);
+            try {
+                await deleteFiles(token, idTransfer);
+                await deleteLines(token, idTransfer);
+                const safeId = escapeSQL(idTransfer);
+                await axios.delete(`${caspioApiBaseUrl}/tables/${TABLE}/records?q.where=ID_Transfer='${safeId}'`, {
+                    headers: { 'Authorization': `Bearer ${token}` },
+                    timeout: 15000
+                });
+            } catch (rollbackErr) {
+                console.error(`Rollback failed for ${idTransfer} — orphan record may remain:`, rollbackErr.message);
+            }
+            return res.status(500).json({
+                success: false,
+                error: 'Failed to insert transfer files: ' + fileErr.message,
+                files_inserted: filesInserted,
+                files_attempted: files.length
+            });
+        }
+
+        // Fetch the created record back (so we have Requested_At populated) + child rows
         const created = await fetchTransfer(token, idTransfer);
         const createdLines = await fetchLines(token, idTransfer);
+        const createdFiles = await fetchFiles(token, idTransfer);
 
         // Write initial status_change note
         const noteLineSummary = lines.length > 1 ? ` (${lines.length} transfer lines)` : '';
+        const noteFileSummary = files.length > 0 ? ` [${files.length} file${files.length === 1 ? '' : 's'} attached]` : '';
         const noteReorderTag = data.Is_Reorder ? ` [REORDER #${data.Supacolor_Order_Number}]` : '';
         await writeNote(token, {
             Transfer_ID: idTransfer,
             Note_Type: 'status_change',
-            Note_Text: `Transfer request created${noteReorderTag}${noteLineSummary}. Status: ${data.Status}.${data.File_Notes ? ' Notes: ' + data.File_Notes : ''}`,
+            Note_Text: `Transfer request created${noteReorderTag}${noteLineSummary}${noteFileSummary}. Status: ${data.Status}.${data.File_Notes ? ' Notes: ' + data.File_Notes : ''}`,
             Author_Email: data.Requested_By,
             Author_Name: requestedByName || data.Requested_By
         });
 
-        console.log(`Transfer created: ${idTransfer} (${data.Company_Name || 'n/a'}, design ${data.Design_Number || 'n/a'}, ${lines.length} lines, by ${data.Requested_By})${data.Is_Reorder ? ' [REORDER]' : ''}`);
+        console.log(`Transfer created: ${idTransfer} (${data.Company_Name || 'n/a'}, design ${data.Design_Number || 'n/a'}, ${lines.length} lines, ${files.length} files, by ${data.Requested_By})${data.Is_Reorder ? ' [REORDER]' : ''}`);
 
-        res.status(201).json({ success: true, record: created || { ID_Transfer: idTransfer, ...data }, lines: createdLines });
+        res.status(201).json({
+            success: true,
+            record: created || { ID_Transfer: idTransfer, ...data },
+            lines: createdLines,
+            files: createdFiles
+        });
 
     } catch (error) {
         console.error('Error creating transfer order:', error.response ? JSON.stringify(error.response.data) : error.message);
@@ -979,6 +1228,71 @@ router.put('/transfer-orders/:id/lines', async (req, res) => {
 });
 
 /**
+ * PUT /api/transfer-orders/:id/files
+ *
+ * Replace all child Transfer_Order_Files for this transfer. Full replace
+ * (delete all, insert new). Mirrors the /lines endpoint.
+ *
+ * Body: { files: [{File_Type, File_URL, File_Name, ...}], author, authorName? }
+ */
+router.put('/transfer-orders/:id/files', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { files, author, authorName } = req.body;
+
+        if (!Array.isArray(files)) {
+            return res.status(400).json({ success: false, error: 'Missing files array' });
+        }
+        if (!author) {
+            return res.status(400).json({ success: false, error: 'Missing author' });
+        }
+
+        // Single-mockup guard
+        const mockupCount = files.filter(f => f && f.File_Type === 'mockup').length;
+        if (mockupCount > 1) {
+            return res.status(400).json({
+                success: false,
+                error: `Only one mockup file is allowed per transfer (got ${mockupCount}).`
+            });
+        }
+
+        const token = await getCaspioAccessToken();
+        const current = await fetchTransfer(token, id);
+        if (!current) return res.status(404).json({ success: false, error: 'Transfer not found' });
+
+        await deleteFiles(token, id);
+        let inserted = 0;
+        try {
+            inserted = await insertFiles(token, id, files);
+        } catch (fileErr) {
+            console.error(`File replace failed for ${id} after ${inserted}/${files.length}:`, fileErr.message);
+            return res.status(500).json({
+                success: false,
+                error: 'File replace failed mid-insert: ' + fileErr.message,
+                files_inserted: inserted,
+                files_attempted: files.length
+            });
+        }
+
+        await writeNote(token, {
+            Transfer_ID: id,
+            Note_Type: 'comment',
+            Note_Text: `Transfer files updated (${files.length} file${files.length === 1 ? '' : 's'})`,
+            Author_Email: author,
+            Author_Name: authorName || author
+        });
+
+        const fresh = await fetchFiles(token, id);
+        console.log(`Transfer ${id} files replaced: ${inserted} file(s) (by ${author})`);
+        res.json({ success: true, files: fresh, files_inserted: inserted });
+
+    } catch (error) {
+        console.error('Error replacing transfer files:', error.response ? JSON.stringify(error.response.data) : error.message);
+        res.status(500).json({ success: false, error: 'Failed to replace files: ' + error.message });
+    }
+});
+
+/**
  * DELETE /api/transfer-orders/:id
  *
  * Soft delete: sets Status='Cancelled' and stamps Cancelled_By/_At/Cancel_Reason.
@@ -1027,6 +1341,11 @@ router.delete('/transfer-orders/:id', async (req, res) => {
                 await deleteLines(token, id);
             } catch (err) {
                 console.warn(`Warning: failed to delete lines for transfer ${id}:`, err.message);
+            }
+            try {
+                await deleteFiles(token, id);
+            } catch (err) {
+                console.warn(`Warning: failed to delete files for transfer ${id}:`, err.message);
             }
             // Delete the transfer itself
             await axios.delete(`${caspioApiBaseUrl}/tables/${TABLE}/records?q.where=ID_Transfer='${safeId}'`, {
