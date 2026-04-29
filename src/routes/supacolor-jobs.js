@@ -52,25 +52,62 @@ const READ_ONLY_HISTORY_FIELDS = ['PK_ID', 'ID_History'];
 
 // PurchaseOrders enrichment — joins Supacolor PO_Number ("112759 BW") to
 // PurchaseOrders.ID_PO so the dashboard can show when Mikalah marked each
-// transfer received in ShopWorks.
+// transfer received in ShopWorks AND link to the underlying ShopWorks order.
 const SUPACOLOR_VENDOR_ID = 2708;
 const PO_CACHE_TTL_MS = 5 * 60 * 1000;
-let poReceivedCache = null; // { map: { [ID_PO]: date_Received }, ts: number }
+let poEnrichmentCache = null; // { map: { [ID_PO]: { date_Received, id_Order } }, ts: number }
 
-async function getSupacolorPoReceivedMap() {
-    if (poReceivedCache && Date.now() - poReceivedCache.ts < PO_CACHE_TTL_MS) {
-        return poReceivedCache.map;
+async function getSupacolorPoEnrichmentMap() {
+    if (poEnrichmentCache && Date.now() - poEnrichmentCache.ts < PO_CACHE_TTL_MS) {
+        return poEnrichmentCache.map;
     }
     const rows = await fetchAllCaspioPages('/tables/PurchaseOrders/records', {
         'q.where': `id_Vendor=${SUPACOLOR_VENDOR_ID}`,
-        'q.select': 'ID_PO,date_Received',
+        'q.select': 'ID_PO,date_Received,id_Order',
         'q.pageSize': 1000
     });
     const map = {};
     rows.forEach(r => {
-        if (r.ID_PO != null && r.date_Received) map[r.ID_PO] = r.date_Received;
+        if (r.ID_PO != null) {
+            map[r.ID_PO] = {
+                date_Received: r.date_Received || null,
+                id_Order: r.id_Order != null ? r.id_Order : null
+            };
+        }
     });
-    poReceivedCache = { map, ts: Date.now() };
+    poEnrichmentCache = { map, ts: Date.now() };
+    return map;
+}
+
+// ManageOrders enrichment — bulk fetch last 18 months of MO orders (matches
+// MO retention horizon) so we can attach Customer_Name + Order_Due_Date to
+// each Supacolor row via PurchaseOrders.id_Order. 30-min in-memory cache.
+const MO_CACHE_TTL_MS = 30 * 60 * 1000;
+let moOrderCache = null; // { map: { [id_Order]: { CustomerName, date_RequestedToShip } }, ts }
+
+async function getMoOrderMap() {
+    if (moOrderCache && Date.now() - moOrderCache.ts < MO_CACHE_TTL_MS) {
+        return moOrderCache.map;
+    }
+    const { fetchOrders } = require('../utils/manageorders');
+    const end = new Date();
+    const start = new Date(end);
+    start.setMonth(start.getMonth() - 18);
+    const fmt = d => d.toISOString().slice(0, 10);
+    const orders = await fetchOrders({
+        date_Ordered_start: fmt(start),
+        date_Ordered_end: fmt(end)
+    });
+    const map = {};
+    orders.forEach(o => {
+        if (o.id_Order != null) {
+            map[o.id_Order] = {
+                CustomerName: o.CustomerName || '',
+                date_RequestedToShip: o.date_RequestedToShip || ''
+            };
+        }
+    });
+    moOrderCache = { map, ts: Date.now() };
     return map;
 }
 
@@ -286,13 +323,27 @@ router.get('/supacolor-jobs', async (req, res) => {
         const records = await fetchAllCaspioPages(resource, params);
 
         try {
-            const poMap = await getSupacolorPoReceivedMap();
+            const [poMap, moMap] = await Promise.all([
+                getSupacolorPoEnrichmentMap(),
+                getMoOrderMap()
+            ]);
             records.forEach(r => {
                 const id = extractPoId(r.PO_Number);
-                if (id != null && poMap[id]) r.Date_Received = poMap[id];
+                if (id == null) return;
+                const po = poMap[id];
+                if (!po) return;
+                if (po.date_Received) r.Date_Received = po.date_Received;
+                if (po.id_Order != null) {
+                    r.id_Order = po.id_Order;
+                    const mo = moMap[po.id_Order];
+                    if (mo) {
+                        if (mo.CustomerName)         r.Customer_Name  = mo.CustomerName;
+                        if (mo.date_RequestedToShip) r.Order_Due_Date = mo.date_RequestedToShip;
+                    }
+                }
             });
-        } catch (poErr) {
-            console.error('PO enrichment failed (returning unenriched jobs):', poErr.message);
+        } catch (enrichErr) {
+            console.error('Supacolor enrichment failed (returning unenriched jobs):', enrichErr.message);
         }
 
         res.json({ success: true, count: records.length, records });
