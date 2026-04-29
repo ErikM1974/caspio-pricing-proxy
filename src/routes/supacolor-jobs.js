@@ -79,28 +79,33 @@ async function getSupacolorPoEnrichmentMap() {
     return map;
 }
 
-// ManageOrders enrichment — bulk fetch last 18 months of MO orders (matches
-// MO retention horizon) so we can attach Customer_Name + Order_Due_Date to
-// each Supacolor row via PurchaseOrders.id_Order.
+// ManageOrders enrichment — bulk fetch recent MO orders so we can attach
+// Customer_Name + Order_Due_Date to each Supacolor row via PurchaseOrders.id_Order.
 //
-// Stale-while-revalidate: the bulk MO fetch can take 20–60s for 18 months
-// of orders, which exceeds Heroku's 30s request limit. So getMoOrderMap()
-// is SYNC — it returns whatever's in cache (empty {} on cold start) and
-// kicks off a background refresh when stale. First request after a cold
-// start renders without MO data; the next one (after refresh completes) is
-// fully enriched. Refresh runs at most once at a time.
+// Window: 6 months. (MO retention is 18 months but the MO API 502s on
+// 18-month queries — too much data. 6 months covers all in-flight jobs
+// and most recent closed ones; older closed jobs gracefully fall back to
+// the Bradley Description on the frontend.)
+//
+// Stale-while-revalidate: even 6 months can take 10–30s, so getMoOrderMap()
+// is SYNC — returns whatever's in cache (empty {} on cold start) and kicks
+// off a background refresh when stale. First request after a cold start
+// renders without MO data; subsequent requests are fully enriched. Refresh
+// is single-flight.
 const MO_CACHE_TTL_MS = 30 * 60 * 1000;
+const MO_WINDOW_MONTHS = 6;
 let moOrderCache = null;          // { map: { [id_Order]: { CustomerName, date_RequestedToShip } }, ts }
 let moRefreshPromise = null;      // single in-flight refresh
 
 function refreshMoOrderMap() {
     if (moRefreshPromise) return moRefreshPromise;
     moRefreshPromise = (async () => {
+        const startedAt = Date.now();
         try {
             const { fetchOrders } = require('../utils/manageorders');
             const end = new Date();
             const start = new Date(end);
-            start.setMonth(start.getMonth() - 18);
+            start.setMonth(start.getMonth() - MO_WINDOW_MONTHS);
             const fmt = d => d.toISOString().slice(0, 10);
             const orders = await fetchOrders({
                 date_Ordered_start: fmt(start),
@@ -116,9 +121,9 @@ function refreshMoOrderMap() {
                 }
             });
             moOrderCache = { map, ts: Date.now() };
-            console.log(`[supacolor-jobs] MO order map refreshed: ${Object.keys(map).length} orders`);
+            console.log(`[supacolor-jobs] MO order map refreshed: ${Object.keys(map).length} orders in ${Date.now() - startedAt}ms`);
         } catch (err) {
-            console.error('[supacolor-jobs] MO order refresh failed:', err.message);
+            console.error(`[supacolor-jobs] MO order refresh failed after ${Date.now() - startedAt}ms:`, err.message);
         } finally {
             moRefreshPromise = null;
         }
