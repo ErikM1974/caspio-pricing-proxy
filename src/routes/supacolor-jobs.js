@@ -50,6 +50,36 @@ const READ_ONLY_JOB_FIELDS = ['PK_ID', 'ID_Job', 'Last_Updated_At'];
 const READ_ONLY_LINE_FIELDS = ['PK_ID', 'ID_Jobline'];
 const READ_ONLY_HISTORY_FIELDS = ['PK_ID', 'ID_History'];
 
+// PurchaseOrders enrichment — joins Supacolor PO_Number ("112759 BW") to
+// PurchaseOrders.ID_PO so the dashboard can show when Mikalah marked each
+// transfer received in ShopWorks.
+const SUPACOLOR_VENDOR_ID = 2708;
+const PO_CACHE_TTL_MS = 5 * 60 * 1000;
+let poReceivedCache = null; // { map: { [ID_PO]: date_Received }, ts: number }
+
+async function getSupacolorPoReceivedMap() {
+    if (poReceivedCache && Date.now() - poReceivedCache.ts < PO_CACHE_TTL_MS) {
+        return poReceivedCache.map;
+    }
+    const rows = await fetchAllCaspioPages('/tables/PurchaseOrders/records', {
+        'q.where': `id_Vendor=${SUPACOLOR_VENDOR_ID}`,
+        'q.select': 'ID_PO,date_Received',
+        'q.pageSize': 1000
+    });
+    const map = {};
+    rows.forEach(r => {
+        if (r.ID_PO != null && r.date_Received) map[r.ID_PO] = r.date_Received;
+    });
+    poReceivedCache = { map, ts: Date.now() };
+    return map;
+}
+
+// "112759 BW" → 112759. Returns null if no leading integer.
+function extractPoId(poNumber) {
+    const m = String(poNumber || '').trim().match(/^(\d+)/);
+    return m ? parseInt(m[1], 10) : null;
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────
 
 function escapeSQL(val) {
@@ -254,6 +284,16 @@ router.get('/supacolor-jobs', async (req, res) => {
         params['q.pageSize'] = parseInt(req.query.pageSize, 10) || parseInt(req.query.limit, 10) || 200;
 
         const records = await fetchAllCaspioPages(resource, params);
+
+        try {
+            const poMap = await getSupacolorPoReceivedMap();
+            records.forEach(r => {
+                const id = extractPoId(r.PO_Number);
+                if (id != null && poMap[id]) r.Date_Received = poMap[id];
+            });
+        } catch (poErr) {
+            console.error('PO enrichment failed (returning unenriched jobs):', poErr.message);
+        }
 
         res.json({ success: true, count: records.length, records });
     } catch (error) {
