@@ -116,7 +116,9 @@ function refreshMoOrderMap() {
                 if (o.id_Order != null) {
                     map[o.id_Order] = {
                         CustomerName: o.CustomerName || '',
-                        date_RequestedToShip: o.date_RequestedToShip || ''
+                        date_RequestedToShip: o.date_RequestedToShip || '',
+                        date_Invoiced: o.date_Invoiced || '',
+                        cur_TotalInvoice: o.cur_TotalInvoice != null ? o.cur_TotalInvoice : null
                     };
                 }
             });
@@ -363,8 +365,10 @@ router.get('/supacolor-jobs', async (req, res) => {
                     r.id_Order = po.id_Order;
                     const mo = moMap[po.id_Order];
                     if (mo) {
-                        if (mo.CustomerName)         r.Customer_Name  = mo.CustomerName;
-                        if (mo.date_RequestedToShip) r.Order_Due_Date = mo.date_RequestedToShip;
+                        if (mo.CustomerName)            r.Customer_Name        = mo.CustomerName;
+                        if (mo.date_RequestedToShip)    r.Order_Due_Date       = mo.date_RequestedToShip;
+                        if (mo.date_Invoiced)           r.Order_Invoiced_Date  = mo.date_Invoiced;
+                        if (mo.cur_TotalInvoice != null) r.Order_Invoice_Total = mo.cur_TotalInvoice;
                     }
                 }
             });
