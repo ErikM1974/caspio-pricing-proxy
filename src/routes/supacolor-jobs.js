@@ -81,34 +81,55 @@ async function getSupacolorPoEnrichmentMap() {
 
 // ManageOrders enrichment — bulk fetch last 18 months of MO orders (matches
 // MO retention horizon) so we can attach Customer_Name + Order_Due_Date to
-// each Supacolor row via PurchaseOrders.id_Order. 30-min in-memory cache.
+// each Supacolor row via PurchaseOrders.id_Order.
+//
+// Stale-while-revalidate: the bulk MO fetch can take 20–60s for 18 months
+// of orders, which exceeds Heroku's 30s request limit. So getMoOrderMap()
+// is SYNC — it returns whatever's in cache (empty {} on cold start) and
+// kicks off a background refresh when stale. First request after a cold
+// start renders without MO data; the next one (after refresh completes) is
+// fully enriched. Refresh runs at most once at a time.
 const MO_CACHE_TTL_MS = 30 * 60 * 1000;
-let moOrderCache = null; // { map: { [id_Order]: { CustomerName, date_RequestedToShip } }, ts }
+let moOrderCache = null;          // { map: { [id_Order]: { CustomerName, date_RequestedToShip } }, ts }
+let moRefreshPromise = null;      // single in-flight refresh
 
-async function getMoOrderMap() {
-    if (moOrderCache && Date.now() - moOrderCache.ts < MO_CACHE_TTL_MS) {
-        return moOrderCache.map;
-    }
-    const { fetchOrders } = require('../utils/manageorders');
-    const end = new Date();
-    const start = new Date(end);
-    start.setMonth(start.getMonth() - 18);
-    const fmt = d => d.toISOString().slice(0, 10);
-    const orders = await fetchOrders({
-        date_Ordered_start: fmt(start),
-        date_Ordered_end: fmt(end)
-    });
-    const map = {};
-    orders.forEach(o => {
-        if (o.id_Order != null) {
-            map[o.id_Order] = {
-                CustomerName: o.CustomerName || '',
-                date_RequestedToShip: o.date_RequestedToShip || ''
-            };
+function refreshMoOrderMap() {
+    if (moRefreshPromise) return moRefreshPromise;
+    moRefreshPromise = (async () => {
+        try {
+            const { fetchOrders } = require('../utils/manageorders');
+            const end = new Date();
+            const start = new Date(end);
+            start.setMonth(start.getMonth() - 18);
+            const fmt = d => d.toISOString().slice(0, 10);
+            const orders = await fetchOrders({
+                date_Ordered_start: fmt(start),
+                date_Ordered_end: fmt(end)
+            });
+            const map = {};
+            orders.forEach(o => {
+                if (o.id_Order != null) {
+                    map[o.id_Order] = {
+                        CustomerName: o.CustomerName || '',
+                        date_RequestedToShip: o.date_RequestedToShip || ''
+                    };
+                }
+            });
+            moOrderCache = { map, ts: Date.now() };
+            console.log(`[supacolor-jobs] MO order map refreshed: ${Object.keys(map).length} orders`);
+        } catch (err) {
+            console.error('[supacolor-jobs] MO order refresh failed:', err.message);
+        } finally {
+            moRefreshPromise = null;
         }
-    });
-    moOrderCache = { map, ts: Date.now() };
-    return map;
+    })();
+    return moRefreshPromise;
+}
+
+function getMoOrderMap() {
+    const isStale = !moOrderCache || (Date.now() - moOrderCache.ts >= MO_CACHE_TTL_MS);
+    if (isStale) refreshMoOrderMap(); // fire-and-forget; safe to call repeatedly (single-flight)
+    return moOrderCache ? moOrderCache.map : {};
 }
 
 // "112759 BW" → 112759. Returns null if no leading integer.
