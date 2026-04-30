@@ -571,6 +571,11 @@ const companyContactsRoutes = require('./src/routes/company-contacts');
 app.use('/api', companyContactsRoutes);
 console.log('✓ Company Contacts routes loaded');
 
+// Company Contacts 2026 Routes (Online Order Form autocomplete — CompanyContactsMerge2026 table)
+const companyContacts2026Routes = require('./src/routes/company-contacts-2026');
+app.use('/api', companyContacts2026Routes);
+console.log('✓ Company Contacts 2026 routes loaded');
+
 // Service Codes Routes (embroidery service codes, pricing tiers, fee structures)
 const serviceCodesRoutes = require('./src/routes/service-codes');
 app.use('/api', serviceCodesRoutes);
