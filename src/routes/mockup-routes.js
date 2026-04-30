@@ -721,11 +721,16 @@ router.post('/mockups', async (req, res) => {
         // Set defaults for new records
         data.Status = data.Status || 'Submitted';
         data.Revision_Count = 0;
-        // Submitted_Date: explicitly set to current ISO timestamp. The Caspio
-        // field is no longer an auto-populating Timestamp (see READ_ONLY_FIELDS
-        // comment above). Without this, records save with Submitted_Date=NULL
-        // and the gallery sort by Submitted_Date DESC buries them.
-        data.Submitted_Date = data.Submitted_Date || new Date().toISOString();
+        // Submitted_Date: explicitly set to current timestamp. The Caspio field
+        // is a regular Date/Time field (no longer the auto-populating Timestamp
+        // it once was — see READ_ONLY_FIELDS comment above). Without this,
+        // records save with Submitted_Date=NULL and gallery sort buries them.
+        // Format: 'YYYY-MM-DDTHH:MM:SS' (no ms, no Z) — matches what older
+        // records already in the DB look like, e.g. '2026-04-15T22:40:27'.
+        // Caspio strips the Z anyway (per project memory), but stripping ms
+        // up front avoids any parser surprises.
+        data.Submitted_Date = data.Submitted_Date
+            || new Date().toISOString().replace(/\.\d{3}Z$/, '');
 
         // Insert record — Caspio POST returns 201 with Location header containing the new record URL
         const insertResp = await axios.post(url, data, {
