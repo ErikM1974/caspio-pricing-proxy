@@ -7,6 +7,31 @@ const { fetchAllCaspioPages, makeCaspioRequest } = require('../utils/caspio');
 
 const TABLE_NAME = 'NW_Daily_Sales_By_Rep';
 
+// 5-min TTL cache for Sales_Reps_2026 → id_Customer→rep map.
+// Why: the nightly rolling-archive cron calls archive-date 60× back-to-back,
+// each one re-fetching the same ~1100-row Sales_Reps_2026 table (2 paginated
+// Caspio calls per fetch). Caching saves ~118 Caspio calls per nightly run.
+// 5 min is comfortably longer than a full rolling-archive run (~2.5 min) and
+// short enough that mid-day rep reassignments take effect within the window.
+let salesRepsCache = { map: null, fetchedAt: 0 };
+const SALES_REPS_CACHE_TTL = 5 * 60 * 1000;
+
+async function getSalesRepsMap() {
+  const now = Date.now();
+  if (salesRepsCache.map && (now - salesRepsCache.fetchedAt) < SALES_REPS_CACHE_TTL) {
+    return salesRepsCache.map;
+  }
+  const records = await fetchAllCaspioPages('/tables/Sales_Reps_2026/records', {});
+  const map = new Map();
+  records.forEach(r => {
+    if (r.ID_Customer && r.CustomerServiceRep) {
+      map.set(r.ID_Customer, r.CustomerServiceRep);
+    }
+  });
+  salesRepsCache = { map, fetchedAt: now };
+  return map;
+}
+
 /**
  * GET /api/caspio/daily-sales-by-rep
  * Fetch archived daily sales by rep for a date range
@@ -405,17 +430,10 @@ router.post('/caspio/daily-sales-by-rep/archive-date', async (req, res) => {
     // assignment. To match that, we look up the rep at archive time too.
     // Same pattern as company-contacts.js, house-accounts.js, commission-payouts.js.
     console.log(`Fetching orders + Sales_Reps_2026 for ${date}...`);
-    const [orders, salesReps2026] = await Promise.all([
+    const [orders, salesRepsMap] = await Promise.all([
       fetchOrders({ date_Invoiced_start: date, date_Invoiced_end: date }),
-      fetchAllCaspioPages('/tables/Sales_Reps_2026/records', {})
+      getSalesRepsMap()
     ]);
-
-    const salesRepsMap = new Map();
-    salesReps2026.forEach(r => {
-      if (r.ID_Customer && r.CustomerServiceRep) {
-        salesRepsMap.set(r.ID_Customer, r.CustomerServiceRep);
-      }
-    });
     console.log(`Fetched ${orders.length} orders for ${date}; loaded ${salesRepsMap.size} rep assignments from Sales_Reps_2026`);
 
     // Deduplicate by order ID (just in case)
@@ -633,17 +651,10 @@ router.post('/caspio/daily-sales-by-rep/archive-range', async (req, res) => {
     // See archive-date for full reasoning. This keeps the cron's per-rep totals
     // matching the by-Sales-Rep CSV export (which joins through the same table).
     console.log(`Fetching orders + Sales_Reps_2026 for range ${start} to ${end}...`);
-    const [orders, salesReps2026] = await Promise.all([
+    const [orders, salesRepsMap] = await Promise.all([
       fetchOrders({ date_Invoiced_start: start, date_Invoiced_end: end }),
-      fetchAllCaspioPages('/tables/Sales_Reps_2026/records', {})
+      getSalesRepsMap()
     ]);
-
-    const salesRepsMap = new Map();
-    salesReps2026.forEach(r => {
-      if (r.ID_Customer && r.CustomerServiceRep) {
-        salesRepsMap.set(r.ID_Customer, r.CustomerServiceRep);
-      }
-    });
     console.log(`Fetched ${orders.length} orders for range; loaded ${salesRepsMap.size} rep assignments from Sales_Reps_2026`);
 
     // Deduplicate by order ID
