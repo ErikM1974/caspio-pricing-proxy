@@ -679,10 +679,13 @@ router.post('/mockups', async (req, res) => {
         // Strip Caspio-managed / read-only fields before insert.
         // AlterReadOnlyData (500) from Caspio if we send these.
         // - PK_ID, ID: auto-number primary keys
-        // - Submitted_Date: Caspio Timestamp type auto-populates on insert
-        // - Rush_Requested_At: same — Timestamp field, read-only via REST API
-        //   (front-end stops sending this in mockup-submit-form.js but strip defensively too)
-        const READ_ONLY_FIELDS = ['PK_ID', 'ID', 'Submitted_Date', 'Rush_Requested_At'];
+        // - Rush_Requested_At: Timestamp field, auto-populated by Caspio (verified
+        //   working — recent records have Rush_Requested_At populated on insert)
+        // Submitted_Date is NO LONGER auto-populated (the Caspio field type was
+        // changed from Timestamp → DateTime at some point), so we set it
+        // explicitly below as a regular writable field. Records 55-69 inserted
+        // before this fix had Submitted_Date=NULL; backfilled v2026.04.29.3.
+        const READ_ONLY_FIELDS = ['PK_ID', 'ID', 'Rush_Requested_At'];
         const data = { ...req.body };
         READ_ONLY_FIELDS.forEach(f => delete data[f]);
 
@@ -718,8 +721,11 @@ router.post('/mockups', async (req, res) => {
         // Set defaults for new records
         data.Status = data.Status || 'Submitted';
         data.Revision_Count = 0;
-        // Submitted_Date intentionally NOT set — Caspio auto-populates Timestamp fields
-        // on insert. Leaving this to Caspio avoids the AlterReadOnlyData error.
+        // Submitted_Date: explicitly set to current ISO timestamp. The Caspio
+        // field is no longer an auto-populating Timestamp (see READ_ONLY_FIELDS
+        // comment above). Without this, records save with Submitted_Date=NULL
+        // and the gallery sort by Submitted_Date DESC buries them.
+        data.Submitted_Date = data.Submitted_Date || new Date().toISOString();
 
         // Insert record — Caspio POST returns 201 with Location header containing the new record URL
         const insertResp = await axios.post(url, data, {
