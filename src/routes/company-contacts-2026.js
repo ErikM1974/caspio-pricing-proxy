@@ -40,20 +40,22 @@ router.get('/company-contacts-2026/search', async (req, res) => {
     const maxResults = Math.min(Math.max(parseInt(limit, 10) || 10, 1), 25);
 
     const activeFlag = includeInactive === 'true' ? 'all' : 'active';
-    const cacheKey = `search:${searchTerm.toLowerCase()}:${maxResults}:${activeFlag}`;
+    const cacheKey = `search:v2:${searchTerm.toLowerCase()}:${maxResults}:${activeFlag}`;
     const cached = contactsCache.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < CONTACTS_CACHE_TTL) {
       console.log(`Cache HIT for contacts-2026 search: ${cacheKey}`);
-      return res.json({ contacts: cached.data, fromCache: true });
+      return res.json({ companies: cached.data, fromCache: true });
     }
 
     const activeFilter = includeInactive === 'true' ? '' : 'Is_Active=1 AND ';
     const whereClause = `${activeFilter}(Company_Name LIKE '%${searchTerm}%' OR ct_NameFull LIKE '%${searchTerm}%' OR Email LIKE '%${searchTerm}%')`;
 
+    // Pull up to 80 contact rows so we don't drop members of large companies (e.g. Arrow has 9+).
+    // We then group client-side and slice to top maxResults companies.
     const params = {
       'q.where': whereClause,
       'q.sort': 'Last_Order_Date DESC',
-      'q.limit': maxResults
+      'q.limit': 80
     };
 
     console.log('Caspio query params:', JSON.stringify(params));
@@ -62,32 +64,59 @@ router.get('/company-contacts-2026/search', async (req, res) => {
       maxPages: 1
     });
 
-    const contacts = records.map(r => ({
-      ID_Contact: r.ID_Contact,
-      id_Customer: r.id_Customer,
-      Company_Name: r.Company_Name || '',
-      Company_Phone: r.Company_Phone || '',
-      NameFirst: r.NameFirst || '',
-      NameLast: r.NameLast || '',
-      ct_NameFull: r.ct_NameFull || '',
-      Email: r.Email || '',
-      Address: r.Address || '',
-      City: r.City || '',
-      State: r.State || '',
-      Zip: r.Zip || '',
-      Sales_Rep: r.Sales_Rep || '',
-      Last_Order_Date: r.Last_Order_Date || null
-    }));
+    // Group by id_Customer. Most-recent contact wins for company-level fields
+    // (records arrive sorted by Last_Order_Date DESC, so first sighting per id_Customer is freshest).
+    const byCompany = new Map();
+    for (const r of records) {
+      const key = r.id_Customer;
+      if (key == null) continue;
+      let bucket = byCompany.get(key);
+      if (!bucket) {
+        bucket = {
+          id_Customer: r.id_Customer,
+          Company_Name: r.Company_Name || '',
+          Company_Phone: r.Company_Phone || '',
+          Address: r.Address || '',
+          City: r.City || '',
+          State: r.State || '',
+          Zip: r.Zip || '',
+          Sales_Rep: r.Sales_Rep || '',
+          Last_Order_Date: r.Last_Order_Date || null,
+          contacts: []
+        };
+        byCompany.set(key, bucket);
+      }
+      // Only include emailable contacts in the picker — picking a contact you can't reach is pointless.
+      if (r.Email) {
+        bucket.contacts.push({
+          ID_Contact: r.ID_Contact,
+          NameFirst: r.NameFirst || '',
+          NameLast: r.NameLast || '',
+          ct_NameFull: r.ct_NameFull || '',
+          Email: r.Email || '',
+          Last_Order_Date: r.Last_Order_Date || null
+        });
+      }
+    }
 
-    console.log(`contacts-2026 search: ${contacts.length} result(s) for "${searchTerm}"`);
+    // Companies sorted by their most-recent Last_Order_Date (matches the freshness sort users expect).
+    const companies = Array.from(byCompany.values())
+      .sort((a, b) => {
+        const ad = a.Last_Order_Date ? Date.parse(a.Last_Order_Date) : 0;
+        const bd = b.Last_Order_Date ? Date.parse(b.Last_Order_Date) : 0;
+        return bd - ad;
+      })
+      .slice(0, maxResults);
 
-    contactsCache.set(cacheKey, { data: contacts, timestamp: Date.now() });
+    console.log(`contacts-2026 search: ${companies.length} compan${companies.length === 1 ? 'y' : 'ies'} for "${searchTerm}" (from ${records.length} contact rows)`);
+
+    contactsCache.set(cacheKey, { data: companies, timestamp: Date.now() });
     if (contactsCache.size > 200) {
       const firstKey = contactsCache.keys().next().value;
       contactsCache.delete(firstKey);
     }
 
-    res.json({ contacts });
+    res.json({ companies });
 
   } catch (error) {
     console.error('Error searching contacts-2026:', error.message);
