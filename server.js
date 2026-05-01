@@ -313,6 +313,16 @@ const dtgRoutes = require('./src/routes/dtg');
 app.use('/api/dtg', dtgRoutes);
 console.log('✓ DTG routes loaded');
 
+// Sticker pricing route — backs Order Form sticker method (Caspio Sticker_Pricing + inline fallback)
+const stickerPricingRoutes = require('./src/routes/sticker-pricing');
+app.use('/api', stickerPricingRoutes);
+console.log('✓ Sticker pricing route loaded');
+
+// Emblem pricing route — backs Order Form emblem method (Caspio Emblem_Pricing + inline fallback)
+const emblemPricingRoutes = require('./src/routes/emblem-pricing');
+app.use('/api', emblemPricingRoutes);
+console.log('✓ Emblem pricing route loaded');
+
 // File Upload Routes (Caspio Files API v3)
 const filesRoutes = require('./src/routes/files-simple');
 app.use('/api', filesRoutes);
