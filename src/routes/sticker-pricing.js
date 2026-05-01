@@ -67,14 +67,18 @@ router.get('/sticker-pricing', async (_req, res) => {
       'q.pageSize': 200,
     });
     if (Array.isArray(rows) && rows.length) {
-      // Caspio Yes/No fields come back as boolean — normalize and sort by Size,Quantity.
+      // IsBestValue is stored as Text("Yes"/"No") in the current Caspio table —
+      // a bare !!r.IsBestValue would treat the string "No" as truthy. Normalize
+      // explicitly so this also works if the column is later switched to Yes/No.
+      const isTruthy = v => v === true || v === 1 || v === '1'
+        || (typeof v === 'string' && /^(yes|y|true)$/i.test(v.trim()));
       grid = rows
         .map(r => ({
           Size: String(r.Size || '').trim(),
           Quantity: Number(r.Quantity) || 0,
           TotalPrice: Number(r.TotalPrice) || 0,
           PricePerSticker: Number(r.PricePerSticker) || 0,
-          IsBestValue: !!r.IsBestValue,
+          IsBestValue: isTruthy(r.IsBestValue),
         }))
         .filter(r => r.Size && r.Quantity > 0)
         .sort((a, b) => a.Size.localeCompare(b.Size) || a.Quantity - b.Quantity);
