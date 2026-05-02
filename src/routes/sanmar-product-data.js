@@ -9,9 +9,14 @@ const express = require('express');
 const router = express.Router();
 const https = require('https');
 const NodeCache = require('node-cache');
+const { fetchAllCaspioPages } = require('../utils/caspio');
+const sanmarSoap = require('../utils/sanmar-soap');
 
 // Cache: 30-minute TTL to avoid hammering SanMar API
 const sanmarCache = new NodeCache({ stdTTL: 1800, checkperiod: 300 });
+
+// Catalog-color audit cache: 15 min (Caspio reads + SanMar API combined)
+const auditCache = new NodeCache({ stdTTL: 900, checkperiod: 120 });
 
 // SanMar PromoStandards endpoint
 const SANMAR_ENDPOINT = 'https://ws.sanmar.com:8080/promostandards/ProductDataServiceBindingV2';
@@ -569,5 +574,254 @@ router.get('/inventory/:style', async (req, res) => {
   }
 });
 
+// ── Internal helper: fetch authoritative mainframe colors from SanMar Standard API ──
+//
+// Calls SanMar's Standard webservice `getProductInfoByStyle` (NOT PromoStandards
+// — only Standard exposes <mainframeColor>). Returns { style, totalColors, colors[] }
+// where each color is { mainframeColor, displayName, productStatus, sizes[] }.
+// Throws on auth/SOAP errors; returns empty colors[] when SanMar replies "Data not found".
+async function fetchProductInfoByStyle(style) {
+  const cacheKey = `sanmar-product-info-${style}`;
+  const cached = sanmarCache.get(cacheKey);
+  if (cached) return cached;
+
+  const auth = sanmarSoap.getStandardAuth();
+  if (!sanmarSoap.validateAuth(auth)) {
+    throw new Error('SanMar Standard credentials not configured (need SANMAR_CUSTOMER_NUMBER + SANMAR_USERNAME + SANMAR_PASSWORD)');
+  }
+
+  const esc = sanmarSoap.xmlEscape;
+  const soapBody = `
+    <web:getProductInfoByStyle>
+      <arg0>
+        <style>${esc(style)}</style>
+        <color></color>
+        <size></size>
+        <inventoryKey></inventoryKey>
+      </arg0>
+      <arg1>${esc(auth.customerNumber)}</arg1>
+      <arg2>${esc(auth.username)}</arg2>
+      <arg3>${esc(auth.password)}</arg3>
+    </web:getProductInfoByStyle>`;
+
+  const xml = await sanmarSoap.makeSoapRequest(sanmarSoap.ENDPOINTS.productInfo, soapBody, {
+    namespaces: { web: 'http://webservice.integration.sanmar.com/' }
+  });
+
+  const soapErr = sanmarSoap.checkSoapError(xml);
+  if (soapErr && soapErr.code === 105) {
+    throw new Error('SanMar Standard authentication failed');
+  }
+  if (soapErr && /Data not found|No.*found/i.test(soapErr.message || '')) {
+    const empty = { style, totalColors: 0, colors: [], message: 'No product info returned' };
+    sanmarCache.set(cacheKey, empty);
+    return empty;
+  }
+
+  // Parse <productInfoArray> blocks. Each block = one (color, size) row.
+  // Group by mainframeColor → roll up sizes.
+  const blocks = sanmarSoap.extractBlocks(xml, 'productInfoArray');
+  const byMainframe = new Map();
+  for (const block of blocks) {
+    const mainframeColor = sanmarSoap.extractFirst(block, 'mainframeColor') || '';
+    if (!mainframeColor) continue;
+    const displayName = sanmarSoap.extractFirst(block, 'color') || '';
+    const productStatus = sanmarSoap.extractFirst(block, 'productStatus') || '';
+    const size = sanmarSoap.extractFirst(block, 'size') || '';
+
+    if (!byMainframe.has(mainframeColor)) {
+      byMainframe.set(mainframeColor, {
+        mainframeColor,
+        displayName,
+        productStatus,
+        sizes: new Set()
+      });
+    }
+    if (size) byMainframe.get(mainframeColor).sizes.add(size);
+    // Prefer non-empty status if first block was empty
+    if (!byMainframe.get(mainframeColor).productStatus && productStatus) {
+      byMainframe.get(mainframeColor).productStatus = productStatus;
+    }
+  }
+
+  const colors = Array.from(byMainframe.values()).map(c => ({
+    mainframeColor: c.mainframeColor,
+    displayName: c.displayName,
+    productStatus: c.productStatus,
+    sizes: Array.from(c.sizes)
+  })).sort((a, b) => a.mainframeColor.localeCompare(b.mainframeColor));
+
+  const result = {
+    style,
+    totalColors: colors.length,
+    colors
+  };
+  sanmarCache.set(cacheKey, result);
+  return result;
+}
+
+// ── GET /api/sanmar/product-info/:style ──
+// Returns SanMar's authoritative mainframe-color list for a style.
+router.get('/product-info/:style', async (req, res) => {
+  const style = String(req.params.style || '').toUpperCase();
+  if (!style) return res.status(400).json({ error: 'style is required' });
+
+  try {
+    const result = await fetchProductInfoByStyle(style);
+    res.json(result);
+  } catch (err) {
+    console.error(`Error fetching SanMar product-info for ${style}:`, err.message);
+    if (/authentication failed/i.test(err.message)) {
+      return res.status(401).json({ error: err.message });
+    }
+    if (/credentials not configured/i.test(err.message)) {
+      return res.status(500).json({ error: err.message });
+    }
+    res.status(500).json({ error: 'Failed to fetch SanMar product info', details: err.message });
+  }
+});
+
+// ── GET /api/sanmar/catalog-color-audit/:style ──
+// Diffs Caspio's Sanmar_Bulk_251816_Feb2024 vs SanMar's live mainframeColor for a style.
+// 5 buckets: inSync, caspioMismatch (rejection candidates), caspioOrphan, sanmarOnly, internalDrift.
+function normalizeColorName(s) {
+  return String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+router.get('/catalog-color-audit/:style', async (req, res) => {
+  const style = String(req.params.style || '').toUpperCase();
+  if (!style) return res.status(400).json({ error: 'style is required' });
+
+  const cacheKey = `catalog-color-audit-${style}`;
+  const cached = auditCache.get(cacheKey);
+  if (cached) return res.json({ ...cached, cached: true });
+
+  try {
+    // Pull Caspio rows + SanMar live data in parallel
+    const [caspioRows, sanmarData] = await Promise.all([
+      fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
+        'q.where': `STYLE='${style.replace(/'/g, "''")}'`,
+        'q.select': 'STYLE, COLOR_NAME, CATALOG_COLOR, SANMAR_MAINFRAME_COLOR, PRODUCT_STATUS, SIZE',
+        'q.limit': 1000
+      }),
+      fetchProductInfoByStyle(style).catch(err => ({ style, totalColors: 0, colors: [], error: err.message }))
+    ]);
+
+    // Collapse Caspio rows by COLOR_NAME (multiple sizes per color → one entry)
+    const caspioByColor = new Map();
+    for (const r of caspioRows || []) {
+      const key = normalizeColorName(r.COLOR_NAME);
+      if (!key) continue;
+      if (!caspioByColor.has(key)) {
+        caspioByColor.set(key, {
+          colorName: r.COLOR_NAME,
+          catalogColor: r.CATALOG_COLOR || '',
+          mainframeColorCaspio: r.SANMAR_MAINFRAME_COLOR || '',
+          productStatus: r.PRODUCT_STATUS || '',
+          sizes: new Set()
+        });
+      }
+      if (r.SIZE) caspioByColor.get(key).sizes.add(r.SIZE);
+    }
+
+    // Index SanMar live by displayName (their friendly color)
+    const sanmarByDisplay = new Map();
+    for (const c of sanmarData.colors || []) {
+      const key = normalizeColorName(c.displayName);
+      if (!key) continue;
+      sanmarByDisplay.set(key, c);
+    }
+
+    const inSync = [];
+    const caspioMismatch = [];
+    const caspioOrphan = [];
+    const sanmarOnly = [];
+    const internalDrift = [];
+
+    // Walk Caspio rows
+    for (const [key, cas] of caspioByColor.entries()) {
+      const sm = sanmarByDisplay.get(key);
+      const sizesArr = Array.from(cas.sizes);
+
+      // Internal Caspio inconsistency check (independent of SanMar)
+      if (cas.catalogColor && cas.mainframeColorCaspio &&
+          cas.catalogColor.trim() !== cas.mainframeColorCaspio.trim()) {
+        internalDrift.push({
+          colorName: cas.colorName,
+          caspioCatalogColor: cas.catalogColor,
+          caspioMainframeColor: cas.mainframeColorCaspio,
+          productStatus: cas.productStatus,
+          sizes: sizesArr
+        });
+      }
+
+      if (!sm) {
+        caspioOrphan.push({
+          colorName: cas.colorName,
+          caspioCatalogColor: cas.catalogColor,
+          caspioMainframeColor: cas.mainframeColorCaspio,
+          productStatus: cas.productStatus,
+          sizes: sizesArr
+        });
+        continue;
+      }
+
+      const live = sm.mainframeColor.trim();
+      const cc = (cas.catalogColor || '').trim();
+      const mc = (cas.mainframeColorCaspio || '').trim();
+      // In-sync if EITHER Caspio column matches SanMar (we'll surface internalDrift separately)
+      if ((cc && cc === live) || (mc && mc === live)) {
+        inSync.push({
+          colorName: cas.colorName,
+          caspioCatalogColor: cc,
+          caspioMainframeColor: mc,
+          sanmarMainframeColor: live
+        });
+      } else {
+        caspioMismatch.push({
+          colorName: cas.colorName,
+          caspioCatalogColor: cc,
+          caspioMainframeColor: mc,
+          sanmarMainframeColor: live,
+          sanmarProductStatus: sm.productStatus,
+          sizes: sizesArr
+        });
+      }
+    }
+
+    // SanMar colors with no Caspio row
+    for (const [key, sm] of sanmarByDisplay.entries()) {
+      if (!caspioByColor.has(key)) {
+        sanmarOnly.push({
+          colorName: sm.displayName,
+          sanmarMainframeColor: sm.mainframeColor,
+          sanmarProductStatus: sm.productStatus,
+          sizes: sm.sizes
+        });
+      }
+    }
+
+    const result = {
+      style,
+      generatedAt: new Date().toISOString(),
+      caspioRowsFetched: (caspioRows || []).length,
+      caspioColorsUnique: caspioByColor.size,
+      sanmarColors: sanmarData.colors?.length || 0,
+      sanmarApiError: sanmarData.error || null,
+      inSync:         { count: inSync.length, rows: inSync },
+      caspioMismatch: { count: caspioMismatch.length, rows: caspioMismatch },
+      caspioOrphan:   { count: caspioOrphan.length, rows: caspioOrphan },
+      sanmarOnly:     { count: sanmarOnly.length, rows: sanmarOnly },
+      internalDrift:  { count: internalDrift.length, rows: internalDrift }
+    };
+    auditCache.set(cacheKey, result);
+    res.json(result);
+  } catch (err) {
+    console.error(`Catalog color audit failed for ${style}:`, err.message);
+    res.status(500).json({ error: 'Catalog color audit failed', details: err.message });
+  }
+});
+
 module.exports = router;
 module.exports.getActiveColors = getActiveColors;
+module.exports.fetchProductInfoByStyle = fetchProductInfoByStyle;
