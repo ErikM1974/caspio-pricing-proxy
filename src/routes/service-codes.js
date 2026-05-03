@@ -537,7 +537,10 @@ router.post('/service-codes', async (req, res) => {
         });
     }
 
-    // Set defaults for optional fields
+    // Set defaults for optional fields. Phase 3 (2026-05-03): added forward
+    // for RailGroup, RailOrder, Tier, Visible, Notes, AliasFor, SortOrder so
+    // POST callers can set rail metadata at creation time. Caspio ignores
+    // unknown fields silently, so it's safe to forward conservatively.
     const newRecord = {
         ServiceCode: record.ServiceCode,
         ServiceType: record.ServiceType,
@@ -551,7 +554,16 @@ router.post('/service-codes', async (req, res) => {
         QuoteBuilderField: record.QuoteBuilderField || '',
         Position: record.Position || '',
         StitchBase: record.StitchBase || 0,
-        IsActive: record.IsActive !== false // Default to true
+        IsActive: record.IsActive !== false, // Default to true
+        // Phase 3 rail metadata
+        RailGroup: record.RailGroup || '',
+        RailOrder: record.RailOrder || 0,
+        Tier: record.Tier || '',
+        Visible: record.Visible !== false,
+        // Misc fields surfaced for completeness
+        Notes: record.Notes || '',
+        AliasFor: record.AliasFor || '',
+        SortOrder: record.SortOrder ?? null,
     };
 
     try {
