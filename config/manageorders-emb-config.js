@@ -52,14 +52,42 @@ const ORDER_LEVEL_FEES = ['TAX', 'SHIP', 'DISCOUNT'];
  * All recognized fee/service part numbers that should become LinesOE entries.
  * Fee items with PNs NOT in this set are treated as order notes, not line items.
  * (ORDER_LEVEL_FEES are excluded separately — they become order-level fields.)
+ *
+ * SOURCE OF TRUTH: ShopWorks part numbers (from Erik's screenshots 2026-05-03).
+ * Spelling/case matches the OnSite "Services" product type list verbatim so
+ * the value sent to ShopWorks (PartNumber) lands on a configured part record.
+ *
+ * Membership checks should go through `isKnownFeeCode()` (case-insensitive).
  */
 const KNOWN_FEE_PNS = new Set([
-  'AS-GARM', 'AS-CAP', 'DD', 'DDE', 'DDT', 'GRT-50', 'GRT-75',
-  'RUSH', 'SAMPLE', '3D-EMB', 'LASER PATCH', 'MONOGRAM', 'NAME',
-  'WEIGHT', 'SEG', 'SECC', 'DT', 'CTR-GARMT', 'CTR-CAP',
-  'AL', 'AL-CAP', 'CB', 'CS', 'DECG', 'DECG-FB', 'DECC',
-  'DGT-001', 'DGT-002', 'DGT-003',
+  // 29 confirmed ShopWorks service codes (Erik's screenshots 2026-05-03).
+  // 27 from initial screenshot + 2 from follow-up (Laser Patch, SECC).
+  // Spelling/case matches ShopWorks part numbers verbatim.
+  'SEG', 'DECG', 'DECC', 'Monogram', 'RUSH', 'Freight',
+  'DD', 'DDE', 'DDT', 'AL', 'DT', 'Discount', 'Pallet', 'Art',
+  'AS-Garm', 'CDP', 'AS-CAP', 'LTM', 'CTR-Garmt', 'CTR-Cap',
+  'AL-CAP', 'DECG-FB', '3D-EMB', 'GRT-50', 'GRT-75',
+  'SPRESET', 'SPSU',
+  'Laser Patch', 'SECC',
 ]);
+
+/**
+ * Uppercase mirror for case-insensitive lookups. Built once at module load.
+ */
+const KNOWN_FEE_PNS_UPPER = new Set(
+  Array.from(KNOWN_FEE_PNS, (p) => String(p).toUpperCase())
+);
+
+/**
+ * Case-insensitive membership check for fee/service part numbers.
+ * Use this everywhere instead of `KNOWN_FEE_PNS.has(pn)`.
+ *
+ * @param {string} pn - Part number (any case)
+ * @returns {boolean}
+ */
+function isKnownFeeCode(pn) {
+  return KNOWN_FEE_PNS_UPPER.has(String(pn || '').toUpperCase());
+}
 
 /**
  * Tax Account Lookup — Maps WA tax rate percentages to GL account codes.
@@ -205,6 +233,7 @@ module.exports = {
   SALES_REP_MAP,
   ORDER_LEVEL_FEES,
   KNOWN_FEE_PNS,
+  isKnownFeeCode,
   TAX_ACCOUNT_LOOKUP,
   getTaxAccount,
   extractSequence,
