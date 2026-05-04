@@ -591,6 +591,13 @@ const serviceCodesRoutes = require('./src/routes/service-codes');
 app.use('/api', serviceCodesRoutes);
 console.log('✓ Service Codes routes loaded');
 
+// Order Form Customer Suggestions Routes (Phase 6c, 2026-05-03)
+// Reads/writes Customer_Service_History to power the order form's
+// "Suggested for {Company}" rail section.
+const orderFormSuggestionsRoutes = require('./src/routes/order-form-suggestions');
+app.use('/api', orderFormSuggestionsRoutes);
+console.log('✓ Order Form Customer Suggestions routes loaded');
+
 // Non-SanMar Products Routes (Brooks Brothers, Carhartt direct, specialty items)
 const nonSanmarProductsRoutes = require('./src/routes/non-sanmar-products');
 app.use('/api', nonSanmarProductsRoutes);
