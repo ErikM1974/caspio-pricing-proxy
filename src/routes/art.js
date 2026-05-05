@@ -920,7 +920,9 @@ router.put('/art-requests/:designId/fields', express.json(), async (req, res) =>
                 changedFields.push('On_Hold_Since');
                 console.log(`  → Design ${designId} entering hold; stamped On_Hold_Since`);
             } else if (!newOnHold && oldOnHold) {
-                updateData.On_Hold_Since = '';
+                // Caspio v2 rejects empty string for Date/Time fields ("doesn't match data type").
+                // null is the only JSON value that clears a Date/Time field cleanly.
+                updateData.On_Hold_Since = null;
                 changedFields.push('On_Hold_Since');
                 console.log(`  → Design ${designId} resuming from hold; cleared On_Hold_Since`);
             }
