@@ -99,7 +99,18 @@ router.get('/artrequests', async (req, res) => {
             if (req.query.dueDateTo) {
                 whereConditions.push(`Due_Date<='${req.query.dueDateTo}'`);
             }
-            
+
+            // On-hold flag filter:
+            //   ?onHold=true   → only on-hold designs (Is_On_Hold=1)
+            //   ?onHold=false  → only NOT on-hold (Is_On_Hold=0 OR NULL)
+            //   ?onHold=all or omitted → no filter (current behavior — both)
+            // Mirrors the Is_Deleted soft-state filter pattern in mockup-routes.js.
+            if (req.query.onHold === 'true') {
+                whereConditions.push(`Is_On_Hold=1`);
+            } else if (req.query.onHold === 'false') {
+                whereConditions.push(`(Is_On_Hold=0 OR Is_On_Hold IS NULL)`);
+            }
+
             // Add the WHERE clause if we have conditions
             if (whereConditions.length > 0) {
                 params['q.where'] = whereConditions.join(' AND ');
@@ -851,6 +862,8 @@ router.put('/art-requests/:designId/fields', express.json(), async (req, res) =>
 
     // Whitelist of editable Caspio column names
     // Column names must match actual Caspio ArtRequests table schema exactly
+    // Note: On_Hold_Since is INTENTIONALLY NOT in this list — it's server-managed
+    // (auto-stamped/cleared when Is_On_Hold flips, see logic below).
     const EDITABLE_FIELDS = [
         'Order_Type', 'Due_Date', 'Garment_Placement',
         'GarmentStyle', 'GarmentColor', 'Garm_Style_2', 'Garm_Color_2',
@@ -859,7 +872,8 @@ router.put('/art-requests/:designId/fields', express.json(), async (req, res) =>
         'Prelim_Charges', 'Additional_Services',
         'First_name', 'Last_name', 'Email_Contact', 'Phone',
         'Mockup_1_Note', 'Mockup_2_Note', 'Mockup_3_Note',
-        'Is_Rush', 'Rush_Requested_At'
+        'Is_Rush', 'Rush_Requested_At',
+        'Is_On_Hold', 'On_Hold_Note'
     ];
 
     const updateData = {};
@@ -878,6 +892,40 @@ router.put('/art-requests/:designId/fields', express.json(), async (req, res) =>
     try {
         console.log(`AE field update: design ${designId} — fields: ${changedFields.join(', ')}`);
         const token = await getCaspioAccessToken();
+
+        // ========================================================================
+        // Server-managed On_Hold_Since timestamp
+        // Auto-stamp when Is_On_Hold flips false→true; clear when true→false.
+        // Fetch current row first so duplicate PUTs (same Is_On_Hold value) don't
+        // clobber the original timestamp.
+        // ========================================================================
+        if ('Is_On_Hold' in updateData) {
+            const newOnHold = updateData.Is_On_Hold === true
+                || updateData.Is_On_Hold === 1
+                || updateData.Is_On_Hold === 'true';
+
+            const fetchUrl = `${caspioApiBaseUrl}/tables/ArtRequests/records`
+                + `?q.where=ID_Design=${designId}&q.select=Is_On_Hold,On_Hold_Since&q.limit=1`;
+            const fetchResp = await axios({
+                method: 'get',
+                url: fetchUrl,
+                headers: { 'Authorization': `Bearer ${token}` },
+                timeout: 15000
+            });
+            const current = fetchResp.data?.Result?.[0] || {};
+            const oldOnHold = current.Is_On_Hold === true || current.Is_On_Hold === 1;
+
+            if (newOnHold && !oldOnHold) {
+                updateData.On_Hold_Since = new Date().toISOString();
+                changedFields.push('On_Hold_Since');
+                console.log(`  → Design ${designId} entering hold; stamped On_Hold_Since`);
+            } else if (!newOnHold && oldOnHold) {
+                updateData.On_Hold_Since = '';
+                changedFields.push('On_Hold_Since');
+                console.log(`  → Design ${designId} resuming from hold; cleared On_Hold_Since`);
+            }
+            // else: no actual flip — leave On_Hold_Since untouched (idempotent PUT)
+        }
 
         const url = `${caspioApiBaseUrl}/tables/ArtRequests/records?q.where=ID_Design=${designId}`;
         await axios({
