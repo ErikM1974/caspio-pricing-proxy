@@ -873,7 +873,10 @@ router.put('/art-requests/:designId/fields', express.json(), async (req, res) =>
         'First_name', 'Last_name', 'Email_Contact', 'Phone',
         'Mockup_1_Note', 'Mockup_2_Note', 'Mockup_3_Note',
         'Is_Rush', 'Rush_Requested_At',
-        'Is_On_Hold', 'On_Hold_Note'
+        'Is_On_Hold', 'On_Hold_Note',
+        // Item-type intake (sticker/banner extension, 2026-05-06).
+        // NULL Item_Type is treated as 'Garment' at render time everywhere.
+        'Item_Type', 'Item_Specs_Notes'
     ];
 
     const updateData = {};
