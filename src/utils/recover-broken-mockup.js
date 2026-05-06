@@ -142,20 +142,46 @@ async function pickImage({ folder, designNumber, boxToken }) {
     }
 }
 
+// Slot fields the recovery util is allowed to write to. Keep this list aligned
+// with `fields` in the broken-mockups handler (box-upload.js:1245). Anything
+// outside this whitelist is rejected to prevent arbitrary field writes via
+// a misconfigured slotField param.
+const VALID_SLOT_FIELDS = ['Box_File_Mockup', 'BoxFileLink', 'Company_Mockup', 'Additional_Art_1', 'Additional_Art_2'];
+
 /**
- * Update ArtRequests.Box_File_Mockup for a given PK_ID.
- * Direct PUT — no whitelist enforcement on this field.
+ * Update a specific ArtRequests slot field for a given PK_ID. Generalized
+ * from the original Box_File_Mockup-only writer so the recovery util can
+ * heal any of the 5 mockup slots (the secondary slots — BoxFileLink,
+ * Company_Mockup, Additional_Art_* — used to be invisible to recovery and
+ * had to be re-uploaded by hand).
+ *
+ * @param {object} opts
+ * @param {number|string} opts.pkId
+ * @param {string} opts.slotField — must be in VALID_SLOT_FIELDS
+ * @param {string} opts.newUrl
  */
-async function updateBoxFileMockup({ pkId, newUrl }) {
+async function updateMockupSlot({ pkId, slotField, newUrl }) {
+    if (!VALID_SLOT_FIELDS.includes(slotField)) {
+        throw new Error(`updateMockupSlot: invalid slotField "${slotField}". Must be one of: ${VALID_SLOT_FIELDS.join(', ')}`);
+    }
     const token = await getCaspioAccessToken();
     const endpoint = `${config.caspio.apiBaseUrl}/tables/${ART_REQUESTS_TABLE}/records?q.where=PK_ID=${pkId}`;
-    await axios.put(endpoint, { Box_File_Mockup: newUrl }, {
+    await axios.put(endpoint, { [slotField]: newUrl }, {
         headers: {
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json'
         },
         timeout: 15000
     });
+}
+
+/**
+ * Back-compat wrapper for the old name. New callers should use updateMockupSlot.
+ * @deprecated since 2026-05-06 — pass slotField explicitly to recoverBrokenMockup
+ *             and call updateMockupSlot directly. Kept so existing imports don't break.
+ */
+async function updateBoxFileMockup({ pkId, newUrl }) {
+    return updateMockupSlot({ pkId, slotField: 'Box_File_Mockup', newUrl });
 }
 
 /**
@@ -183,11 +209,20 @@ async function updateBoxFileMockup({ pkId, newUrl }) {
  */
 async function recoverBrokenMockup(opts) {
     const { pkId, designNumber, companyName, getBoxToken, publicUrl, dryRun } = opts || {};
+    // slotField is optional for back-compat — defaults to Box_File_Mockup so
+    // older callers that don't know about secondary slots still work.
+    const slotField = (opts && opts.slotField) || 'Box_File_Mockup';
 
     if (!pkId) return { status: 'error', error: 'missing pkId' };
     if (!designNumber) return { status: 'error', error: 'missing designNumber' };
     if (typeof getBoxToken !== 'function') {
         return { status: 'error', error: 'getBoxToken function required' };
+    }
+    if (!VALID_SLOT_FIELDS.includes(slotField)) {
+        return {
+            status: 'error',
+            error: `invalid slotField "${slotField}". Must be one of: ${VALID_SLOT_FIELDS.join(', ')}`
+        };
     }
 
     let result;
@@ -200,7 +235,7 @@ async function recoverBrokenMockup(opts) {
             boxToken
         });
         if (!folder) {
-            result = { status: 'no-folder' };
+            result = { status: 'no-folder', slotField };
         } else {
             const pick = await pickImage({
                 folder,
@@ -211,11 +246,13 @@ async function recoverBrokenMockup(opts) {
             if (pick.reason === 'NO_IMAGE') {
                 result = {
                     status: 'empty-folder',
+                    slotField,
                     folder: { id: folder.id, name: folder.name }
                 };
             } else if (!pick.file) {
                 result = {
                     status: 'no-match',
+                    slotField,
                     folder: { id: folder.id, name: folder.name },
                     candidates: pick.candidates || []
                 };
@@ -226,11 +263,12 @@ async function recoverBrokenMockup(opts) {
                 const newUrl = `${base.replace(/\/$/, '')}/api/box/thumbnail/${pick.file.id}`;
 
                 if (!dryRun) {
-                    await updateBoxFileMockup({ pkId, newUrl });
+                    await updateMockupSlot({ pkId, slotField, newUrl });
                 }
 
                 result = {
                     status: 'recovered',
+                    slotField,
                     newUrl,
                     newFileId: pick.file.id,
                     newFileName: pick.file.name,
@@ -241,7 +279,7 @@ async function recoverBrokenMockup(opts) {
             }
         }
     } catch (err) {
-        result = { status: 'error', error: err.message || String(err) };
+        result = { status: 'error', slotField, error: err.message || String(err) };
     }
 
     // Fire-and-forget Slack ping (via Zapier) when recovery failed. Skipped
@@ -261,7 +299,7 @@ async function recoverBrokenMockup(opts) {
                 companyName: companyName || '',
                 pkId,
                 table: 'ArtRequests',
-                slotField: 'Box_File_Mockup',
+                slotField,
                 detailUrl,
                 reason: result.status,
                 error: result.error || null
@@ -279,5 +317,7 @@ module.exports = {
     recoverBrokenMockup,
     findFolder,
     pickImage,
-    updateBoxFileMockup
+    updateMockupSlot,
+    updateBoxFileMockup,    // deprecated alias — kept for back-compat
+    VALID_SLOT_FIELDS
 };

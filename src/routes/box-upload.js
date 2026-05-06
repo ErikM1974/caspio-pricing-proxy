@@ -1464,6 +1464,10 @@ router.post('/art-requests/:pkId/auto-recover-mockup', async (req, res) => {
     const pkId = req.params.pkId;
     const designNumber = (req.body && req.body.designNumber) || '';
     const companyName = (req.body && req.body.companyName) || '';
+    // Optional — defaults to Box_File_Mockup at the util level (back-compat).
+    // Pass a specific field name to recover a secondary slot (e.g.
+    // BoxFileLink, Company_Mockup) instead of the primary mockup.
+    const slotField = (req.body && req.body.slotField) || undefined;
 
     if (!designNumber) {
         return res.status(400).json({ success: false, error: 'Missing designNumber in request body' });
@@ -1476,6 +1480,7 @@ router.post('/art-requests/:pkId/auto-recover-mockup', async (req, res) => {
 
         const result = await recoverBrokenMockup({
             pkId,
+            slotField,
             designNumber,
             companyName,
             getBoxToken: getBoxAccessToken,
@@ -1484,7 +1489,7 @@ router.post('/art-requests/:pkId/auto-recover-mockup', async (req, res) => {
 
         if (result.status === 'recovered') {
             invalidateBrokenMockupsCache();
-            console.log(`[auto-recover] PK=${pkId} #${designNumber} → file ${result.newFileId} (${result.confidence})`);
+            console.log(`[auto-recover] PK=${pkId} #${designNumber} ${result.slotField} → file ${result.newFileId} (${result.confidence})`);
             return res.json({ success: true, ...result });
         }
         if (result.status === 'error') {
@@ -1535,14 +1540,19 @@ router.post('/art-requests/auto-recover-mockups-bulk', async (req, res) => {
         const results = [];
         let recovered = 0;
         for (const rec of records) {
+            // Per-record slotField (since 2026-05-06). Records with multiple
+            // broken slots should be sent as separate entries so each slot is
+            // individually recovered. Default = Box_File_Mockup for back-compat
+            // with callers (legacy backfill scripts) that pre-date slot-aware.
             const r = await recoverBrokenMockup({
                 pkId: rec.pkId,
+                slotField: rec.slotField,
                 designNumber: rec.designNumber || '',
                 companyName: rec.companyName || '',
                 getBoxToken: getBoxAccessToken,
                 publicUrl
             });
-            results.push({ pkId: rec.pkId, ...r });
+            results.push({ pkId: rec.pkId, slotField: rec.slotField || 'Box_File_Mockup', ...r });
             if (r.status === 'recovered') recovered++;
         }
 
