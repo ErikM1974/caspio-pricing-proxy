@@ -69,13 +69,18 @@ function urgencyStyle(days) {
  * builder doesn't care which table they came from.
  */
 async function fetchAwaitingApprovalItems() {
+    // Exclude on-hold designs from the digest — they're customer-paused, not
+    // blocking AE action. The Is_On_Hold=0 OR IS NULL pattern handles both
+    // explicitly-resumed designs and rows that never had the flag touched.
     var artParams = {
-        'q.where':  "Status='Awaiting Approval'",
+        'q.where':  "Status='Awaiting Approval' AND (Is_On_Hold=0 OR Is_On_Hold IS NULL)",
         'q.select': 'PK_ID,ID_Design,Design_Num_SW,CompanyName,Sales_Rep,User_Email,Approval_Sent_Date,Status',
         'q.limit':  1000
     };
     // Digitizing_Mockups uses Submitted_By (the AE who submitted the form)
     // instead of User_Email, which only exists on ArtRequests.
+    // NOTE: Is_On_Hold filter NOT applied here yet — Mockups table doesn't have
+    // the field. Add filter once Caspio schema is extended (Phase: Ruth/mockups).
     var mockupParams = {
         'q.where':  "Status='Awaiting Approval'",
         'q.select': 'ID,PK_ID,Design_Number,Company_Name,Sales_Rep,Submitted_By,Approval_Sent_Date',
