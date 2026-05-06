@@ -79,10 +79,9 @@ async function fetchAwaitingApprovalItems() {
     };
     // Digitizing_Mockups uses Submitted_By (the AE who submitted the form)
     // instead of User_Email, which only exists on ArtRequests.
-    // NOTE: Is_On_Hold filter NOT applied here yet — Mockups table doesn't have
-    // the field. Add filter once Caspio schema is extended (Phase: Ruth/mockups).
+    // On-hold filter applied once Caspio schema was extended — same pattern.
     var mockupParams = {
-        'q.where':  "Status='Awaiting Approval'",
+        'q.where':  "Status='Awaiting Approval' AND (Is_On_Hold=0 OR Is_On_Hold IS NULL)",
         'q.select': 'ID,PK_ID,Design_Number,Company_Name,Sales_Rep,Submitted_By,Approval_Sent_Date',
         'q.limit':  1000
     };

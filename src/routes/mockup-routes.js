@@ -235,6 +235,16 @@ router.get('/mockups', async (req, res) => {
             whereConditions.push(`(Is_Deleted=0 OR Is_Deleted IS NULL)`);
         }
 
+        // On-hold filter — mirrors the same pattern as the ArtRequests endpoint.
+        //   ?onHold=true   → only on-hold mockups
+        //   ?onHold=false  → only NOT on-hold (active)
+        //   ?onHold=all or omitted → no filter (backwards-compatible default)
+        if (req.query.onHold === 'true') {
+            whereConditions.push(`Is_On_Hold=1`);
+        } else if (req.query.onHold === 'false') {
+            whereConditions.push(`(Is_On_Hold=0 OR Is_On_Hold IS NULL)`);
+        }
+
         if (whereConditions.length > 0) {
             params['q.where'] = whereConditions.join(' AND ');
         }
@@ -815,9 +825,48 @@ router.put('/mockups/:id', async (req, res) => {
     try {
         const { id } = req.params;
         const token = await getCaspioAccessToken();
-        const url = `${caspioApiBaseUrl}/tables/${MOCKUPS_TABLE}/records?q.where=ID=${id}`;
 
-        const resp = await axios.put(url, req.body, {
+        // Strip server-managed fields the client shouldn't be allowed to set.
+        // Mirrors the READ_ONLY_FIELDS pattern from POST /mockups (line 688).
+        // On_Hold_Since is auto-stamped server-side based on the Is_On_Hold flip
+        // (see block below) — never trust a client-supplied timestamp.
+        const READ_ONLY_FIELDS = ['PK_ID', 'ID', 'Rush_Requested_At', 'On_Hold_Since'];
+        const data = { ...req.body };
+        READ_ONLY_FIELDS.forEach(f => delete data[f]);
+
+        // ========================================================================
+        // Server-managed On_Hold_Since timestamp
+        // Auto-stamp when Is_On_Hold flips false→true; clear when true→false.
+        // Fetches current row first so duplicate PUTs (same Is_On_Hold value)
+        // don't clobber the original timestamp. Mirrors the art.js pattern.
+        // ========================================================================
+        if ('Is_On_Hold' in data) {
+            const newOnHold = data.Is_On_Hold === true
+                || data.Is_On_Hold === 1
+                || data.Is_On_Hold === 'true';
+
+            const fetchUrl = `${caspioApiBaseUrl}/tables/${MOCKUPS_TABLE}/records`
+                + `?q.where=ID=${id}&q.select=Is_On_Hold,On_Hold_Since&q.limit=1`;
+            const fetchResp = await axios.get(fetchUrl, {
+                headers: { 'Authorization': `Bearer ${token}` },
+                timeout: 15000
+            });
+            const current = (fetchResp.data?.Result || [])[0] || {};
+            const oldOnHold = current.Is_On_Hold === true || current.Is_On_Hold === 1;
+
+            if (newOnHold && !oldOnHold) {
+                data.On_Hold_Since = new Date().toISOString();
+                console.log(`  → Mockup ${id} entering hold; stamped On_Hold_Since`);
+            } else if (!newOnHold && oldOnHold) {
+                // Caspio v2 rejects '' for Date/Time clears — null is the only safe value.
+                data.On_Hold_Since = null;
+                console.log(`  → Mockup ${id} resuming from hold; cleared On_Hold_Since`);
+            }
+            // else: no actual flip, leave On_Hold_Since untouched
+        }
+
+        const url = `${caspioApiBaseUrl}/tables/${MOCKUPS_TABLE}/records?q.where=ID=${id}`;
+        const resp = await axios.put(url, data, {
             headers: {
                 'Authorization': `Bearer ${token}`,
                 'Content-Type': 'application/json'
@@ -825,7 +874,7 @@ router.put('/mockups/:id', async (req, res) => {
             timeout: 15000
         });
 
-        console.log(`Mockup ${id} updated:`, Object.keys(req.body).join(', '));
+        console.log(`Mockup ${id} updated:`, Object.keys(data).join(', '));
 
         res.json({ success: true, message: 'Mockup updated' });
 
