@@ -26,7 +26,7 @@ const express = require('express');
 const router = express.Router();
 const axios = require('axios');
 const { getCaspioAccessToken, fetchAllCaspioPages } = require('../utils/caspio');
-const { getBoxAccessToken, BOX_API_BASE } = require('../utils/box-client');
+const { getBoxAccessToken, BOX_API_BASE, resolveToProxyUrl } = require('../utils/box-client');
 const config = require('../../config');
 
 const caspioApiBaseUrl = config.caspio.apiBaseUrl;
@@ -47,6 +47,19 @@ let ruthBrokenMockupsCache = { data: null, expiresAt: 0, inFlight: null };
 const RUTH_BROKEN_CACHE_TTL_MS = 10 * 60 * 1000;
 function invalidateRuthBrokenMockupsCache() {
     ruthBrokenMockupsCache = { data: null, expiresAt: 0, inFlight: null };
+}
+
+// URL-shape helpers — kept in sync with the matching pair in box-upload.js
+// (intentional duplicate to avoid a circular require during route registration).
+function isLikelyMockupUrl(u) {
+    return /(?:\/api\/box\/thumbnail\/|box\.com\/(?:shared\/static\/|s\/|file\/))/i.test(u);
+}
+function extractFileId(u) {
+    let m = u.match(/\/api\/box\/thumbnail\/(\d+)/);
+    if (m) return m[1];
+    m = u.match(/\/file\/(\d+)/);
+    if (m) return m[1];
+    return null;
 }
 
 // ── In-Memory Caches (1-hour TTL) ───────────────────────────────────
@@ -380,22 +393,28 @@ router.get('/mockups/broken-mockups', async (req, res) => {
         const defaultSince = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
             .toISOString().split('T')[0];
         const sinceDate = req.query.since || defaultSince;
-        const statusFilter = (req.query.status
-            || 'Submitted,In Progress,Awaiting Approval,Revision Requested')
-            .split(',').map(s => s.trim()).filter(Boolean);
+        // Pass `?status=all` to scan everything — needed by Ruth's chip count
+        // so it matches what's visible in the UI (which renders all statuses).
+        const includeAll = String(req.query.status || '').toLowerCase() === 'all';
+        const statusFilter = includeAll
+            ? null
+            : (req.query.status || 'Submitted,In Progress,Awaiting Approval,Revision Requested')
+                .split(',').map(s => s.trim()).filter(Boolean);
         const limit = Math.min(parseInt(req.query.limit, 10) || 500, 1000);
 
         // 1. Pull candidates from Caspio
         const caspioToken = await getCaspioAccessToken();
-        const statusesSQL = statusFilter.map(s => `'${s.replace(/'/g, "''")}'`).join(',');
         // Submitted_Date can be null on older / pre-form records (Caspio
         // imports, manual rows). Null-tolerant date filter so those rows
         // still get checked — otherwise they're invisible to the scan
         // forever (real case 2026-04-27: Nika's mockup #63 had null
         // Submitted_Date and broken Box_Reference_File but never appeared).
-        const where = `Status IN (${statusesSQL})`
-            + ` AND (Submitted_Date>='${sinceDate}' OR Submitted_Date IS NULL)`
+        let where = `(Submitted_Date>='${sinceDate}' OR Submitted_Date IS NULL)`
             + ` AND (Is_Deleted=0 OR Is_Deleted IS NULL)`;
+        if (statusFilter) {
+            const statusesSQL = statusFilter.map(s => `'${s.replace(/'/g, "''")}'`).join(',');
+            where = `Status IN (${statusesSQL}) AND ${where}`;
+        }
         // Note: Digitizing_Mockups uses `Submitted_By` (not `User_Email` like
         // ArtRequests). Steve's broken-mockups query falls back to User_Email
         // when Sales_Rep is empty; here we fall back to Submitted_By.
@@ -414,62 +433,64 @@ router.get('/mockups/broken-mockups', async (req, res) => {
         });
         const records = resp.data.Result || [];
 
-        // 2. Collect unique fileIds → list of {record, field}
-        const fileIdMap = new Map();
+        // 2. Collect every URL we should HEAD-check, regardless of format.
+        // (See box-upload.js for the matching Steve-side fix and rationale —
+        // legacy /shared/static/ URLs were silently skipped before, and the
+        // /files/{id} HEAD method gave false-clean readings for files whose
+        // metadata is accessible but whose thumbnail is not.)
+        const checkList = [];           // [{record, field, url, fileId|null}]
+        const seenUrls = new Set();
         for (const rec of records) {
             for (const field of RUTH_MOCKUP_SLOT_FIELDS) {
                 const url = rec[field];
                 if (!url || typeof url !== 'string') continue;
-                const m = url.match(/\/api\/box\/thumbnail\/(\d+)/);
-                if (!m) continue;
-                const fileId = m[1];
-                if (!fileIdMap.has(fileId)) fileIdMap.set(fileId, []);
-                fileIdMap.get(fileId).push({ record: rec, field });
+                if (!isLikelyMockupUrl(url)) continue;
+                checkList.push({ record: rec, field, url, fileId: extractFileId(url) });
+                seenUrls.add(url);
             }
         }
 
-        // 3. HEAD each fileId in batches (concurrency 10)
-        const fileIds = Array.from(fileIdMap.keys());
-        const brokenFileIds = new Set();
+        // 3. HEAD each URL itself (browser-equivalent check). 404 = broken;
+        //    other statuses (timeouts/5xx/429/401/403) = unknown, skip.
         const concurrency = 10;
-        const boxToken = await getBoxAccessToken();
-
-        for (let i = 0; i < fileIds.length; i += concurrency) {
-            const batch = fileIds.slice(i, i + concurrency);
-            const batchResults = await Promise.allSettled(batch.map(id =>
-                axios.head(`${BOX_API_BASE}/files/${id}`, {
-                    headers: { 'Authorization': `Bearer ${boxToken}` },
-                    timeout: 8000,
+        const brokenIdx = new Set();
+        for (let i = 0; i < checkList.length; i += concurrency) {
+            const batch = checkList.slice(i, i + concurrency);
+            const batchResults = await Promise.allSettled(batch.map(item =>
+                axios.head(item.url, {
+                    timeout: 10000,
+                    maxRedirects: 5,
                     validateStatus: () => true
                 })
             ));
-            batchResults.forEach((r, idx) => {
-                // Only flag clean 404s; timeouts/5xx/429 are unknown — don't false-alarm.
+            batchResults.forEach((r, j) => {
                 if (r.status === 'fulfilled' && r.value.status === 404) {
-                    brokenFileIds.add(batch[idx]);
+                    brokenIdx.add(i + j);
                 }
             });
         }
 
         // 4. Group broken hits by record (one row may have multiple broken slots)
         const brokenById = new Map();
-        for (const fileId of brokenFileIds) {
-            const refs = fileIdMap.get(fileId) || [];
-            for (const ref of refs) {
-                const id = ref.record.ID;
-                if (!brokenById.has(id)) {
-                    brokenById.set(id, {
-                        id,
-                        designNumber: ref.record.Design_Number || '',
-                        companyName: ref.record.Company_Name || '',
-                        salesRep: ref.record.Sales_Rep || ref.record.Submitted_By || '',
-                        status: ref.record.Status || '',
-                        submittedDate: ref.record.Submitted_Date,
-                        brokenSlots: []
-                    });
-                }
-                brokenById.get(id).brokenSlots.push({ field: ref.field, fileId });
+        for (const idx of brokenIdx) {
+            const item = checkList[idx];
+            const id = item.record.ID;
+            if (!brokenById.has(id)) {
+                brokenById.set(id, {
+                    id,
+                    designNumber: item.record.Design_Number || '',
+                    companyName: item.record.Company_Name || '',
+                    salesRep: item.record.Sales_Rep || item.record.Submitted_By || '',
+                    status: item.record.Status || '',
+                    submittedDate: item.record.Submitted_Date,
+                    brokenSlots: []
+                });
             }
+            brokenById.get(id).brokenSlots.push({
+                field: item.field,
+                fileId: item.fileId,
+                url: item.url
+            });
         }
 
         const results = Array.from(brokenById.values())
@@ -477,10 +498,10 @@ router.get('/mockups/broken-mockups', async (req, res) => {
 
         return {
             checked: records.length,
-            uniqueFileIds: fileIds.length,
+            uniqueFileIds: seenUrls.size,
             broken: results.length,
             cachedAt: new Date().toISOString(),
-            params: { status: statusFilter, since: sinceDate, limit },
+            params: { status: statusFilter || 'all', since: sinceDate, limit },
             results
         };
     })();
@@ -833,6 +854,24 @@ router.put('/mockups/:id', async (req, res) => {
         const READ_ONLY_FIELDS = ['PK_ID', 'ID', 'Rush_Requested_At', 'On_Hold_Since'];
         const data = { ...req.body };
         READ_ONLY_FIELDS.forEach(f => delete data[f]);
+
+        // Convert any incoming Box mockup-slot URLs from legacy Box formats
+        // (`box.com/shared/static/`, `box.com/s/`, `box.com/file/`) into our
+        // stable proxy URL format (`/api/box/thumbnail/{fileId}`). Mirrors the
+        // matching guard in box-upload.js's /upload-mockup-url. Without this,
+        // Ruth's Box file picker writes legacy URLs into Box_Mockup_N fields
+        // that go fragile over time. Soft-fails per field — bad URL stays as
+        // submitted, good ones get upgraded.
+        const origin = config.app?.publicUrl || `${req.protocol}://${req.get('host')}`;
+        for (const slotField of RUTH_MOCKUP_SLOT_FIELDS) {
+            if (typeof data[slotField] === 'string' && data[slotField]) {
+                const upgraded = await resolveToProxyUrl(data[slotField], origin);
+                if (upgraded !== data[slotField]) {
+                    console.log(`[PUT /mockups/${id}] Upgraded ${slotField} legacy URL → proxy URL`);
+                    data[slotField] = upgraded;
+                }
+            }
+        }
 
         // ========================================================================
         // Server-managed On_Hold_Since timestamp
@@ -1304,3 +1343,5 @@ router.get('/thread-colors', async (req, res) => {
 // NOTE: /api/locations endpoint is handled by misc.js (supports comma-separated ?type=EMB,CAP)
 
 module.exports = router;
+// Exposed so box-webhooks.js can bust Ruth's broken-mockups cache after recovering a file.
+module.exports.invalidateRuthBrokenMockupsCache = invalidateRuthBrokenMockupsCache;

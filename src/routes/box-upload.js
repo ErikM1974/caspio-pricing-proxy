@@ -11,6 +11,7 @@ const multer = require('multer');
 const FormData = require('form-data');
 const { Readable } = require('stream');
 const { getCaspioAccessToken } = require('../utils/caspio');
+const { resolveToProxyUrl } = require('../utils/box-client');
 const config = require('../../config');
 
 // ── Config ────────────────────────────────────────────────────────────
@@ -1202,6 +1203,33 @@ let brokenMockupsCache = { data: null, expiresAt: 0, inFlight: null };
 const BROKEN_CACHE_TTL_MS = 10 * 60 * 1000;
 
 /**
+ * Decide whether a stored URL is one we should HEAD-check as a Box mockup.
+ * Covers the four URL shapes that have ever been written to ArtRequests
+ * mockup fields:
+ *   • /api/box/thumbnail/{id}              — modern proxy URL (default since v?)
+ *   • box.com/shared/static/{token}.{ext}  — legacy CDN static link
+ *   • box.com/file/{numericId}             — direct file URL (rare manual paste)
+ *   • box.com/s/{token}                    — shared link short URL
+ * Anything else (data: URLs, blank, non-HTTP, third-party CDNs) is skipped.
+ */
+function isLikelyMockupUrl(u) {
+    return /(?:\/api\/box\/thumbnail\/|box\.com\/(?:shared\/static\/|s\/|file\/))/i.test(u);
+}
+
+/**
+ * Pull a numeric Box fileId out of a URL when one is present.
+ * Returns null for shared-link tokens (those need a /shared_items resolution
+ * roundtrip to get a fileId — out of scope for the broken-mockups scanner).
+ */
+function extractFileId(u) {
+    let m = u.match(/\/api\/box\/thumbnail\/(\d+)/);
+    if (m) return m[1];
+    m = u.match(/\/file\/(\d+)/);
+    if (m) return m[1];
+    return null;
+}
+
+/**
  * GET /api/art-requests/broken-mockups
  *
  * Scans active ArtRequests (default: last 90 days, non-Completed statuses) and
@@ -1239,17 +1267,27 @@ router.get('/art-requests/broken-mockups', async (req, res) => {
     const scanPromise = (async () => {
         const defaultSince = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
         const sinceDate = req.query.since || defaultSince;
-        const statusFilter = (req.query.status || 'Submitted,In Progress,Awaiting Approval,Revision Requested')
-            .split(',').map(s => s.trim()).filter(Boolean);
+        // Status filter: default to active states (digest doesn't email Steve about completed jobs).
+        // Pass `?status=all` to scan everything — needed by the Steve gallery's chip count
+        // so it matches what's actually visible in the UI (which renders all statuses).
+        const includeAll = String(req.query.status || '').toLowerCase() === 'all';
+        const statusFilter = includeAll
+            ? null
+            : (req.query.status || 'Submitted,In Progress,Awaiting Approval,Revision Requested')
+                .split(',').map(s => s.trim()).filter(Boolean);
         const limit = Math.min(parseInt(req.query.limit, 10) || 500, 1000);
         const fields = ['Box_File_Mockup', 'BoxFileLink', 'Company_Mockup', 'Additional_Art_1', 'Additional_Art_2'];
 
         // 1. Pull candidate ArtRequests from Caspio
         const caspioToken = await getCaspioAccessToken();
-        const statusesSQL = statusFilter.map(s => `'${s.replace(/'/g, "''")}'`).join(',');
+        let whereClause = `Date_Created>='${sinceDate}'`;
+        if (statusFilter) {
+            const statusesSQL = statusFilter.map(s => `'${s.replace(/'/g, "''")}'`).join(',');
+            whereClause = `Status IN (${statusesSQL}) AND ${whereClause}`;
+        }
         const resp = await axios.get(`${config.caspio.apiBaseUrl}/tables/ArtRequests/records`, {
             params: {
-                'q.where': `Status IN (${statusesSQL}) AND Date_Created>='${sinceDate}'`,
+                'q.where': whereClause,
                 // Design_Num_SW is needed by the auto-recover route for Box folder
                 // matching (Steve's folders are named "{Design_Num_SW} {Company}").
                 // ID_Design is the surrogate ArtRequests primary key, not the
@@ -1263,63 +1301,79 @@ router.get('/art-requests/broken-mockups', async (req, res) => {
         });
         const records = resp.data.Result || [];
 
-        // 2. Collect unique fileIds mapped back to their referencing records/slots
-        const fileIdMap = new Map(); // fileId -> [{record, field}, ...]
+        // 2. Collect every URL that *could* be a Box mockup, regardless of format.
+        //
+        // The previous implementation only matched modern proxy URLs
+        // (`/api/box/thumbnail/{numericId}`) — silently skipping legacy formats
+        // (`box.com/shared/static/`, `box.com/file/`, `box.com/s/`) that the browser
+        // still tries to load. Those records would render as "Link broken" in the
+        // UI but report as healthy here, hiding real breakage. We now check the
+        // URL exactly as stored — whatever its format — by HEADing the URL itself.
+        //
+        // For each entry we keep the URL (for HEAD), an extracted fileId when one
+        // is present (modern proxy + /file/ direct URLs), and the source field
+        // so we can group results back per record + slot.
+        const checkList = []; // [{record, field, url, fileId|null}]
+        const seenUrls = new Set(); // dedupe across slot reuse / cross-record dupes
         for (const rec of records) {
             for (const field of fields) {
                 const url = rec[field];
                 if (!url || typeof url !== 'string') continue;
-                const m = url.match(/\/api\/box\/thumbnail\/(\d+)/);
-                if (!m) continue;
-                const fileId = m[1];
-                if (!fileIdMap.has(fileId)) fileIdMap.set(fileId, []);
-                fileIdMap.get(fileId).push({ record: rec, field });
+                if (!isLikelyMockupUrl(url)) continue;
+                checkList.push({ record: rec, field, url, fileId: extractFileId(url) });
+                seenUrls.add(url);
             }
         }
 
-        // 3. HEAD each fileId in batches (Box recommends staying well below its rate limits)
-        const fileIds = Array.from(fileIdMap.keys());
-        const brokenFileIds = new Set();
+        // 3. HEAD each URL in batches. We HEAD the URL *itself* (browser-equivalent),
+        //    not Box's metadata endpoint — the metadata endpoint can return 200 for
+        //    files whose thumbnail/content fetch returns 404 (permission scoping in Box),
+        //    causing the previous false-clean readings (verified 2026-05-06 against
+        //    AutoShield #40402, Destiny Empowerment #40388 et al).
         const concurrency = 10;
-        const boxToken = await getBoxAccessToken();
-
-        for (let i = 0; i < fileIds.length; i += concurrency) {
-            const batch = fileIds.slice(i, i + concurrency);
-            const results = await Promise.allSettled(batch.map(id =>
-                axios.head(`${BOX_API_BASE}/files/${id}`, {
-                    headers: { 'Authorization': `Bearer ${boxToken}` },
-                    timeout: 8000,
+        const brokenIdx = new Set();
+        for (let i = 0; i < checkList.length; i += concurrency) {
+            const batch = checkList.slice(i, i + concurrency);
+            const headResults = await Promise.allSettled(batch.map(item =>
+                axios.head(item.url, {
+                    timeout: 10000,
+                    maxRedirects: 5,
                     validateStatus: () => true
                 })
             ));
-            results.forEach((r, idx) => {
-                // Only flag on a clean 404. Timeouts, 5xx, 429 = unknown; skip (don't false-alarm).
+            headResults.forEach((r, j) => {
+                // Only flag on a clean 404. Timeouts, 5xx, 429, 401, 403 = unknown — skip
+                // (don't false-alarm). Modern proxy URLs return 404 cleanly when Box can't
+                // serve the thumbnail; legacy /shared/static/ URLs return 404 from Box's CDN
+                // when the shared link is dead.
                 if (r.status === 'fulfilled' && r.value.status === 404) {
-                    brokenFileIds.add(batch[idx]);
+                    brokenIdx.add(i + j);
                 }
             });
         }
 
         // 4. Group broken hits by ArtRequest record (one record may have multiple broken slots)
         const brokenByPkId = new Map();
-        for (const fileId of brokenFileIds) {
-            const refs = fileIdMap.get(fileId) || [];
-            for (const ref of refs) {
-                const pkId = ref.record.PK_ID;
-                if (!brokenByPkId.has(pkId)) {
-                    brokenByPkId.set(pkId, {
-                        pkId,
-                        designId: ref.record.ID_Design,
-                        designNumSw: ref.record.Design_Num_SW || '',
-                        companyName: ref.record.CompanyName || '',
-                        salesRep: ref.record.Sales_Rep || ref.record.User_Email || '',
-                        status: ref.record.Status || '',
-                        dateCreated: ref.record.Date_Created,
-                        brokenSlots: []
-                    });
-                }
-                brokenByPkId.get(pkId).brokenSlots.push({ field: ref.field, fileId });
+        for (const idx of brokenIdx) {
+            const item = checkList[idx];
+            const pkId = item.record.PK_ID;
+            if (!brokenByPkId.has(pkId)) {
+                brokenByPkId.set(pkId, {
+                    pkId,
+                    designId: item.record.ID_Design,
+                    designNumSw: item.record.Design_Num_SW || '',
+                    companyName: item.record.CompanyName || '',
+                    salesRep: item.record.Sales_Rep || item.record.User_Email || '',
+                    status: item.record.Status || '',
+                    dateCreated: item.record.Date_Created,
+                    brokenSlots: []
+                });
             }
+            brokenByPkId.get(pkId).brokenSlots.push({
+                field: item.field,
+                fileId: item.fileId,    // null for legacy shared-link tokens
+                url: item.url           // legacy URL preserved so frontend can show what's stored
+            });
         }
 
         const results = Array.from(brokenByPkId.values())
@@ -1327,10 +1381,10 @@ router.get('/art-requests/broken-mockups', async (req, res) => {
 
         return {
             checked: records.length,
-            uniqueFileIds: fileIds.length,
+            uniqueFileIds: seenUrls.size,   // legacy field name kept; now means "unique URLs scanned"
             broken: results.length,
             cachedAt: new Date().toISOString(),
-            params: { status: statusFilter, since: sinceDate, limit },
+            params: { status: statusFilter || 'all', since: sinceDate, limit },
             results
         };
     })();
@@ -1524,13 +1578,28 @@ router.post('/art-requests/:designId/upload-mockup-url', async (req, res) => {
         if (!slotField) {
             return res.status(409).json({ success: false, error: 'All mockup slots full', code: 'SLOTS_FULL' });
         }
-        await saveMockupUrlToCaspio(pkId, slotField, url);
 
-        // Fire-and-forget: AI vision analysis from URL
+        // Convert legacy Box URLs (shared/static, /s/ short links, /file/{id})
+        // into our stable proxy URL format BEFORE writing Caspio. The Box file
+        // picker creates `box.com/shared/static/{token}.{ext}` URLs that are
+        // fragile (token can revoke / file move dies). The proxy URL is keyed
+        // on numeric fileId and survives those changes. See utils/box-client.js
+        // resolveToProxyUrl for the full conversion table. Soft-fails to
+        // saving the original URL if Box can't resolve the token.
+        const origin = config.app?.publicUrl || `${req.protocol}://${req.get('host')}`;
+        const urlToSave = await resolveToProxyUrl(url, origin);
+        if (urlToSave !== url) {
+            console.log(`[upload-mockup-url] Upgraded legacy URL → proxy URL for pkId=${pkId}`);
+        }
+
+        await saveMockupUrlToCaspio(pkId, slotField, urlToSave);
+
+        // Fire-and-forget: AI vision analysis from URL (use upgraded URL — proxy
+        // URL is more reliably reachable from the vision worker).
         try {
             const { analyzeMockupFromUrl } = require('../utils/mockup-vision');
             const { designId } = req.params;
-            analyzeMockupFromUrl(url, {
+            analyzeMockupFromUrl(urlToSave, {
                 designId,
                 slotField,
             }).catch(err => console.warn('[Vision] URL analysis failed (non-blocking):', err.message));
@@ -1538,7 +1607,7 @@ router.post('/art-requests/:designId/upload-mockup-url', async (req, res) => {
             console.warn('[Vision] Module load failed (non-blocking):', visionErr.message);
         }
 
-        res.json({ success: true, field: slotField, url });
+        res.json({ success: true, field: slotField, url: urlToSave });
     } catch (err) {
         console.error('Save mockup URL error:', err.message);
         res.status(500).json({ success: false, error: 'Failed to save URL: ' + err.message });
@@ -2147,3 +2216,7 @@ router.get('/box/shared-image', async (req, res) => {
 });
 
 module.exports = router;
+// Exposed so box-webhooks.js can bust the broken-mockups cache after
+// recovering a file (otherwise digests + dashboards stay stale up to 10 min).
+module.exports.invalidateBrokenMockupsCache = invalidateBrokenMockupsCache;
+module.exports.findBoxFileReferences = findBoxFileReferences;

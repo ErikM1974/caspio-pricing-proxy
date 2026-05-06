@@ -27,7 +27,13 @@ let caspioAccessToken = null;
 let tokenExpiryTime = 0;
 
 // --- Middleware ---
-app.use(express.json({ limit: '10mb' })); // Parse JSON bodies with 10MB limit (for file uploads)
+// `verify` stashes raw bytes on req.rawBody so signature-checking routes
+// (e.g. /api/box/webhook for Box webhooks v2) can recompute the HMAC.
+// Trivial overhead for non-signed routes.
+app.use(express.json({
+    limit: '10mb',
+    verify: (req, res, buf) => { req.rawBody = buf; }
+})); // Parse JSON bodies with 10MB limit (for file uploads)
 app.use(express.static('.')); // Serve static files from the current directory
 
 // CORS Middleware - Using config settings
@@ -337,6 +343,13 @@ console.log('✓ Box upload routes loaded');
 const mockupRoutes = require('./src/routes/mockup-routes');
 app.use('/api', mockupRoutes);
 console.log('✓ Digitizing Mockup routes loaded');
+
+// Box Webhooks (Layer 2 of Box link-stability plan)
+// Receives FILE.TRASHED / FILE.DELETED / ITEM.MOVED events from Box and
+// auto-recovers any Caspio mockup rows that referenced the affected fileId.
+const boxWebhookRoutes = require('./src/routes/box-webhooks');
+app.use('/api', boxWebhookRoutes);
+console.log('✓ Box webhook routes loaded');
 
 // Transfer Orders Routes (Bradley's Supacolor workflow — heat-transfer subcontractor)
 const transferOrdersRoutes = require('./src/routes/transfer-orders');

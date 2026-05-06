@@ -190,6 +190,7 @@ async function recoverBrokenMockup(opts) {
         return { status: 'error', error: 'getBoxToken function required' };
     }
 
+    let result;
     try {
         const boxToken = await getBoxToken();
 
@@ -199,50 +200,79 @@ async function recoverBrokenMockup(opts) {
             boxToken
         });
         if (!folder) {
-            return { status: 'no-folder' };
+            result = { status: 'no-folder' };
+        } else {
+            const pick = await pickImage({
+                folder,
+                designNumber: String(designNumber).trim(),
+                boxToken
+            });
+
+            if (pick.reason === 'NO_IMAGE') {
+                result = {
+                    status: 'empty-folder',
+                    folder: { id: folder.id, name: folder.name }
+                };
+            } else if (!pick.file) {
+                result = {
+                    status: 'no-match',
+                    folder: { id: folder.id, name: folder.name },
+                    candidates: pick.candidates || []
+                };
+            } else {
+                const base = publicUrl
+                    || (config.app && config.app.publicUrl)
+                    || FALLBACK_PROXY_BASE;
+                const newUrl = `${base.replace(/\/$/, '')}/api/box/thumbnail/${pick.file.id}`;
+
+                if (!dryRun) {
+                    await updateBoxFileMockup({ pkId, newUrl });
+                }
+
+                result = {
+                    status: 'recovered',
+                    newUrl,
+                    newFileId: pick.file.id,
+                    newFileName: pick.file.name,
+                    confidence: pick.confidence,
+                    folder: { id: folder.id, name: folder.name },
+                    dryRun: !!dryRun
+                };
+            }
         }
-
-        const pick = await pickImage({
-            folder,
-            designNumber: String(designNumber).trim(),
-            boxToken
-        });
-
-        if (pick.reason === 'NO_IMAGE') {
-            return {
-                status: 'empty-folder',
-                folder: { id: folder.id, name: folder.name }
-            };
-        }
-        if (!pick.file) {
-            return {
-                status: 'no-match',
-                folder: { id: folder.id, name: folder.name },
-                candidates: pick.candidates || []
-            };
-        }
-
-        const base = publicUrl
-            || (config.app && config.app.publicUrl)
-            || FALLBACK_PROXY_BASE;
-        const newUrl = `${base.replace(/\/$/, '')}/api/box/thumbnail/${pick.file.id}`;
-
-        if (!dryRun) {
-            await updateBoxFileMockup({ pkId, newUrl });
-        }
-
-        return {
-            status: 'recovered',
-            newUrl,
-            newFileId: pick.file.id,
-            newFileName: pick.file.name,
-            confidence: pick.confidence,
-            folder: { id: folder.id, name: folder.name },
-            dryRun: !!dryRun
-        };
     } catch (err) {
-        return { status: 'error', error: err.message || String(err) };
+        result = { status: 'error', error: err.message || String(err) };
     }
+
+    // Fire-and-forget Slack ping (via Zapier) when recovery failed. Skipped
+    // when dryRun (we don't want backfill scripts to spam Steve), when the
+    // env var is unset, or when the dedup window is still hot. See
+    // src/utils/zapier-broken-mockup-notify.js. Never throws.
+    if (!dryRun && result && result.status !== 'recovered') {
+        try {
+            const { notifyBrokenMockup } = require('./zapier-broken-mockup-notify');
+            const base = publicUrl
+                || (config.app && config.app.publicUrl)
+                || FALLBACK_PROXY_BASE;
+            const detailUrl = `${base.replace(/\/$/, '')}/art-request/${pkId}`;
+            // Don't await — caller doesn't need to block on Zapier latency.
+            notifyBrokenMockup({
+                designNumber: String(designNumber),
+                companyName: companyName || '',
+                pkId,
+                table: 'ArtRequests',
+                slotField: 'Box_File_Mockup',
+                detailUrl,
+                reason: result.status,
+                error: result.error || null
+            }).catch(() => { /* notify already swallows errors, this is belt+suspenders */ });
+        } catch (notifyLoadErr) {
+            // If the notify module fails to load, don't break recovery.
+            console.warn('[recover-broken-mockup] notify module load failed:', notifyLoadErr.message);
+        }
+    }
+
+    return result;
 }
 
 module.exports = {

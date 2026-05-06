@@ -212,6 +212,7 @@ async function recoverBrokenRuthMockup(opts) {
         return { status: 'error', slotField, error: 'getBoxToken function required' };
     }
 
+    let result;
     try {
         const boxToken = await getBoxToken();
 
@@ -221,53 +222,78 @@ async function recoverBrokenRuthMockup(opts) {
             boxToken
         });
         if (!folder) {
-            return { status: 'no-folder', slotField };
+            result = { status: 'no-folder', slotField };
+        } else {
+            const pick = await pickImage({
+                folder,
+                designNumber: String(designNumber).trim(),
+                boxToken
+            });
+
+            if (pick.reason === 'NO_IMAGE') {
+                result = {
+                    status: 'empty-folder',
+                    slotField,
+                    folder: { id: folder.id, name: folder.name }
+                };
+            } else if (!pick.file) {
+                result = {
+                    status: 'no-match',
+                    slotField,
+                    folder: { id: folder.id, name: folder.name },
+                    candidates: pick.candidates || []
+                };
+            } else {
+                const base = publicUrl
+                    || (config.app && config.app.publicUrl)
+                    || FALLBACK_PROXY_BASE;
+                const newUrl = `${base.replace(/\/$/, '')}/api/box/thumbnail/${pick.file.id}`;
+
+                if (!dryRun) {
+                    await updateMockupSlot({ id, slotField, newUrl, boxFolderId: folder.id });
+                }
+
+                result = {
+                    status: 'recovered',
+                    slotField,
+                    newUrl,
+                    newFileId: pick.file.id,
+                    newFileName: pick.file.name,
+                    confidence: pick.confidence,
+                    folder: { id: folder.id, name: folder.name },
+                    dryRun: !!dryRun
+                };
+            }
         }
-
-        const pick = await pickImage({
-            folder,
-            designNumber: String(designNumber).trim(),
-            boxToken
-        });
-
-        if (pick.reason === 'NO_IMAGE') {
-            return {
-                status: 'empty-folder',
-                slotField,
-                folder: { id: folder.id, name: folder.name }
-            };
-        }
-        if (!pick.file) {
-            return {
-                status: 'no-match',
-                slotField,
-                folder: { id: folder.id, name: folder.name },
-                candidates: pick.candidates || []
-            };
-        }
-
-        const base = publicUrl
-            || (config.app && config.app.publicUrl)
-            || FALLBACK_PROXY_BASE;
-        const newUrl = `${base.replace(/\/$/, '')}/api/box/thumbnail/${pick.file.id}`;
-
-        if (!dryRun) {
-            await updateMockupSlot({ id, slotField, newUrl, boxFolderId: folder.id });
-        }
-
-        return {
-            status: 'recovered',
-            slotField,
-            newUrl,
-            newFileId: pick.file.id,
-            newFileName: pick.file.name,
-            confidence: pick.confidence,
-            folder: { id: folder.id, name: folder.name },
-            dryRun: !!dryRun
-        };
     } catch (err) {
-        return { status: 'error', slotField, error: err.message || String(err) };
+        result = { status: 'error', slotField, error: err.message || String(err) };
     }
+
+    // Fire-and-forget Slack ping (via Zapier) when recovery failed. See
+    // recover-broken-mockup.js for the matching Steve flow.
+    if (!dryRun && result && result.status !== 'recovered') {
+        try {
+            const { notifyBrokenMockup } = require('./zapier-broken-mockup-notify');
+            const base = publicUrl
+                || (config.app && config.app.publicUrl)
+                || FALLBACK_PROXY_BASE;
+            const detailUrl = `${base.replace(/\/$/, '')}/mockup/${id}`;
+            notifyBrokenMockup({
+                designNumber: String(designNumber),
+                companyName: companyName || '',
+                pkId: id,
+                table: 'Digitizing_Mockups',
+                slotField,
+                detailUrl,
+                reason: result.status,
+                error: result.error || null
+            }).catch(() => { /* notify already swallows errors */ });
+        } catch (notifyLoadErr) {
+            console.warn('[recover-broken-ruth-mockup] notify module load failed:', notifyLoadErr.message);
+        }
+    }
+
+    return result;
 }
 
 module.exports = {

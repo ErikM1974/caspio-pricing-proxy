@@ -202,6 +202,73 @@ function parseBoxFileUrl(input) {
     return null;
 }
 
+// ── URL Format Conversion ──────────────────────────────────────────────
+
+/**
+ * Convert any incoming Box-related URL (legacy or modern) into our proxy URL
+ * format `/api/box/thumbnail/{fileId}`. The proxy URL is stable forever — it's
+ * keyed on the Box numeric fileId, which doesn't change when the file is
+ * renamed, version-replaced, or moved within the watched tree.
+ *
+ * Why this exists: the Box file picker on Steve + Ruth's dashboards calls
+ * `POST /api/box/shared-link` to create a shared link, then writes the
+ * resulting `box.com/shared/static/{token}.{ext}` URL straight into Caspio.
+ * Shared link tokens revoke / expire / break when files move — the URL stops
+ * resolving even though the file is still in Box. Modern proxy URLs (written
+ * by direct file-upload paths since v?) don't have this problem.
+ *
+ * Resolution rules:
+ *   • Already a proxy URL (`/api/box/thumbnail/...`) → returned as-is
+ *   • Box direct file URL (`box.com/file/{id}`)     → fileId extracted, proxy URL built
+ *   • Box shared link short URL (`box.com/s/{tok}`)  → resolved via /shared_items → proxy URL
+ *   • Box CDN static URL (`box.com/shared/static/{tok}.{ext}`) → token used to build a
+ *     canonical shared link URL → resolved via /shared_items → proxy URL
+ *   • Anything else (non-Box URL, malformed) → returned unchanged (caller decides)
+ *
+ * Failure modes are all soft — if Box can't resolve a token (revoked, deleted),
+ * the original URL is returned. Callers should NOT rely on the return value
+ * always being a proxy URL — they should treat it as "best effort upgrade."
+ *
+ * @param {string} url - incoming URL (any format)
+ * @param {string} originHint - base URL for proxy URL construction (e.g. https://caspio-pricing-proxy-...herokuapp.com)
+ * @returns {Promise<string>} converted URL or original on failure
+ */
+async function resolveToProxyUrl(url, originHint) {
+    if (!url || typeof url !== 'string') return url;
+
+    // Already modern? Done.
+    if (url.indexOf('/api/box/thumbnail/') !== -1) return url;
+
+    const parsed = parseBoxFileUrl(url);
+    if (!parsed) return url; // Not a Box URL we understand — pass through
+
+    const base = String(originHint || '').replace(/\/$/, '');
+    if (!base) return url; // No origin to build proxy URL with
+
+    // Direct file URL — fileId is right there
+    if (parsed.kind === 'direct' && parsed.fileId) {
+        return `${base}/api/box/thumbnail/${parsed.fileId}`;
+    }
+
+    // Shared link or CDN static URL — must resolve token via /shared_items
+    if (parsed.kind === 'shared' || parsed.kind === 'static') {
+        // For 'static' the parsed object only has sharedToken; build canonical /s/{tok}.
+        // Box's /shared_items endpoint requires the canonical URL, not the CDN URL.
+        const canonicalSharedUrl = parsed.sharedUrl
+            || `https://northwestcustomapparel.app.box.com/s/${parsed.sharedToken}`;
+        try {
+            const item = await boxResolveSharedLink(canonicalSharedUrl);
+            if (item && item.id) {
+                return `${base}/api/box/thumbnail/${item.id}`;
+            }
+        } catch (err) {
+            console.warn(`[resolveToProxyUrl] Failed to resolve ${canonicalSharedUrl}: ${err.message}`);
+        }
+    }
+
+    return url; // Couldn't upgrade — return original, caller saves what they had
+}
+
 module.exports = {
     BOX_API_BASE,
     getBoxAccessToken,
@@ -209,5 +276,6 @@ module.exports = {
     boxGetFileInfo,
     boxFetchFileBytes,
     boxResolveSharedLink,
-    parseBoxFileUrl
+    parseBoxFileUrl,
+    resolveToProxyUrl
 };
