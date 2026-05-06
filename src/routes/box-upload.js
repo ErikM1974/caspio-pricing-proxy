@@ -1230,6 +1230,85 @@ function extractFileId(u) {
 }
 
 /**
+ * True for legacy box.com CDN URLs whose HEAD response cannot be trusted.
+ *
+ * Discovered 2026-05-06: Box's CDN returns HTTP 404 to HEAD requests on
+ * `box.com/shared/static/{token}.{ext}` URLs even when the file exists and
+ * GET returns 200 with the real bytes. Verified against multiple records
+ * (SV Shotcrete #39792.01 BoxFileLink, several Ruth Box_Mockup_* slots).
+ *
+ * Affects all 3 legacy Box URL shapes the picker / manual-paste flows have
+ * historically written. Modern proxy URLs (`/api/box/thumbnail/{id}`) do NOT
+ * have this asymmetry — our own thumbnail proxy respects HEAD properly.
+ *
+ * Used by checkUrlReachable() below to trigger a GET retry when HEAD says
+ * 404 — without this, the broken-mockups scan false-positives every legacy
+ * URL in the system, then the auto-recovery script "heals" working files
+ * unnecessarily and Slack DMs Steve about records that look fine to him.
+ */
+function isLegacyBoxCdnUrl(url) {
+    return /\bbox\.com\/(?:shared\/static\/|s\/|file\/)/i.test(url);
+}
+
+/**
+ * Check whether a stored mockup URL is actually reachable. Returns the final
+ * HTTP status (after any HEAD-then-GET retry).
+ *
+ * Strategy:
+ *   1. HEAD the URL — fast, no body transfer.
+ *   2. If status === 200 → reachable, done.
+ *   3. If status === 404 AND the URL is a legacy Box CDN URL → retry GET
+ *      with a Range request (1 KB max) to work around Box's HEAD-lies bug.
+ *      Whatever GET returns becomes the final answer.
+ *   4. Otherwise (modern proxy URL, or non-404 HEAD) → trust the HEAD result.
+ *
+ * GET fallback uses Range: bytes=0-1023 so we transfer at most ~1 KB per
+ * verification, even for multi-MB files. Perf cost: ~+50ms per legacy URL
+ * that 404s on HEAD. Acceptable.
+ */
+async function checkUrlReachable(url) {
+    let head;
+    try {
+        head = await axios.head(url, {
+            timeout: 10000,
+            maxRedirects: 5,
+            validateStatus: () => true
+        });
+    } catch (err) {
+        // Network failure — treat as unknown, NOT broken (per existing policy).
+        return { status: 0, method: 'head', error: err.message };
+    }
+
+    // HEAD succeeded with non-404 → trust it.
+    if (head.status !== 404) {
+        return { status: head.status, method: 'head' };
+    }
+
+    // HEAD said 404. If it's a modern proxy URL, that's authoritative — the
+    // proxy implementation respects HEAD. Treat as broken.
+    if (!isLegacyBoxCdnUrl(url)) {
+        return { status: 404, method: 'head' };
+    }
+
+    // Legacy Box CDN URL + HEAD=404 → Box's CDN is probably lying. Retry GET.
+    try {
+        const get = await axios.get(url, {
+            timeout: 15000,
+            maxRedirects: 5,
+            validateStatus: () => true,
+            responseType: 'arraybuffer',
+            headers: { 'Range': 'bytes=0-1023' }  // cap transfer at 1 KB
+        });
+        // 200 OR 206 (Partial Content) both mean reachable.
+        const reachable = (get.status === 200 || get.status === 206);
+        return { status: reachable ? 200 : get.status, method: 'head+get' };
+    } catch (err) {
+        // GET also failed → trust the original 404.
+        return { status: 404, method: 'head+get', error: err.message };
+    }
+}
+
+/**
  * GET /api/art-requests/broken-mockups
  *
  * Scans active ArtRequests (default: last 90 days, non-Completed statuses) and
@@ -1325,27 +1404,25 @@ router.get('/art-requests/broken-mockups', async (req, res) => {
             }
         }
 
-        // 3. HEAD each URL in batches. We HEAD the URL *itself* (browser-equivalent),
-        //    not Box's metadata endpoint — the metadata endpoint can return 200 for
-        //    files whose thumbnail/content fetch returns 404 (permission scoping in Box),
-        //    causing the previous false-clean readings (verified 2026-05-06 against
-        //    AutoShield #40402, Destiny Empowerment #40388 et al).
+        // 3. Reachability-check each URL in batches. checkUrlReachable() does:
+        //    HEAD (cheap), and if HEAD=404 on a legacy Box CDN URL it retries
+        //    with GET to work around Box's HEAD-lies bug (Box's CDN returns
+        //    404 to HEAD for /shared/static/ URLs even when the file exists
+        //    and GET returns 200 — verified 2026-05-06 against SV Shotcrete
+        //    #39792.01 + 16 others. Without the GET retry the scan flags
+        //    every working legacy URL as broken.)
         const concurrency = 10;
         const brokenIdx = new Set();
         for (let i = 0; i < checkList.length; i += concurrency) {
             const batch = checkList.slice(i, i + concurrency);
-            const headResults = await Promise.allSettled(batch.map(item =>
-                axios.head(item.url, {
-                    timeout: 10000,
-                    maxRedirects: 5,
-                    validateStatus: () => true
-                })
-            ));
-            headResults.forEach((r, j) => {
+            const checkResults = await Promise.allSettled(
+                batch.map(item => checkUrlReachable(item.url))
+            );
+            checkResults.forEach((r, j) => {
                 // Only flag on a clean 404. Timeouts, 5xx, 429, 401, 403 = unknown — skip
-                // (don't false-alarm). Modern proxy URLs return 404 cleanly when Box can't
-                // serve the thumbnail; legacy /shared/static/ URLs return 404 from Box's CDN
-                // when the shared link is dead.
+                // (don't false-alarm). The HEAD→GET retry inside checkUrlReachable
+                // means a 404 here is authoritative for both modern proxy URLs
+                // AND legacy Box CDN URLs.
                 if (r.status === 'fulfilled' && r.value.status === 404) {
                     brokenIdx.add(i + j);
                 }

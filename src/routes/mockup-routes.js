@@ -62,6 +62,45 @@ function extractFileId(u) {
     return null;
 }
 
+// Box CDN HEAD-lies workaround — see box-upload.js for the full rationale.
+// Box returns HTTP 404 to HEAD on `/shared/static/{token}` URLs even when
+// GET returns 200 with the real file. Modern proxy URLs are HEAD-honest.
+function isLegacyBoxCdnUrl(url) {
+    return /\bbox\.com\/(?:shared\/static\/|s\/|file\/)/i.test(url);
+}
+async function checkUrlReachable(url) {
+    let head;
+    try {
+        head = await axios.head(url, {
+            timeout: 10000,
+            maxRedirects: 5,
+            validateStatus: () => true
+        });
+    } catch (err) {
+        return { status: 0, method: 'head', error: err.message };
+    }
+    if (head.status !== 404) {
+        return { status: head.status, method: 'head' };
+    }
+    if (!isLegacyBoxCdnUrl(url)) {
+        return { status: 404, method: 'head' };
+    }
+    // Legacy Box CDN URL with HEAD=404 → retry GET (Range-capped to 1 KB).
+    try {
+        const get = await axios.get(url, {
+            timeout: 15000,
+            maxRedirects: 5,
+            validateStatus: () => true,
+            responseType: 'arraybuffer',
+            headers: { 'Range': 'bytes=0-1023' }
+        });
+        const reachable = (get.status === 200 || get.status === 206);
+        return { status: reachable ? 200 : get.status, method: 'head+get' };
+    } catch (err) {
+        return { status: 404, method: 'head+get', error: err.message };
+    }
+}
+
 // ── In-Memory Caches (1-hour TTL) ───────────────────────────────────
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 let threadColorsCache = { data: null, timestamp: 0 };
@@ -450,19 +489,17 @@ router.get('/mockups/broken-mockups', async (req, res) => {
             }
         }
 
-        // 3. HEAD each URL itself (browser-equivalent check). 404 = broken;
-        //    other statuses (timeouts/5xx/429/401/403) = unknown, skip.
+        // 3. Reachability-check each URL. checkUrlReachable does HEAD then
+        //    retries GET on 404 for legacy Box CDN URLs (Box's CDN lies on
+        //    HEAD — see box-upload.js comment). 404 here is authoritative
+        //    for both modern proxy URLs AND legacy Box CDN URLs.
         const concurrency = 10;
         const brokenIdx = new Set();
         for (let i = 0; i < checkList.length; i += concurrency) {
             const batch = checkList.slice(i, i + concurrency);
-            const batchResults = await Promise.allSettled(batch.map(item =>
-                axios.head(item.url, {
-                    timeout: 10000,
-                    maxRedirects: 5,
-                    validateStatus: () => true
-                })
-            ));
+            const batchResults = await Promise.allSettled(
+                batch.map(item => checkUrlReachable(item.url))
+            );
             batchResults.forEach((r, j) => {
                 if (r.status === 'fulfilled' && r.value.status === 404) {
                     brokenIdx.add(i + j);
