@@ -36,6 +36,7 @@ const { getCaspioAccessToken, fetchAllCaspioPages } = require('../utils/caspio')
 const supacolorApi = require('../utils/supacolor-api');
 const { mirrorShippedToTransfer } = require('../utils/transfer-status-mirror');
 const { linkPendingSteveSubmissions } = require('../utils/transfer-auto-link');
+const { notifySupacolorHealth } = require('../utils/zapier-supacolor-health-notify');
 const config = require('../../config');
 
 const caspioApiBaseUrl = config.caspio.apiBaseUrl;
@@ -406,6 +407,127 @@ router.get('/supacolor-jobs/stats', async (req, res) => {
     } catch (error) {
         console.error('Error fetching supacolor stats:', error.response ? JSON.stringify(error.response.data) : error.message);
         res.status(500).json({ success: false, error: 'Failed to fetch stats: ' + error.message });
+    }
+});
+
+/**
+ * Compute Supacolor sync health from a single Caspio scan. Shared by both
+ * GET /health (read-only) and POST /health/alert (read + maybe-notify).
+ */
+const HEALTH_STALE_AFTER_MIN = 25;
+const HEALTH_STUCK_OPEN_THRESHOLD = 5;
+const HEALTH_STUCK_OPEN_AGE_DAYS = 30;
+
+async function computeSupacolorHealth() {
+    const records = await fetchAllCaspioPages(`/tables/${TABLE_JOBS}/records`, {
+        'q.select': 'Status,Date_Entered,Last_Updated_At,Backfill_Source',
+        'q.pageSize': 1000
+    });
+
+    const now = Date.now();
+    const stuckCutoffMs = now - HEALTH_STUCK_OPEN_AGE_DAYS * 86400_000;
+
+    let mostRecentApiSyncMs = 0;
+    let totalApiRows = 0;
+    let stuckOpenCount = 0;
+    for (const r of records) {
+        if (r.Backfill_Source === 'api') {
+            totalApiRows++;
+            const tsRaw = r.Last_Updated_At;
+            if (tsRaw) {
+                const ms = Date.parse(tsRaw.length === 19 ? tsRaw + 'Z' : tsRaw);
+                if (!isNaN(ms) && ms > mostRecentApiSyncMs) mostRecentApiSyncMs = ms;
+            }
+        }
+        if (r.Status === 'Open' && r.Date_Entered) {
+            const enteredRaw = r.Date_Entered;
+            const enteredMs = Date.parse(enteredRaw.length === 19 ? enteredRaw + 'Z' : enteredRaw);
+            if (!isNaN(enteredMs) && enteredMs < stuckCutoffMs) stuckOpenCount++;
+        }
+    }
+
+    const lastSyncAgoMin = mostRecentApiSyncMs > 0
+        ? Math.round((now - mostRecentApiSyncMs) / 60_000)
+        : null;
+
+    const staleSync = lastSyncAgoMin == null || lastSyncAgoMin >= HEALTH_STALE_AFTER_MIN;
+    const tooManyStuck = stuckOpenCount >= HEALTH_STUCK_OPEN_THRESHOLD;
+    const ok = !staleSync && !tooManyStuck;
+
+    let reason = null;
+    if (staleSync && tooManyStuck) reason = 'both';
+    else if (staleSync) reason = 'stale-cron';
+    else if (tooManyStuck) reason = 'stuck-open-jobs';
+
+    return {
+        ok,
+        reason,
+        lastSyncAgo_min: lastSyncAgoMin,
+        stuckOpenCount,
+        totalApiRows,
+        thresholds: {
+            staleAfterMin: HEALTH_STALE_AFTER_MIN,
+            stuckOpenCountAlert: HEALTH_STUCK_OPEN_THRESHOLD,
+            stuckOpenAgeDays: HEALTH_STUCK_OPEN_AGE_DAYS
+        }
+    };
+}
+
+/**
+ * GET /api/supacolor-jobs/health
+ * Watchdog endpoint for the 10-min cron (scripts/sync-supacolor.js).
+ *
+ * Returns:
+ *   { ok, reason, lastSyncAgo_min, stuckOpenCount, totalApiRows }
+ *
+ * - lastSyncAgo_min: minutes since the most-recent api-sourced row was
+ *   touched. Stale > 25 min (cron runs every 10).
+ * - stuckOpenCount: rows still Status='Open' with Date_Entered older than
+ *   30 days. These are jobs Supacolor likely closed on their side that we
+ *   never re-fetched (the bug fixed by includeClosed=true on 2026-05-07 —
+ *   should drift toward 0 over time).
+ *
+ * Read-only — humans hit this directly when debugging. The watchdog cron
+ * uses POST /health/alert below (same compute + Slack DM on !ok).
+ *
+ * MUST be defined BEFORE /supacolor-jobs/:id (Express route ordering).
+ */
+router.get('/supacolor-jobs/health', async (req, res) => {
+    try {
+        const result = await computeSupacolorHealth();
+        res.json({ success: true, ...result });
+    } catch (error) {
+        console.error('Error in supacolor health check:', error.response ? JSON.stringify(error.response.data) : error.message);
+        res.status(500).json({ success: false, ok: false, error: 'Health check failed: ' + error.message });
+    }
+});
+
+/**
+ * POST /api/supacolor-jobs/health/alert
+ * Same compute as GET /health, plus fires a Zapier Slack DM when !ok.
+ * Dedup is in-process (4h TTL) so back-to-back cron ticks during an outage
+ * don't spam — Erik gets at most one ping per failure type per 4 hours.
+ *
+ * Called by scripts/check-supacolor-health.js (Heroku Scheduler).
+ *
+ * MUST be defined BEFORE /supacolor-jobs/:id (Express route ordering).
+ */
+router.post('/supacolor-jobs/health/alert', async (req, res) => {
+    try {
+        const result = await computeSupacolorHealth();
+        let notify = { sent: false, skipped: 'ok' };
+        if (!result.ok) {
+            notify = await notifySupacolorHealth({
+                reason: result.reason,
+                lastSyncAgo_min: result.lastSyncAgo_min,
+                stuckOpenCount: result.stuckOpenCount,
+                totalApiRows: result.totalApiRows
+            });
+        }
+        res.json({ success: true, ...result, notify });
+    } catch (error) {
+        console.error('Error in supacolor health alert:', error.response ? JSON.stringify(error.response.data) : error.message);
+        res.status(500).json({ success: false, ok: false, error: 'Health alert failed: ' + error.message });
     }
 });
 
@@ -1315,9 +1437,12 @@ router.post('/supacolor-jobs/sync/all', async (req, res) => {
         let inserted = 0, patched = 0, noop = 0, errored = 0;
         // Enrichment: the active-list stub doesn't carry trackingNumber — only
         // /Jobs/{n} does. For shipped jobs missing tracking, we follow up with a
-        // detail fetch and patch tracking + carrier. Bounded per run to protect
-        // the 25s soft cap (a detail fetch + Caspio PUT is ~700ms each).
-        const MAX_ENRICHMENTS_PER_RUN = 20;
+        // detail fetch and patch tracking + carrier. The inner loop also checks
+        // the 25s TIME_CAP_MS, so the cap below is effectively a ceiling: a
+        // backlog of 50 just-shipped jobs catches up in one cron tick instead
+        // of three. (~700ms/enrichment × 50 = 35s worst-case, but the inner
+        // time-cap branch terminates well before that.)
+        const MAX_ENRICHMENTS_PER_RUN = 50;
         let enriched = 0, enrichmentSkipped = 0;
         const errors = [];
 

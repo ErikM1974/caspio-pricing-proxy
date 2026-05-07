@@ -2,26 +2,28 @@
 /**
  * Supacolor Auto-Sync (Heroku Scheduler task)
  *
- * Hits POST /api/supacolor-jobs/sync/all on the same Heroku app every 10 min.
- * Pulls the Supacolor /Jobs/active stubs (active-only by default) and upserts
- * into Caspio — replaces the manual "Refresh from Supacolor API" button for
- * background coverage.
+ * Hits POST /api/supacolor-jobs/sync/all?includeClosed=true on the same Heroku
+ * app every 10 min. Pulls /Jobs/active?includeClosedJobs=true (full set) and
+ * upserts into Caspio — replaces the manual "Refresh from Supacolor API"
+ * button for background coverage.
  *
  * Heroku Scheduler command: `npm run sync-supacolor`
  * Interval: Every 10 minutes
  *
  * Notes:
- *  - Active-only by default so each run stays under Caspio's rate limit.
- *    Closed/Cancelled history is already backfilled; new closures naturally
- *    flow through when shipped-signal (tracking or ship date) is set.
- *  - For a full historical resync (rare), run manually with includeClosed=true.
+ *  - includeClosed=true is REQUIRED. The moment Supacolor flips a job to
+ *    Closed/Dispatched on their side, it vanishes from /Jobs/active (when
+ *    includeClosedJobs=false). Without this flag the cron loses sight of
+ *    those jobs and our mirror keeps them stuck on Open forever — tracking
+ *    + Date_Shipped never land. The route's diff logic noops fast on the
+ *    ~945 unchanged closed rows, so the extra fetch is just ~3s of API time.
  *  - Logs a single summary line per run so Heroku logs stay readable.
  */
 
 const axios = require('axios');
 
 const BASE_URL = process.env.BASE_URL || 'https://caspio-pricing-proxy-ab30a049961a.herokuapp.com';
-const SYNC_PATH = '/api/supacolor-jobs/sync/all';
+const SYNC_PATH = '/api/supacolor-jobs/sync/all?includeClosed=true';
 const TIMEOUT_MS = 30000; // Matches Heroku HTTP timeout
 
 async function main() {
@@ -36,7 +38,8 @@ async function main() {
         console.log(
             `[sync-supacolor] ${secs}s — fetched=${d.fetched || 0}, ` +
             `inserted=${d.inserted || 0}, patched=${d.patched || 0}, ` +
-            `noop=${d.noop || 0}, errored=${d.errored || 0}` +
+            `noop=${d.noop || 0}, enriched=${d.enriched || 0}, ` +
+            `enrichSkip=${d.enrichmentSkipped || 0}, errored=${d.errored || 0}` +
             (d.timedOut ? ' (timedOut)' : '') +
             (d.errored ? ` — first errors: ${JSON.stringify((d.errors || []).slice(0, 3))}` : '')
         );
