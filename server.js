@@ -417,6 +417,11 @@ const jdsRoutes = require('./src/routes/jds');
 app.use('/api/jds', jdsLimiter, jdsRoutes);
 console.log('✓ JDS Industries routes loaded (rate limited: 60 req/min)');
 
+// JDS Catalog (curated NWCA-side product catalog backing the AE intake picker)
+const jdsCatalogRoutes = require('./src/routes/jds-catalog');
+app.use('/api/jds-catalog', jdsCatalogRoutes);
+console.log('✓ JDS Catalog routes loaded');
+
 // Sanmar-ShopWorks Mapping Routes (with rate limiting + server-side cache)
 const sanmarShopworksRoutes = require('./src/routes/sanmar-shopworks');
 const sanmarLimiter = rateLimit({
