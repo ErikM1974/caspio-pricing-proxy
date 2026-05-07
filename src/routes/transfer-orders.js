@@ -1179,6 +1179,15 @@ router.put('/transfer-orders/:id/status', async (req, res) => {
             if (supacolorOrderNumber) update.Supacolor_Order_Number = supacolorOrderNumber;
             if (supacolorOrderUrl) update.Supacolor_Order_URL = supacolorOrderUrl;
             if (estimatedShipDate) update.Estimated_Ship_Date = estimatedShipDate;
+            // Bradley enters the ShopWorks PO# at the moment he places the
+            // Supacolor order. Stored as "<digits> BW" — auto-link Step A0
+            // matches by digits-only via extractPoDigits() so the suffix is
+            // cosmetic. Restamping with " BW" keeps the queue card display
+            // consistent with what Supacolor's own dashboard shows.
+            if (shopworksPO) {
+                const cleaned = String(shopworksPO).match(/(\d{5,})/);
+                update.ShopWorks_PO_Number = cleaned ? `${cleaned[1]} BW` : shopworksPO;
+            }
         } else if (status === 'PO_Created') {
             update.PO_Created_By = author;
             update.PO_Created_At = now;

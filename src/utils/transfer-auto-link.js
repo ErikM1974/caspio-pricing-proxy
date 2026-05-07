@@ -57,9 +57,17 @@ function normalizeCompany(name) {
         .trim();
 }
 
-// "112759 BW" → 112759. Returns null if no leading integer.
+// Extract the ShopWorks PO digits from any plausible Bradley typing pattern.
+// Bradley adds "BW" (his initials) when ordering on Supacolor.com but ShopWorks
+// stores pure digits — so "112759", "112759 BW", "112759BW", "BW 112759",
+// "PO# 112759 BW for jacket" all → 112759.
+//
+// Requires 5+ consecutive digits to avoid catching commas/short stamps. Real
+// PO# space is 6 digits today (`112xxx` range); 5+ is conservative future-proofing.
+//
+// Returns null if no qualifying digit run is found.
 function extractPoDigits(poNumber) {
-    const m = String(poNumber || '').trim().match(/^(\d+)/);
+    const m = String(poNumber || '').match(/(\d{5,})/);
     return m ? parseInt(m[1], 10) : null;
 }
 
@@ -476,5 +484,6 @@ module.exports = {
     // Exposed for testing
     _normalizeCompany: normalizeCompany,
     _tokenOverlap: tokenOverlap,
+    _extractPoDigits: extractPoDigits,
     _findSupacolorMatchForTransfer: findSupacolorMatchForTransfer
 };
