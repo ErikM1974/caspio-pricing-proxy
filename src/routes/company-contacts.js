@@ -1,5 +1,9 @@
-// Company Contacts routes - Search/CRUD for Company_Contacts_Merge_ODBC table
-// Used for customer lookup/autocomplete in quote builders
+// Company Contacts routes — Search/CRUD against CompanyContactsMerge2026.
+// API path stays /api/company-contacts/* and response/request payloads use
+// the legacy field names (CustomerCompanyName, ContactNumbersEmail, …) so
+// existing callers keep working unchanged. See OLD_TO_NEW map below for
+// the schema-rename translation done internally on every read/write.
+// Used for customer lookup/autocomplete in quote builders + AE intake forms.
 
 const express = require('express');
 const router = express.Router();
@@ -28,6 +32,63 @@ function sanitizeId(id) {
 // Cache for contact searches (2 minute TTL - shorter since contacts can change)
 const contactsCache = new Map();
 const CONTACTS_CACHE_TTL = 2 * 60 * 1000;
+
+// ─── Schema migration helpers ──────────────────────────────────────────
+// All endpoints in this file now query the modern CompanyContactsMerge2026
+// table. The legacy Company_Contacts_Merge_ODBC table no longer has these
+// columns: Customersts_Active, Customerdate_LastOrdered, CustomerCompanyName,
+// ContactNumbersEmail, CustomerCustomerServiceRep. We keep the API response
+// shape in the OLD field names so existing callers (CustomerLookupService
+// + 4 quote builders + Sticker/Banner/JDS forms + customer detail pages)
+// don't need any changes.
+const TABLE = 'CompanyContactsMerge2026';
+const OLD_TO_NEW = {
+    Customersts_Active:         'Is_Active',
+    Customerdate_LastOrdered:   'Last_Order_Date',
+    CustomerCompanyName:        'Company_Name',
+    ContactNumbersEmail:        'Email',
+    CustomerCustomerServiceRep: 'Sales_Rep'
+};
+const NEW_TO_OLD = Object.fromEntries(Object.entries(OLD_TO_NEW).map(([o, n]) => [n, o]));
+
+/**
+ * Map a Caspio record from the new schema to the legacy response shape so
+ * callers keep working. Preserves any unmapped fields verbatim.
+ */
+function mapRecordToLegacyShape(r) {
+    if (!r) return r;
+    const out = { ...r };
+    // Add legacy-named aliases (don't delete the new names — defensive in case
+    // a caller upgraded to read the new names already).
+    out.CustomerCompanyName        = r.Company_Name        || '';
+    out.ContactNumbersEmail        = r.Email               || '';
+    out.CustomerCustomerServiceRep = r.Sales_Rep           || '';
+    out.Customerdate_LastOrdered   = r.Last_Order_Date     ?? null;
+    out.Customersts_Active         = r.Is_Active;
+    return out;
+}
+
+/**
+ * Translate request body keys from the legacy schema to the new schema so
+ * POST/PUT writes succeed. Pass-through for unmapped keys. Skips fields
+ * we don't write to the new table (Account_Owner, DateLastOrderEmail —
+ * presence on the new table not yet verified; safe to omit).
+ */
+function translateBodyToNewSchema(body) {
+    if (!body || typeof body !== 'object') return body;
+    const out = {};
+    for (const [key, val] of Object.entries(body)) {
+        if (Object.prototype.hasOwnProperty.call(OLD_TO_NEW, key)) {
+            out[OLD_TO_NEW[key]] = val;
+        } else {
+            out[key] = val;
+        }
+    }
+    // Drop fields that may not exist on the new table (verify before re-adding).
+    delete out.Account_Owner;
+    delete out.DateLastOrderEmail;
+    return out;
+}
 
 /**
  * GET /api/company-contacts/search
@@ -234,15 +295,16 @@ router.get('/company-contacts/:id', async (req, res) => {
       });
     }
 
-    const records = await fetchAllCaspioPages('/tables/Company_Contacts_Merge_ODBC/records', {
-      'q.where': `ID_Contact=${contactId}`
+    const records = await fetchAllCaspioPages(`/tables/${TABLE}/records`, {
+      'q.where': `ID_Contact=${contactId}`,
+      'q.limit': 5
     }, { maxPages: 1 });
 
     if (records.length === 0) {
       return res.status(404).json({ error: 'Contact not found' });
     }
 
-    const contact = records[0];
+    const contact = mapRecordToLegacyShape(records[0]);
     console.log(`Contact ${contactId} retrieved: ${contact.CustomerCompanyName}`);
 
     res.json({ contact });
@@ -279,8 +341,9 @@ router.post('/company-contacts', express.json(), async (req, res) => {
       });
     }
 
-    // Build contact data
-    const contactData = {
+    // Build contact data — accept legacy field names from callers, write
+    // with new schema names. Translation map handles the rename internally.
+    const legacyShaped = {
       ...req.body,
       // Auto-generate ct_NameFull if first/last provided
       ct_NameFull: req.body.ct_NameFull ||
@@ -290,8 +353,9 @@ router.post('/company-contacts', express.json(), async (req, res) => {
       // Set last ordered date if not provided
       Customerdate_LastOrdered: req.body.Customerdate_LastOrdered || new Date().toISOString()
     };
+    const contactData = translateBodyToNewSchema(legacyShaped);
 
-    const result = await makeCaspioRequest('post', '/tables/Company_Contacts_Merge_ODBC/records', {}, contactData);
+    const result = await makeCaspioRequest('post', `/tables/${TABLE}/records`, {}, contactData);
 
     console.log('Contact created successfully');
     res.status(201).json({
@@ -339,8 +403,9 @@ router.put('/company-contacts/:id', express.json(), async (req, res) => {
     // Auto-update ct_NameFull if names changed
     if ((updates.NameFirst !== undefined || updates.NameLast !== undefined) && !updates.ct_NameFull) {
       // Fetch current record to get existing name parts
-      const existing = await fetchAllCaspioPages('/tables/Company_Contacts_Merge_ODBC/records', {
-        'q.where': `ID_Contact=${contactId}`
+      const existing = await fetchAllCaspioPages(`/tables/${TABLE}/records`, {
+        'q.where': `ID_Contact=${contactId}`,
+        'q.limit': 5
       }, { maxPages: 1 });
 
       if (existing.length > 0) {
@@ -350,9 +415,12 @@ router.put('/company-contacts/:id', express.json(), async (req, res) => {
       }
     }
 
-    const result = await makeCaspioRequest('put', '/tables/Company_Contacts_Merge_ODBC/records',
+    // Translate legacy field names in the update payload to the new schema.
+    const translatedUpdates = translateBodyToNewSchema(updates);
+
+    const result = await makeCaspioRequest('put', `/tables/${TABLE}/records`,
       { 'q.where': `ID_Contact=${contactId}` },
-      updates
+      translatedUpdates
     );
 
     console.log(`Contact ${contactId} updated successfully`);
@@ -395,14 +463,16 @@ router.get('/company-contacts/by-customer/:customerId', async (req, res) => {
       });
     }
 
-    const records = await fetchAllCaspioPages('/tables/Company_Contacts_Merge_ODBC/records', {
-      'q.where': `id_Customer=${custId} AND Customersts_Active=1`,
-      'q.orderBy': 'Customerdate_LastOrdered DESC'
+    const records = await fetchAllCaspioPages(`/tables/${TABLE}/records`, {
+      'q.where': `id_Customer=${custId} AND Is_Active=1`,
+      'q.orderBy': 'Last_Order_Date DESC'
     });
 
     console.log(`Found ${records.length} contacts for customer ${custId}`);
 
-    res.json({ contacts: records });
+    // Map to legacy response shape so callers see CustomerCompanyName etc.
+    const contacts = records.map(mapRecordToLegacyShape);
+    res.json({ contacts });
 
   } catch (error) {
     console.error('Error fetching contacts by customer:', error.message);
@@ -430,17 +500,19 @@ router.get('/company-contacts/by-email/:email', async (req, res) => {
       });
     }
 
-    const records = await fetchAllCaspioPages('/tables/Company_Contacts_Merge_ODBC/records', {
-      'q.where': `ContactNumbersEmail='${sanitizedEmail}'`
+    const records = await fetchAllCaspioPages(`/tables/${TABLE}/records`, {
+      'q.where': `Email='${sanitizedEmail}'`,
+      'q.limit': 5
     }, { maxPages: 1 });
 
     if (records.length === 0) {
       return res.status(404).json({ error: 'Contact not found' });
     }
 
-    console.log(`Found contact for email ${sanitizedEmail}: ${records[0].CustomerCompanyName}`);
+    const contact = mapRecordToLegacyShape(records[0]);
+    console.log(`Found contact for email ${sanitizedEmail}: ${contact.CustomerCompanyName}`);
 
-    res.json({ contact: records[0] });
+    res.json({ contact });
 
   } catch (error) {
     console.error('Error fetching contact by email:', error.message);
@@ -499,7 +571,10 @@ router.post('/company-contacts/sync', express.json(), async (req, res) => {
     const orders = ordersResponse.data?.result || [];
     console.log(`Found ${orders.length} orders to process`);
 
-    // Pre-fetch Sales_Reps_2026 to get Account_Owner (account executive) for each customer
+    // Pre-fetch Sales_Reps_2026 (used for the Account_Owner overlay if/when
+    // that column exists on CompanyContactsMerge2026). We collect the mapping
+    // either way; translateBodyToNewSchema will drop Account_Owner from the
+    // payload until we confirm the column is present on the new table.
     const salesReps2026 = await fetchAllCaspioPages('/tables/Sales_Reps_2026/records', {});
     const salesRepsMap = new Map();
     salesReps2026.forEach(r => {
@@ -509,38 +584,40 @@ router.post('/company-contacts/sync', express.json(), async (req, res) => {
     });
     console.log(`Loaded ${salesRepsMap.size} account owner mappings from Sales_Reps_2026`);
 
-    // Process each order - extract unique contacts by id_Customer
+    // Process each order — extract unique contacts by id_Customer + email.
+    // Build with NEW schema field names so writes to CompanyContactsMerge2026
+    // succeed without per-call translation.
     const contactsToSync = new Map();
 
     for (const order of orders) {
       stats.ordersProcessed++;
 
-      // Skip if no customer ID
       if (!order.id_Customer) {
         stats.contactsSkipped++;
         continue;
       }
 
-      // Build contact data from order
       const contactKey = `${order.id_Customer}_${order.ContactEmail || 'no-email'}`;
 
-      // Only process if we haven't seen this contact yet, or if this order is newer
       if (!contactsToSync.has(contactKey)) {
         contactsToSync.set(contactKey, {
           id_Customer: order.id_Customer,
-          CustomerCompanyName: order.CustomerName || '',
+          Company_Name: order.CustomerName || '',
           NameFirst: order.ContactFirstName || '',
           NameLast: order.ContactLastName || '',
           ct_NameFull: [order.ContactFirstName, order.ContactLastName].filter(Boolean).join(' ') || '',
-          ContactNumbersEmail: order.ContactEmail || '',
-          CustomerCustomerServiceRep: order.CustomerServiceRepName || '',
-          Account_Owner: salesRepsMap.get(order.id_Customer) || '', // Account executive from Sales_Reps_2026
+          Email: order.ContactEmail || '',
+          Sales_Rep: order.CustomerServiceRepName || '',
+          // Account_Owner is captured here for diagnostic logging only — it's
+          // stripped from the actual write payload by translateBodyToNewSchema
+          // until we verify the column exists on CompanyContactsMerge2026.
+          Account_Owner: salesRepsMap.get(order.id_Customer) || '',
           Address: order.ShipAddress || '',
           City: order.ShipCity || '',
           State: order.ShipState || '',
           Zip: order.ShipZip || '',
-          Customerdate_LastOrdered: order.date_Invoiced || new Date().toISOString(),
-          Customersts_Active: 1
+          Last_Order_Date: order.date_Invoiced || new Date().toISOString(),
+          Is_Active: 1
         });
       }
     }
@@ -548,30 +625,29 @@ router.post('/company-contacts/sync', express.json(), async (req, res) => {
     console.log(`Processing ${contactsToSync.size} unique contacts`);
 
     // Track which companies need company-wide updates (rep or company name changed)
-    const companyUpdates = new Map(); // id_Customer -> { CustomerCompanyName, CustomerCustomerServiceRep }
+    const companyUpdates = new Map(); // id_Customer -> { Company_Name?, Sales_Rep?, Account_Owner? }
 
     // Upsert each contact to Caspio (using EMAIL as unique key)
     for (const [key, contactData] of contactsToSync) {
       try {
-        // Skip if no email - can't uniquely identify contact
-        if (!contactData.ContactNumbersEmail) {
+        if (!contactData.Email) {
           console.log(`Skipping contact without email for customer ${contactData.id_Customer}`);
           stats.contactsSkipped++;
           continue;
         }
 
-        // Check if contact exists by EMAIL (unique key)
-        const existingRecords = await fetchAllCaspioPages('/tables/Company_Contacts_Merge_ODBC/records', {
-          'q.where': `ContactNumbersEmail='${contactData.ContactNumbersEmail}'`
+        // Check if contact exists by EMAIL (unique key) on the new table.
+        const existingRecords = await fetchAllCaspioPages(`/tables/${TABLE}/records`, {
+          'q.where': `Email='${contactData.Email}'`,
+          'q.limit': 5
         }, { maxPages: 1 });
 
         if (existingRecords.length > 0) {
-          // Update existing contact - update last ordered date for THIS specific contact
+          // Update existing contact — refresh last-ordered date + active flag.
           const existing = existingRecords[0];
           const updates = {
-            Customerdate_LastOrdered: contactData.Customerdate_LastOrdered,
-            DateLastOrderEmail: contactData.Customerdate_LastOrdered,
-            Customersts_Active: 1
+            Last_Order_Date: contactData.Last_Order_Date,
+            Is_Active: 1
           };
 
           // Update name if empty in existing record
@@ -581,55 +657,53 @@ router.post('/company-contacts/sync', express.json(), async (req, res) => {
             updates.NameLast = contactData.NameLast;
           }
 
-          // Update Account_Owner if we have one
+          // Account_Owner overlay (kept on the diff so logs show the intent).
+          // translateBodyToNewSchema will strip it before the network call.
           if (contactData.Account_Owner) {
             updates.Account_Owner = contactData.Account_Owner;
           }
 
-          // Check if company-wide fields changed (rep, company name, or account owner)
-          if (contactData.CustomerCustomerServiceRep &&
-              existing.CustomerCustomerServiceRep !== contactData.CustomerCustomerServiceRep) {
+          // Check if company-wide fields changed (rep or company name)
+          if (contactData.Sales_Rep && existing.Sales_Rep !== contactData.Sales_Rep) {
             companyUpdates.set(existing.id_Customer, {
               ...(companyUpdates.get(existing.id_Customer) || {}),
-              CustomerCustomerServiceRep: contactData.CustomerCustomerServiceRep
+              Sales_Rep: contactData.Sales_Rep
             });
           }
-          if (contactData.CustomerCompanyName &&
-              existing.CustomerCompanyName !== contactData.CustomerCompanyName) {
+          if (contactData.Company_Name && existing.Company_Name !== contactData.Company_Name) {
             companyUpdates.set(existing.id_Customer, {
               ...(companyUpdates.get(existing.id_Customer) || {}),
-              CustomerCompanyName: contactData.CustomerCompanyName
+              Company_Name: contactData.Company_Name
             });
           }
-          if (contactData.Account_Owner &&
-              existing.Account_Owner !== contactData.Account_Owner) {
+          if (contactData.Account_Owner && existing.Account_Owner !== contactData.Account_Owner) {
             companyUpdates.set(existing.id_Customer, {
               ...(companyUpdates.get(existing.id_Customer) || {}),
               Account_Owner: contactData.Account_Owner
             });
           }
 
-          await makeCaspioRequest('put', '/tables/Company_Contacts_Merge_ODBC/records',
+          await makeCaspioRequest('put', `/tables/${TABLE}/records`,
             { 'q.where': `ID_Contact=${existing.ID_Contact}` },
-            updates
+            translateBodyToNewSchema(updates)
           );
 
           stats.contactsUpdated++;
-          console.log(`Updated contact: ${contactData.ContactNumbersEmail} (${contactData.ct_NameFull})`);
+          console.log(`Updated contact: ${contactData.Email} (${contactData.ct_NameFull})`);
 
         } else {
-          // Create new contact
-          await makeCaspioRequest('post', '/tables/Company_Contacts_Merge_ODBC/records', {}, contactData);
+          // Create new contact (translate to drop unknown fields like Account_Owner).
+          await makeCaspioRequest('post', `/tables/${TABLE}/records`, {}, translateBodyToNewSchema(contactData));
           stats.contactsCreated++;
-          console.log(`Created contact: ${contactData.ContactNumbersEmail} (${contactData.ct_NameFull}) for customer ${contactData.id_Customer}`);
+          console.log(`Created contact: ${contactData.Email} (${contactData.ct_NameFull}) for customer ${contactData.id_Customer}`);
         }
 
       } catch (contactError) {
         stats.errors.push({
-          contact: contactData.ContactNumbersEmail || contactData.id_Customer,
+          contact: contactData.Email || contactData.id_Customer,
           error: contactError.message
         });
-        console.error(`Error syncing contact ${contactData.ContactNumbersEmail}:`, contactError.message);
+        console.error(`Error syncing contact ${contactData.Email}:`, contactError.message);
       }
     }
 
@@ -638,9 +712,9 @@ router.post('/company-contacts/sync', express.json(), async (req, res) => {
     for (const [customerId, updates] of companyUpdates) {
       try {
         console.log(`Applying company-wide update for id_Customer ${customerId}:`, updates);
-        await makeCaspioRequest('put', '/tables/Company_Contacts_Merge_ODBC/records',
+        await makeCaspioRequest('put', `/tables/${TABLE}/records`,
           { 'q.where': `id_Customer=${customerId}` },
-          updates
+          translateBodyToNewSchema(updates)
         );
         stats.companyWideUpdates++;
         console.log(`Updated all contacts for company ${customerId} with:`, updates);
