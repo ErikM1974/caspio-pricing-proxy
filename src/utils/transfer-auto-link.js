@@ -117,7 +117,14 @@ async function fetchUnlinkedTransfers(token) {
     // Caspio returns Text fields as empty string, not NULL — accept both
     // (2026-04-25 fix: Erik's first real submission ST-260425-0001 had
     // Supacolor_Order_Number='' and was excluded by the IS NULL-only check).
+    //
+    // Method filter (2026-05-07): only auto-link Supacolor rows. Screen Print
+    // rows go to L&P (no Supacolor API), so digit-matching their PO# against
+    // Supacolor_Jobs.PO_Number would silently no-op forever and pollute logs.
+    // Treat NULL/empty Method as 'Supacolor' for back-compat with rows that
+    // predate the column.
     const whereClauses = [
+        `(Method='Supacolor' OR Method IS NULL OR Method='')`,
         `(Supacolor_Order_Number IS NULL OR Supacolor_Order_Number='')`,
         `(${ELIGIBLE_STATUSES.map(s => `Status='${s}'`).join(' OR ')})`,
         `Requested_At>='${escapeSQL(cutoffIso)}'`

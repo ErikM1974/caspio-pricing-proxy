@@ -633,6 +633,81 @@ JSON schema:
   "files_prepaired": false
 }`;
 
+// Screen-print mockup prompt. Different from the Supacolor mockup template:
+// no transfer-type banner; instead a "SCREEN PRINTING" / "SCREENPRINT" colored
+// band followed by per-location ink charts with FLASH icons + screen/print
+// totals. Bottom info bar layout matches Supacolor.
+//
+// Verified against two real samples (40091 Braun NW, 34278 Father Nature).
+const MOCKUP_EXTRACTION_PROMPT_SCREENPRINT = `You are extracting job info from a Northwest Custom Apparel SCREEN PRINT mockup template.
+
+The image shows garments (t-shirts, hoodies, long sleeves) with artwork on them. At the BOTTOM there is a structured info block with TWO sections:
+
+SECTION 1 — A "SCREEN PRINTING" or "SCREENPRINT" colored band header. Below it: one or more rows. Each row is one print location with its ink chart. Row format:
+
+  <LOCATION_CODE> <optional qualifier text> | INK COLOR (1.) <name> | [FLASH icon] | INK COLOR (2.) <name> | [FLASH icon] | INK COLOR (3.) <name> | ... | <N> Screens <N> Prints
+
+Where:
+- LOCATION_CODE is NWCA shorthand: LC=Left Chest, RC=Right Chest, FF=Full Front, FB=Full Back, LS=Left Sleeve, RS=Right Sleeve, BN=Back Neck, JN=Jumbo Neck.
+- Optional qualifier is freeform text after the location code (e.g. "1 Color Hoodie") — preserve verbatim in the qualifier field.
+- Each "INK COLOR (N.) <name>" pill shows one color in print order. Capture the color name VERBATIM ("White", "PMS 383", "Safety Yellow"). NEVER guess PMS codes from visual color.
+- A "FLASH" lightning-bolt icon between two ink pills means a flash-dry step before the next color prints. Count total flashes per row.
+- "<N> Screens" / "<N> Prints" on the right edge of a row are PER-ROW totals when present.
+- The artist sometimes mis-numbers ink columns (e.g. two columns both labeled "(3.)"). Count pills by VISUAL POSITION, not by the printed number.
+
+Below the location rows, sometimes there is a single GLOBAL totals line like:
+  "(N) Screens  (N) Prints  (N) Flashes"
+Capture this if present; otherwise leave global totals as null.
+
+SECTION 2 — Bottom info bar (always present, most reliable):
+- "Design #:" or "(Design#:)" → numeric ID
+- "Order #:" or "(Order#:)" → freeform text (may be number, "Mock1", or empty)
+- "Sales Rep:" or "(Sales Rep.)" → first name
+- "Customer Name:" → company
+- "Garment Color & Style:" → e.g. "PC450 Team Navy", "Chocolate Brown Tees & Hoodies"
+- "Size & Placement:" → location codes (e.g. "LC, FB" or "FF, FB  LC")
+- "Date:" M.D.YY format and "Time:" H:MMam/pm
+
+Trust the bottom info bar over inferring from visual mockup illustrations.
+
+Return ONLY valid JSON — no markdown fencing, no explanation.
+
+Rules:
+- Empty/unreadable scalar fields → empty string (not null, not "N/A")
+- Empty locations → empty array
+- Capture ink color labels EXACTLY as written (preserve "PMS" prefix, casing)
+- flashes per row = count of FLASH icons in that row's ink chart
+- screens/prints per row → integer when shown, null when absent
+- Global totals only set when a "(N) Screens (N) Prints (N) Flashes" line is visible below all rows
+
+JSON schema:
+{
+  "design_number": "",
+  "order_number": "",
+  "sales_rep": "",
+  "customer_name": "",
+  "garment_color_style": "",
+  "size_placement": "",
+  "date": "",
+  "time": "",
+  "screen_print": {
+    "locations": [
+      {
+        "code": "FF",
+        "label": "Full Front",
+        "qualifier": "",
+        "colors": ["White", "White", "PMS 383", "PMS 434"],
+        "flashes": 3,
+        "screens": 3,
+        "prints": 4
+      }
+    ],
+    "screens": null,
+    "prints": null,
+    "flashes": null
+  }
+}`;
+
 // In-memory cache: fileId → extraction result. 1hr TTL.
 const MOCKUP_VISION_CACHE = new Map();
 const MOCKUP_VISION_TTL_MS = 60 * 60 * 1000;
@@ -652,31 +727,84 @@ function mockupCacheSet(k, v) {
 }
 
 /**
+ * Normalize the raw screen_print extraction into our canonical shape.
+ * Defensive: drops malformed locations, coerces ints/strings safely.
+ */
+function normalizeScreenPrint(sp) {
+    if (!sp || typeof sp !== 'object') return null;
+    const locsRaw = Array.isArray(sp.locations) ? sp.locations : [];
+    const locations = locsRaw.map(function (loc) {
+        if (!loc || typeof loc !== 'object') return null;
+        const colors = Array.isArray(loc.colors)
+            ? loc.colors.map(function (c) { return String(c || '').trim(); }).filter(Boolean)
+            : [];
+        const intOrNull = function (v) {
+            const n = parseInt(v, 10);
+            return Number.isFinite(n) ? n : null;
+        };
+        return {
+            code: String(loc.code || '').trim(),
+            label: String(loc.label || '').trim(),
+            qualifier: String(loc.qualifier || '').trim(),
+            colors: colors,
+            flashes: intOrNull(loc.flashes),
+            screens: intOrNull(loc.screens),
+            prints: intOrNull(loc.prints)
+        };
+    }).filter(function (l) { return l && l.code; });
+
+    const intOrNull = function (v) {
+        const n = parseInt(v, 10);
+        return Number.isFinite(n) ? n : null;
+    };
+    return {
+        locations: locations,
+        screens: intOrNull(sp.screens),
+        prints: intOrNull(sp.prints),
+        flashes: intOrNull(sp.flashes)
+    };
+}
+
+/**
  * Core mockup-info extraction — reusable from both the /extract-mockup-info
  * HTTP route AND from other routes (e.g. /analyze-link) that want mockup data
  * without an extra network hop.
  *
  * @param {Buffer} bytes - full image bytes
  * @param {string} mediaType - e.g. "image/jpeg", "image/png"
- * @param {string} [cacheKey] - if provided, caches result under this key
- * @returns {Promise<object>} normalized 11-field result (see data shape below)
+ * @param {string} [cacheKey] - if provided, caches result under this key.
+ *                             NOTE: caller should append method to cacheKey when
+ *                             method is non-default, otherwise SP and Supacolor
+ *                             results will collide for the same fileId.
+ * @param {string} [method='Supacolor'] - 'Supacolor' (default) or 'Screen Print'.
+ *                             Drives prompt selection + output schema.
+ * @returns {Promise<object>} normalized result. Supacolor returns 11-field shape;
+ *                            Screen Print returns the 8 base fields + screen_print block.
  */
-async function extractMockupInfo(bytes, mediaType, cacheKey) {
-    if (cacheKey) {
-        const cached = mockupCacheGet(cacheKey);
+async function extractMockupInfo(bytes, mediaType, cacheKey, method) {
+    method = method === 'Screen Print' ? 'Screen Print' : 'Supacolor';
+
+    // Cache namespacing — same fileId can yield different extractions per method.
+    const fullCacheKey = cacheKey ? `${method}|${cacheKey}` : null;
+    if (fullCacheKey) {
+        const cached = mockupCacheGet(fullCacheKey);
         if (cached) return { ...cached, _cached: true };
     }
+
+    const prompt = method === 'Screen Print' ? MOCKUP_EXTRACTION_PROMPT_SCREENPRINT : MOCKUP_EXTRACTION_PROMPT;
+    // SP prompt returns more structured data — bump max tokens to fit a 5-location ink chart.
+    const maxTokens = method === 'Screen Print' ? 1024 : 512;
 
     const base64Data = bytes.toString('base64');
     const client = getClient();
     const response = await client.messages.create({
         model: MODEL_ID,
-        max_tokens: 512,
+        max_tokens: maxTokens,
         messages: [{
             role: 'user',
             content: [
                 { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64Data } },
-                { type: 'text', text: MOCKUP_EXTRACTION_PROMPT }
+                { type: 'text', text: prompt }
             ]
         }]
     });
@@ -685,21 +813,42 @@ async function extractMockupInfo(bytes, mediaType, cacheKey) {
     const jsonStr = responseText.replace(/^```json?\s*\n?/i, '').replace(/\n?```\s*$/i, '');
     const extracted = JSON.parse(jsonStr); // throws on bad JSON; caller handles
 
-    const data = {
-        design_number: String(extracted.design_number || ''),
-        order_number: String(extracted.order_number || ''),
-        sales_rep: String(extracted.sales_rep || ''),
-        customer_name: String(extracted.customer_name || ''),
-        garment_color_style: String(extracted.garment_color_style || ''),
-        size_placement: String(extracted.size_placement || ''),
-        transfer_type: String(extracted.transfer_type || '').toUpperCase(),
-        date: String(extracted.date || ''),
-        time: String(extracted.time || ''),
-        customer_approved: !!extracted.customer_approved,
-        files_prepaired: !!extracted.files_prepaired
-    };
+    let data;
+    if (method === 'Screen Print') {
+        data = {
+            design_number: String(extracted.design_number || ''),
+            order_number: String(extracted.order_number || ''),
+            sales_rep: String(extracted.sales_rep || ''),
+            customer_name: String(extracted.customer_name || ''),
+            garment_color_style: String(extracted.garment_color_style || ''),
+            size_placement: String(extracted.size_placement || ''),
+            date: String(extracted.date || ''),
+            time: String(extracted.time || ''),
+            // SP-specific: ink chart per location + optional global totals.
+            screen_print: normalizeScreenPrint(extracted.screen_print),
+            // Legacy fields kept null so callers reading both shapes don't crash.
+            transfer_type: '',
+            customer_approved: false,
+            files_prepaired: false
+        };
+    } else {
+        data = {
+            design_number: String(extracted.design_number || ''),
+            order_number: String(extracted.order_number || ''),
+            sales_rep: String(extracted.sales_rep || ''),
+            customer_name: String(extracted.customer_name || ''),
+            garment_color_style: String(extracted.garment_color_style || ''),
+            size_placement: String(extracted.size_placement || ''),
+            transfer_type: String(extracted.transfer_type || '').toUpperCase(),
+            date: String(extracted.date || ''),
+            time: String(extracted.time || ''),
+            customer_approved: !!extracted.customer_approved,
+            files_prepaired: !!extracted.files_prepaired,
+            screen_print: null
+        };
+    }
 
-    if (cacheKey) mockupCacheSet(cacheKey, data);
+    if (fullCacheKey) mockupCacheSet(fullCacheKey, data);
     return data;
 }
 

@@ -477,10 +477,15 @@ function analyzeCacheSet(fileId, value) {
  * 404 file not accessible, 502 Box upstream failure, 500 internal).
  */
 router.post('/transfer-orders/analyze-link', async (req, res) => {
-    const { url } = req.body || {};
+    const { url, method: bodyMethod } = req.body || {};
     if (!url || typeof url !== 'string') {
         return res.status(400).json({ success: false, error: 'Missing url in body' });
     }
+    // Method-aware vision: 'Supacolor' (default) or 'Screen Print'. Drives
+    // which Claude prompt fires + what shape mockupVision returns. Cache keys
+    // are method-namespaced inside extractMockupInfo so the same fileId can
+    // hold both extractions concurrently.
+    const method = bodyMethod === 'Screen Print' ? 'Screen Print' : 'Supacolor';
 
     const parsed = parseBoxFileUrl(url);
     if (!parsed) {
@@ -519,8 +524,10 @@ router.post('/transfer-orders/analyze-link', async (req, res) => {
             return res.status(400).json({ success: false, error: 'Could not resolve fileId' });
         }
 
-        // Cache check
-        const cached = analyzeCacheGet(fileId);
+        // Cache check — method-namespaced so SP and Supacolor extractions
+        // for the same fileId don't collide.
+        const cacheKey = `${method}|${fileId}`;
+        const cached = analyzeCacheGet(cacheKey);
         if (cached) {
             return res.json({ ...cached, cached: true });
         }
@@ -593,7 +600,10 @@ router.post('/transfer-orders/analyze-link', async (req, res) => {
                 // Need the FULL file for vision, not just 16KB. Fetch again.
                 const fullBytes = await boxFetchFileBytes(fileId, { sharedLink });
                 const mediaType = mediaTypeFromExtension(info.extension);
-                const vision = await extractMockupInfo(fullBytes, mediaType, `file:${fileId}`);
+                // Pass method so the right prompt fires. extractMockupInfo
+                // namespaces its own cache by method internally, so the
+                // `file:${fileId}` key here is method-bucketed downstream.
+                const vision = await extractMockupInfo(fullBytes, mediaType, `file:${fileId}`, method);
                 result.mockupVision = {
                     designNumber: vision.design_number,
                     orderNumber: vision.order_number,
@@ -605,7 +615,11 @@ router.post('/transfer-orders/analyze-link', async (req, res) => {
                     date: vision.date,
                     time: vision.time,
                     customerApproved: vision.customer_approved,
-                    filesPrepaired: vision.files_prepaired
+                    filesPrepaired: vision.files_prepaired,
+                    // Screen Print only — null on Supacolor extractions.
+                    // Frontend's renderMockupSummary checks for this field
+                    // to decide whether to render the per-location ink chart.
+                    screenPrint: vision.screen_print || null
                 };
                 // Resolve sales rep to CRM email (if we recognize the first name)
                 if (vision.sales_rep) {
@@ -617,7 +631,7 @@ router.post('/transfer-orders/analyze-link', async (req, res) => {
             }
         }
 
-        analyzeCacheSet(fileId, result);
+        analyzeCacheSet(cacheKey, result);
         res.json(result);
 
     } catch (err) {
@@ -668,6 +682,20 @@ router.get('/transfer-orders', async (req, res) => {
 
         if (req.query.salesRep) {
             whereConditions.push(`Sales_Rep_Email='${escapeSQL(req.query.salesRep)}'`);
+        }
+
+        // Method filter (Supacolor | Screen Print). Treats NULL/missing Method
+        // as 'Supacolor' for back-compat with rows that predate the column.
+        // Frontend bradley-screenprint dashboard relies on this to scope its
+        // queue; bradley-transfers (Supacolor) doesn't pass the param so it
+        // sees all rows (it then defensively filters client-side).
+        if (req.query.method) {
+            const m = req.query.method;
+            if (m === 'Screen Print') {
+                whereConditions.push(`Method='${escapeSQL(m)}'`);
+            } else if (m === 'Supacolor') {
+                whereConditions.push(`(Method='Supacolor' OR Method IS NULL OR Method='')`);
+            }
         }
 
         if (req.query.isRush === 'true' || req.query.isRush === 'Yes') {
@@ -972,17 +1000,35 @@ router.post('/transfer-orders', async (req, res) => {
             data.Is_Rush = false;
         }
 
-        // Normalize Is_Reorder to boolean
-        if (data.Is_Reorder !== undefined) {
+        // Method default: 'Supacolor' for back-compat with all existing callers
+        // that don't pass it. New callers (Steve's screen-print button) pass
+        // 'Screen Print'. Caspio's Method column also defaults to 'Supacolor'
+        // at the table level, so this is belt-and-suspenders.
+        if (!data.Method) data.Method = 'Supacolor';
+        const isScreenPrint = data.Method === 'Screen Print';
+
+        // Normalize Is_Reorder to boolean. Screen Print flow never reorders
+        // (L&P keeps no archive — every order is a fresh submission), so
+        // hard-coerce to false on SP rows regardless of what the client sent.
+        if (isScreenPrint) {
+            data.Is_Reorder = false;
+        } else if (data.Is_Reorder !== undefined) {
             data.Is_Reorder = (data.Is_Reorder === true || data.Is_Reorder === 'true' || data.Is_Reorder === 'Yes' || data.Is_Reorder === 1);
         } else {
             data.Is_Reorder = false;
         }
 
-        // Reorder mode requires a Supacolor_Order_Number (artwork is already on file at Supacolor,
-        // so Bradley needs the reference number to find it).
+        // Reorder mode requires a Supacolor_Order_Number (artwork is already on
+        // file at Supacolor, so Bradley needs the reference). SP-only orders
+        // skip this entirely (no Supacolor concept).
         if (data.Is_Reorder && !data.Supacolor_Order_Number) {
             return res.status(400).json({ success: false, error: 'Reorder requires Supacolor_Order_Number' });
+        }
+
+        // SP_Vendor default — only set when explicitly Screen Print and absent.
+        // Don't touch on Supacolor rows (the column will be null for those, fine).
+        if (isScreenPrint && !data.SP_Vendor) {
+            data.SP_Vendor = 'L&P Printing';
         }
 
         // Default status
