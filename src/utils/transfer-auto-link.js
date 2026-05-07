@@ -57,6 +57,12 @@ function normalizeCompany(name) {
         .trim();
 }
 
+// "112759 BW" → 112759. Returns null if no leading integer.
+function extractPoDigits(poNumber) {
+    const m = String(poNumber || '').trim().match(/^(\d+)/);
+    return m ? parseInt(m[1], 10) : null;
+}
+
 // Token-overlap similarity — denominator is the larger set (stricter than
 // plain Jaccard), so "APS" vs "APS Inc Asphalt Patch Systems" doesn't score
 // 100% just because the shorter is a subset.
@@ -184,6 +190,8 @@ function hoursAfter(transferDate, supaDate) {
  *   null (no match)
  *
  * Matching signals, in priority order:
+ *   0. ShopWorks_PO_Number === extractPoDigits(Supacolor.PO_Number) — most
+ *      reliable when present (Caspio order-side or Bradley-OCR populated it).
  *   1. Design_Number === PO_Number (exact) — highest confidence when Bradley
  *      typed the design# as the Supacolor PO
  *   2. Company_Name fuzzy-matches Description (token-overlap ≥ 0.75 after
@@ -214,6 +222,35 @@ function findSupacolorMatchForTransfer(transfer, supaJobs) {
         : supaJobs;
 
     if (timeFiltered.length === 0) return null;
+
+    // Step A0: exact on ShopWorks_PO_Number === extractPoDigits(Supacolor.PO_Number).
+    // Most reliable strategy when populated — `ShopWorks_PO_Number` carries the
+    // numeric ShopWorks PO (e.g. "112727") while `Supacolor_Jobs.PO_Number`
+    // carries the same value with a " BW" suffix (e.g. "112727 BW").
+    // Skip silently when the field is empty (most pre-2026-05 transfers don't
+    // have it) — the existing design#/fuzzy strategies still cover those.
+    const shopworksPoDigits = extractPoDigits(transfer.ShopWorks_PO_Number);
+    if (shopworksPoDigits) {
+        const exactPo = timeFiltered.filter(j =>
+            extractPoDigits(j.PO_Number) === shopworksPoDigits
+        );
+        if (exactPo.length === 1) return { match: exactPo[0], confidence: 'po-exact' };
+        if (exactPo.length > 1) {
+            const withTime = exactPo.map(j => {
+                const sd = parseDate(j.Date_Entered);
+                const h = hoursAfter(transferDate, sd);
+                return { job: j, absHours: h === null ? Infinity : Math.abs(h) };
+            }).sort((a, b) => a.absHours - b.absHours);
+            if (withTime[1].absHours - withTime[0].absHours >= 48) {
+                return { match: withTime[0].job, confidence: 'po-exact' };
+            }
+            return {
+                ambiguous: true,
+                confidence: 'po-exact',
+                candidateJobNumbers: exactPo.map(j => j.Supacolor_Job_Number)
+            };
+        }
+    }
 
     // Step A: exact on Design_Number === PO_Number
     const designNum = String(transfer.Design_Number || '').trim();

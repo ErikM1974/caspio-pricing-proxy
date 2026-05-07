@@ -777,6 +777,40 @@ router.get('/transfer-orders', async (req, res) => {
                     r.mockup_thumbnail_url = m ? (m.Thumbnail_URL || m.File_URL) : null;
                 }));
             }
+
+            // Attach supacolor_status for cards that have a linked Supacolor
+            // job number, so Bradley's queue can flag stale links (Cancelled
+            // on Supacolor's side or never-mirrored). One batched fetch.
+            try {
+                const linkedNumbers = records
+                    .map(r => r.Supacolor_Order_Number)
+                    .filter(n => n != null && String(n).trim() !== '');
+                if (linkedNumbers.length > 0) {
+                    const uniqueNumbers = Array.from(new Set(linkedNumbers.map(String)));
+                    const inClauseScn = uniqueNumbers.map(n => `'${escapeSQL(n)}'`).join(',');
+                    const scRows = await fetchAllCaspioPages('/tables/Supacolor_Jobs/records', {
+                        'q.select': 'Supacolor_Job_Number,Status,Tracking_Number,Date_Shipped',
+                        'q.where': `Supacolor_Job_Number IN (${inClauseScn})`,
+                        'q.pageSize': 1000
+                    });
+                    const scByNumber = new Map();
+                    scRows.forEach(s => {
+                        if (s.Supacolor_Job_Number) {
+                            scByNumber.set(String(s.Supacolor_Job_Number), s);
+                        }
+                    });
+                    records.forEach(r => {
+                        if (r.Supacolor_Order_Number) {
+                            const sc = scByNumber.get(String(r.Supacolor_Order_Number));
+                            r.supacolor_status = sc ? (sc.Status || 'Open') : '__not_found__';
+                            r.supacolor_tracking = sc ? (sc.Tracking_Number || null) : null;
+                            r.supacolor_date_shipped = sc ? (sc.Date_Shipped || null) : null;
+                        }
+                    });
+                }
+            } catch (err) {
+                console.warn('Supacolor status attach failed (cards rendered without stale-link warnings):', err.message);
+            }
         }
 
         res.json({ success: true, count: records.length, records });
