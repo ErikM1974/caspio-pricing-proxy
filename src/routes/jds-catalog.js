@@ -51,11 +51,19 @@ async function fetchCatalog(forceRefresh = false) {
     }
 }
 
-// Caspio Yes/No fields can come back as boolean or 0/1 — normalize.
+// Caspio Yes/No fields can come back as boolean, 0/1, or — when the column
+// is actually defined as Text (which is how the v1 JDS_Catalog table was
+// created) — the string "Yes"/"No". Normalize all shapes so a SKU set to
+// IsActive="No" is correctly excluded from the picker.
 function isActiveRow(row) {
     const v = row.IsActive;
     if (v === true || v === 1 || v === '1') return true;
     if (v === false || v === 0 || v === '0') return false;
+    if (typeof v === 'string') {
+        const s = v.trim().toLowerCase();
+        if (s === 'yes' || s === 'true' || s === 'y') return true;
+        if (s === 'no'  || s === 'false' || s === 'n' || s === '') return false;
+    }
     return v == null ? true : !!v;
 }
 
