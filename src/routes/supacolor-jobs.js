@@ -413,32 +413,38 @@ router.get('/supacolor-jobs/stats', async (req, res) => {
 /**
  * Compute Supacolor sync health from a single Caspio scan. Shared by both
  * GET /health (read-only) and POST /health/alert (read + maybe-notify).
+ *
+ * Freshness signal: in-process `lastSyncAtMs` updated by `/sync/all` on every
+ * run. We can't use Caspio `Last_Updated_At` because that table's auto-
+ * timestamp only fires on inserts, not patches — quiet weekends with no new
+ * Supacolor jobs would falsely flag as stale.
+ *
+ * Dyno cycles wipe `lastSyncAtMs`. The cron runs every 10 min, so the next
+ * cron tick refreshes it. Watchdog runs every 30+ min, so it always sees a
+ * fresh value after a dyno cycle (unless the cron itself is broken — which
+ * is exactly what we want to detect).
  */
+let lastSyncAtMs = 0;
+let lastSyncStats = null; // last /sync/all summary {fetched, patched, enriched, ...}
 const HEALTH_STALE_AFTER_MIN = 25;
 const HEALTH_STUCK_OPEN_THRESHOLD = 5;
 const HEALTH_STUCK_OPEN_AGE_DAYS = 30;
 
 async function computeSupacolorHealth() {
+    // Only need the fields used for stuck-Open detection. (Removed
+    // Last_Updated_At — see lastSyncAtMs note above for why.)
     const records = await fetchAllCaspioPages(`/tables/${TABLE_JOBS}/records`, {
-        'q.select': 'Status,Date_Entered,Last_Updated_At,Backfill_Source',
+        'q.select': 'Status,Date_Entered,Backfill_Source',
         'q.pageSize': 1000
     });
 
     const now = Date.now();
     const stuckCutoffMs = now - HEALTH_STUCK_OPEN_AGE_DAYS * 86400_000;
 
-    let mostRecentApiSyncMs = 0;
     let totalApiRows = 0;
     let stuckOpenCount = 0;
     for (const r of records) {
-        if (r.Backfill_Source === 'api') {
-            totalApiRows++;
-            const tsRaw = r.Last_Updated_At;
-            if (tsRaw) {
-                const ms = Date.parse(tsRaw.length === 19 ? tsRaw + 'Z' : tsRaw);
-                if (!isNaN(ms) && ms > mostRecentApiSyncMs) mostRecentApiSyncMs = ms;
-            }
-        }
+        if (r.Backfill_Source === 'api') totalApiRows++;
         if (r.Status === 'Open' && r.Date_Entered) {
             const enteredRaw = r.Date_Entered;
             const enteredMs = Date.parse(enteredRaw.length === 19 ? enteredRaw + 'Z' : enteredRaw);
@@ -446,11 +452,14 @@ async function computeSupacolorHealth() {
         }
     }
 
-    const lastSyncAgoMin = mostRecentApiSyncMs > 0
-        ? Math.round((now - mostRecentApiSyncMs) / 60_000)
+    const lastSyncAgoMin = lastSyncAtMs > 0
+        ? Math.round((now - lastSyncAtMs) / 60_000)
         : null;
 
-    const staleSync = lastSyncAgoMin == null || lastSyncAgoMin >= HEALTH_STALE_AFTER_MIN;
+    // Cold-start grace: until the cron has fired at least once after the
+    // dyno boot, we don't know if it's healthy. Don't alert in that window.
+    const coldStart = lastSyncAtMs === 0;
+    const staleSync = !coldStart && (lastSyncAgoMin == null || lastSyncAgoMin >= HEALTH_STALE_AFTER_MIN);
     const tooManyStuck = stuckOpenCount >= HEALTH_STUCK_OPEN_THRESHOLD;
     const ok = !staleSync && !tooManyStuck;
 
@@ -462,7 +471,9 @@ async function computeSupacolorHealth() {
     return {
         ok,
         reason,
+        coldStart,
         lastSyncAgo_min: lastSyncAgoMin,
+        lastSyncStats,
         stuckOpenCount,
         totalApiRows,
         thresholds: {
@@ -1607,6 +1618,12 @@ router.post('/supacolor-jobs/sync/all', async (req, res) => {
 
         const durationMs = Date.now() - started;
         console.log(`[Supacolor sync/all] Done in ${durationMs}ms — ${inserted} inserted, ${patched} patched, ${noop} noop, ${errored} errored, ${enriched} enriched (${enrichmentSkipped} enrichment-skipped)`);
+
+        // Heartbeat for the watchdog — set even on no-op runs so the health
+        // check knows the cron is firing. See lastSyncAtMs note above.
+        lastSyncAtMs = Date.now();
+        lastSyncStats = { fetched: stubs.length, inserted, patched, noop, errored, enriched, enrichmentSkipped, durationMs, timedOut, at: new Date().toISOString() };
+
         res.json({
             success: true,
             fetched: stubs.length,
