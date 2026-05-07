@@ -54,7 +54,7 @@ router.get('/company-contacts-2026/search', async (req, res) => {
     // We then group client-side and slice to top maxResults companies.
     const params = {
       'q.where': whereClause,
-      'q.sort': 'Last_Order_Date DESC',
+      'q.orderBy': 'Last_Order_Date DESC',
       'q.limit': 80
     };
 

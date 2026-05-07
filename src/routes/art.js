@@ -1185,7 +1185,7 @@ router.get('/art-requests/:designId/analysis', async (req, res) => {
         const [analyses, printLocations] = await Promise.all([
             fetchAllCaspioPages('/tables/Mockup_AI_Analysis/records', {
                 'q.where': `Design_ID='${designId}'`,
-                'q.sort': 'Analysis_Date DESC'
+                'q.orderBy': 'Analysis_Date DESC'
             }, { maxPages: 1 }),
             fetchAllCaspioPages('/tables/Mockup_Print_Locations/records', {
                 'q.where': `Design_ID='${designId}'`

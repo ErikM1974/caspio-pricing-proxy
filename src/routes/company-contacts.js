@@ -70,7 +70,7 @@ router.get('/company-contacts/search', async (req, res) => {
 
     const params = {
       'q.where': whereClause,
-      'q.sort': 'Customerdate_LastOrdered DESC', // Most recent customers first
+      'q.orderBy': 'Customerdate_LastOrdered DESC', // Most recent customers first
       'q.limit': maxResults
     };
 
@@ -160,7 +160,7 @@ router.get('/company-contacts/by-company', async (req, res) => {
 
     const records = await fetchAllCaspioPages('/tables/Company_Contacts_Merge_ODBC/records', {
       'q.where': whereClause,
-      'q.sort': 'Customerdate_LastOrdered DESC',
+      'q.orderBy': 'Customerdate_LastOrdered DESC',
       'q.limit': maxResults
     }, { maxPages: 1 });
 
@@ -373,7 +373,7 @@ router.get('/company-contacts/by-customer/:customerId', async (req, res) => {
 
     const records = await fetchAllCaspioPages('/tables/Company_Contacts_Merge_ODBC/records', {
       'q.where': `id_Customer=${custId} AND Customersts_Active=1`,
-      'q.sort': 'Customerdate_LastOrdered DESC'
+      'q.orderBy': 'Customerdate_LastOrdered DESC'
     });
 
     console.log(`Found ${records.length} contacts for customer ${custId}`);
