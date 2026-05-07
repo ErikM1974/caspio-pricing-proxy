@@ -51,8 +51,11 @@ router.get('/company-contacts/search', async (req, res) => {
       });
     }
 
-    // Parse and validate limit
-    const maxResults = Math.min(Math.max(parseInt(limit, 10) || 10, 1), 25);
+    // Parse and validate limit. Caspio v3 rejects q.limit < 5 with
+    // IncorrectQueryParameter — floor at 5 server-side, then slice client-
+    // side to honor the caller's true limit.
+    const requestedLimit = Math.min(Math.max(parseInt(limit, 10) || 10, 1), 25);
+    const maxResults = Math.max(requestedLimit, 5);
 
     // Check cache
     const activeFlag = includeInactive === 'true' ? 'all' : 'active';
@@ -80,8 +83,12 @@ router.get('/company-contacts/search', async (req, res) => {
       maxPages: 1 // Only need first page for autocomplete
     });
 
+    // Slice to the caller's true limit (we may have requested 5 from Caspio
+    // when the caller asked for 1-4 due to v3 q.limit floor).
+    const sliced = records.slice(0, requestedLimit);
+
     // Map to response format with only needed fields
-    const contacts = records.map(r => ({
+    const contacts = sliced.map(r => ({
       ID_Contact: r.ID_Contact,
       id_Customer: r.id_Customer,
       CustomerCompanyName: r.CustomerCompanyName || '',
@@ -145,10 +152,12 @@ router.get('/company-contacts/by-company', async (req, res) => {
       return res.status(400).json({ error: 'Invalid company name after sanitization' });
     }
 
-    const maxResults = Math.min(Math.max(parseInt(limit, 10) || 5, 1), 10);
+    // Caspio v3 rejects q.limit < 5; floor server-side, slice client-side.
+    const requestedLimit = Math.min(Math.max(parseInt(limit, 10) || 5, 1), 10);
+    const maxResults = Math.max(requestedLimit, 5);
 
-    // Check cache
-    const cacheKey = `bycompany:${sanitized.toLowerCase()}:${maxResults}`;
+    // Check cache (keyed on requestedLimit so caller-visible behavior matches)
+    const cacheKey = `bycompany:${sanitized.toLowerCase()}:${requestedLimit}`;
     const cached = contactsCache.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < CONTACTS_CACHE_TTL) {
       console.log(`Cache HIT for by-company: ${cacheKey}`);
@@ -164,8 +173,11 @@ router.get('/company-contacts/by-company', async (req, res) => {
       'q.limit': maxResults
     }, { maxPages: 1 });
 
+    // Slice to the caller's true limit (Caspio may have returned up to 5).
+    const sliced = records.slice(0, requestedLimit);
+
     // Map to simplified format for the modal
-    const contacts = records.map(r => ({
+    const contacts = sliced.map(r => ({
       name: r.ct_NameFull || '',
       email: r.ContactNumbersEmail || '',
       company: r.CustomerCompanyName || '',
