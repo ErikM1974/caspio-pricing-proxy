@@ -66,20 +66,31 @@ router.get('/company-contacts/search', async (req, res) => {
       return res.json({ contacts: cached.data, fromCache: true });
     }
 
-    // Build Caspio WHERE clause - search multiple fields
-    // Filter to active customers only unless includeInactive=true
-    const activeFilter = includeInactive === 'true' ? '' : 'Customersts_Active=1 AND ';
-    const whereClause = `${activeFilter}(CustomerCompanyName LIKE '%${searchTerm}%' OR ct_NameFull LIKE '%${searchTerm}%' OR ContactNumbersEmail LIKE '%${searchTerm}%')`;
+    // Query the modern CompanyContactsMerge2026 table (the legacy
+    // Company_Contacts_Merge_ODBC table is gone — its column names like
+    // Customersts_Active and Customerdate_LastOrdered no longer exist on
+    // the live schema, so the old query 400'd with "Invalid column name").
+    // Field translation table:
+    //   Customersts_Active        → Is_Active
+    //   Customerdate_LastOrdered  → Last_Order_Date
+    //   CustomerCompanyName       → Company_Name
+    //   ContactNumbersEmail       → Email
+    //   CustomerCustomerServiceRep→ Sales_Rep
+    // Response shape stays in the OLD field names so existing callers
+    // (CustomerLookupService used by 4 quote builders + Sticker/Banner +
+    // JDS intake forms) keep working without a frontend change.
+    const activeFilter = includeInactive === 'true' ? '' : 'Is_Active=1 AND ';
+    const whereClause = `${activeFilter}(Company_Name LIKE '%${searchTerm}%' OR ct_NameFull LIKE '%${searchTerm}%' OR Email LIKE '%${searchTerm}%')`;
 
     const params = {
       'q.where': whereClause,
-      'q.orderBy': 'Customerdate_LastOrdered DESC', // Most recent customers first
+      'q.orderBy': 'Last_Order_Date DESC', // Most recent customers first
       'q.limit': maxResults
     };
 
     console.log('Caspio query params:', JSON.stringify(params));
 
-    const records = await fetchAllCaspioPages('/tables/Company_Contacts_Merge_ODBC/records', params, {
+    const records = await fetchAllCaspioPages('/tables/CompanyContactsMerge2026/records', params, {
       maxPages: 1 // Only need first page for autocomplete
     });
 
@@ -87,19 +98,19 @@ router.get('/company-contacts/search', async (req, res) => {
     // when the caller asked for 1-4 due to v3 q.limit floor).
     const sliced = records.slice(0, requestedLimit);
 
-    // Map to response format with only needed fields
+    // Map new schema → legacy response shape so frontend stays unchanged.
     const contacts = sliced.map(r => ({
       ID_Contact: r.ID_Contact,
       id_Customer: r.id_Customer,
-      CustomerCompanyName: r.CustomerCompanyName || '',
+      CustomerCompanyName: r.Company_Name || '',
       ct_NameFull: r.ct_NameFull || '',
-      ContactNumbersEmail: r.ContactNumbersEmail || '',
-      CustomerCustomerServiceRep: r.CustomerCustomerServiceRep || '',
+      ContactNumbersEmail: r.Email || '',
+      CustomerCustomerServiceRep: r.Sales_Rep || '',
       Address: r.Address || '',
       City: r.City || '',
       State: r.State || '',
       Zip: r.Zip || '',
-      Customerdate_LastOrdered: r.Customerdate_LastOrdered
+      Customerdate_LastOrdered: r.Last_Order_Date
     }));
 
     console.log(`Contacts search: ${contacts.length} result(s) found for "${searchTerm}"`);
@@ -164,23 +175,24 @@ router.get('/company-contacts/by-company', async (req, res) => {
       return res.json({ contacts: cached.data, fromCache: true });
     }
 
-    // Exact match on company name, active contacts only
-    const whereClause = `Customersts_Active=1 AND CustomerCompanyName='${sanitized}'`;
+    // CompanyContactsMerge2026 table (see search endpoint comment for
+    // schema migration notes). Exact match on company name, active only.
+    const whereClause = `Is_Active=1 AND Company_Name='${sanitized}'`;
 
-    const records = await fetchAllCaspioPages('/tables/Company_Contacts_Merge_ODBC/records', {
+    const records = await fetchAllCaspioPages('/tables/CompanyContactsMerge2026/records', {
       'q.where': whereClause,
-      'q.orderBy': 'Customerdate_LastOrdered DESC',
+      'q.orderBy': 'Last_Order_Date DESC',
       'q.limit': maxResults
     }, { maxPages: 1 });
 
     // Slice to the caller's true limit (Caspio may have returned up to 5).
     const sliced = records.slice(0, requestedLimit);
 
-    // Map to simplified format for the modal
+    // Map new schema → simplified shape (caller-facing fields unchanged).
     const contacts = sliced.map(r => ({
       name: r.ct_NameFull || '',
-      email: r.ContactNumbersEmail || '',
-      company: r.CustomerCompanyName || '',
+      email: r.Email || '',
+      company: r.Company_Name || '',
       id_Customer: r.id_Customer
     })).filter(c => c.email); // Only return contacts with email
 
