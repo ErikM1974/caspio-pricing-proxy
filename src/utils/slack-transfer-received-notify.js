@@ -40,12 +40,33 @@ function shouldSkipDedup(idPo) {
     return false;
 }
 
+/**
+ * Format a Caspio date-only field for human readability.
+ * Caspio sends "2026-05-07T00:00:00" — we want "Thu, May 7, 2026".
+ *
+ * Parses YYYY-MM-DD components manually to avoid timezone-shift on UTC-running
+ * Heroku dynos (default `new Date('2026-05-07T00:00:00')` interprets as local
+ * time, then toLocaleDateString could render as the previous day).
+ */
+function formatDateReceived(isoString) {
+    if (!isoString) return '';
+    const m = String(isoString).match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!m) return String(isoString); // fallback to raw if parse fails
+    const date = new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10));
+    return date.toLocaleDateString('en-US', {
+        weekday: 'short',
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric'
+    });
+}
+
 function buildText(po) {
     const idPo = po.ID_PO != null ? String(po.ID_PO) : '';
     const idOrder = po.id_Order != null ? String(po.id_Order) : '';
     const customer = po.CustomerName || '';
     const rep = po.CustomerServiceRep || '';
-    const dateReceived = po.date_Received || '';
+    const dateReceived = formatDateReceived(po.date_Received);
 
     const lines = [
         `🚚 *Supacolor Transfer Received*`,
@@ -108,6 +129,7 @@ module.exports = {
         clearDedup: () => dedupCache.clear(),
         getDedupSize: () => dedupCache.size,
         DEDUP_TTL_MS,
-        buildText
+        buildText,
+        formatDateReceived
     }
 };
