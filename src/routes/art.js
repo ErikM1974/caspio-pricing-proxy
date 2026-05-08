@@ -3,6 +3,9 @@ const express = require('express');
 const router = express.Router();
 const axios = require('axios');
 const { getCaspioAccessToken, makeCaspioRequest, fetchAllCaspioPages } = require('../utils/caspio');
+const { notifyArtRequestSubmission } = require('../utils/slack-art-request-submission-notify');
+const { notifyArtRequestRevision } = require('../utils/slack-art-revision-notify');
+const { notifyArtRequestReopen } = require('../utils/slack-art-reopen-notify');
 const config = require('../../config');
 
 const caspioApiBaseUrl = config.caspio.apiBaseUrl;
@@ -206,8 +209,41 @@ router.post('/artrequests', express.json(), async (req, res) => {
         
         // Make the request directly using axios
         const response = await axios(requestConfig);
-        
+
         console.log(`Art request created successfully: ${response.status}`);
+
+        // Slack: notify Steve + Erik + AEs in #art-notifications channel.
+        // Replaces "New Art Request Submission → Slack Steve" Zap, which had
+        // event_sources:["Datasheet"] and missed dashboard form submissions.
+        // Fetch the just-created record so we have the auto-generated ID_Design
+        // (Caspio POST returns 201 with no body — needs a follow-up SELECT).
+        // Don't await — Slack latency must not delay the create response.
+        // notifyArtRequestSubmission resolves rather than throws.
+        try {
+            if (requestData.Design_Num_SW && requestData.CompanyName) {
+                const safeDesign = String(requestData.Design_Num_SW).replace(/'/g, "''");
+                const safeCompany = String(requestData.CompanyName).replace(/'/g, "''");
+                const fetchUrl = `${caspioApiBaseUrl}/tables/ArtRequests/records?q.where=Design_Num_SW='${safeDesign}' AND CompanyName='${safeCompany}'&q.orderBy=PK_ID DESC&q.limit=1`;
+                axios({
+                    method: 'get',
+                    url: fetchUrl,
+                    headers: { 'Authorization': `Bearer ${token}` },
+                    timeout: 8000
+                }).then(fetchResp => {
+                    const created = (fetchResp.data && fetchResp.data.Result && fetchResp.data.Result[0]) || null;
+                    if (created) {
+                        notifyArtRequestSubmission(created);
+                    } else {
+                        console.warn('[SLACK_ART_SUBMISSION_SKIP] post-create fetch returned no rows');
+                    }
+                }).catch(err => {
+                    console.warn('[SLACK_ART_SUBMISSION_SKIP] post-create fetch failed:', err.message);
+                });
+            }
+        } catch (notifyErr) {
+            console.warn('[SLACK_ART_SUBMISSION_SKIP] notify-block error:', notifyErr.message);
+        }
+
         res.status(201).json({
             message: 'Art request created successfully',
             request: response.data
@@ -788,8 +824,9 @@ router.put('/art-requests/:designId/status', express.json(), async (req, res) =>
         const isCompleted = status.includes('Completed');
 
         // All status updates use additive art time (fetch current record, add new minutes)
+        // Also captures Status (prev), CompanyName, Design_Num_SW for Slack notifications below.
         if (isRevision || isAwaitingApproval || isInProgress || isCompleted) {
-            const fetchUrl = `${caspioApiBaseUrl}/tables/ArtRequests/records?q.where=ID_Design=${designId}&q.select=Revision_Count,Art_Minutes,Approval_Sent_Date`;
+            const fetchUrl = `${caspioApiBaseUrl}/tables/ArtRequests/records?q.where=ID_Design=${designId}&q.select=Status,Revision_Count,Art_Minutes,Approval_Sent_Date,CompanyName,Design_Num_SW`;
             const fetchResp = await axios({
                 method: 'get',
                 url: fetchUrl,
@@ -842,6 +879,34 @@ router.put('/art-requests/:designId/status', express.json(), async (req, res) =>
         });
 
         console.log(`Design ${designId} status updated to "${status}"${isRevision ? ` (revision #${updateData.Revision_Count})` : ''}${isAwaitingApproval ? ' (awaiting approval)' : ''}`);
+
+        // Slack: fire targeted notifications based on the status transition.
+        // Replaces two broken Zaps (event_sources:["Datasheet"] missed all
+        // dashboard-driven status changes):
+        //   - "Mockup Revision → Slack Steve" (misnamed; actually ArtRequests)
+        //   - "Steve Art - Reopen Art"
+        // Don't await — utilities resolve rather than throw, fire-and-forget.
+        try {
+            const notifyRecord = {
+                ID_Design: parseInt(designId, 10),
+                CompanyName: (current && current.CompanyName) || '',
+                Design_Num_SW: (current && current.Design_Num_SW) || '',
+                Revision_Count: updateData.Revision_Count != null ? updateData.Revision_Count : (current && current.Revision_Count) || 0,
+                Status: cleanStatus
+            };
+            if (isRevision) {
+                notifyArtRequestRevision(notifyRecord);
+            }
+            if (isInProgress) {
+                // Reopen detection: only fire if previous status was a closed-like state.
+                // Utility's CLOSED_LIKE_STATUSES gates this — initial assignments to
+                // "In Progress" from "Submitted" won't fire (correct semantic).
+                notifyArtRequestReopen(notifyRecord, (current && current.Status) || null);
+            }
+        } catch (notifyErr) {
+            console.warn('[SLACK_ART_NOTIFY_SKIP] notify-block error:', notifyErr.message);
+        }
+
         res.json({ message: 'Status updated', designId, status, revisionCount: updateData.Revision_Count, data: response.data });
     } catch (error) {
         console.error(`Quick-action status update failed for design ${designId}:`,

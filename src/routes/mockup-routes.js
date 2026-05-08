@@ -27,6 +27,8 @@ const router = express.Router();
 const axios = require('axios');
 const { getCaspioAccessToken, fetchAllCaspioPages } = require('../utils/caspio');
 const { getBoxAccessToken, BOX_API_BASE, resolveToProxyUrl } = require('../utils/box-client');
+const { notifyMockupSubmission } = require('../utils/slack-mockup-submission-notify');
+const { notifyMockupRevision } = require('../utils/slack-mockup-revision-notify');
 const config = require('../../config');
 
 const caspioApiBaseUrl = config.caspio.apiBaseUrl;
@@ -862,6 +864,17 @@ router.post('/mockups', async (req, res) => {
 
         console.log(`Mockup created: ID ${createdRecord.ID}, Design ${data.Design_Number} for ${data.Company_Name}`);
 
+        // Slack: notify Ruth + Erik + AEs in #mockup-notifications channel.
+        // Replaces "New Mockup Submission → Slack Ruth + AE" Zap, which had
+        // event_sources:["Datasheet"] and missed dashboard form submissions.
+        // Fire-and-forget (resolves rather than throws). createdRecord has the
+        // full record from the post-insert fetch above.
+        try {
+            notifyMockupSubmission(createdRecord);
+        } catch (notifyErr) {
+            console.warn('[SLACK_MOCKUP_SUBMISSION_SKIP] notify-block error:', notifyErr.message);
+        }
+
         res.status(201).json({
             success: true,
             record: createdRecord
@@ -982,8 +995,8 @@ router.put('/mockups/:id/status', async (req, res) => {
 
         const token = await getCaspioAccessToken();
 
-        // 1. Fetch current record to get Revision_Count
-        const getUrl = `${caspioApiBaseUrl}/tables/${MOCKUPS_TABLE}/records?q.where=ID=${id}&q.select=ID,Status,Revision_Count`;
+        // 1. Fetch current record to get Revision_Count + fields needed for Slack notify
+        const getUrl = `${caspioApiBaseUrl}/tables/${MOCKUPS_TABLE}/records?q.where=ID=${id}&q.select=ID,Status,Revision_Count,Company_Name,Design_Number,Box_Mockup_1`;
         const getResp = await axios.get(getUrl, {
             headers: { 'Authorization': `Bearer ${token}` },
             timeout: 15000
@@ -1042,6 +1055,24 @@ router.put('/mockups/:id/status', async (req, res) => {
             },
             timeout: 15000
         });
+
+        // Slack: notify Ruth + Erik + AEs in #mockup-notifications when an AE
+        // requests a revision. Replaces "Mockup Revision → Slack Ruth" Zap,
+        // which had event_sources:["Datasheet"] and missed dashboard-driven
+        // revision requests. Fire-and-forget (resolves rather than throws).
+        if (status === 'Revision Requested') {
+            try {
+                notifyMockupRevision({
+                    ID: parseInt(id, 10),
+                    Company_Name: current.Company_Name || '',
+                    Design_Number: current.Design_Number || '',
+                    Revision_Count: updateData.Revision_Count ?? current.Revision_Count,
+                    Box_Mockup_1: current.Box_Mockup_1 || ''
+                });
+            } catch (notifyErr) {
+                console.warn('[SLACK_MOCKUP_REVISION_SKIP] notify-block error:', notifyErr.message);
+            }
+        }
 
         res.json({
             success: true,
