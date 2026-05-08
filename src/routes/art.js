@@ -6,6 +6,7 @@ const { getCaspioAccessToken, makeCaspioRequest, fetchAllCaspioPages } = require
 const { notifyArtRequestSubmission } = require('../utils/slack-art-request-submission-notify');
 const { notifyArtRequestRevision } = require('../utils/slack-art-revision-notify');
 const { notifyArtRequestReopen } = require('../utils/slack-art-reopen-notify');
+const { notifyRushArtRequest } = require('../utils/slack-rush-art-notify');
 const config = require('../../config');
 
 const caspioApiBaseUrl = config.caspio.apiBaseUrl;
@@ -218,7 +219,14 @@ router.post('/artrequests', express.json(), async (req, res) => {
         // Fetch the just-created record so we have the auto-generated ID_Design
         // (Caspio POST returns 201 with no body — needs a follow-up SELECT).
         // Don't await — Slack latency must not delay the create response.
-        // notifyArtRequestSubmission resolves rather than throws.
+        // Both notify utils resolve rather than throw.
+        //
+        // Two notifications fire from this single fetch:
+        //   - notifyArtRequestSubmission  — every new art request
+        //   - notifyRushArtRequest        — gated internally on Is_Rush=true
+        //                                   (replaces RUSH STEVE Zap which couldn't
+        //                                   catch REST API event_source in current
+        //                                   Caspio integration setup).
         try {
             if (requestData.Design_Num_SW && requestData.CompanyName) {
                 const safeDesign = String(requestData.Design_Num_SW).replace(/'/g, "''");
@@ -233,6 +241,7 @@ router.post('/artrequests', express.json(), async (req, res) => {
                     const created = (fetchResp.data && fetchResp.data.Result && fetchResp.data.Result[0]) || null;
                     if (created) {
                         notifyArtRequestSubmission(created);
+                        notifyRushArtRequest(created);
                     } else {
                         console.warn('[SLACK_ART_SUBMISSION_SKIP] post-create fetch returned no rows');
                     }

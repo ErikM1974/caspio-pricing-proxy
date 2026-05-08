@@ -29,6 +29,7 @@ const { getCaspioAccessToken, fetchAllCaspioPages } = require('../utils/caspio')
 const { getBoxAccessToken, BOX_API_BASE, resolveToProxyUrl } = require('../utils/box-client');
 const { notifyMockupSubmission } = require('../utils/slack-mockup-submission-notify');
 const { notifyMockupRevision } = require('../utils/slack-mockup-revision-notify');
+const { notifyRushMockup } = require('../utils/slack-rush-mockup-notify');
 const config = require('../../config');
 
 const caspioApiBaseUrl = config.caspio.apiBaseUrl;
@@ -867,10 +868,19 @@ router.post('/mockups', async (req, res) => {
         // Slack: notify Ruth + Erik + AEs in #mockup-notifications channel.
         // Replaces "New Mockup Submission → Slack Ruth + AE" Zap, which had
         // event_sources:["Datasheet"] and missed dashboard form submissions.
-        // Fire-and-forget (resolves rather than throws). createdRecord has the
-        // full record from the post-insert fetch above.
+        //
+        // Two notifications fire here:
+        //   - notifyMockupSubmission — every new mockup
+        //   - notifyRushMockup       — gated internally on Is_Rush=true
+        //                              (replaces RUSH RUTH Zap which couldn't
+        //                              catch REST API event_source in current
+        //                              Caspio integration setup).
+        //
+        // Both resolve rather than throw. createdRecord has the full record
+        // from the post-insert fetch above.
         try {
             notifyMockupSubmission(createdRecord);
+            notifyRushMockup(createdRecord);
         } catch (notifyErr) {
             console.warn('[SLACK_MOCKUP_SUBMISSION_SKIP] notify-block error:', notifyErr.message);
         }
