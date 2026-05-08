@@ -201,10 +201,15 @@ router.get('/company-contacts/search', async (req, res) => {
 
 /**
  * GET /api/company-contacts/by-company
- * Get contacts by company name (exact match for mockup auto-populate)
+ * Get contacts by company name (exact match for mockup auto-populate +
+ * Stage 2 of CompanyContactPicker on the AE intake forms).
  * Query params:
  *   - company: Company name (required)
- *   - limit: Max results (default 5, max 10)
+ *   - limit: Max results (default 5, max 25)
+ *
+ * Cap raised from 10 → 25 on 2026-05-08 — CompanyContactPicker Stage 2
+ * needs to show all contacts at companies like NWCA itself (13+ active
+ * contacts). 10 was an arbitrary low cap, no good reason to keep it.
  */
 router.get('/company-contacts/by-company', async (req, res) => {
   const { company, limit } = req.query;
@@ -225,7 +230,7 @@ router.get('/company-contacts/by-company', async (req, res) => {
     }
 
     // Caspio v3 rejects q.limit < 5; floor server-side, slice client-side.
-    const requestedLimit = Math.min(Math.max(parseInt(limit, 10) || 5, 1), 10);
+    const requestedLimit = Math.min(Math.max(parseInt(limit, 10) || 5, 1), 25);
     const maxResults = Math.max(requestedLimit, 5);
 
     // Check cache (keyed on requestedLimit so caller-visible behavior matches)
