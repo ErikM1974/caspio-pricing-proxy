@@ -269,11 +269,11 @@ async function recoverBrokenRuthMockup(opts) {
         result = { status: 'error', slotField, error: err.message || String(err) };
     }
 
-    // Fire-and-forget Slack ping (via Zapier) when recovery failed. See
+    // Fire-and-forget direct Slack ping when recovery failed. See
     // recover-broken-mockup.js for the matching Steve flow.
     if (!dryRun && result && result.status !== 'recovered') {
         try {
-            const { notifyBrokenMockup } = require('./zapier-broken-mockup-notify');
+            const { notifyBrokenMockup } = require('./slack-broken-mockup-notify');
             const base = publicUrl
                 || (config.app && config.app.publicUrl)
                 || FALLBACK_PROXY_BASE;

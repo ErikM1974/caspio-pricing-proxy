@@ -36,7 +36,7 @@ const { getCaspioAccessToken, fetchAllCaspioPages } = require('../utils/caspio')
 const supacolorApi = require('../utils/supacolor-api');
 const { mirrorShippedToTransfer } = require('../utils/transfer-status-mirror');
 const { linkPendingSteveSubmissions } = require('../utils/transfer-auto-link');
-const { notifySupacolorHealth } = require('../utils/zapier-supacolor-health-notify');
+const { notifySupacolorHealth } = require('../utils/slack-supacolor-health-notify');
 const config = require('../../config');
 
 const caspioApiBaseUrl = config.caspio.apiBaseUrl;

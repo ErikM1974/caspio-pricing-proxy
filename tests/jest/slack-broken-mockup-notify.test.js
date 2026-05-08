@@ -1,12 +1,12 @@
 /**
- * Unit tests for zapier-broken-mockup-notify.js
+ * Unit tests for slack-broken-mockup-notify.js
  *
- * Covers the contract that Zapier (and Steve's Slack DM) depends on:
+ * Covers the contract that Steve's Slack message depends on:
  *   • env unset → skip without throwing
  *   • dedup → second call within TTL returns 'dedup', no axios POST
- *   • happy path → axios POST fires once, payload shape matches contract
+ *   • happy path → axios POST fires once, payload is { text: <mrkdwn> } with key fields present
  *   • non-200 response → returns error, dedup is rolled back so a transient
- *     Zapier outage doesn't permanently silence a design
+ *     Slack outage doesn't permanently silence a design
  *   • missing designNumber → skip with 'missing-design-number'
  *
  * axios is mocked — tests never hit the network.
@@ -15,11 +15,11 @@ jest.mock('axios');
 const axios = require('axios');
 
 // Set env BEFORE require — module reads it at load time.
-process.env.ZAPIER_BROKEN_MOCKUP_WEBHOOK_URL = 'https://hooks.zapier.com/test/abc/xyz';
+process.env.SLACK_BROKEN_MOCKUP_WEBHOOK_URL = 'https://hooks.slack.com/services/T000/B000/abcXYZ';
 
-const notifier = require('../../src/utils/zapier-broken-mockup-notify');
+const notifier = require('../../src/utils/slack-broken-mockup-notify');
 const { notifyBrokenMockup } = notifier;
-const { clearDedup, getDedupSize, DEDUP_TTL_MS } = notifier.__test__;
+const { clearDedup, DEDUP_TTL_MS, buildText } = notifier.__test__;
 
 beforeEach(() => {
     clearDedup();
@@ -27,8 +27,8 @@ beforeEach(() => {
 });
 
 describe('notifyBrokenMockup — happy path', () => {
-    test('POSTs to webhook URL with full payload', async () => {
-        axios.post.mockResolvedValue({ status: 200, data: { ok: true } });
+    test('POSTs to webhook URL with mrkdwn text payload', async () => {
+        axios.post.mockResolvedValue({ status: 200, data: 'ok' });
 
         const result = await notifyBrokenMockup({
             designNumber: '40402',
@@ -44,19 +44,15 @@ describe('notifyBrokenMockup — happy path', () => {
         expect(axios.post).toHaveBeenCalledTimes(1);
 
         const [url, payload, opts] = axios.post.mock.calls[0];
-        expect(url).toBe('https://hooks.zapier.com/test/abc/xyz');
-        expect(payload).toMatchObject({
-            event: 'broken_mockup_unrecoverable',
-            designNumber: '40402',
-            companyName: 'AutoShield',
-            pkId: '1234',                 // coerced to string
-            table: 'ArtRequests',
-            slotField: 'Box_File_Mockup',
-            detailUrl: 'https://www.teamnwca.com/art-request/40402',
-            reason: 'no-folder',
-            error: null
-        });
-        expect(payload.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+        expect(url).toBe('https://hooks.slack.com/services/T000/B000/abcXYZ');
+        expect(payload).toHaveProperty('text');
+        expect(typeof payload.text).toBe('string');
+        // Key fields must appear in the rendered Slack message.
+        expect(payload.text).toContain('40402');
+        expect(payload.text).toContain('AutoShield');
+        expect(payload.text).toContain('Box_File_Mockup');
+        expect(payload.text).toContain('no-folder');
+        expect(payload.text).toContain('https://www.teamnwca.com/art-request/40402');
         expect(opts).toMatchObject({ timeout: 8000, headers: { 'Content-Type': 'application/json' } });
     });
 
@@ -64,10 +60,11 @@ describe('notifyBrokenMockup — happy path', () => {
         axios.post.mockResolvedValue({ status: 200 });
         await notifyBrokenMockup({ designNumber: 99999 });
         const [, payload] = axios.post.mock.calls[0];
-        expect(payload.designNumber).toBe('99999');
-        expect(payload.companyName).toBe('');
-        expect(payload.slotField).toBe('');
-        expect(payload.error).toBeNull();
+        expect(payload.text).toContain('99999');
+        // Empty company / slot rows are simply omitted from the text — verify
+        // the message still renders coherently.
+        expect(payload.text).not.toContain('*Company:*');
+        expect(payload.text).not.toContain('*Slot:*');
     });
 });
 
@@ -145,15 +142,43 @@ describe('notifyBrokenMockup — env-driven activation', () => {
     test('when env var is unset, returns skipped:no-webhook (verified via fresh require)', () => {
         // Module reads env at load time. Re-require with env unset to verify.
         jest.resetModules();
-        const oldUrl = process.env.ZAPIER_BROKEN_MOCKUP_WEBHOOK_URL;
-        delete process.env.ZAPIER_BROKEN_MOCKUP_WEBHOOK_URL;
+        const oldUrl = process.env.SLACK_BROKEN_MOCKUP_WEBHOOK_URL;
+        delete process.env.SLACK_BROKEN_MOCKUP_WEBHOOK_URL;
 
-        const fresh = require('../../src/utils/zapier-broken-mockup-notify');
+        const fresh = require('../../src/utils/slack-broken-mockup-notify');
         return fresh.notifyBrokenMockup({ designNumber: '11111' }).then((result) => {
             expect(result).toEqual({ sent: false, skipped: 'no-webhook' });
 
             // Restore for other tests
-            process.env.ZAPIER_BROKEN_MOCKUP_WEBHOOK_URL = oldUrl;
+            process.env.SLACK_BROKEN_MOCKUP_WEBHOOK_URL = oldUrl;
         });
+    });
+});
+
+describe('buildText', () => {
+    test('renders all rows when every field is provided', () => {
+        const text = buildText({
+            designNumber: '40402',
+            companyName: 'AutoShield',
+            slotField: 'Box_File_Mockup',
+            reason: 'no-folder',
+            detailUrl: 'https://example.com/x',
+            error: ''
+        });
+
+        expect(text).toContain('⚠️ *Broken Mockup');
+        expect(text).toContain('*Design:* 40402');
+        expect(text).toContain('*Company:* AutoShield');
+        expect(text).toContain('*Slot:* `Box_File_Mockup`');
+        expect(text).toContain('*Reason:* no-folder');
+        expect(text).toContain('<https://example.com/x|Open detail page>');
+    });
+
+    test('omits empty optional rows', () => {
+        const text = buildText({ designNumber: '99999' });
+        expect(text).toContain('*Design:* 99999');
+        expect(text).toContain('*Reason:* unknown');
+        expect(text).not.toContain('*Company:*');
+        expect(text).not.toContain('*Slot:*');
     });
 });

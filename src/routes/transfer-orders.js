@@ -39,7 +39,8 @@ const {
 const { extractImageMetadata } = require('../utils/image-metadata');
 const { parseFilename } = require('../utils/filename-parser');
 const { resolveSalesRep } = require('../utils/resolve-sales-rep');
-const { notifyScreenprintNewOrder } = require('../utils/zapier-screenprint-new-order-notify');
+const { notifyScreenprintNewOrder } = require('../utils/slack-screenprint-new-order-notify');
+const { notifyTransferNewOrder } = require('../utils/slack-transfer-new-order-notify');
 // Vision helper is attached to the router export (see bottom of vision.js)
 const visionRouter = require('./vision');
 const extractMockupInfo = visionRouter.extractMockupInfo;
@@ -1119,11 +1120,17 @@ router.post('/transfer-orders', async (req, res) => {
 
         console.log(`Transfer created: ${idTransfer} (${data.Company_Name || 'n/a'}, design ${data.Design_Number || 'n/a'}, ${lines.length} lines, ${files.length} files, by ${data.Requested_By})${data.Is_Reorder ? ' [REORDER]' : ''}`);
 
-        // Screen-print: fire Zapier webhook → Slack DMs to Bradley/art804/erik.
-        // No-op for Supacolor rows (notify utility checks Method internally).
+        // Slack: route the new order to the right channel based on Method.
+        // - Screen Print → notifyScreenprintNewOrder (#sp-new-orders, Bradley/Steve/Erik)
+        // - everything else → notifyTransferNewOrder (#transfer-new-orders, Mikhail/Steve/Erik)
+        // Each utility's internal Method filter ensures exactly one fires.
         // Don't await — Slack latency must not delay the order-create response.
-        // Utility resolves rather than throws, so unhandled rejection is impossible.
+        // Utilities resolve rather than throw, so unhandled rejection is impossible.
         notifyScreenprintNewOrder(created || data, {
+            requestedByName: requestedByName,
+            lines: createdLines || lines
+        });
+        notifyTransferNewOrder(created || data, {
             requestedByName: requestedByName,
             lines: createdLines || lines
         });

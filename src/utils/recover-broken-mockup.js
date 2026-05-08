@@ -282,13 +282,13 @@ async function recoverBrokenMockup(opts) {
         result = { status: 'error', slotField, error: err.message || String(err) };
     }
 
-    // Fire-and-forget Slack ping (via Zapier) when recovery failed. Skipped
-    // when dryRun (we don't want backfill scripts to spam Steve), when the
-    // env var is unset, or when the dedup window is still hot. See
-    // src/utils/zapier-broken-mockup-notify.js. Never throws.
+    // Fire-and-forget direct Slack ping when recovery failed. Skipped when
+    // dryRun (we don't want backfill scripts to spam Steve), when the env
+    // var is unset, or when the dedup window is still hot. See
+    // src/utils/slack-broken-mockup-notify.js. Never throws.
     if (!dryRun && result && result.status !== 'recovered') {
         try {
-            const { notifyBrokenMockup } = require('./zapier-broken-mockup-notify');
+            const { notifyBrokenMockup } = require('./slack-broken-mockup-notify');
             const base = publicUrl
                 || (config.app && config.app.publicUrl)
                 || FALLBACK_PROXY_BASE;

@@ -17,10 +17,10 @@
  * Heroku Scheduler command: `npm run check-supacolor-health`
  * Recommended interval: Every 30 minutes (covers two sync ticks of grace)
  *
- * Activation requires `ZAPIER_SUPACOLOR_HEALTH_WEBHOOK_URL` env var on the
+ * Activation requires `SLACK_SUPACOLOR_HEALTH_WEBHOOK_URL` env var on the
  * Heroku app. Without it the endpoint runs but the notify is a no-op
  * (skipped='no-webhook') — useful for staging or for shipping the script
- * before the Zap exists.
+ * before the Slack channel/webhook exists.
  *
  * Logs a single summary line per run.
  */
