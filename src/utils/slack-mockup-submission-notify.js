@@ -13,6 +13,7 @@
 // Activation: set `SLACK_MOCKUP_NOTIFICATIONS_WEBHOOK_URL` env. Unset = no-op.
 
 const axios = require('axios');
+const { formatCaspioDate } = require('./slack-date-format');
 
 const WEBHOOK_URL = process.env.SLACK_MOCKUP_NOTIFICATIONS_WEBHOOK_URL || '';
 const SITE_ORIGIN = process.env.SITE_ORIGIN || 'https://teamnwca.com';
@@ -46,7 +47,7 @@ function buildText(record) {
     const mockupType = record.Mockup_Type || '';
     const placement = record.Print_Location || '';
     const garment = record.Garment_Info || '';
-    const due = record.Due_Date || '';
+    const due = formatCaspioDate(record.Due_Date);
     const wo = record.Work_Order_Number || '';
     const salesRep = record.Sales_Rep || '';
     const detailUrl = SITE_ORIGIN + '/mockup/' + encodeURIComponent(id);

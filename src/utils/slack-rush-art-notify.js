@@ -13,6 +13,7 @@
 // for non-rush art notifications — no new env var needed). Unset = no-op.
 
 const axios = require('axios');
+const { formatCaspioDate } = require('./slack-date-format');
 
 const WEBHOOK_URL = process.env.SLACK_ART_NOTIFICATIONS_WEBHOOK_URL || '';
 const SITE_ORIGIN = process.env.SITE_ORIGIN || 'https://www.teamnwca.com';
@@ -50,7 +51,7 @@ function buildText(record) {
     const idDesign = record.ID_Design != null ? String(record.ID_Design) : '';
     const company = record.CompanyName || '';
     const designNum = record.Design_Num_SW || '';
-    const due = record.Due_Date || '';
+    const due = formatCaspioDate(record.Due_Date);
     const salesRep = record.Sales_Rep || '';
     const detailUrl = SITE_ORIGIN + '/art-request/' + encodeURIComponent(idDesign);
 

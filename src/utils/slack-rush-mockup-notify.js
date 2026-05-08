@@ -11,6 +11,7 @@
 // use for non-rush mockup notifications — no new env var needed). Unset = no-op.
 
 const axios = require('axios');
+const { formatCaspioDate } = require('./slack-date-format');
 
 const WEBHOOK_URL = process.env.SLACK_MOCKUP_NOTIFICATIONS_WEBHOOK_URL || '';
 const SITE_ORIGIN = process.env.SITE_ORIGIN || 'https://www.teamnwca.com';
@@ -47,7 +48,7 @@ function buildText(record) {
     const designName = record.Design_Name || '';
     const mockupType = record.Mockup_Type || '';
     const location = record.Print_Location || '';
-    const due = record.Due_Date || '';
+    const due = formatCaspioDate(record.Due_Date);
     const submittedBy = record.Submitted_By || record.Sales_Rep || '';
     const detailUrl = SITE_ORIGIN + '/mockup/' + encodeURIComponent(id);
 

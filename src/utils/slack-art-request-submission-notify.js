@@ -13,6 +13,7 @@
 // Activation: set `SLACK_ART_NOTIFICATIONS_WEBHOOK_URL` env. Unset = no-op.
 
 const axios = require('axios');
+const { formatCaspioDate } = require('./slack-date-format');
 
 const WEBHOOK_URL = process.env.SLACK_ART_NOTIFICATIONS_WEBHOOK_URL || '';
 const SITE_ORIGIN = process.env.SITE_ORIGIN || 'https://teamnwca.com';
@@ -43,7 +44,7 @@ function buildText(record) {
     const company = record.CompanyName || '';
     const designNum = record.Design_Num_SW || '';
     const placement = record.Garment_Placement || '';
-    const due = record.Due_Date || '';
+    const due = formatCaspioDate(record.Due_Date);
     const orderNum = record.Order_Num_SW || '';
     const contact = record.Full_Name_Contact || '';
     const notes = record.NOTES || '';
