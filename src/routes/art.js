@@ -188,14 +188,14 @@ router.get('/artrequests/:id', async (req, res) => {
 router.post('/artrequests', express.json(), async (req, res) => {
     try {
         const requestData = req.body;
-        
+
         console.log(`Creating new art request`);
         const resource = '/tables/ArtRequests/records';
-        
+
         // Get token for the request
         const token = await getCaspioAccessToken();
         const url = `${caspioApiBaseUrl}${resource}`;
-        
+
         // Prepare the request
         const requestConfig = {
             method: 'post',
@@ -207,54 +207,73 @@ router.post('/artrequests', express.json(), async (req, res) => {
             data: requestData,
             timeout: 15000
         };
-        
+
         // Make the request directly using axios
         const response = await axios(requestConfig);
 
         console.log(`Art request created successfully: ${response.status}`);
 
-        // Slack: notify Steve + Erik + AEs in #art-notifications channel.
-        // Replaces "New Art Request Submission → Slack Steve" Zap, which had
-        // event_sources:["Datasheet"] and missed dashboard form submissions.
-        // Fetch the just-created record so we have the auto-generated ID_Design
-        // (Caspio POST returns 201 with no body — needs a follow-up SELECT).
-        // Don't await — Slack latency must not delay the create response.
-        // Both notify utils resolve rather than throw.
+        // Caspio POST returns 201 with no body, so we have to do a follow-up
+        // SELECT to surface the auto-generated PK_ID + ID_Design. The fetched
+        // record drives two things:
+        //   - The response shape returned to the AE form (so the success
+        //     page can show "Design #52895" + a clickable "View Request" link)
+        //   - The Slack notification (fire-and-forget below)
         //
-        // Two notifications fire from this single fetch:
+        // Lookup chain — try the most specific filter first and fall back as
+        // identifying fields drop off:
+        //   1. Design_Num_SW + CompanyName     (legacy Garment DataPage flow)
+        //   2. CompanyName + User_Email        (new Sticker/Banner/JDS forms —
+        //                                       narrows to one AE's submission)
+        //   3. CompanyName alone               (last-resort fallback)
+        // All ordered by PK_ID DESC LIMIT 1 so we get the just-inserted row.
+        const safe = (v) => String(v).replace(/'/g, "''");
+        let fetchWhere = null;
+        if (requestData.Design_Num_SW && requestData.CompanyName) {
+            fetchWhere = `Design_Num_SW='${safe(requestData.Design_Num_SW)}' AND CompanyName='${safe(requestData.CompanyName)}'`;
+        } else if (requestData.CompanyName && requestData.User_Email) {
+            fetchWhere = `CompanyName='${safe(requestData.CompanyName)}' AND User_Email='${safe(requestData.User_Email)}'`;
+        } else if (requestData.CompanyName) {
+            fetchWhere = `CompanyName='${safe(requestData.CompanyName)}'`;
+        }
+
+        let createdRecord = null;
+        if (fetchWhere) {
+            try {
+                const fetchUrl = `${caspioApiBaseUrl}/tables/ArtRequests/records?q.where=${encodeURIComponent(fetchWhere)}&q.orderBy=PK_ID DESC&q.limit=1`;
+                const fetchResp = await axios({
+                    method: 'get',
+                    url: fetchUrl,
+                    headers: { 'Authorization': `Bearer ${token}` },
+                    timeout: 8000
+                });
+                createdRecord = (fetchResp.data && fetchResp.data.Result && fetchResp.data.Result[0]) || null;
+            } catch (fetchErr) {
+                // Don't fail the response — the record IS created in Caspio,
+                // we just can't return its ID. The AE will see a generic
+                // success message without the design number / link.
+                console.warn('[POST_ARTREQUEST] post-create fetch failed:', fetchErr.message);
+            }
+        }
+
+        // Slack notifications — fire-and-forget so the response doesn't wait.
         //   - notifyArtRequestSubmission  — every new art request
         //   - notifyRushArtRequest        — gated internally on Is_Rush=true
         //                                   (replaces RUSH STEVE Zap which couldn't
         //                                   catch REST API event_source in current
         //                                   Caspio integration setup).
-        try {
-            if (requestData.Design_Num_SW && requestData.CompanyName) {
-                const safeDesign = String(requestData.Design_Num_SW).replace(/'/g, "''");
-                const safeCompany = String(requestData.CompanyName).replace(/'/g, "''");
-                const fetchUrl = `${caspioApiBaseUrl}/tables/ArtRequests/records?q.where=Design_Num_SW='${safeDesign}' AND CompanyName='${safeCompany}'&q.orderBy=PK_ID DESC&q.limit=1`;
-                axios({
-                    method: 'get',
-                    url: fetchUrl,
-                    headers: { 'Authorization': `Bearer ${token}` },
-                    timeout: 8000
-                }).then(fetchResp => {
-                    const created = (fetchResp.data && fetchResp.data.Result && fetchResp.data.Result[0]) || null;
-                    if (created) {
-                        notifyArtRequestSubmission(created);
-                        notifyRushArtRequest(created);
-                    } else {
-                        console.warn('[SLACK_ART_SUBMISSION_SKIP] post-create fetch returned no rows');
-                    }
-                }).catch(err => {
-                    console.warn('[SLACK_ART_SUBMISSION_SKIP] post-create fetch failed:', err.message);
-                });
-            }
-        } catch (notifyErr) {
-            console.warn('[SLACK_ART_SUBMISSION_SKIP] notify-block error:', notifyErr.message);
+        if (createdRecord) {
+            notifyArtRequestSubmission(createdRecord);
+            notifyRushArtRequest(createdRecord);
+        } else {
+            console.warn('[SLACK_ART_SUBMISSION_SKIP] no createdRecord — fetchWhere=' + (fetchWhere || 'none'));
         }
 
         res.status(201).json({
             message: 'Art request created successfully',
+            record: createdRecord,
+            // legacy field — Caspio POST returns empty body so this is null/undefined.
+            // Kept for backward compat with any caller still reading `.request`.
             request: response.data
         });
     } catch (error) {
