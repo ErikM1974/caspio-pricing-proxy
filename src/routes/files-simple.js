@@ -60,6 +60,24 @@ async function getCaspioAccessToken() {
     }
 }
 
+/**
+ * Append a sortable timestamp before the file extension so a new upload can't
+ * collide with an existing file in the Caspio Artwork folder. Used as the
+ * retry name when the original upload returns 409 FILE_EXISTS.
+ *
+ *   "40091 Braun NW Mock1 WF copy.jpg"
+ *      → "40091 Braun NW Mock1 WF copy_2026-05-08T18-02-34-123.jpg"
+ *
+ * Includes milliseconds to make near-simultaneous retries from different
+ * users still resolve to distinct names.
+ */
+function appendUniquenessSuffix(filename) {
+    const ts = new Date().toISOString().replace(/[:.]/g, '-').replace('Z', '');
+    const dot = filename.lastIndexOf('.');
+    if (dot <= 0) return `${filename}_${ts}`;
+    return `${filename.substring(0, dot)}_${ts}${filename.substring(dot)}`;
+}
+
 // --- API Endpoints ---
 
 /**
@@ -82,27 +100,46 @@ router.post('/files/upload', upload.single('file'), async (req, res) => {
 
         // Get token
         const token = await getCaspioAccessToken();
-
-        // Create FormData with a stream from the buffer
-        const formData = new FormData();
-        const stream = Readable.from(file.buffer);
-        formData.append('Files', stream, {
-            filename: file.originalname,
-            contentType: file.mimetype
-        });
-
-        // Upload to Caspio Artwork folder
         const url = `${caspioV3BaseUrl}/files?externalKey=${artworkFolderKey}`;
-        console.log(`Uploading to Caspio: ${url}`);
 
-        const response = await axios.post(url, formData, {
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                ...formData.getHeaders()
-            },
-            maxBodyLength: Infinity,
-            maxContentLength: Infinity
-        });
+        // Inner helper — does one upload attempt with a given filename.
+        // We may call this twice: once with the original name, and (on a 409
+        // FILE_EXISTS collision) once more with a timestamp suffix.
+        async function attemptUpload(filename) {
+            const fd = new FormData();
+            const stream = Readable.from(file.buffer);
+            fd.append('Files', stream, {
+                filename: filename,
+                contentType: file.mimetype
+            });
+            return axios.post(url, fd, {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    ...fd.getHeaders()
+                },
+                maxBodyLength: Infinity,
+                maxContentLength: Infinity
+            });
+        }
+
+        let response;
+        try {
+            response = await attemptUpload(file.originalname);
+        } catch (err) {
+            // On 409 FILE_EXISTS the Caspio Artwork folder already has a file
+            // with this exact name (possibly from a different customer's
+            // earlier submission — the folder is global). Retry once with a
+            // timestamp suffix so generic names like
+            // "40091 Braun NW Mock1 WF copy.jpg" don't break the AE workflow.
+            // Only retry on 409 — re-throw everything else.
+            if (err.response && err.response.status === 409) {
+                const renamed = appendUniquenessSuffix(file.originalname);
+                console.log(`[files/upload] 409 collision on "${file.originalname}", retrying as "${renamed}"`);
+                response = await attemptUpload(renamed);
+            } else {
+                throw err;
+            }
+        }
 
         if (response.data && response.data.Result && response.data.Result[0]) {
             const uploadedFile = response.data.Result[0];
@@ -124,6 +161,8 @@ router.post('/files/upload', upload.single('file'), async (req, res) => {
         console.error('Error uploading file:', error.message);
 
         if (error.response?.status === 409) {
+            // Should be rare — only fires if the rename retry ALSO collided
+            // (millisecond-level race). Surface a clear error to the caller.
             res.status(409).json({
                 success: false,
                 error: 'A file with this name already exists in the Artwork folder',
