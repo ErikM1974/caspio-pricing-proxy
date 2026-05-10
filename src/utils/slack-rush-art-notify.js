@@ -14,6 +14,7 @@
 
 const axios = require('axios');
 const { formatCaspioDate } = require('./slack-date-format');
+const { __test__: { metaForItemType } } = require('./slack-art-request-submission-notify');
 
 const WEBHOOK_URL = process.env.SLACK_ART_NOTIFICATIONS_WEBHOOK_URL || '';
 const SITE_ORIGIN = process.env.SITE_ORIGIN || 'https://www.teamnwca.com';
@@ -53,13 +54,22 @@ function buildText(record) {
     const designNum = record.Design_Num_SW || '';
     const due = formatCaspioDate(record.Due_Date);
     const salesRep = record.Sales_Rep || '';
+    const jdsSku = record.JDS_SKU || '';
+    const specs = record.Item_Specs_Notes || '';
+    const meta = metaForItemType(record.Item_Type);
+    // Garment label drops "Request" since it's already in the header phrase
+    const headerLabel = meta.label === 'Art Request' ? 'ART REQUEST' : meta.label.toUpperCase();
     const detailUrl = SITE_ORIGIN + '/art-request/' + encodeURIComponent(idDesign);
 
     const lines = [
-        `🔥 *RUSH ART REQUEST*${company ? ' — ' + company : ''}`,
+        `🔥 *RUSH ${headerLabel}*${company ? ' — ' + company : ''}`,
         designNum ? `*Design #:* ${designNum}` : '',
+        jdsSku ? `*JDS SKU:* ${jdsSku}` : '',
         due ? `*Due Date:* ${due}` : '',
         salesRep ? `*Submitted by:* ${salesRep}` : '',
+        // Surface the spec card on rush so Steve doesn't have to click through
+        // before deciding whether he can hit the deadline.
+        specs ? `*Specs:*\n${String(specs).trim()}` : '',
         idDesign ? `\n<${detailUrl}|View art request>` : ''
     ];
 

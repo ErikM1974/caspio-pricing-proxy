@@ -39,6 +39,20 @@ function shouldSkipDedup(idDesign) {
     return false;
 }
 
+// Item_Type → header emoji + label + image-attachment caption.
+// NULL/missing → Garment (matches the dashboard fallback in MEMORY.md).
+const ITEM_TYPE_META = {
+    Garment:  { emoji: '🎨',  label: 'Art Request',                  imageCaption: 'Reference artwork' },
+    Sticker:  { emoji: '🏷️', label: 'Sticker Request',              imageCaption: 'Reference artwork' },
+    Banner:   { emoji: '🪧',  label: 'Banner Request (Manual Quote)', imageCaption: 'Reference artwork' },
+    JDS:      { emoji: '🔬',  label: 'JDS Laser Request',            imageCaption: 'Catalog / reference' }
+};
+
+function metaForItemType(itemType) {
+    const key = itemType ? String(itemType).trim() : '';
+    return ITEM_TYPE_META[key] || ITEM_TYPE_META.Garment;
+}
+
 function buildText(record) {
     const idDesign = record.ID_Design != null ? String(record.ID_Design) : '';
     const company = record.CompanyName || '';
@@ -48,17 +62,28 @@ function buildText(record) {
     const orderNum = record.Order_Num_SW || '';
     const contact = record.Full_Name_Contact || '';
     const notes = record.NOTES || '';
+    const specs = record.Item_Specs_Notes || '';
     const salesRep = record.Sales_Rep || '';
+    const jdsSku = record.JDS_SKU || '';
+    const meta = metaForItemType(record.Item_Type);
+    const isGarment = meta === ITEM_TYPE_META.Garment;
     const detailUrl = SITE_ORIGIN + '/art-request/' + encodeURIComponent(idDesign);
 
+    const headerSuffix = salesRep ? ` from ${salesRep}` : '';
     const lines = [
-        salesRep ? `🎨 *New Art Request from ${salesRep}*` : `🎨 *New Art Request*`,
+        `${meta.emoji} *New ${meta.label}${headerSuffix}*`,
         company ? `*Company:* ${company}` : '',
         designNum ? `*Design #:* ${designNum}` : '',
-        placement ? `*Placement:* ${placement}` : '',
+        // Garment-only field — placement makes no sense for stickers/banners/JDS
+        isGarment && placement ? `*Placement:* ${placement}` : '',
+        // JDS-only field — surfaces the laser SKU so Steve sees the product code
+        !isGarment && jdsSku ? `*JDS SKU:* ${jdsSku}` : '',
         due ? `*Due:* ${due}` : '',
         orderNum ? `*Order #:* ${orderNum}` : '',
         contact ? `*Contact:* ${contact}` : '',
+        // Sticker/Banner/JDS forms put the structured spec card here. Garment
+        // forms leave it blank — fall back to NOTES for those.
+        !isGarment && specs ? `*Specs:*\n${String(specs).trim()}` : '',
         notes ? `*Notes:* ${String(notes).trim()}` : '',
         idDesign ? `\n<${detailUrl}|View art request>` : ''
     ];
@@ -71,7 +96,8 @@ function buildPayload(record) {
     const imageUrl = record.CDN_Link || '';
     const payload = { text };
     if (imageUrl && /^https?:\/\//i.test(imageUrl)) {
-        payload.attachments = [{ image_url: imageUrl, text: 'Reference artwork' }];
+        const meta = metaForItemType(record.Item_Type);
+        payload.attachments = [{ image_url: imageUrl, text: meta.imageCaption }];
     }
     return payload;
 }
@@ -129,6 +155,8 @@ module.exports = {
         getDedupSize: () => dedupCache.size,
         DEDUP_TTL_MS,
         buildText,
-        buildPayload
+        buildPayload,
+        ITEM_TYPE_META,
+        metaForItemType
     }
 };

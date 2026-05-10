@@ -30,6 +30,7 @@ const { getBoxAccessToken, BOX_API_BASE, resolveToProxyUrl } = require('../utils
 const { notifyMockupSubmission } = require('../utils/slack-mockup-submission-notify');
 const { notifyMockupRevision } = require('../utils/slack-mockup-revision-notify');
 const { notifyRushMockup } = require('../utils/slack-rush-mockup-notify');
+const { notifyMockupStatusTransition } = require('../utils/slack-mockup-status-notify');
 const config = require('../../config');
 
 const caspioApiBaseUrl = config.caspio.apiBaseUrl;
@@ -1006,7 +1007,7 @@ router.put('/mockups/:id/status', async (req, res) => {
         const token = await getCaspioAccessToken();
 
         // 1. Fetch current record to get Revision_Count + fields needed for Slack notify
-        const getUrl = `${caspioApiBaseUrl}/tables/${MOCKUPS_TABLE}/records?q.where=ID=${id}&q.select=ID,Status,Revision_Count,Company_Name,Design_Number,Box_Mockup_1`;
+        const getUrl = `${caspioApiBaseUrl}/tables/${MOCKUPS_TABLE}/records?q.where=ID=${id}&q.select=ID,Status,Revision_Count,Company_Name,Design_Number,Design_Name,Box_Mockup_1`;
         const getResp = await axios.get(getUrl, {
             headers: { 'Authorization': `Bearer ${token}` },
             timeout: 15000
@@ -1081,6 +1082,23 @@ router.put('/mockups/:id/status', async (req, res) => {
                 });
             } catch (notifyErr) {
                 console.warn('[SLACK_MOCKUP_REVISION_SKIP] notify-block error:', notifyErr.message);
+            }
+        }
+
+        // Status-transition notifies (Awaiting Approval / Approved / Completed).
+        // The notify util silently skips any other status, so the call site is
+        // self-documenting via the explicit status check.
+        if (status === 'Awaiting Approval' || status === 'Approved' || status === 'Completed') {
+            try {
+                notifyMockupStatusTransition({
+                    ID: parseInt(id, 10),
+                    Company_Name: current.Company_Name || '',
+                    Design_Number: current.Design_Number || '',
+                    Design_Name: current.Design_Name || '',
+                    Actor: authorName || ''
+                }, status);
+            } catch (notifyErr) {
+                console.warn('[SLACK_MOCKUP_STATUS_SKIP] notify-block error:', notifyErr.message);
             }
         }
 

@@ -7,6 +7,8 @@ const { notifyArtRequestSubmission } = require('../utils/slack-art-request-submi
 const { notifyArtRequestRevision } = require('../utils/slack-art-revision-notify');
 const { notifyArtRequestReopen } = require('../utils/slack-art-reopen-notify');
 const { notifyRushArtRequest } = require('../utils/slack-rush-art-notify');
+const { notifyArtStatusTransition } = require('../utils/slack-art-status-notify');
+const { notifyArtReminder } = require('../utils/slack-art-reminder-notify');
 const config = require('../../config');
 
 const caspioApiBaseUrl = config.caspio.apiBaseUrl;
@@ -853,8 +855,13 @@ router.put('/art-requests/:designId/status', express.json(), async (req, res) =>
 
         // All status updates use additive art time (fetch current record, add new minutes)
         // Also captures Status (prev), CompanyName, Design_Num_SW for Slack notifications below.
-        if (isRevision || isAwaitingApproval || isInProgress || isCompleted) {
-            const fetchUrl = `${caspioApiBaseUrl}/tables/ArtRequests/records?q.where=ID_Design=${designId}&q.select=Status,Revision_Count,Art_Minutes,Approval_Sent_Date,CompanyName,Design_Num_SW`;
+        // Pull current state for any transition that might fire Slack — that
+        // covers Customer Approved too (it's neither revision/reopen/awaiting/completed
+        // but we still want CompanyName + Item_Type for the notify message).
+        const isCustomerApproved = cleanStatus === 'Customer Approved';
+        const willNotifyStatus = isAwaitingApproval || isCompleted || isCustomerApproved;
+        if (isRevision || isAwaitingApproval || isInProgress || isCompleted || isCustomerApproved) {
+            const fetchUrl = `${caspioApiBaseUrl}/tables/ArtRequests/records?q.where=ID_Design=${designId}&q.select=Status,Revision_Count,Art_Minutes,Approval_Sent_Date,CompanyName,Design_Num_SW,Item_Type`;
             const fetchResp = await axios({
                 method: 'get',
                 url: fetchUrl,
@@ -919,8 +926,10 @@ router.put('/art-requests/:designId/status', express.json(), async (req, res) =>
                 ID_Design: parseInt(designId, 10),
                 CompanyName: (current && current.CompanyName) || '',
                 Design_Num_SW: (current && current.Design_Num_SW) || '',
+                Item_Type: (current && current.Item_Type) || null,
                 Revision_Count: updateData.Revision_Count != null ? updateData.Revision_Count : (current && current.Revision_Count) || 0,
-                Status: cleanStatus
+                Status: cleanStatus,
+                Actor: (req.body && req.body.actor) || ''
             };
             if (isRevision) {
                 notifyArtRequestRevision(notifyRecord);
@@ -930,6 +939,13 @@ router.put('/art-requests/:designId/status', express.json(), async (req, res) =>
                 // Utility's CLOSED_LIKE_STATUSES gates this — initial assignments to
                 // "In Progress" from "Submitted" won't fire (correct semantic).
                 notifyArtRequestReopen(notifyRecord, (current && current.Status) || null);
+            }
+            // Status-transition notifies (Awaiting Approval / Customer Approved /
+            // Completed). The utility silently skips any status not in its TRANSITIONS
+            // table, so it's safe to invoke unconditionally — but we gate to keep
+            // the call site self-documenting.
+            if (willNotifyStatus) {
+                notifyArtStatusTransition(notifyRecord, cleanStatus);
             }
         } catch (notifyErr) {
             console.warn('[SLACK_ART_NOTIFY_SKIP] notify-block error:', notifyErr.message);
@@ -957,6 +973,10 @@ router.put('/art-requests/:designId/fields', express.json(), async (req, res) =>
     // Column names must match actual Caspio ArtRequests table schema exactly
     // Note: On_Hold_Since is INTENTIONALLY NOT in this list — it's server-managed
     // (auto-stamped/cleared when Is_On_Hold flips, see logic below).
+    // Rush_Requested_At is also INTENTIONALLY NOT here — it's a Caspio Timestamp
+    // field auto-populated when Is_Rush flips. Read-only via REST (returns
+    // AlterReadOnlyData 500). Mirrors the READ_ONLY_FIELDS pattern in
+    // mockup-routes.js.
     const EDITABLE_FIELDS = [
         'Order_Type', 'Due_Date', 'Garment_Placement',
         'GarmentStyle', 'GarmentColor', 'Garm_Style_2', 'Garm_Color_2',
@@ -965,17 +985,22 @@ router.put('/art-requests/:designId/fields', express.json(), async (req, res) =>
         'Prelim_Charges', 'Additional_Services',
         'First_name', 'Last_name', 'Email_Contact', 'Phone',
         'Mockup_1_Note', 'Mockup_2_Note', 'Mockup_3_Note',
-        'Is_Rush', 'Rush_Requested_At',
+        'Is_Rush',
         'Is_On_Hold', 'On_Hold_Note',
         // Item-type intake (sticker/banner extension, 2026-05-06).
         // NULL Item_Type is treated as 'Garment' at render time everywhere.
         'Item_Type', 'Item_Specs_Notes'
     ];
 
+    // Defense-in-depth: even if a future caller forgets the rule and includes
+    // a read-only field via the whitelist, strip it here before forwarding to
+    // Caspio. Sending these returns AlterReadOnlyData 500.
+    const READ_ONLY_FIELDS = ['PK_ID', 'ID_Design', 'ID', 'Rush_Requested_At', 'On_Hold_Since'];
+
     const updateData = {};
     const changedFields = [];
     for (const [key, value] of Object.entries(updates)) {
-        if (EDITABLE_FIELDS.includes(key)) {
+        if (EDITABLE_FIELDS.includes(key) && !READ_ONLY_FIELDS.includes(key)) {
             updateData[key] = value;
             changedFields.push(key);
         }
@@ -995,13 +1020,19 @@ router.put('/art-requests/:designId/fields', express.json(), async (req, res) =>
         // Fetch current row first so duplicate PUTs (same Is_On_Hold value) don't
         // clobber the original timestamp.
         // ========================================================================
+        // Will hold the post-fetch state outside the if block so the Slack
+        // notify after the PUT can use CompanyName/Design_Num_SW/Item_Type
+        // without a second round-trip.
+        let onHoldFlipContext = null;
         if ('Is_On_Hold' in updateData) {
             const newOnHold = updateData.Is_On_Hold === true
                 || updateData.Is_On_Hold === 1
                 || updateData.Is_On_Hold === 'true';
 
+            // Extended select: pull the same fields slack-art-status-notify
+            // expects so we can fire the Slack ping below without a second GET.
             const fetchUrl = `${caspioApiBaseUrl}/tables/ArtRequests/records`
-                + `?q.where=ID_Design=${designId}&q.select=Is_On_Hold,On_Hold_Since&q.limit=1`;
+                + `?q.where=ID_Design=${designId}&q.select=Is_On_Hold,On_Hold_Since,CompanyName,Design_Num_SW,Item_Type&q.limit=1`;
             const fetchResp = await axios({
                 method: 'get',
                 url: fetchUrl,
@@ -1015,6 +1046,14 @@ router.put('/art-requests/:designId/fields', express.json(), async (req, res) =>
                 updateData.On_Hold_Since = new Date().toISOString();
                 changedFields.push('On_Hold_Since');
                 console.log(`  → Design ${designId} entering hold; stamped On_Hold_Since`);
+                // Capture context so the Slack ping below has the fields it needs
+                // without a second Caspio fetch.
+                onHoldFlipContext = {
+                    CompanyName: current.CompanyName || '',
+                    Design_Num_SW: current.Design_Num_SW || '',
+                    Item_Type: current.Item_Type || null,
+                    On_Hold_Note: updateData.On_Hold_Note || ''
+                };
             } else if (!newOnHold && oldOnHold) {
                 // Caspio v2 rejects empty string for Date/Time fields ("doesn't match data type").
                 // null is the only JSON value that clears a Date/Time field cleanly.
@@ -1038,6 +1077,24 @@ router.put('/art-requests/:designId/fields', express.json(), async (req, res) =>
         });
 
         console.log(`Design ${designId} fields updated: ${changedFields.join(', ')}`);
+
+        // Slack: fire On Hold notification only on a true false→true flip.
+        // Fire-and-forget; util resolves rather than throws.
+        if (onHoldFlipContext) {
+            try {
+                notifyArtStatusTransition({
+                    ID_Design: parseInt(designId, 10),
+                    CompanyName: onHoldFlipContext.CompanyName,
+                    Design_Num_SW: onHoldFlipContext.Design_Num_SW,
+                    Item_Type: onHoldFlipContext.Item_Type,
+                    On_Hold_Note: onHoldFlipContext.On_Hold_Note,
+                    Actor: (req.body && req.body.actor) || ''
+                }, '__on_hold__');
+            } catch (notifyErr) {
+                console.warn('[SLACK_ART_NOTIFY_SKIP] on-hold notify error:', notifyErr.message);
+            }
+        }
+
         res.json({ message: 'Fields updated', designId, updatedFields: changedFields });
     } catch (error) {
         console.error(`Field update failed for design ${designId}:`, error.response?.data || error.message);
@@ -1089,6 +1146,53 @@ router.post('/art-requests/:designId/note', express.json(), async (req, res) => 
         console.error(`Quick-action note creation failed for design ${designId}:`,
             error.response?.data || error.message);
         res.status(500).json({ error: 'Failed to create note' });
+    }
+});
+
+/**
+ * POST /api/art-requests/:designId/reminder-sent
+ *
+ * Frontend "Send Reminder" button calls this BEFORE firing the EmailJS
+ * customer-reminder email. We log a Slack ping in #art-notifications so the
+ * team has shared visibility that the customer was nudged. No Caspio writes —
+ * pure notification. The frontend already creates a Reminder note + sends the
+ * customer email separately.
+ *
+ * Body: { aeName?, recipientEmail? }
+ */
+router.post('/art-requests/:designId/reminder-sent', express.json(), async (req, res) => {
+    const { designId } = req.params;
+    if (!designId) {
+        return res.status(400).json({ error: 'designId is required' });
+    }
+    try {
+        const token = await getCaspioAccessToken();
+        const fetchUrl = `${caspioApiBaseUrl}/tables/ArtRequests/records`
+            + `?q.where=ID_Design=${designId}&q.select=CompanyName,Design_Num_SW&q.limit=1`;
+        const fetchResp = await axios({
+            method: 'get',
+            url: fetchUrl,
+            headers: { 'Authorization': `Bearer ${token}` },
+            timeout: 15000
+        });
+        const current = fetchResp.data?.Result?.[0] || {};
+
+        // Fire-and-forget Slack — util resolves rather than throws.
+        notifyArtReminder({
+            ID_Design: parseInt(designId, 10),
+            CompanyName: current.CompanyName || '',
+            Design_Num_SW: current.Design_Num_SW || '',
+            AE_Name: (req.body && req.body.aeName) || '',
+            Recipient_Email: (req.body && req.body.recipientEmail) || ''
+        });
+
+        res.json({ success: true, designId });
+    } catch (error) {
+        console.error(`Reminder-sent notify failed for design ${designId}:`,
+            error.response?.data || error.message);
+        // Don't block the AE's email flow if Caspio fetch fails — return 200
+        // with a soft warning. The customer email still gets sent client-side.
+        res.json({ success: false, designId, warning: 'Slack notification skipped' });
     }
 });
 
