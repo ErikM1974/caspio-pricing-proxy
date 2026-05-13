@@ -226,11 +226,37 @@ async function findArtFolder(designId, companyName) {
 }
 
 /**
+ * Sanitize a string for use as a Box folder name.
+ *
+ * Box rejects folder names containing any of `/ \ * ? < > : " |` with
+ * HTTP 400 "Bad Request". Leading/trailing dots and whitespace are also
+ * problematic. This helper replaces forbidden chars with `-` and trims.
+ *
+ * Without this, a Caspio company name like "theCHARLI / The Olive - AMC"
+ * causes every Ruth-side mockup upload to fail (Mikalah / Ruthie report
+ * "Upload failed: Failed to upload mockup file: Request failed with
+ * status code 400" — see 2026-05-13 Mockup ID 90 / Design 40451).
+ *
+ * Same sanitization must be applied to the search query and the cache
+ * key, otherwise lookups miss the freshly-created folder.
+ */
+function sanitizeBoxFolderName(name) {
+    if (!name) return '';
+    return String(name)
+        .replace(/[\/\\*?<>:"|]/g, '-')   // Box-forbidden chars → hyphen
+        .replace(/\s+/g, ' ')              // collapse multiple whitespace
+        .replace(/^[.\s]+|[.\s]+$/g, '')   // trim leading/trailing dots+spaces
+        .trim()
+        .substring(0, 255);                // Box folder name limit
+}
+
+/**
  * Create a customer sub-folder inside Steve's art folder.
  */
 async function createCustomerFolder(customerId, companyName) {
-    // Match Steve's naming: "{customerId} {companyName}"
-    const folderName = `${customerId} ${companyName}`.substring(0, 255);
+    // Match Steve's naming: "{customerId} {companyName}". Sanitize so
+    // company names with forbidden chars (/, \, *, ?, etc.) don't 400.
+    const folderName = sanitizeBoxFolderName(`${customerId} ${companyName}`);
     try {
         const resp = await boxRequest('POST', `${BOX_API_BASE}/folders`, {
             name: folderName,
@@ -1711,7 +1737,12 @@ const mockupFolderCache = new Map();
  * Folders named by company name (e.g., "Starbucks", "Boeing").
  */
 async function findMockupCustomerFolder(companyName) {
-    const nameKey = companyName.trim().toLowerCase();
+    // Sanitize so the cache key + search match a folder created with the
+    // sanitized name. Without this, "theCHARLI / The Olive - AMC" would
+    // search Box for a folder containing a literal slash and never find
+    // its sanitized counterpart "theCHARLI - The Olive - AMC".
+    const sanitized = sanitizeBoxFolderName(companyName);
+    const nameKey = sanitized.toLowerCase();
 
     if (mockupFolderCache.has(nameKey)) {
         return mockupFolderCache.get(nameKey);
@@ -1722,7 +1753,7 @@ async function findMockupCustomerFolder(companyName) {
     try {
         const resp = await axios.get(`${BOX_API_BASE}/search`, {
             params: {
-                query: companyName.trim(),
+                query: sanitized,
                 type: 'folder',
                 ancestor_folder_ids: BOX_MOCKUP_FOLDER_ID,
                 fields: 'id,name,type',
@@ -1762,7 +1793,8 @@ async function findMockupCustomerFolder(companyName) {
  * Create a customer folder inside Ruth's mockup parent folder.
  */
 async function createMockupCustomerFolder(companyName) {
-    const folderName = companyName.trim().substring(0, 255);
+    // Sanitize forbidden chars (/, \, *, ?, etc.) — Box 400's otherwise.
+    const folderName = sanitizeBoxFolderName(companyName);
     try {
         const resp = await boxRequest('POST', `${BOX_API_BASE}/folders`, {
             name: folderName,
