@@ -589,6 +589,15 @@ app.use('/api/sales-reps-2026', requireCrmApiSecret);  // Auth middleware
 app.use('/api', salesReps2026Routes);
 console.log('✓ Sales Reps 2026 routes loaded (protected)');
 
+// Policies Hub Routes (Notion-like internal CMS for company policies & procedures)
+// Two mount points:
+//   /api/policies-public/*  → unprotected reads, Published+Active only (staff dashboard)
+//   /api/policies/*         → protected reads + writes (admin via CRM proxy)
+const { publicRouter: policiesPublicRouter, adminRouter: policiesAdminRouter } = require('./src/routes/policies');
+app.use('/api/policies-public', policiesPublicRouter);
+app.use('/api/policies', requireCrmApiSecret, policiesAdminRouter);
+console.log('✓ Policies Hub routes loaded (public reads + protected admin)');
+
 // Assignment History Routes (audit trail for account assignments)
 const assignmentHistoryRoutes = require('./src/routes/assignment-history');
 app.use('/api', assignmentHistoryRoutes);
