@@ -71,27 +71,94 @@ const TOOLS = [
  * object that gets passed back as `tool_result` content on the next
  * model turn.
  */
+// Single search call wrapping /api/company-contacts/search. Returns the
+// raw contacts array (or [] on failure). Caller is responsible for
+// shaping/deduping.
+async function searchContacts(query) {
+    const trimmed = String(query || '').trim();
+    if (trimmed.length < 2) return [];
+    try {
+        const url = `${INTERNAL_API_BASE}/api/company-contacts/search?q=${encodeURIComponent(trimmed)}&limit=5`;
+        const r = await fetch(url);
+        if (!r.ok) return [];
+        const data = await r.json();
+        return data.contacts || [];
+    } catch {
+        return [];
+    }
+}
+
+/**
+ * Resilient customer lookup. The Caspio search endpoint does exact-
+ * substring matching, so phrases like "Chris Donahue at Donahue Graphics"
+ * match nothing — no single field contains the whole sentence. When the
+ * model passes a multi-word query that returns 0 hits, we split on
+ * common connectors ("at", commas, etc.) and retry each fragment,
+ * deduping by ID_Contact. Reps see the matches Claude expected, even if
+ * Claude got the query construction wrong.
+ */
+async function lookupCustomerSmart(query) {
+    const q = String(query || '').trim();
+    if (q.length < 2) {
+        return { matches: [], error: 'query too short — needs 2+ characters', query_used: q };
+    }
+
+    // Pass 1: query as-is
+    const direct = await searchContacts(q);
+    if (direct.length > 0) {
+        return {
+            matches: shape(direct),
+            count: direct.length,
+            query_used: q,
+        };
+    }
+
+    // Pass 2: split on connectors and try each fragment
+    // Catches: "Chris Donahue at Donahue Graphics", "John, Acme Inc",
+    //          "Sherry from Acme Fuel", "Acme Inc — Allison".
+    const fragments = q
+        .split(/\s+at\s+|\s+from\s+|\s+with\s+|\s+for\s+|[,/—–|]/i)
+        .map((s) => s.trim())
+        .filter((s) => s.length >= 3);
+
+    const seen = new Set();
+    const combined = [];
+    const triedFragments = [];
+    for (const frag of fragments) {
+        if (frag === q) continue;       // already tried as direct
+        triedFragments.push(frag);
+        const hits = await searchContacts(frag);
+        for (const c of hits) {
+            if (seen.has(c.ID_Contact)) continue;
+            seen.add(c.ID_Contact);
+            combined.push(c);
+            if (combined.length >= 5) break;
+        }
+        if (combined.length >= 5) break;
+    }
+
+    return {
+        matches: shape(combined),
+        count: combined.length,
+        query_used: q,
+        fragments_tried: triedFragments.length > 0 ? triedFragments : undefined,
+    };
+}
+
+function shape(contacts) {
+    return contacts.map((c) => ({
+        company: c.CustomerCompanyName || null,
+        contact_name: c.ct_NameFull || null,
+        email: c.ContactNumbersEmail || null,
+        rep: c.CustomerCustomerServiceRep || null,
+        last_ordered: c.Customerdate_LastOrdered || null,
+    }));
+}
+
 async function executeTool(name, input) {
     if (name === 'lookup_customer') {
-        const q = String(input?.query || '').trim();
-        if (q.length < 2) {
-            return { matches: [], error: 'query too short — needs 2+ characters' };
-        }
         try {
-            const url = `${INTERNAL_API_BASE}/api/company-contacts/search?q=${encodeURIComponent(q)}&limit=5`;
-            const r = await fetch(url);
-            if (!r.ok) {
-                return { matches: [], error: `lookup failed (${r.status})` };
-            }
-            const data = await r.json();
-            const matches = (data.contacts || []).map((c) => ({
-                company: c.CustomerCompanyName || null,
-                contact_name: c.ct_NameFull || null,
-                email: c.ContactNumbersEmail || null,
-                rep: c.CustomerCustomerServiceRep || null,
-                last_ordered: c.Customerdate_LastOrdered || null,
-            }));
-            return { matches, count: matches.length };
+            return await lookupCustomerSmart(input?.query);
         } catch (err) {
             console.error('[contract-embroidery-ai] lookup_customer error:', err.message);
             return { matches: [], error: err.message };
