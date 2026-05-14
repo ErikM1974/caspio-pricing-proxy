@@ -24,9 +24,10 @@
 //   }
 //
 // Response: text/event-stream
-//   event: delta  data: { text: "..." }
-//   event: done   data: { stop_reason, usage }
-//   event: error  data: { message }
+//   event: delta        data: { text: "..." }
+//   event: tool_result  data: { tool: "lookup_customer", result: {...} }
+//   event: done         data: { stop_reason, usage }
+//   event: error        data: { message }
 
 const express = require('express');
 const router = express.Router();
@@ -312,6 +313,10 @@ router.post('/chat', express.json({ limit: '256kb' }), async (req, res) => {
                     tool_use_id: tu.id,
                     content: JSON.stringify(result),
                 });
+                // Forward the result to the frontend too. Phase 3 (2026-05-14)
+                // uses this to capture the matched customer's company name +
+                // email when we save the AI-drafted quote to quote_sessions.
+                sendEvent('tool_result', { tool: tu.name, result });
                 console.log(`[contract-embroidery-ai] tool ${tu.name} → ${JSON.stringify(result).slice(0, 120)}`);
             }
             workingMessages.push({ role: 'user', content: toolResults });
