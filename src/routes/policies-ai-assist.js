@@ -33,7 +33,8 @@ const VALID_AI_ACTIONS = new Set([
     'translate-to-spanish',
     'explain-like-im-new',  // simplify a policy to ~6th-grade reading level
     'auto-summarize',       // generate a one-line Summary from Body_HTML — plain text, no HTML
-    'suggest-tags'          // propose 3-5 tags based on body content — comma-separated string
+    'suggest-tags',         // propose 3-5 tags based on body content — comma-separated string
+    'generate-mermaid'      // generate a Mermaid diagram from a description — raw Mermaid syntax, no HTML
 ]);
 
 // Build a focused user message from the action + context the editor sent.
@@ -59,6 +60,11 @@ function buildUserMessage({ action, prompt, selectedText, surroundingContext, ti
     } else if (action === 'suggest-tags') {
         lines.push('', 'POLICY CONTENT (suggest tags):',
             surroundingContext || selectedText || '(no content provided)');
+    } else if (action === 'generate-mermaid') {
+        lines.push('', 'DIAGRAM DESCRIPTION:', prompt || '(no description provided)');
+        if (surroundingContext) {
+            lines.push('', 'POLICY CONTEXT (for reference if useful):', surroundingContext);
+        }
     } else {
         // polish-draft / expand-section / summarize-section
         if (selectedText) lines.push('', 'SELECTED TEXT (the part to operate on):', selectedText);
