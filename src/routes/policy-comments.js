@@ -195,6 +195,73 @@ publicRouter.delete('*', (req, res) => res.status(403).json({ success: false, er
 // =====================================================================
 const adminRouter = express.Router();
 
+// GET /inbox  → all open questions across all policies, joined with the
+// policy's Title + Category so the frontend doesn't need a follow-up fetch.
+// Sorted oldest-first so what's been waiting longest surfaces at the top.
+//
+// Strategy: 2 Caspio queries (open-questions + active-policies), in-memory
+// join. Both are small at NWCA scale (single-digit open questions, ~10
+// policies). Way cheaper than N+1 per-question lookups.
+adminRouter.get('/inbox', async (req, res) => {
+    try {
+        const [questions, policies] = await Promise.all([
+            fetchAllCaspioPages(`/tables/${TABLE}/records`, {
+                'q.where': `Is_Question=1 AND Status='Open'`,
+                'q.orderBy': 'Created_At ASC',  // oldest waiting first
+                'q.limit': 500
+            }),
+            fetchAllCaspioPages(`/tables/Policies/records`, {
+                'q.where': `Is_Active=1`,
+                'q.select': 'Policy_ID,Title,Category',
+                'q.limit': 1000
+            })
+        ]);
+
+        const policyMap = new Map();
+        policies.forEach(p => policyMap.set(p.Policy_ID, { Title: p.Title, Category: p.Category }));
+
+        const enriched = questions.map(q => {
+            const meta = policyMap.get(q.Policy_ID) || {};
+            return {
+                ...q,
+                Policy_Title: meta.Title || '(policy deleted)',
+                Policy_Category: meta.Category || ''
+            };
+        });
+
+        // Filter out questions whose policy was deleted/archived — they're
+        // orphans and there's no useful "Reply on policy →" target.
+        const visible = enriched.filter(q => policyMap.has(q.Policy_ID));
+
+        res.json({
+            success: true,
+            count: visible.length,
+            orphan_count: enriched.length - visible.length,
+            questions: visible
+        });
+    } catch (e) {
+        console.error('[policy-comments] inbox error:', e.message);
+        res.status(500).json({ success: false, error: 'Failed to load inbox' });
+    }
+});
+
+// GET /inbox/count  → tiny endpoint just for the hub's badge.
+// Same query as /inbox but only returns the integer — keeps the hub page
+// fast and avoids hauling comment bodies it doesn't need.
+adminRouter.get('/inbox/count', async (req, res) => {
+    try {
+        const records = await fetchAllCaspioPages(`/tables/${TABLE}/records`, {
+            'q.where': `Is_Question=1 AND Status='Open'`,
+            'q.select': 'Comment_ID',
+            'q.limit': 500
+        });
+        res.json({ success: true, count: records.length });
+    } catch (e) {
+        console.error('[policy-comments] inbox count error:', e.message);
+        res.status(500).json({ success: false, error: 'Failed to fetch inbox count' });
+    }
+});
+
 // PUT /:commentId  → update body / status / Is_Question
 adminRouter.put('/:commentId', express.json({ limit: '256kb' }), async (req, res) => {
     const id = req.params.commentId;
