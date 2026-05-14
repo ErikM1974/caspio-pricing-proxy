@@ -598,6 +598,13 @@ app.use('/api/policies-public', policiesPublicRouter);
 app.use('/api/policies', requireCrmApiSecret, policiesAdminRouter);
 console.log('✓ Policies Hub routes loaded (public reads + protected admin)');
 
+// Policies Hub AI Assist — Claude API streaming endpoint for the TipTap editor.
+// Singular path on purpose: avoids conflict with the /api/policies/* admin router.
+// Requires ANTHROPIC_API_KEY env var; protected by requireCrmApiSecret.
+const policiesAIAssistRoute = require('./src/routes/policies-ai-assist');
+app.use('/api/policies-ai-assist', requireCrmApiSecret, policiesAIAssistRoute);
+console.log('✓ Policies AI Assist route loaded (Claude Sonnet 4.6 + prompt caching)');
+
 // Assignment History Routes (audit trail for account assignments)
 const assignmentHistoryRoutes = require('./src/routes/assignment-history');
 app.use('/api', assignmentHistoryRoutes);
