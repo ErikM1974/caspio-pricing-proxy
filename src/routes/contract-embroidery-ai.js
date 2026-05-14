@@ -33,6 +33,73 @@ const router = express.Router();
 const { Anthropic, APIError } = require('@anthropic-ai/sdk');
 const { CONTRACT_EMBROIDERY_AI_SYSTEM_PROMPT } = require('../../lib/contract-embroidery-ai-prompt');
 
+// Internal API base — we call our own routes (e.g. company-contacts) from
+// within the tool-execution loop. We use the live Heroku URL rather than
+// localhost so the call goes through the same TLS/middleware as any
+// external request (cleaner separation of concerns; ~10ms penalty vs an
+// internal short-circuit, negligible compared to a Claude API round-trip).
+const INTERNAL_API_BASE = process.env.PROXY_PUBLIC_URL ||
+    'https://caspio-pricing-proxy-ab30a049961a.herokuapp.com';
+
+// Tool definitions for Claude — Phase 2 (2026-05-14). Currently just one:
+// lookup_customer wraps /api/company-contacts/search so the model can
+// auto-fill the recipient's name + email when Ruthie mentions a company.
+const TOOLS = [
+    {
+        name: 'lookup_customer',
+        description:
+            "Search the NWCA customer/contact database for a company or contact. " +
+            "Use this whenever Ruthie mentions a customer by company name OR contact name. " +
+            "Returns up to 5 matches with company, contact name, email, service rep, " +
+            "and last-ordered date. Pass the most distinctive phrase (e.g. 'Acme Fuel' " +
+            "or 'Allison Dumas' or an email fragment).",
+        input_schema: {
+            type: 'object',
+            properties: {
+                query: {
+                    type: 'string',
+                    description: 'Search term — company name, contact name, or email fragment. 3+ chars.',
+                },
+            },
+            required: ['query'],
+        },
+    },
+];
+
+/**
+ * Execute a tool call requested by Claude. Returns a JSON-serializable
+ * object that gets passed back as `tool_result` content on the next
+ * model turn.
+ */
+async function executeTool(name, input) {
+    if (name === 'lookup_customer') {
+        const q = String(input?.query || '').trim();
+        if (q.length < 2) {
+            return { matches: [], error: 'query too short — needs 2+ characters' };
+        }
+        try {
+            const url = `${INTERNAL_API_BASE}/api/company-contacts/search?q=${encodeURIComponent(q)}&limit=5`;
+            const r = await fetch(url);
+            if (!r.ok) {
+                return { matches: [], error: `lookup failed (${r.status})` };
+            }
+            const data = await r.json();
+            const matches = (data.contacts || []).map((c) => ({
+                company: c.CustomerCompanyName || null,
+                contact_name: c.ct_NameFull || null,
+                email: c.ContactNumbersEmail || null,
+                rep: c.CustomerCustomerServiceRep || null,
+                last_ordered: c.Customerdate_LastOrdered || null,
+            }));
+            return { matches, count: matches.length };
+        } catch (err) {
+            console.error('[contract-embroidery-ai] lookup_customer error:', err.message);
+            return { matches: [], error: err.message };
+        }
+    }
+    return { error: `unknown tool: ${name}` };
+}
+
 let anthropicClient = null;
 function getAnthropicClient() {
     if (!anthropicClient) {
@@ -112,47 +179,84 @@ router.post('/chat', express.json({ limit: '256kb' }), async (req, res) => {
     };
 
     try {
-        const annotatedMessages = withCalcContext(messages, calcContext);
+        // Round 11 Phase 2 (2026-05-14): tool-execution loop. The model may
+        // request lookup_customer mid-stream; we execute it server-side and
+        // continue the stream. The frontend sees one continuous SSE stream
+        // of text deltas — the tool execution is invisible.
+        let workingMessages = withCalcContext(messages, calcContext);
+        let totalUsage = {
+            input_tokens: 0,
+            output_tokens: 0,
+            cache_read_input_tokens: 0,
+            cache_creation_input_tokens: 0,
+        };
+        const MAX_TOOL_ITERATIONS = 5;   // Safety cap — should never need more than 2-3
+        let finalStopReason = 'end_turn';
 
-        const stream = client.messages.stream({
-            model: 'claude-sonnet-4-6',
-            max_tokens: 1500,
-            system: [
-                {
-                    type: 'text',
-                    text: CONTRACT_EMBROIDERY_AI_SYSTEM_PROMPT,
-                    cache_control: { type: 'ephemeral' },
-                },
-            ],
-            messages: annotatedMessages,
-        });
+        for (let iter = 0; iter < MAX_TOOL_ITERATIONS; iter++) {
+            const stream = client.messages.stream({
+                model: 'claude-sonnet-4-6',
+                max_tokens: 1500,
+                tools: TOOLS,
+                system: [
+                    {
+                        type: 'text',
+                        text: CONTRACT_EMBROIDERY_AI_SYSTEM_PROMPT,
+                        cache_control: { type: 'ephemeral' },
+                    },
+                ],
+                messages: workingMessages,
+            });
 
-        stream.on('text', (delta) => {
-            sendEvent('delta', { text: delta });
-        });
+            stream.on('text', (delta) => {
+                sendEvent('delta', { text: delta });
+            });
 
-        stream.on('error', (err) => {
-            console.error('[contract-embroidery-ai] stream error:', err.message);
-            sendEvent('error', { message: err.message });
-            res.end();
-        });
+            stream.on('error', (err) => {
+                console.error('[contract-embroidery-ai] stream error:', err.message);
+                sendEvent('error', { message: err.message });
+            });
 
-        const finalMessage = await stream.finalMessage();
-        const usage = finalMessage.usage || {};
-        sendEvent('done', {
-            stop_reason: finalMessage.stop_reason,
-            usage: {
-                input_tokens: usage.input_tokens || 0,
-                output_tokens: usage.output_tokens || 0,
-                cache_read_input_tokens: usage.cache_read_input_tokens || 0,
-                cache_creation_input_tokens: usage.cache_creation_input_tokens || 0,
-            },
-        });
+            const finalMessage = await stream.finalMessage();
+            const usage = finalMessage.usage || {};
+            totalUsage.input_tokens += usage.input_tokens || 0;
+            totalUsage.output_tokens += usage.output_tokens || 0;
+            totalUsage.cache_read_input_tokens += usage.cache_read_input_tokens || 0;
+            totalUsage.cache_creation_input_tokens += usage.cache_creation_input_tokens || 0;
+
+            finalStopReason = finalMessage.stop_reason;
+
+            // If the model didn't request a tool, we're done.
+            if (finalMessage.stop_reason !== 'tool_use') break;
+
+            // Otherwise execute each tool_use block and append tool_result back.
+            const toolUseBlocks = (finalMessage.content || []).filter((b) => b.type === 'tool_use');
+            if (toolUseBlocks.length === 0) break;
+
+            // Append the assistant's full content (text + tool_use blocks) verbatim
+            workingMessages.push({ role: 'assistant', content: finalMessage.content });
+
+            // Execute each tool sequentially and collect results
+            const toolResults = [];
+            for (const tu of toolUseBlocks) {
+                const result = await executeTool(tu.name, tu.input);
+                toolResults.push({
+                    type: 'tool_result',
+                    tool_use_id: tu.id,
+                    content: JSON.stringify(result),
+                });
+                console.log(`[contract-embroidery-ai] tool ${tu.name} → ${JSON.stringify(result).slice(0, 120)}`);
+            }
+            workingMessages.push({ role: 'user', content: toolResults });
+            // Loop — call the model again with the tool results
+        }
+
+        sendEvent('done', { stop_reason: finalStopReason, usage: totalUsage });
         res.end();
 
-        const cacheRead = usage.cache_read_input_tokens || 0;
-        const cacheWrite = usage.cache_creation_input_tokens || 0;
-        console.log(`[contract-embroidery-ai] done — in=${usage.input_tokens || 0} out=${usage.output_tokens || 0} cache_read=${cacheRead} cache_write=${cacheWrite}`);
+        const cacheRead = totalUsage.cache_read_input_tokens;
+        const cacheWrite = totalUsage.cache_creation_input_tokens;
+        console.log(`[contract-embroidery-ai] done — in=${totalUsage.input_tokens} out=${totalUsage.output_tokens} cache_read=${cacheRead} cache_write=${cacheWrite}`);
     } catch (e) {
         console.error('[contract-embroidery-ai] error:', e.message);
         if (e instanceof APIError) {
