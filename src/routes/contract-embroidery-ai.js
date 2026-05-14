@@ -149,8 +149,18 @@ async function lookupCustomerSmart(query) {
 function shape(contacts) {
     return contacts.map((c) => ({
         company: c.CustomerCompanyName || null,
+        customer_number: c.id_Customer != null ? String(c.id_Customer) : null,
         contact_name: c.ct_NameFull || null,
+        contact_first: c.NameFirst || null,
+        contact_last: c.NameLast || null,
         email: c.ContactNumbersEmail || null,
+        company_email: c.Company_Email || null,
+        phone: c.Company_Phone || null,
+        address: c.Address || null,
+        address2: c.Address2 || null,
+        city: c.City || null,
+        state: c.State || null,
+        zip: c.Zip || null,
         rep: c.CustomerCustomerServiceRep || null,
         last_ordered: c.Customerdate_LastOrdered || null,
     }));
@@ -197,6 +207,10 @@ function buildCalcContextBlock(ctx) {
         ltmFee: Number(ctx.ltmFee) || 0,
         ltmPerPiece: Number(ctx.ltmPerPiece) || 0,
         orderTotal: Number(ctx.orderTotal) || 0,
+        // Phase 4 (2026-05-14): pre-generated CEMB quote ID so the AI can
+        // reference it in the subject + intro. Frontend pre-fetches one ID
+        // per AI panel session via /api/quote-sequence/CEMB.
+        quoteID: typeof ctx.quoteID === 'string' && ctx.quoteID ? ctx.quoteID : null,
     };
     return JSON.stringify(safe, null, 2);
 }

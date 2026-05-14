@@ -160,14 +160,25 @@ router.get('/company-contacts/search', async (req, res) => {
     const sliced = records.slice(0, requestedLimit);
 
     // Map new schema → legacy response shape so frontend stays unchanged.
+    // 2026-05-14: extended to include NameFirst, NameLast, Company_Phone,
+    // Company_Email so the Contract Embroidery AI assistant can stamp full
+    // identity (first/last/phone/address) onto saved quote_sessions rows.
+    // All existing callers (4 quote builders + Sticker/Banner/JDS intake +
+    // CustomerLookupService) ignore unknown fields — additive only.
     const contacts = sliced.map(r => ({
       ID_Contact: r.ID_Contact,
       id_Customer: r.id_Customer,
       CustomerCompanyName: r.Company_Name || '',
       ct_NameFull: r.ct_NameFull || '',
+      NameFirst: r.NameFirst || '',           // NEW
+      NameLast: r.NameLast || '',             // NEW
       ContactNumbersEmail: r.Email || '',
+      Company_Email: r.Company_Email || '',   // NEW (alt fallback)
+      Company_Phone: r.Company_Phone || '',   // NEW (only company-level phone exists)
       CustomerCustomerServiceRep: r.Sales_Rep || '',
+      Account_Owner: r.Account_Owner || '',   // NEW (sometimes differs from Sales_Rep)
       Address: r.Address || '',
+      Address2: r.Address2 || '',             // NEW
       City: r.City || '',
       State: r.State || '',
       Zip: r.Zip || '',
