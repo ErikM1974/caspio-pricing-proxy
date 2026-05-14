@@ -613,6 +613,17 @@ const policiesAISearchRoute = require('./src/routes/policies-ai-search');
 app.use('/api/policies-ai-search', policiesAISearchRoute);
 console.log('✓ Policies AI Search route loaded (public, Claude Sonnet 4.6)');
 
+// Contract Embroidery AI Quote Assistant — Claude API streaming endpoint
+// for the chat panel on /calculators/embroidery-contract/. Ruthie + reps
+// draft email quotes by chatting with Claude; the calculator state is
+// passed in calcContext on every request so prices are never re-derived.
+// Public (no CRM secret) since the embroidery contract page itself is
+// shareable; bounded by the global apiLimiter (200 req/15min/IP). Cost
+// per quote ~$0.001-0.005 after cache warms up.
+const contractEmbroideryAIRoute = require('./src/routes/contract-embroidery-ai');
+app.use('/api/contract-embroidery-ai', contractEmbroideryAIRoute);
+console.log('✓ Contract Embroidery AI route loaded (public, Claude Sonnet 4.6 + prompt caching)');
+
 // Policies Hub Comments & Questions
 //   /api/policy-comments-public/*  → unprotected reads + posts (any logged-in staff)
 //   /api/policy-comments/*         → admin (resolve/hide/edit) via X-CRM-API-Secret
