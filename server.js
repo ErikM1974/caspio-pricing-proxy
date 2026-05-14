@@ -613,6 +613,14 @@ const policiesAISearchRoute = require('./src/routes/policies-ai-search');
 app.use('/api/policies-ai-search', policiesAISearchRoute);
 console.log('✓ Policies AI Search route loaded (public, Claude Sonnet 4.6)');
 
+// Policies Hub Comments & Questions
+//   /api/policy-comments-public/*  → unprotected reads + posts (any logged-in staff)
+//   /api/policy-comments/*         → admin (resolve/hide/edit) via X-CRM-API-Secret
+const { publicRouter: policyCommentsPublic, adminRouter: policyCommentsAdmin } = require('./src/routes/policy-comments');
+app.use('/api/policy-comments-public', policyCommentsPublic);
+app.use('/api/policy-comments', requireCrmApiSecret, policyCommentsAdmin);
+console.log('✓ Policy Comments routes loaded (public reads/posts + admin moderation)');
+
 // Assignment History Routes (audit trail for account assignments)
 const assignmentHistoryRoutes = require('./src/routes/assignment-history');
 app.use('/api', assignmentHistoryRoutes);
