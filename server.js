@@ -605,6 +605,14 @@ const policiesAIAssistRoute = require('./src/routes/policies-ai-assist');
 app.use('/api/policies-ai-assist', requireCrmApiSecret, policiesAIAssistRoute);
 console.log('✓ Policies AI Assist route loaded (Claude Sonnet 4.6 + prompt caching)');
 
+// Policies Hub AI Semantic Search — open to all logged-in staff (no CRM secret).
+// Rate-limited via the global apiLimiter (200 req/15min/IP). Cheap calls
+// (~$0.01 each) but worth bounding. Lets any AE ask natural-language
+// questions and get matched to relevant policies.
+const policiesAISearchRoute = require('./src/routes/policies-ai-search');
+app.use('/api/policies-ai-search', policiesAISearchRoute);
+console.log('✓ Policies AI Search route loaded (public, Claude Sonnet 4.6)');
+
 // Assignment History Routes (audit trail for account assignments)
 const assignmentHistoryRoutes = require('./src/routes/assignment-history');
 app.use('/api', assignmentHistoryRoutes);

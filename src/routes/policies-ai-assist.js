@@ -30,7 +30,10 @@ const VALID_AI_ACTIONS = new Set([
     'expand-section',
     'summarize-section',
     'add-faq',
-    'translate-to-spanish'
+    'translate-to-spanish',
+    'explain-like-im-new',  // simplify a policy to ~6th-grade reading level
+    'auto-summarize',       // generate a one-line Summary from Body_HTML — plain text, no HTML
+    'suggest-tags'          // propose 3-5 tags based on body content — comma-separated string
 ]);
 
 // Build a focused user message from the action + context the editor sent.
@@ -47,6 +50,15 @@ function buildUserMessage({ action, prompt, selectedText, surroundingContext, ti
             surroundingContext || selectedText || '(no content provided)');
     } else if (action === 'translate-to-spanish') {
         lines.push('', 'CONTENT TO TRANSLATE:', selectedText || surroundingContext || '(no content provided)');
+    } else if (action === 'explain-like-im-new') {
+        lines.push('', 'POLICY CONTENT TO SIMPLIFY:',
+            selectedText || surroundingContext || '(no content provided)');
+    } else if (action === 'auto-summarize') {
+        lines.push('', 'POLICY CONTENT (write a one-line Summary):',
+            surroundingContext || selectedText || '(no content provided)');
+    } else if (action === 'suggest-tags') {
+        lines.push('', 'POLICY CONTENT (suggest tags):',
+            surroundingContext || selectedText || '(no content provided)');
     } else {
         // polish-draft / expand-section / summarize-section
         if (selectedText) lines.push('', 'SELECTED TEXT (the part to operate on):', selectedText);
