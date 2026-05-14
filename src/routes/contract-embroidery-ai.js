@@ -162,6 +162,16 @@ function shape(contacts) {
         state: c.State || null,
         zip: c.Zip || null,
         rep: c.CustomerCustomerServiceRep || null,
+        // Phase 5 (2026-05-14): pass through Account_Owner + Email_Salesrep
+        // so the saved CEMB quote_sessions row reflects the customer's
+        // actual assigned rep (instead of the hardcoded "Ruthie Nhoung").
+        // Email is still SIGNED by Ruthie in the body — the saved record
+        // captures the relationship owner for routing/reporting.
+        account_owner: c.Account_Owner || null,
+        email_salesrep: c.Email_Salesrep || null,
+        // Phase 5: payment terms ("Net 10", "Net 30") show in the Quote
+        // Details card on the customer-facing view.
+        payment_terms: c.Payment_Terms || null,
         last_ordered: c.Customerdate_LastOrdered || null,
     }));
 }

@@ -173,15 +173,17 @@ router.get('/company-contacts/search', async (req, res) => {
       NameFirst: r.NameFirst || '',           // NEW
       NameLast: r.NameLast || '',             // NEW
       ContactNumbersEmail: r.Email || '',
-      Company_Email: r.Company_Email || '',   // NEW (alt fallback)
-      Company_Phone: r.Company_Phone || '',   // NEW (only company-level phone exists)
+      Company_Email: r.Company_Email || '',   // NEW Phase 4 (alt fallback)
+      Company_Phone: r.Company_Phone || '',   // NEW Phase 4 (only company-level phone exists)
       CustomerCustomerServiceRep: r.Sales_Rep || '',
-      Account_Owner: r.Account_Owner || '',   // NEW (sometimes differs from Sales_Rep)
+      Account_Owner: r.Account_Owner || '',   // NEW Phase 4 (sometimes differs from Sales_Rep)
+      Email_Salesrep: r.Email_Salesrep || '', // NEW Phase 5 — account-owner's email (e.g. ruth@nwcustomapparel.com)
       Address: r.Address || '',
-      Address2: r.Address2 || '',             // NEW
+      Address2: r.Address2 || '',             // NEW Phase 4
       City: r.City || '',
       State: r.State || '',
       Zip: r.Zip || '',
+      Payment_Terms: r.Payment_Terms || '',   // NEW Phase 5 — "Net 10" / "Net 30" / etc.
       Customerdate_LastOrdered: r.Last_Order_Date
     }));
 
