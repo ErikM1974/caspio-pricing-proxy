@@ -322,6 +322,12 @@ console.log('✓ DTG routes loaded');
 // Sticker pricing route — backs Order Form sticker method (Caspio Sticker_Pricing + inline fallback)
 const stickerPricingRoutes = require('./src/routes/sticker-pricing');
 app.use('/api', stickerPricingRoutes);
+
+// Banner pricing (2026-05-15) — rate card for continuous-sized banners.
+// $10/sqft + $40 minimum + optional finishing add-ons. Used by the contract
+// sticker AI bot's quote_banner_price tool.
+const bannerPricingRoutes = require('./src/routes/banner-pricing');
+app.use('/api', bannerPricingRoutes);
 console.log('✓ Sticker pricing route loaded');
 
 // Emblem pricing route — backs Order Form emblem method (Caspio Emblem_Pricing + inline fallback)
@@ -630,6 +636,14 @@ console.log('✓ Contract Embroidery AI route loaded (public, Claude Sonnet 4.6 
 const contractDtgAIRoute = require('./src/routes/contract-dtg-ai');
 app.use('/api/contract-dtg-ai', contractDtgAIRoute);
 console.log('✓ Contract DTG AI route loaded (public, Claude Sonnet 4.6 + prompt caching)');
+
+// Contract Sticker AI (2026-05-15) — parallel pattern. Streams Claude
+// quote drafts for /calculators/sticker-manual-pricing.html. Unlike CEMB/CDTG
+// which read a pre-filled calculator state, this bot drives the inputs via
+// the quote_sticker_price tool (bounding-box + qty round-up rules).
+const contractStickerAIRoute = require('./src/routes/contract-sticker-ai');
+app.use('/api/contract-sticker-ai', contractStickerAIRoute);
+console.log('✓ Contract Sticker AI route loaded (public, Claude Sonnet 4.6 + prompt caching)');
 
 // Contract DTG Pricing — lean print-cost feed backing the contract DTG
 // calculator. Reads Contract_DTG_Costs Caspio table (5 locations × 4 tiers)
