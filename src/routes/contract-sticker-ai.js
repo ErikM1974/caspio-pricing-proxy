@@ -75,6 +75,7 @@ const TOOLS = [
                 width: { type: 'number', description: 'Width in inches (e.g. 2, 3.5, 4)' },
                 height: { type: 'number', description: 'Height in inches' },
                 qty: { type: 'integer', description: 'Quantity of stickers requested' },
+                rush: { type: 'boolean', description: 'True if customer needs production in under 5 working days. Adds 25% upcharge. Default false.' },
             },
             required: ['width', 'height', 'qty'],
         },
@@ -105,6 +106,7 @@ const TOOLS = [
                     description: 'Pole pocket(s). Default "none". Use "top"/"bottom"/"both" if the customer asks for hanging-pole pockets.',
                 },
                 doubleSided: { type: 'boolean', description: 'True if customer wants two-sided print. Adds 1.80× multiplier.' },
+                rush: { type: 'boolean', description: 'True if customer needs production in under 5 working days. Adds 25% upcharge. Default false.' },
             },
             required: ['widthIn', 'heightIn', 'qty'],
         },
@@ -249,19 +251,38 @@ async function quoteStickerPrice(input) {
         ? null
         : `${qtyRaw} rounds up to our ${match.Quantity}-piece tier (next standard quantity).`;
 
+    // Rush production fee — pulled from RUSH-25PCT row in Banner_Pricing
+    // (shared modifier home). Falls back to 1.25 hardcoded if Caspio's down.
+    let totalPrice = match.TotalPrice;
+    let pricePerSticker = match.PricePerSticker;
+    let rushMultiplier = null;
+    if (input?.rush === true) {
+        try {
+            const { loadBannerRates } = require('./banner-pricing');
+            const { rates } = await loadBannerRates();
+            const rushRow = rates.find(r => r.PartNumber === 'RUSH-25PCT');
+            rushMultiplier = rushRow ? Number(rushRow.Rate) : 1.25;
+        } catch (e) {
+            rushMultiplier = 1.25;
+        }
+        totalPrice = Math.round(match.TotalPrice * rushMultiplier * 100) / 100;
+        pricePerSticker = Math.round(match.PricePerSticker * rushMultiplier * 10000) / 10000;
+    }
+
     return {
         offGrid: false,
         partNumber: match.PartNumber,
         size: match.Size,
         quantity: match.Quantity,
-        totalPrice: match.TotalPrice,
-        pricePerSticker: match.PricePerSticker,
+        totalPrice,
+        pricePerSticker,
         isBestValue: !!match.IsBestValue,
         appliedRules: {
             boundingBox: sizeRule,
             quantityRoundUp: qtyRule,
+            rush: rushMultiplier ? `${rushMultiplier}× multiplier applied for rush production (under 5 working days)` : null,
         },
-        requested: { width: widthRaw, height: heightRaw, qty: qtyRaw },
+        requested: { width: widthRaw, height: heightRaw, qty: qtyRaw, rush: !!input?.rush },
         setupFee: {
             partNumber: SETUP_FEE_PART,
             amount: SETUP_FEE_AMOUNT,
@@ -299,6 +320,7 @@ async function executeTool(name, input) {
                     grommetCount: Number(input?.grommetCount) || 0,
                     polePockets,
                     doubleSided: input?.doubleSided === true,
+                    rush: input?.rush === true,
                 },
             });
         } catch (err) {

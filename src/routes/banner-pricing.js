@@ -25,12 +25,12 @@ const { fetchAllCaspioPages } = require('../utils/caspio');
 const INLINE_RATES = [
   {
     PartNumber: 'BAN-SQFT',
-    Description: 'Standard 13oz vinyl banner — printed',
+    Description: 'Ultraflex Ultima Pro FL 13oz Front-Lit Matte (sewn hems + #2 brass grommets every 24")',
     PriceType: 'per_sqft',
     Rate: 10.00,
     Unit: 'sqft',
     IsDefault: true,
-    Notes: 'Includes hemmed edges + 4 corner grommets. Width x Height inches / 144 = sqft.',
+    Notes: 'NWCA standard banner material. Sewn hems + grommets every 24in included. Width x Height inches / 144 = sqft.',
   },
   {
     PartNumber: 'BAN-MIN',
@@ -48,7 +48,7 @@ const INLINE_RATES = [
     Rate: 0.50,
     Unit: 'grommet',
     IsDefault: false,
-    Notes: 'Standard banners ship with 4 corner grommets. Add 1 per 2 ft of perimeter for outdoor use.',
+    Notes: 'Standard banners ship with grommets every 24in. Add extras for outdoor tie-downs.',
   },
   {
     PartNumber: 'BAN-POLE-POCKET',
@@ -67,6 +67,19 @@ const INLINE_RATES = [
     Unit: 'multiplier',
     IsDefault: false,
     Notes: 'Multiply the BAN-SQFT subtotal by 1.80 — covers second-side print + blockout liner.',
+  },
+  // Shared modifier — applies to BOTH stickers and banners. Lives here in
+  // Banner_Pricing because this table is the de-facto modifier home; both
+  // /sticker-pricing/quote and /banner-pricing/quote read this row when
+  // rush=true is passed.
+  {
+    PartNumber: 'RUSH-25PCT',
+    Description: 'Rush production fee — 25% upcharge',
+    PriceType: 'multiplier',
+    Rate: 1.25,
+    Unit: 'multiplier',
+    IsDefault: false,
+    Notes: 'Applies when customer needs production in under 5 working days from artwork approval.',
   },
 ];
 
@@ -137,6 +150,7 @@ async function computeBannerQuote({ widthIn, heightIn, qty, extras = {} }) {
   const doubleSideRate = findRate(rates, 'BAN-DOUBLE-SIDE');
   const grommetRate = findRate(rates, 'BAN-GROMMET');
   const polePocketRate = findRate(rates, 'BAN-POLE-POCKET');
+  const rushRate = findRate(rates, 'RUSH-25PCT');
 
   if (!baseRate) return { error: 'config_missing', message: 'BAN-SQFT rate not found' };
 
@@ -180,7 +194,15 @@ async function computeBannerQuote({ widthIn, heightIn, qty, extras = {} }) {
     }
   }
 
-  const perBannerTotal = round2(perBannerWithDoubleSide + perBannerExtras);
+  // Rush production fee — 25% multiplier on the per-banner total (before setup fee).
+  // Pulled from the RUSH-25PCT row in Caspio so admin can adjust rate.
+  let perBannerBeforeRush = round2(perBannerWithDoubleSide + perBannerExtras);
+  let perBannerTotal = perBannerBeforeRush;
+  let rushApplied = false;
+  if (extras.rush && rushRate) {
+    perBannerTotal = round2(perBannerBeforeRush * rushRate.Rate);
+    rushApplied = true;
+  }
   const orderTotal = round2(perBannerTotal * q);
 
   return {
@@ -202,6 +224,7 @@ async function computeBannerQuote({ widthIn, heightIn, qty, extras = {} }) {
         ? `${(sqft * baseRate.Rate).toFixed(2)} rounded up to $${minimum.Rate.toFixed(2)} minimum`
         : null,
       doubleSide: extras.doubleSided ? `${doubleSideRate.Rate}× multiplier applied for double-sided` : null,
+      rush: rushApplied ? `${rushRate.Rate}× multiplier applied for rush production (under 5 working days)` : null,
     },
     setupFee: {
       partNumber: SETUP_FEE_PART,
@@ -246,6 +269,7 @@ router.get('/banner-pricing/quote', async (req, res) => {
       grommetCount: req.query.grommets ? Number(req.query.grommets) : 0,
       polePockets: req.query.polePockets || null,
       doubleSided: req.query.doubleSided === 'true' || req.query.doubleSided === '1',
+      rush: req.query.rush === 'true' || req.query.rush === '1',
     },
   });
   if (result.error) return res.status(400).json(result);

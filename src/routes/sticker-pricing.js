@@ -205,17 +205,39 @@ router.get('/sticker-pricing/quote', async (req, res) => {
                      || (parseInt(boundingSize.split('x')[0], 10) !== heightRaw);
   const qtyWasRounded = roundedQty !== qtyRaw;
 
+  // Rush production fee — shared modifier with banners. Pull the 1.25×
+  // multiplier from the Banner_Pricing table's RUSH-25PCT row (de-facto
+  // shared-modifier home), falling back to the hardcoded 1.25 if the
+  // shared route isn't available.
+  const rushRequested = req.query.rush === 'true' || req.query.rush === '1';
+  let totalPrice = match.TotalPrice;
+  let pricePerSticker = match.PricePerSticker;
+  let rushMultiplier = null;
+  if (rushRequested) {
+    try {
+      const { loadBannerRates } = require('./banner-pricing');
+      const { rates } = await loadBannerRates();
+      const rushRow = rates.find(r => r.PartNumber === 'RUSH-25PCT');
+      rushMultiplier = rushRow ? Number(rushRow.Rate) : 1.25;
+    } catch (e) {
+      rushMultiplier = 1.25;
+    }
+    totalPrice = Math.round(match.TotalPrice * rushMultiplier * 100) / 100;
+    pricePerSticker = Math.round(match.PricePerSticker * rushMultiplier * 10000) / 10000;
+  }
+
   res.json({
     offGrid: false,
     partNumber: match.PartNumber,
     size: match.Size,
     quantity: match.Quantity,
-    totalPrice: match.TotalPrice,
-    pricePerSticker: match.PricePerSticker,
+    totalPrice,
+    pricePerSticker,
     isBestValue: match.IsBestValue,
     appliedRules: {
       boundingBox: sizeWasRounded ? `${widthRaw}"×${heightRaw}" → ${match.Size}` : null,
       quantityRoundUp: qtyWasRounded ? `${qtyRaw} → ${match.Quantity}` : null,
+      rush: rushRequested ? `${rushMultiplier}× multiplier applied for rush production (under 5 working days)` : null,
     },
     requested: { width: widthRaw, height: heightRaw, qty: qtyRaw },
   });
