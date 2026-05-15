@@ -631,6 +631,13 @@ const contractDtgAIRoute = require('./src/routes/contract-dtg-ai');
 app.use('/api/contract-dtg-ai', contractDtgAIRoute);
 console.log('✓ Contract DTG AI route loaded (public, Claude Sonnet 4.6 + prompt caching)');
 
+// Contract DTG Pricing — lean print-cost feed backing the contract DTG
+// calculator. Reads Contract_DTG_Costs Caspio table (5 locations × 4 tiers)
+// and returns the per-location × tier rate matrix + LTM/heavyweight policy.
+const contractDtgPricingRoute = require('./src/routes/contract-dtg-pricing');
+app.use('/api/contract-dtg', contractDtgPricingRoute);
+console.log('✓ Contract DTG pricing route loaded (public, Caspio-backed)');
+
 // Policies Hub Comments & Questions
 //   /api/policy-comments-public/*  → unprotected reads + posts (any logged-in staff)
 //   /api/policy-comments/*         → admin (resolve/hide/edit) via X-CRM-API-Secret
