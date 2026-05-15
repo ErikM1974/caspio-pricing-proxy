@@ -195,12 +195,16 @@ async function computeBannerQuote({ widthIn, heightIn, qty, extras = {} }) {
   }
 
   // Rush production fee — 25% multiplier on the per-banner total (before setup fee).
-  // Pulled from the RUSH-25PCT row in Caspio so admin can adjust rate.
+  // Pulled from the RUSH-25PCT row in Caspio so admin can adjust rate. Falls
+  // back to a hardcoded 1.25 multiplier if the Caspio row hasn't been imported
+  // yet, so rush works the moment the AI tool requests it.
   let perBannerBeforeRush = round2(perBannerWithDoubleSide + perBannerExtras);
   let perBannerTotal = perBannerBeforeRush;
   let rushApplied = false;
-  if (extras.rush && rushRate) {
-    perBannerTotal = round2(perBannerBeforeRush * rushRate.Rate);
+  let rushMultiplierUsed = null;
+  if (extras.rush) {
+    rushMultiplierUsed = rushRate ? Number(rushRate.Rate) : 1.25;
+    perBannerTotal = round2(perBannerBeforeRush * rushMultiplierUsed);
     rushApplied = true;
   }
   const orderTotal = round2(perBannerTotal * q);
@@ -224,7 +228,7 @@ async function computeBannerQuote({ widthIn, heightIn, qty, extras = {} }) {
         ? `${(sqft * baseRate.Rate).toFixed(2)} rounded up to $${minimum.Rate.toFixed(2)} minimum`
         : null,
       doubleSide: extras.doubleSided ? `${doubleSideRate.Rate}× multiplier applied for double-sided` : null,
-      rush: rushApplied ? `${rushRate.Rate}× multiplier applied for rush production (under 5 working days)` : null,
+      rush: rushApplied ? `${rushMultiplierUsed}× multiplier applied for rush production (under 5 working days)` : null,
     },
     setupFee: {
       partNumber: SETUP_FEE_PART,
