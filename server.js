@@ -624,6 +624,13 @@ const contractEmbroideryAIRoute = require('./src/routes/contract-embroidery-ai')
 app.use('/api/contract-embroidery-ai', contractEmbroideryAIRoute);
 console.log('✓ Contract Embroidery AI route loaded (public, Claude Sonnet 4.6 + prompt caching)');
 
+// Contract DTG AI — parallel to contract-embroidery-ai. Streams Claude
+// quote drafts for /calculators/dtg-contract/. CalcContext shape differs
+// (locations + heavyweight instead of stitches/product), same SSE pipeline.
+const contractDtgAIRoute = require('./src/routes/contract-dtg-ai');
+app.use('/api/contract-dtg-ai', contractDtgAIRoute);
+console.log('✓ Contract DTG AI route loaded (public, Claude Sonnet 4.6 + prompt caching)');
+
 // Policies Hub Comments & Questions
 //   /api/policy-comments-public/*  → unprotected reads + posts (any logged-in staff)
 //   /api/policy-comments/*         → admin (resolve/hide/edit) via X-CRM-API-Secret
