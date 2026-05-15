@@ -168,13 +168,29 @@ function buildCalcContextBlock(ctx) {
         : [];
     if (locs.length === 0) return null;
 
+    // locRates: array of {code, name, rate, lineTotal} — sanitize each entry
+    // so a malformed client can't inject extra fields through to Claude.
+    // This is the AI's source of truth for per-location pricing now that
+    // perLocRate (the old flat-rate field) is gone.
+    const locRates = Array.isArray(ctx.locRates)
+        ? ctx.locRates
+            .filter((r) => r && typeof r === 'object')
+            .map((r) => ({
+                code: String(r.code || '').trim(),
+                name: String(r.name || '').trim(),
+                rate: Number(r.rate) || 0,
+                lineTotal: Number(r.lineTotal) || 0,
+            }))
+            .filter((r) => r.code && r.rate > 0)
+        : [];
+
     const safe = {
         qty: Number(ctx.qty) || 1,
         locs,
         locationNames,
+        locRates,
         heavyweight: !!ctx.heavyweight,
         tier,
-        perLocRate: Number(ctx.perLocRate) || 0,
         heavyweightCharge: Number(ctx.heavyweightCharge) || 0,
         baseUnit: Number(ctx.baseUnit) || 0,
         finalUnit: Number(ctx.finalUnit) || 0,
