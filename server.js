@@ -663,6 +663,16 @@ const contractWebstoreAIRoute = require('./src/routes/contract-webstore-ai');
 app.use('/api/contract-webstore-ai', contractWebstoreAIRoute);
 console.log('✓ Contract Webstore AI route loaded (public, Claude Sonnet 4.6 + prompt caching + Tavily web search)');
 
+// DTG Quote AI (2026-05-17) — chat-driven DTG retail quote builder. Single
+// product line (DTG), 4 tools: lookup_customer + quote_dtg_pricing
+// (calls /api/dtg/product-bundle for live pricing) + recommend_top_sellers
+// (curated 6-product list from lib/dtg-curated-products.js) + web_search.
+// ShopWorks push is FRONTEND-handled (button POSTs to /api/submit-order-form
+// directly on sanmar-inventory-app, same as the order form does).
+const dtgQuoteAIRoute = require('./src/routes/dtg-quote-ai');
+app.use('/api/dtg-quote-ai', dtgQuoteAIRoute);
+console.log('✓ DTG Quote AI route loaded (public, Claude Sonnet 4.6 + prompt caching + Tavily web search + curated top-sellers)');
+
 // Contract DTG Pricing — lean print-cost feed backing the contract DTG
 // calculator. Reads Contract_DTG_Costs Caspio table (5 locations × 4 tiers)
 // and returns the per-location × tier rate matrix + LTM/heavyweight policy.
