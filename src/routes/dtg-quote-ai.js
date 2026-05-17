@@ -123,6 +123,27 @@ const TOOLS = [
         },
     },
     {
+        name: 'lookup_product_details',
+        description:
+            "Look up the ACTUAL catalog details for a SanMar/NWCA style number — colors, sizes, " +
+            "size upcharges, product title/description. Calls /api/dtg/product-bundle and " +
+            "returns the live catalog data. " +
+            "USE WHENEVER: the customer asks 'what colors does PC54 come in?', 'what sizes?', " +
+            "or before quoting a non-standard color (sanity-check the color exists in the catalog). " +
+            "NEVER guess catalog colors — always call this tool to ground your answer in real data. " +
+            "Returns list of colors (with COLOR_NAME, CATALOG_COLOR, swatch image URL, model " +
+            "shot URL), list of sizes (with case price + upcharge from base), and a summary of " +
+            "size-upcharge tiers. The frontend renders the color list as clickable swatches " +
+            "so the rep can pick visually.",
+        input_schema: {
+            type: 'object',
+            properties: {
+                styleNumber: { type: 'string', description: 'SanMar/NWCA style number (e.g. PC54, BC3001, DT6000).' },
+            },
+            required: ['styleNumber'],
+        },
+    },
+    {
         name: 'web_search',
         description:
             "Search the live internet for information outside your training data. Use for: " +
@@ -130,7 +151,9 @@ const TOOLS = [
             "changes, specific DTG technical questions outside this prompt, comparison questions " +
             "the prompt doesn't cover. " +
             "DO NOT USE for: pricing questions this prompt answers, basic DTG vs DTF/screen " +
-            "questions (those are covered in the prompt), hypotheticals.",
+            "questions (those are covered in the prompt), hypotheticals. " +
+            "DO NOT USE for catalog questions (\"what colors does X come in?\") — use " +
+            "lookup_product_details for that instead.",
         input_schema: {
             type: 'object',
             properties: {
@@ -285,52 +308,34 @@ async function quoteDtgPricing(input) {
         tierLabel = '72+';
     }
 
-    // Pull base print cost(s) from bundle. The product-bundle exposes
-    // dtgCosts as [{PrintLocationCode, TierLabel, PrintCost}, ...] indirectly
-    // through the pricing aggregation; we recompute conservatively:
-    // sum PrintCost for the resolved tier across the location(s) in the code.
-    const dtgCosts = Array.isArray(bundle.dtgCosts) ? bundle.dtgCosts
-        : Array.isArray(bundle.dtg?.dtgCosts) ? bundle.dtg.dtgCosts
-        : null;
+    // The /api/dtg/product-bundle response shape (per dtg.js:188-200):
+    //   { product: { styleNumber, title, description, colors:[...] },
+    //     pricing: { tiers:[...], costs:[...], sizes:[...], upcharges:{...}, locations:[...] },
+    //     metadata: {...} }
+    // Pull print costs for the resolved tier across the location code(s).
+    const dtgCosts = Array.isArray(bundle.pricing?.costs) ? bundle.pricing.costs : [];
     let totalPrintCost = 0;
     const locationParts = locationCode.split('_'); // ['LC'] or ['LC', 'FB']
-    if (dtgCosts) {
-        for (const part of locationParts) {
-            const row = dtgCosts.find(
-                (r) => r.PrintLocationCode === part && r.TierLabel === tierLabel,
-            );
-            if (row) totalPrintCost += Number(row.PrintCost) || 0;
-        }
+    for (const part of locationParts) {
+        const row = dtgCosts.find(
+            (r) => r.PrintLocationCode === part && r.TierLabel === tierLabel,
+        );
+        if (row) totalPrintCost += Number(row.PrintCost) || 0;
     }
 
     // Pricing-tier MarginDenominator (Caspio's pricing formula).
-    // We pull the right tier from bundle.pricingTiers if present; fall back
-    // to a sensible 0.55 if missing.
-    const tiers = Array.isArray(bundle.pricingTiers) ? bundle.pricingTiers
-        : Array.isArray(bundle.dtg?.pricingTiers) ? bundle.dtg.pricingTiers
-        : null;
+    const tiers = Array.isArray(bundle.pricing?.tiers) ? bundle.pricing.tiers : [];
     let marginDenominator = 0.55;
-    if (tiers) {
-        const tierRow = tiers.find((t) => t.TierLabel === tierLabel);
-        if (tierRow && Number(tierRow.MarginDenominator)) {
-            marginDenominator = Number(tierRow.MarginDenominator);
-        }
+    const tierRow = tiers.find((t) => t.TierLabel === tierLabel);
+    if (tierRow && Number(tierRow.MarginDenominator)) {
+        marginDenominator = Number(tierRow.MarginDenominator);
     }
 
-    // Best base-garment price by size (from bundle sizes / sizePricing)
-    // Falls back to a uniform $5 if we can't read the bundle shape.
-    const sizePricing = Array.isArray(bundle.sizes) ? bundle.sizes
-        : Array.isArray(bundle.sizePricing) ? bundle.sizePricing
-        : Array.isArray(bundle.maxPrices) ? bundle.maxPrices
-        : null;
-
-    // Size upcharges
-    const upchargeData = Array.isArray(bundle.sizeUpcharges) ? bundle.sizeUpcharges : [];
-    const upchargeBySize = {};
-    upchargeData.forEach((u) => {
-        const k = String(u.SizeDesignation || '').toUpperCase();
-        upchargeBySize[k] = Number(u.StandardAddOnAmount) || 0;
-    });
+    // Size pricing (array of {size, maxCasePrice}) and upcharges (object {2XL: 2, 3XL: 4, ...})
+    const sizePricing = Array.isArray(bundle.pricing?.sizes) ? bundle.pricing.sizes : [];
+    const upchargeBySize = bundle.pricing?.upcharges && typeof bundle.pricing.upcharges === 'object'
+        ? Object.fromEntries(Object.entries(bundle.pricing.upcharges).map(([k, v]) => [String(k).toUpperCase(), Number(v) || 0]))
+        : {};
 
     // LTM per piece
     const ltmPerUnit = isLtmTier
@@ -421,19 +426,110 @@ function sizeUpchargeFor(size, upchargeBySize) {
 }
 
 function lookupGarmentCost(size, sizePricing) {
-    if (!sizePricing) return 5.00; // sensible default if we can't read the bundle
-    // Try several shapes the product-bundle endpoint exposes
+    if (!Array.isArray(sizePricing) || sizePricing.length === 0) return 5.00;
     const sizeUpper = String(size).toUpperCase();
+    // product-bundle returns {size, maxCasePrice}
     for (const row of sizePricing) {
-        const k = String(row.SIZE || row.size || '').toUpperCase();
+        const k = String(row.size || row.SIZE || '').toUpperCase();
         if (k === sizeUpper) {
-            return Number(row.CASE_PRICE || row.maxPrice || row.price) || 5.00;
+            return Number(row.maxCasePrice || row.CASE_PRICE || row.price) || 5.00;
         }
     }
-    // Fall back to the first row's price if exact size not found
-    const first = sizePricing[0];
-    if (first) return Number(first.CASE_PRICE || first.maxPrice || first.price) || 5.00;
-    return 5.00;
+    // Fall back to the highest case price (conservative — over-quote rather than under-quote)
+    const max = sizePricing.reduce(
+        (m, r) => Math.max(m, Number(r.maxCasePrice || r.CASE_PRICE || r.price) || 0),
+        0,
+    );
+    return max || 5.00;
+}
+
+/**
+ * lookup_product_details — return the actual catalog colors + sizes for a style.
+ * Calls /api/dtg/product-bundle and reshapes the response so the bot can answer
+ * "what colors does PC54 come in?" without inventing values, AND so the frontend
+ * can render clickable color swatches inline.
+ */
+async function lookupProductDetails(input) {
+    const styleNumber = String(input?.styleNumber || '').trim().toUpperCase();
+    if (!styleNumber) {
+        return { error: 'bad_input', message: 'styleNumber is required' };
+    }
+    try {
+        const url = `${INTERNAL_API_BASE}/api/dtg/product-bundle?styleNumber=${encodeURIComponent(styleNumber)}`;
+        const r = await fetch(url);
+        if (!r.ok) {
+            return {
+                error: 'lookup_failed',
+                message: `DTG product-bundle returned ${r.status} for style "${styleNumber}". The style may not be in our SanMar catalog — ask the rep to verify.`,
+            };
+        }
+        const bundle = await r.json();
+        const product = bundle.product;
+        if (!product) {
+            return {
+                error: 'no_product',
+                message: `No product found for style "${styleNumber}". Verify the style number.`,
+            };
+        }
+
+        const colorsRaw = Array.isArray(product.colors) ? product.colors : [];
+        const colors = colorsRaw.map((c) => ({
+            name: c.COLOR_NAME || '',
+            catalogColor: c.CATALOG_COLOR || '',
+            swatchImageUrl: c.COLOR_SQUARE_IMAGE || '',
+            mainImageUrl: c.MAIN_IMAGE_URL || '',
+        })).filter(c => c.name);
+
+        const sizesRaw = Array.isArray(bundle.pricing?.sizes) ? bundle.pricing.sizes : [];
+        const upchargeMap = bundle.pricing?.upcharges && typeof bundle.pricing.upcharges === 'object'
+            ? bundle.pricing.upcharges
+            : {};
+        const sizes = sizesRaw.map((s) => {
+            const size = String(s.size || '').toUpperCase();
+            const upcharge = Number(upchargeMap[size]) || 0;
+            return {
+                size,
+                maxCasePrice: Number(s.maxCasePrice) || 0,
+                upcharge,
+                hasUpcharge: upcharge > 0,
+            };
+        });
+
+        const hasUpcharges = sizes.some(s => s.hasUpcharge);
+        const upchargeSummary = hasUpcharges
+            ? sizes.filter(s => s.hasUpcharge).map(s => `${s.size} +$${s.upcharge.toFixed(2)}`).join(', ')
+            : null;
+
+        // DTG-specific avoid warnings the bot should surface
+        const avoidWarnings = [];
+        if (styleNumber === 'PC61') {
+            avoidWarnings.push('⚠ Avoid PC61 Red color — causes fixation stains, needs 24hr+ drying. All other colors are great.');
+        }
+        if (styleNumber === 'PC78H') {
+            avoidWarnings.push('⚠ Avoid PC78H White color — completely unprintable on DTG (washes out). Other PC78H colors are fine.');
+        }
+        if (styleNumber.startsWith('G') && /^G\d/.test(styleNumber)) {
+            // Gildan style numbers typically start with G + digit (G500, G185, G640, etc.)
+            avoidWarnings.push('⚠ Gildan products are NOT recommended for DTG — special fabric coating makes prints dull and lifeless. Suggest a Port & Company or BELLA+CANVAS equivalent instead.');
+        }
+
+        return {
+            styleNumber,
+            title: product.title || product.PRODUCT_TITLE || '',
+            description: product.description || product.PRODUCT_DESCRIPTION || '',
+            colors,
+            colorCount: colors.length,
+            sizes,
+            sizeCount: sizes.length,
+            hasUpcharges,
+            upchargeSummary,
+            avoidWarnings,
+            source: 'caspio-sanmar-bulk',
+        };
+    } catch (err) {
+        console.error('[dtg-quote-ai] lookup_product_details error:', err.message);
+        return { error: 'network', message: err.message };
+    }
 }
 
 async function executeTool(name, input) {
@@ -461,6 +557,14 @@ async function executeTool(name, input) {
             });
         } catch (err) {
             console.error('[dtg-quote-ai] recommend_top_sellers error:', err.message);
+            return { error: 'tool_exception', message: err.message };
+        }
+    }
+    if (name === 'lookup_product_details') {
+        try {
+            return await lookupProductDetails(input);
+        } catch (err) {
+            console.error('[dtg-quote-ai] lookup_product_details error:', err.message);
             return { error: 'tool_exception', message: err.message };
         }
     }
