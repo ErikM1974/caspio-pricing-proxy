@@ -653,6 +653,16 @@ const contractEmblemAIRoute = require('./src/routes/contract-emblem-ai');
 app.use('/api/contract-emblem-ai', contractEmblemAIRoute);
 console.log('✓ Contract Emblem AI route loaded (public, Claude Sonnet 4.6 + prompt caching)');
 
+// Contract Webstore AI (2026-05-16) — mirrors sticker dual-mode pattern.
+// Streams Claude quote drafts + Q&A for /calculators/webstores.html.
+// Two product modes (webstore-setup + fundraiser-item) through one chat.
+// Four tools: lookup_customer + 2 pricing tools + web_search (Tavily-backed).
+// New env var: TAVILY_API_KEY (free tier 1000 queries/mo) — bot gracefully
+// reports "web search unavailable" if missing.
+const contractWebstoreAIRoute = require('./src/routes/contract-webstore-ai');
+app.use('/api/contract-webstore-ai', contractWebstoreAIRoute);
+console.log('✓ Contract Webstore AI route loaded (public, Claude Sonnet 4.6 + prompt caching + Tavily web search)');
+
 // Contract DTG Pricing — lean print-cost feed backing the contract DTG
 // calculator. Reads Contract_DTG_Costs Caspio table (5 locations × 4 tiers)
 // and returns the per-location × tier rate matrix + LTM/heavyweight policy.
