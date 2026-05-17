@@ -645,6 +645,14 @@ const contractStickerAIRoute = require('./src/routes/contract-sticker-ai');
 app.use('/api/contract-sticker-ai', contractStickerAIRoute);
 console.log('✓ Contract Sticker AI route loaded (public, Claude Sonnet 4.6 + prompt caching)');
 
+// Contract Emblem AI (2026-05-16) — mirrors sticker pattern. Streams Claude
+// quote drafts for /calculators/embroidered-emblem/index.html. Single
+// product line (embroidered patches), single quote tool (quote_emblem_price).
+// Tool pulls pricing data from /api/emblem-pricing (Caspio + inline fallback).
+const contractEmblemAIRoute = require('./src/routes/contract-emblem-ai');
+app.use('/api/contract-emblem-ai', contractEmblemAIRoute);
+console.log('✓ Contract Emblem AI route loaded (public, Claude Sonnet 4.6 + prompt caching)');
+
 // Contract DTG Pricing — lean print-cost feed backing the contract DTG
 // calculator. Reads Contract_DTG_Costs Caspio table (5 locations × 4 tiers)
 // and returns the per-location × tier rate matrix + LTM/heavyweight policy.
