@@ -532,6 +532,41 @@ async function lookupProductDetails(input) {
     }
 }
 
+// Cache the curated-list image lookups module-level so we hit /api/dtg/product-bundle
+// at most once per style across the lifetime of the proxy process. The list is
+// small (≤8 styles) and stable; if it ever changes mid-process the worst case is
+// stale thumbnails until the dyno cycles.
+let _curatedImageCache = null;
+let _curatedImagePromise = null;
+async function hydrateCuratedImages() {
+    if (_curatedImageCache) return _curatedImageCache;
+    if (_curatedImagePromise) return _curatedImagePromise;
+
+    const allCurated = [
+        ...(DTG_CURATED_PRODUCTS.tshirts || []),
+        ...(DTG_CURATED_PRODUCTS.sweatshirts || []),
+    ];
+    const styles = Array.from(new Set(allCurated.map((p) => p.styleNumber)));
+
+    _curatedImagePromise = Promise.all(styles.map(async (style) => {
+        try {
+            const r = await fetch(`${INTERNAL_API_BASE}/api/dtg/product-bundle?styleNumber=${encodeURIComponent(style)}`);
+            if (!r.ok) return [style, null];
+            const j = await r.json();
+            const colors = (j && j.product && Array.isArray(j.product.colors)) ? j.product.colors : [];
+            const first = colors.find((c) => c && c.MAIN_IMAGE_URL);
+            return [style, first ? first.MAIN_IMAGE_URL : null];
+        } catch {
+            return [style, null];
+        }
+    })).then((entries) => {
+        _curatedImageCache = Object.fromEntries(entries);
+        return _curatedImageCache;
+    });
+
+    return _curatedImagePromise;
+}
+
 async function executeTool(name, input) {
     if (name === 'lookup_customer') {
         try {
@@ -551,10 +586,25 @@ async function executeTool(name, input) {
     }
     if (name === 'recommend_top_sellers') {
         try {
-            return recommendTopSellers({
+            const result = recommendTopSellers({
                 category: input?.category || 'any',
                 limit: input?.limit || 3,
             });
+            // Decorate each product with mainImageUrl so the frontend can show a
+            // thumbnail. The image map is cached after the first hydration; the
+            // entire curated list (≤8 styles) is fetched in parallel exactly once.
+            try {
+                const imageMap = await hydrateCuratedImages();
+                if (Array.isArray(result.products)) {
+                    for (const p of result.products) {
+                        const url = imageMap[p.styleNumber];
+                        if (url) p.mainImageUrl = url;
+                    }
+                }
+            } catch (hyErr) {
+                console.warn('[dtg-quote-ai] image hydration skipped:', hyErr.message);
+            }
+            return result;
         } catch (err) {
             console.error('[dtg-quote-ai] recommend_top_sellers error:', err.message);
             return { error: 'tool_exception', message: err.message };
