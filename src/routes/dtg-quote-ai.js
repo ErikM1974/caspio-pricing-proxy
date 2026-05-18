@@ -27,6 +27,7 @@ const router = express.Router();
 const { Anthropic, APIError } = require('@anthropic-ai/sdk');
 const { CONTRACT_DTG_QUOTE_AI_SYSTEM_PROMPT } = require('../../lib/dtg-quote-ai-prompt');
 const { recommendTopSellers, DTG_CURATED_PRODUCTS } = require('../../lib/dtg-curated-products');
+const { fetchAllCaspioPages } = require('../utils/caspio');
 const { webSearch } = require('../../lib/web-search');
 
 const INTERNAL_API_BASE = process.env.PROXY_PUBLIC_URL ||
@@ -126,19 +127,21 @@ const TOOLS = [
     {
         name: 'recommend_top_sellers',
         description:
-            "Return the top-selling DTG-friendly products from NWCA's curated list (6 t-shirts " +
-            "+ 2 sweatshirts, ranked by actual sales). Use when the customer asks 'what do you " +
-            "recommend?' or doesn't have a specific style in mind. Returns each product with " +
-            "sales rank, recommended colors, warnings (e.g. PC61 avoid Red), and a 'best for' " +
-            "use-case note. Also includes the avoid-products list (Gildan, PC78H White, PC61 " +
-            "Red) so you can warn proactively.",
+            "Return NWCA's actual top-selling DTG garments from the Caspio DTG_Top_Sellers_2026 " +
+            "table (20 styles, 2021-now sales). Use when the rep asks 'what's our best hoodie?' / " +
+            "'what t-shirt do you recommend?' / 'top sellers'. Filter by category to narrow. " +
+            "Each product returned includes real sales numbers, top 6-8 colors with units, and " +
+            "the swatch image URL. The frontend renders these as rich recommendation cards.",
         input_schema: {
             type: 'object',
             properties: {
                 category: {
                     type: 'string',
-                    enum: ['tshirts', 't-shirts', 'tee', 'tees', 'sweatshirts', 'hoodies', 'fleece', 'any'],
-                    description: 'Product category filter. "any" returns mixed t-shirts + sweatshirts. Default "any".',
+                    enum: ['T-Shirt', 'Hoodie', 'Long Sleeve Tee', 'Youth Tee', 'any'],
+                    description:
+                        'Category filter. "T-Shirt" = 12 styles (PC54, PC61, BC3001, etc.), ' +
+                        '"Hoodie" = 4 (PC90H, PC78H, ST254, PC850H), "Long Sleeve Tee" = 3, ' +
+                        '"Youth Tee" = 1 (PC54Y). "any" returns mixed across all categories.',
                 },
                 limit: { type: 'integer', description: 'Max products to return (1-10). Default 3.' },
             },
@@ -392,20 +395,57 @@ async function lookupProductDetails(input) {
 // Cache the curated-list image lookups module-level so we hit /api/dtg/product-bundle
 // at most once per style across the lifetime of the proxy process. The list is
 // small (≤8 styles) and stable; if it ever changes mid-process the worst case is
+// Trim trailing ". STYLENUMBER" from SanMar product titles.
+// "Port & Co Core Cotton Tee. PC54" → "Port & Co Core Cotton Tee"
+function stripStyleSuffix(title) {
+    return String(title || '').replace(/\.?\s*[A-Z0-9]+\s*$/, '').trim();
+}
+
+// Guess the brand from the first word(s) of the product title.
+// "Port & Co Essential Tee" → "Port & Co"
+// "BELLA+CANVAS Unisex Jersey" → "BELLA+CANVAS"
+// "District Very Important Tee" → "District"
+// "Sport-Tek Pullover Hoodie" → "Sport-Tek"
+// "Next Level Apparel Adult Cotton Tee" → "Next Level Apparel"
+function extractBrand(title) {
+    const t = String(title || '').trim();
+    if (/^Port\s*&\s*Co/i.test(t)) return 'Port & Company';
+    if (/^BELLA\+CANVAS/i.test(t)) return 'BELLA+CANVAS';
+    if (/^District/i.test(t)) return 'District';
+    if (/^Sport-Tek/i.test(t)) return 'Sport-Tek';
+    if (/^Next Level/i.test(t)) return 'Next Level Apparel';
+    if (/^Gildan/i.test(t)) return 'Gildan';
+    return t.split(/\s+/)[0] || '';
+}
+
 // stale thumbnails until the dyno cycles.
 let _curatedImageCache = null;
 let _curatedImagePromise = null;
-async function hydrateCuratedImages() {
-    if (_curatedImageCache) return _curatedImageCache;
-    if (_curatedImagePromise) return _curatedImagePromise;
+async function hydrateCuratedImages(styles) {
+    if (_curatedImageCache && !styles) return _curatedImageCache;
+    if (_curatedImagePromise && !styles) return _curatedImagePromise;
 
-    const allCurated = [
-        ...(DTG_CURATED_PRODUCTS.tshirts || []),
-        ...(DTG_CURATED_PRODUCTS.sweatshirts || []),
-    ];
-    const styles = Array.from(new Set(allCurated.map((p) => p.styleNumber)));
+    // If specific styles requested AND we already have a cache, hydrate any
+    // missing ones (top-up rather than full refresh).
+    let toFetch;
+    if (Array.isArray(styles) && styles.length) {
+        if (_curatedImageCache) {
+            const missing = styles.filter((s) => !(s in _curatedImageCache));
+            if (!missing.length) return _curatedImageCache;
+            toFetch = missing;
+        } else {
+            toFetch = Array.from(new Set(styles));
+        }
+    } else {
+        // No styles specified — use the legacy inline curated list as fallback
+        const allCurated = [
+            ...(DTG_CURATED_PRODUCTS.tshirts || []),
+            ...(DTG_CURATED_PRODUCTS.sweatshirts || []),
+        ];
+        toFetch = Array.from(new Set(allCurated.map((p) => p.styleNumber)));
+    }
 
-    _curatedImagePromise = Promise.all(styles.map(async (style) => {
+    _curatedImagePromise = Promise.all(toFetch.map(async (style) => {
         try {
             const r = await fetch(`${INTERNAL_API_BASE}/api/dtg/product-bundle?styleNumber=${encodeURIComponent(style)}`);
             if (!r.ok) return [style, null];
@@ -417,7 +457,9 @@ async function hydrateCuratedImages() {
             return [style, null];
         }
     })).then((entries) => {
-        _curatedImageCache = Object.fromEntries(entries);
+        // Merge new entries into existing cache (don't replace — top-up).
+        _curatedImageCache = Object.assign({}, _curatedImageCache || {}, Object.fromEntries(entries));
+        _curatedImagePromise = null;
         return _curatedImageCache;
     });
 
@@ -443,25 +485,79 @@ async function executeTool(name, input) {
     }
     if (name === 'recommend_top_sellers') {
         try {
-            const result = recommendTopSellers({
-                category: input?.category || 'any',
-                limit: input?.limit || 3,
-            });
-            // Decorate each product with mainImageUrl so the frontend can show a
-            // thumbnail. The image map is cached after the first hydration; the
-            // entire curated list (≤8 styles) is fetched in parallel exactly once.
+            // NEW: pull from the Caspio DTG_Top_Sellers_2026 table — real
+            // 2021-now sales data, every (style, color) SanMar-verified at
+            // import time. Replaces the inline dtg-curated-products.js.
+            const category = String(input?.category || 'any');
+            const limit = Math.max(1, Math.min(10, Number(input?.limit) || 3));
+
+            // Fetch all rows (or category-filtered). Caspio is fast enough that
+            // we don't need to limit at query-time for this tiny table (~150 rows).
+            const params = { 'q.orderBy': 'style_rank ASC, color_rank ASC' };
+            if (category && category !== 'any') {
+                params['q.where'] = `category='${category.replace(/'/g, '')}'`;
+            }
+            const rows = await fetchAllCaspioPages('/tables/DTG_Top_Sellers_2026/records', params);
+
+            // Aggregate per-style (Caspio table has one row per style+color)
+            const byStyle = new Map();
+            for (const r of rows) {
+                if (!byStyle.has(r.style)) {
+                    byStyle.set(r.style, {
+                        styleNumber: r.style,
+                        name: stripStyleSuffix(r.product_title || ''),
+                        brand: extractBrand(r.product_title || ''),
+                        fabric: '',  // not in table; bot can mention from memory if needed
+                        salesData: `${Number(r.total_units_sold || 0).toLocaleString()} units lifetime`,
+                        salesRank: Number(r.style_rank) || 99,
+                        category: r.category || '',
+                        quality: 'excellent',  // implied — they're in the approved list
+                        bestColors: [],
+                        notes: '',
+                        bestFor: '',
+                    });
+                }
+                const p = byStyle.get(r.style);
+                p.bestColors.push({
+                    name: r.color_name || '',
+                    catalogColor: r.catalog_color || '',
+                    units: String(Number(r.color_units_sold || 0)),
+                    swatchUrl: r.swatch_image_url || '',
+                });
+            }
+            // Keep only top 4 colors per product for chat-card brevity
+            for (const p of byStyle.values()) {
+                p.bestColors = p.bestColors.slice(0, 4);
+            }
+            const products = [...byStyle.values()]
+                .sort((a, b) => a.salesRank - b.salesRank)
+                .slice(0, limit);
+
+            // Hydrate main product image from SanMar for THESE styles
+            // (the cache will top-up missing styles, not full-refetch).
             try {
-                const imageMap = await hydrateCuratedImages();
-                if (Array.isArray(result.products)) {
-                    for (const p of result.products) {
-                        const url = imageMap[p.styleNumber];
-                        if (url) p.mainImageUrl = url;
-                    }
+                const imageMap = await hydrateCuratedImages(products.map((p) => p.styleNumber));
+                for (const p of products) {
+                    const url = imageMap[p.styleNumber];
+                    if (url) p.mainImageUrl = url;
                 }
             } catch (hyErr) {
                 console.warn('[dtg-quote-ai] image hydration skipped:', hyErr.message);
             }
-            return result;
+
+            // Static avoid-list (these don't change per request)
+            const avoidProducts = [
+                { product: 'PC78H — White color only', reason: 'Completely unprintable on white — washes out. Other PC78H colors are fine.' },
+                { product: 'PC61 — Red color only', reason: 'Causes fixation stains, needs 24hr+ drying. Other PC61 colors are great.' },
+                { product: 'Any Gildan product', reason: 'Special fabric coating makes DTG prints dull and lifeless. Use Port & Company or BELLA+CANVAS equivalents.' },
+            ];
+
+            return {
+                category,
+                count: products.length,
+                products,
+                avoidProducts,
+            };
         } catch (err) {
             console.error('[dtg-quote-ai] recommend_top_sellers error:', err.message);
             return { error: 'tool_exception', message: err.message };
