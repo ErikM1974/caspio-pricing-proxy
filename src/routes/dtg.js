@@ -3,6 +3,10 @@
 const express = require('express');
 const router = express.Router();
 const { fetchAllCaspioPages } = require('../utils/caspio');
+const { priceLines, ALL_LOCATION_CODES } = require('../../lib/dtg-canonical-pricing');
+
+const INTERNAL_API_BASE = process.env.PROXY_PUBLIC_URL
+    || 'https://caspio-pricing-proxy-ab30a049961a.herokuapp.com';
 
 // GET /api/dtg/product-bundle
 // Optimized endpoint that combines product, pricing, and DTG data in a single request
@@ -204,11 +208,100 @@ router.get('/product-bundle', async (req, res) => {
 
   } catch (error) {
     console.error('Error fetching DTG product bundle:', error.message);
-    res.status(500).json({ 
-      error: 'Failed to fetch DTG product bundle', 
-      details: error.message 
+    res.status(500).json({
+      error: 'Failed to fetch DTG product bundle',
+      details: error.message
     });
   }
+});
+
+// POST /api/dtg/quote-pricing
+// Single canonical DTG pricing endpoint. Accepts a shared locationCode +
+// a `lines` array (each line = {styleNumber, color, sizes}), fetches each
+// unique style's product-bundle once, and delegates the math to
+// lib/dtg-canonical-pricing.js so this endpoint produces IDENTICAL prices
+// to /pricing/dtg and /order-form.html (which use the equivalent
+// shared_components/js/dtg-pricing-service.js algorithm).
+//
+// Body:
+//   {
+//     "locationCode": "LC" | "LC_FB" | ...,
+//     "lines": [
+//       { "styleNumber": "PC61", "color": "Jet Black", "sizes": {"M": 2, "L": 5, "2XL": 1} },
+//       ...
+//     ]
+//   }
+// Single-line callers can also pass {locationCode, styleNumber, color, sizes}.
+router.post('/quote-pricing', async (req, res) => {
+    const body = req.body || {};
+    const locationCode = String(body.locationCode || '').toUpperCase();
+
+    if (!ALL_LOCATION_CODES.includes(locationCode)) {
+        return res.status(400).json({
+            error: 'bad_input',
+            message: `locationCode must be one of: ${ALL_LOCATION_CODES.join(', ')}. Got "${body.locationCode}".`,
+        });
+    }
+
+    // Normalize lines: accept either {lines:[...]} or single-line top-level shape
+    let lines;
+    if (Array.isArray(body.lines) && body.lines.length > 0) {
+        lines = body.lines;
+    } else if (body.styleNumber && body.sizes) {
+        lines = [{ styleNumber: body.styleNumber, color: body.color, sizes: body.sizes }];
+    } else {
+        return res.status(400).json({
+            error: 'bad_input',
+            message: 'Need either {styleNumber, color, sizes} OR a non-empty `lines` array.',
+        });
+    }
+
+    // Fetch each unique style's bundle in parallel.
+    const uniqueStyles = Array.from(new Set(
+        lines.map((l) => String((l && l.styleNumber) || '').trim().toUpperCase()).filter(Boolean),
+    ));
+    if (uniqueStyles.length === 0) {
+        return res.status(400).json({ error: 'bad_input', message: 'No valid styleNumbers in lines[]' });
+    }
+
+    const bundleResults = await Promise.all(uniqueStyles.map(async (style) => {
+        try {
+            const r = await fetch(`${INTERNAL_API_BASE}/api/dtg/product-bundle?styleNumber=${encodeURIComponent(style)}`);
+            if (!r.ok) {
+                return { style, error: `bundle fetch returned ${r.status}` };
+            }
+            const data = await r.json();
+            return { style, data };
+        } catch (err) {
+            return { style, error: err.message };
+        }
+    }));
+
+    const bundlesByStyle = {};
+    const fetchErrors = [];
+    for (const r of bundleResults) {
+        if (r.error || !r.data) {
+            fetchErrors.push(`${r.style}: ${r.error || 'no data'}`);
+        } else {
+            bundlesByStyle[r.style] = r.data;
+        }
+    }
+    if (Object.keys(bundlesByStyle).length === 0) {
+        return res.status(502).json({
+            error: 'pricing_fetch_failed',
+            message: `Could not fetch product bundles: ${fetchErrors.join('; ')}`,
+        });
+    }
+
+    // Delegate math to the canonical module.
+    const out = priceLines({ locationCode, lines, bundlesByStyle });
+    if (out.error) {
+        return res.status(400).json(out);
+    }
+    if (fetchErrors.length) {
+        out.warnings = (out.warnings || []).concat(fetchErrors);
+    }
+    res.json(out);
 });
 
 module.exports = router;
