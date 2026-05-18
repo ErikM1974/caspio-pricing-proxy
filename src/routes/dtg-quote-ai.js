@@ -605,17 +605,24 @@ router.post('/chat', express.json({ limit: '256kb' }), async (req, res) => {
 
             workingMessages.push({ role: 'assistant', content: finalMessage.content });
 
-            const toolResults = [];
-            for (const tu of toolUseBlocks) {
+            // Run tools in PARALLEL when the bot calls multiple in one turn.
+            // E.g. rep dumps "PC61 jet black LC s:2 m:13 l:22 for Aaberg's" in
+            // one message — bot can fire lookup_product_details + lookup_customer
+            // + quote_dtg_pricing simultaneously instead of stalling on each.
+            // Promise.all preserves input order so tool_use_id alignment is
+            // preserved.
+            const toolResults = await Promise.all(toolUseBlocks.map(async (tu) => {
+                const t0 = Date.now();
                 const result = await executeTool(tu.name, tu.input);
-                toolResults.push({
+                const elapsed = Date.now() - t0;
+                sendEvent('tool_result', { tool: tu.name, result });
+                console.log(`[dtg-quote-ai] tool ${tu.name} (${elapsed}ms) → ${JSON.stringify(result).slice(0, 120)}`);
+                return {
                     type: 'tool_result',
                     tool_use_id: tu.id,
                     content: JSON.stringify(result),
-                });
-                sendEvent('tool_result', { tool: tu.name, result });
-                console.log(`[dtg-quote-ai] tool ${tu.name} → ${JSON.stringify(result).slice(0, 120)}`);
-            }
+                };
+            }));
             workingMessages.push({ role: 'user', content: toolResults });
         }
 
