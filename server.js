@@ -319,6 +319,14 @@ const dtgRoutes = require('./src/routes/dtg');
 app.use('/api/dtg', dtgRoutes);
 console.log('✓ DTG routes loaded');
 
+// DTG Top Sellers — curated catalog backed by Caspio table DTG_Top_Sellers_2026.
+// 20 styles × 6-8 colors each = ~150 SanMar-verified (style, color) combos with
+// real NWCA sales data and per-size unit breakdowns. Used as the default
+// catalog for the bot + form quick-pick pills.
+const dtgTopSellersRoutes = require('./src/routes/dtg-top-sellers');
+app.use('/api', dtgTopSellersRoutes);
+console.log('✓ DTG Top Sellers routes loaded');
+
 // Sticker pricing route — backs Order Form sticker method (Caspio Sticker_Pricing + inline fallback)
 const stickerPricingRoutes = require('./src/routes/sticker-pricing');
 app.use('/api', stickerPricingRoutes);
