@@ -75,30 +75,54 @@ const TOOLS = [
     {
         name: 'quote_dtg_pricing',
         description:
-            "Price a DTG order. Inputs: style number, color, print location code, total qty, " +
-            "and size breakdown. Pulls live pricing from /api/dtg/product-bundle, applies the " +
-            "tier (1-23 LTM / 24-47 / 48-71 / 72+), distributes LTM under 24 with Math.floor, " +
-            "and returns per-size pricing with size upcharges baked in. " +
+            "Price a DTG order. ALL lines in one quote share ONE imprint (locationCode) — the " +
+            "tier and LTM are calculated from the COMBINED quantity across every line (every " +
+            "style + color + size combo). NEVER split a multi-style order into multiple tool " +
+            "calls — that would mis-price by hitting a higher tier on each one. " +
+            "Single-style call: provide styleNumber + color + sizes at the top level. " +
+            "Multi-style call: provide a `lines` array; each element has its own " +
+            "{styleNumber, color, sizes}; the locationCode is shared across all lines. " +
+            "Pulls live pricing from /api/dtg/product-bundle for each unique style, applies the " +
+            "tier (1-23 LTM / 24-47 / 48-71 / 72+) from the combined qty, distributes LTM under " +
+            "24 with Math.floor, and returns per-line + per-size pricing with size upcharges. " +
             "Locations: LC, FF, JF (front singles), FB, JB (back singles), LC_FB, FF_FB, " +
             "JF_JB, LC_JB (front+back combos).",
         input_schema: {
             type: 'object',
             properties: {
-                styleNumber: { type: 'string', description: 'NWCA/SanMar style number (e.g. PC54, BC3001, DT6000).' },
-                color: { type: 'string', description: 'Color name (e.g. "Navy", "Jet Black", "Athletic Heather"). Free-form.' },
                 locationCode: {
                     type: 'string',
                     enum: ALL_LOCATION_CODES,
-                    description: 'Print location code. Single: LC/FF/JF/FB/JB. Combo: LC_FB/FF_FB/JF_JB/LC_JB.',
+                    description: 'Print location code (shared across ALL lines). Single: LC/FF/JF/FB/JB. Combo: LC_FB/FF_FB/JF_JB/LC_JB.',
                 },
-                qty: { type: 'integer', description: 'Total aggregate quantity across all sizes (1-9999). 1-23 hits LTM tier.' },
+                // SINGLE-LINE inputs (preferred for one style)
+                styleNumber: { type: 'string', description: 'Single-line: NWCA/SanMar style number (e.g. PC54). Omit if using `lines`.' },
+                color: { type: 'string', description: 'Single-line: color name (e.g. "Navy"). Omit if using `lines`.' },
                 sizes: {
                     type: 'object',
-                    description: 'Size breakdown object, e.g. {"S": 4, "M": 8, "L": 6, "XL": 2, "2XL": 1}. Total must equal qty.',
+                    description: 'Single-line: size breakdown, e.g. {"S": 4, "M": 8, "L": 6}. Omit if using `lines`.',
                     additionalProperties: { type: 'integer' },
                 },
+                // MULTI-LINE input (use for 2+ different styles OR same style in different colors)
+                lines: {
+                    type: 'array',
+                    description: 'Multi-line: array of {styleNumber, color, sizes} per line. All lines share locationCode and aggregate for tier. Use this whenever the rep wants more than one style OR more than one color.',
+                    items: {
+                        type: 'object',
+                        properties: {
+                            styleNumber: { type: 'string', description: 'Style number for this line (e.g. PC61).' },
+                            color: { type: 'string', description: 'Color for this line (e.g. "Jet Black").' },
+                            sizes: {
+                                type: 'object',
+                                description: 'Size breakdown for this line, e.g. {"M": 2, "L": 5, "2XL": 1}.',
+                                additionalProperties: { type: 'integer' },
+                            },
+                        },
+                        required: ['styleNumber', 'color', 'sizes'],
+                    },
+                },
             },
-            required: ['styleNumber', 'color', 'locationCode', 'qty', 'sizes'],
+            required: ['locationCode'],
         },
     },
     {
@@ -241,152 +265,198 @@ function shape(contacts) {
 
 /**
  * quote_dtg_pricing implementation.
- * Fetches /api/dtg/product-bundle for live pricing data, then applies:
- *   - Tier lookup (1-23 LTM, 24-47, 48-71, 72+)
- *   - LTM distribution at qty < 24 via Math.floor((50/qty) * 100) / 100
- *   - Combo location pricing (LC_FB etc.) by summing DTG_Costs print costs
- *   - Per-size upcharges from Standard_Size_Upcharges table
+ *
+ * Supports BOTH single-line and multi-line quotes. All lines in a single
+ * call share ONE imprint (locationCode); the tier and LTM are derived from
+ * the COMBINED quantity across every line — that's how NWCA's pricing
+ * actually works ("the quantity is by the imprint, not by the style").
+ *
+ * Per-line pricing still uses the per-style garment cost + size upcharges
+ * (because those are SanMar-product-specific), but the tier-derived print
+ * cost and ltmPerUnit are SHARED.
+ *
+ * Formula per size in each line:
+ *   garmentCost / marginDenominator + sharedPrintCost + sizeUpcharge + sharedLtmPerUnit
  */
 async function quoteDtgPricing(input) {
-    const styleNumber = String(input?.styleNumber || '').trim().toUpperCase();
-    const color = String(input?.color || '').trim();
     const locationCode = String(input?.locationCode || '').trim().toUpperCase();
-    const qty = Math.trunc(Number(input?.qty) || 0);
-    const sizes = input?.sizes && typeof input.sizes === 'object' ? input.sizes : {};
-
-    // Validation
-    if (!styleNumber) return { error: 'bad_input', message: 'styleNumber is required' };
-    if (!color) return { error: 'bad_input', message: 'color is required' };
     if (!ALL_LOCATION_CODES.includes(locationCode)) {
         return {
             error: 'bad_input',
             message: `locationCode must be one of: ${ALL_LOCATION_CODES.join(', ')}. Got "${locationCode}".`,
         };
     }
-    if (!Number.isFinite(qty) || qty < 1) {
-        return { error: 'bad_input', message: 'qty must be a positive integer' };
-    }
-    const sizeKeys = Object.keys(sizes);
-    if (sizeKeys.length === 0) {
-        return { error: 'bad_input', message: 'sizes object is required with at least one size' };
-    }
-    const sizeQtySum = sizeKeys.reduce((s, k) => s + (Number(sizes[k]) || 0), 0);
-    if (sizeQtySum !== qty) {
+
+    // Normalize to a `lines` array regardless of how the bot called us.
+    let rawLines;
+    if (Array.isArray(input?.lines) && input.lines.length > 0) {
+        rawLines = input.lines;
+    } else if (input?.styleNumber && input?.sizes) {
+        rawLines = [{
+            styleNumber: input.styleNumber,
+            color: input.color,
+            sizes: input.sizes,
+        }];
+    } else {
         return {
             error: 'bad_input',
-            message: `Size breakdown sums to ${sizeQtySum} but qty is ${qty}. They must match.`,
+            message: 'Need either {styleNumber, color, sizes} OR a non-empty `lines` array.',
         };
     }
 
-    // Fetch pricing data
-    let bundle;
-    try {
-        const url = `${INTERNAL_API_BASE}/api/dtg/product-bundle?styleNumber=${encodeURIComponent(styleNumber)}&color=${encodeURIComponent(color)}`;
-        const r = await fetch(url);
-        if (!r.ok) {
-            return {
-                error: 'pricing_fetch_failed',
-                message: `DTG pricing API returned ${r.status}. Style "${styleNumber}" may not be in the catalog.`,
-            };
-        }
-        bundle = await r.json();
-    } catch (err) {
-        return { error: 'network', message: err.message };
+    // Validate every line + sum sizes.
+    const lines = [];
+    let combinedQty = 0;
+    for (let i = 0; i < rawLines.length; i++) {
+        const ln = rawLines[i] || {};
+        const styleNumber = String(ln.styleNumber || '').trim().toUpperCase();
+        const color = String(ln.color || '').trim();
+        const sizes = ln.sizes && typeof ln.sizes === 'object' ? ln.sizes : null;
+        if (!styleNumber) return { error: 'bad_input', message: `lines[${i}].styleNumber is required` };
+        if (!color) return { error: 'bad_input', message: `lines[${i}].color is required` };
+        if (!sizes) return { error: 'bad_input', message: `lines[${i}].sizes object is required` };
+        const sizeQtySum = Object.values(sizes).reduce((s, v) => s + (Number(v) || 0), 0);
+        if (sizeQtySum < 1) return { error: 'bad_input', message: `lines[${i}].sizes total must be ≥ 1` };
+        lines.push({ index: i, styleNumber, color, sizes, lineQty: sizeQtySum });
+        combinedQty += sizeQtySum;
+    }
+    if (combinedQty < 1) {
+        return { error: 'bad_input', message: 'Combined qty across all lines must be ≥ 1' };
     }
 
-    // Determine tier
+    // ONE tier for the WHOLE quote based on combinedQty.
     let tierLabel;
     let isLtmTier = false;
-    if (qty < LTM_THRESHOLD) {
+    if (combinedQty < LTM_THRESHOLD) {
         tierLabel = '24-47';
         isLtmTier = true;
-    } else if (qty <= 47) {
+    } else if (combinedQty <= 47) {
         tierLabel = '24-47';
-    } else if (qty <= 71) {
+    } else if (combinedQty <= 71) {
         tierLabel = '48-71';
     } else {
         tierLabel = '72+';
     }
+    const ltmPerUnit = isLtmTier ? Math.floor((LTM_FEE / combinedQty) * 100) / 100 : 0;
 
-    // The /api/dtg/product-bundle response shape (per dtg.js:188-200):
-    //   { product: { styleNumber, title, description, colors:[...] },
-    //     pricing: { tiers:[...], costs:[...], sizes:[...], upcharges:{...}, locations:[...] },
-    //     metadata: {...} }
-    // Pull print costs for the resolved tier across the location code(s).
-    const dtgCosts = Array.isArray(bundle.pricing?.costs) ? bundle.pricing.costs : [];
+    // Fetch each unique style's bundle ONCE (don't refetch for duplicate styles).
+    const uniqueStyles = Array.from(new Set(lines.map((l) => l.styleNumber)));
+    const bundles = {};
+    for (const style of uniqueStyles) {
+        try {
+            const url = `${INTERNAL_API_BASE}/api/dtg/product-bundle?styleNumber=${encodeURIComponent(style)}`;
+            const r = await fetch(url);
+            if (!r.ok) {
+                return {
+                    error: 'pricing_fetch_failed',
+                    message: `DTG pricing API returned ${r.status} for style "${style}". Style may not be in the catalog.`,
+                };
+            }
+            bundles[style] = await r.json();
+        } catch (err) {
+            return { error: 'network', message: `Fetching ${style}: ${err.message}` };
+        }
+    }
+
+    // Print cost is location+tier-driven, NOT style-driven (DTG_Costs table is shared).
+    // Pull it from the first bundle that has data — they're all identical.
     let totalPrintCost = 0;
-    const locationParts = locationCode.split('_'); // ['LC'] or ['LC', 'FB']
-    for (const part of locationParts) {
-        const row = dtgCosts.find(
-            (r) => r.PrintLocationCode === part && r.TierLabel === tierLabel,
-        );
-        if (row) totalPrintCost += Number(row.PrintCost) || 0;
+    {
+        const firstBundle = bundles[uniqueStyles[0]];
+        const dtgCosts = Array.isArray(firstBundle?.pricing?.costs) ? firstBundle.pricing.costs : [];
+        const parts = locationCode.split('_');
+        for (const part of parts) {
+            const row = dtgCosts.find((r) => r.PrintLocationCode === part && r.TierLabel === tierLabel);
+            if (row) totalPrintCost += Number(row.PrintCost) || 0;
+        }
     }
 
-    // Pricing-tier MarginDenominator (Caspio's pricing formula).
-    const tiers = Array.isArray(bundle.pricing?.tiers) ? bundle.pricing.tiers : [];
+    // MarginDenominator is also tier-driven (same across styles).
     let marginDenominator = 0.55;
-    const tierRow = tiers.find((t) => t.TierLabel === tierLabel);
-    if (tierRow && Number(tierRow.MarginDenominator)) {
-        marginDenominator = Number(tierRow.MarginDenominator);
+    {
+        const firstBundle = bundles[uniqueStyles[0]];
+        const tierRow = Array.isArray(firstBundle?.pricing?.tiers)
+            ? firstBundle.pricing.tiers.find((t) => t.TierLabel === tierLabel)
+            : null;
+        if (tierRow && Number(tierRow.MarginDenominator)) {
+            marginDenominator = Number(tierRow.MarginDenominator);
+        }
     }
 
-    // Size pricing (array of {size, maxCasePrice}) and upcharges (object {2XL: 2, 3XL: 4, ...})
-    const sizePricing = Array.isArray(bundle.pricing?.sizes) ? bundle.pricing.sizes : [];
-    const upchargeBySize = bundle.pricing?.upcharges && typeof bundle.pricing.upcharges === 'object'
-        ? Object.fromEntries(Object.entries(bundle.pricing.upcharges).map(([k, v]) => [String(k).toUpperCase(), Number(v) || 0]))
-        : {};
+    // Compute each line.
+    const lineItems = [];
+    let subtotal = 0;
+    for (const ln of lines) {
+        const bundle = bundles[ln.styleNumber];
+        const sizePricing = Array.isArray(bundle?.pricing?.sizes) ? bundle.pricing.sizes : [];
+        const upchargeBySize = bundle?.pricing?.upcharges && typeof bundle.pricing.upcharges === 'object'
+            ? Object.fromEntries(Object.entries(bundle.pricing.upcharges).map(([k, v]) => [String(k).toUpperCase(), Number(v) || 0]))
+            : {};
 
-    // LTM per piece
-    const ltmPerUnit = isLtmTier
-        ? Math.floor((LTM_FEE / qty) * 100) / 100
-        : 0;
+        const lineSizes = [];
+        let lineTotal = 0;
+        let baseUnitPriceAggregate = 0;
+        let aggregateQtyForAvg = 0;
+        const upchargesUsed = [];
 
-    // Compute per-size unit price + line totals.
-    // Formula (mirrors dtg-quote-pricing.js): garmentCost / marginDenominator
-    //   + totalPrintCost + sizeUpcharge + ltmPerUnit.
-    const lineSizes = [];
-    let lineTotal = 0;
-    let baseUnitPriceAggregate = 0;
-    let aggregateQtyForAvg = 0;
+        for (const [size, sizeQty] of Object.entries(ln.sizes)) {
+            const q = Number(sizeQty) || 0;
+            if (q <= 0) continue;
+            const sizeUp = sizeUpchargeFor(size, upchargeBySize);
+            const garmentCost = lookupGarmentCost(size, sizePricing);
+            const baseUnit = (garmentCost / marginDenominator) + totalPrintCost + sizeUp;
+            const finalUnit = Math.round((baseUnit + ltmPerUnit) * 100) / 100;
+            const lineTotalForSize = Math.round(finalUnit * q * 100) / 100;
+            lineSizes.push({
+                size,
+                quantity: q,
+                garmentCost: Math.round(garmentCost * 100) / 100,
+                printCost: Math.round(totalPrintCost * 100) / 100,
+                sizeUpcharge: Math.round(sizeUp * 100) / 100,
+                baseUnit: Math.round(baseUnit * 100) / 100,
+                ltmPerUnit,
+                finalUnit,
+                lineTotal: lineTotalForSize,
+            });
+            if (sizeUp > 0) upchargesUsed.push({ size, qty: q, amount: Math.round(sizeUp * 100) / 100 });
+            lineTotal += lineTotalForSize;
+            baseUnitPriceAggregate += baseUnit * q;
+            aggregateQtyForAvg += q;
+        }
 
-    for (const [size, sizeQty] of Object.entries(sizes)) {
-        const q = Number(sizeQty) || 0;
-        if (q <= 0) continue;
-        const sizeUp = sizeUpchargeFor(size, upchargeBySize);
-        const garmentCost = lookupGarmentCost(size, sizePricing);
-        const baseUnit = (garmentCost / marginDenominator) + totalPrintCost + sizeUp;
-        const finalUnit = Math.round((baseUnit + ltmPerUnit) * 100) / 100;
-        const lineTotalForSize = Math.round(finalUnit * q * 100) / 100;
-        lineSizes.push({
-            size,
-            quantity: q,
-            garmentCost: Math.round(garmentCost * 100) / 100,
-            printCost: Math.round(totalPrintCost * 100) / 100,
-            sizeUpcharge: Math.round(sizeUp * 100) / 100,
-            baseUnit: Math.round(baseUnit * 100) / 100,
+        const avgBaseUnit = aggregateQtyForAvg > 0
+            ? Math.round((baseUnitPriceAggregate / aggregateQtyForAvg) * 100) / 100
+            : 0;
+        const avgFinalUnit = Math.round((avgBaseUnit + ltmPerUnit) * 100) / 100;
+        const partNumber = `${ln.styleNumber}-${ln.color.replace(/\s+/g, '').toUpperCase()}-${locationCode}`;
+
+        lineItems.push({
+            partNumber,
+            styleNumber: ln.styleNumber,
+            color: ln.color,
+            description: bundle?.product?.title
+                ? `${bundle.product.title} — ${ln.color}`
+                : `${ln.styleNumber} — ${ln.color}`,
+            locationCode,
+            locationLabel: LOCATION_LABELS[locationCode] || locationCode,
+            sizes: ln.sizes,
+            totalQuantity: ln.lineQty,
+            tier: isLtmTier ? `${tierLabel} (LTM)` : tierLabel,
+            baseTier: tierLabel,
+            isLtmTier,
+            baseUnitPrice: avgBaseUnit,
             ltmPerUnit,
-            finalUnit,
-            lineTotal: lineTotalForSize,
+            finalUnitPrice: avgFinalUnit,
+            lineTotal: Math.round(lineTotal * 100) / 100,
+            lineSizes,
+            sizeUpcharges: upchargesUsed,
         });
-        lineTotal += lineTotalForSize;
-        baseUnitPriceAggregate += baseUnit * q;
-        aggregateQtyForAvg += q;
+        subtotal += lineTotal;
     }
 
-    const avgBaseUnit = aggregateQtyForAvg > 0
-        ? Math.round((baseUnitPriceAggregate / aggregateQtyForAvg) * 100) / 100
-        : 0;
-    const avgFinalUnit = Math.round((avgBaseUnit + ltmPerUnit) * 100) / 100;
-
-    // PartNumber for ShopWorks / quote line ref
-    const partNumber = `${styleNumber}-${color.replace(/\s+/g, '').toUpperCase()}-${locationCode}`;
-
-    return {
+    const isMulti = lineItems.length > 1;
+    const result = {
         productType: 'dtg',
-        partNumber,
-        styleNumber,
-        color,
         locationCode,
         locationLabel: LOCATION_LABELS[locationCode] || locationCode,
         tier: isLtmTier ? `${tierLabel} (LTM)` : tierLabel,
@@ -394,30 +464,42 @@ async function quoteDtgPricing(input) {
         isLtmTier,
         marginDenominator,
         totalPrintCost: Math.round(totalPrintCost * 100) / 100,
-        totalQuantity: qty,
-        sizes,
-        lineSizes,
-        baseUnitPrice: avgBaseUnit,
         ltmPerUnit,
-        finalUnitPrice: avgFinalUnit,
-        lineTotal: Math.round(lineTotal * 100) / 100,
+        combinedQuantity: combinedQty,
+        totalQuantity: combinedQty,
+        subtotal: Math.round(subtotal * 100) / 100,
+        lineItems,
+        lineCount: lineItems.length,
         appliedRules: {
             tier: isLtmTier
-                ? `${qty} pieces → ${tierLabel} tier with LTM (under ${LTM_THRESHOLD}-piece minimum)`
-                : `${qty} pieces → ${tierLabel} tier (standard)`,
+                ? `${combinedQty} combined pieces → ${tierLabel} tier with LTM (under ${LTM_THRESHOLD}-piece minimum)`
+                : `${combinedQty} combined pieces → ${tierLabel} tier (standard)`,
             ltm: isLtmTier
-                ? `$${LTM_FEE} distributed: +$${ltmPerUnit.toFixed(2)}/piece (${LTM_FEE}/${qty} floored)`
+                ? `$${LTM_FEE} distributed across ${combinedQty} pieces: +$${ltmPerUnit.toFixed(2)}/piece (${LTM_FEE}/${combinedQty} floored)`
                 : null,
-            sizeUpcharge: Object.entries(upchargeBySize)
-                .filter(([k, v]) => v > 0 && (sizes[k] || sizes[k.toUpperCase()]))
-                .map(([k, v]) => `${k} +$${v.toFixed(2)}/piece`)
-                .join(', ') || null,
-        },
-        product: {
-            title: bundle.product?.title || null,
-            description: bundle.product?.description || null,
+            tierIsByImprint: 'Tier is computed from the TOTAL pieces across all lines (same imprint), NOT per style.',
         },
     };
+
+    // For backward-compat (chips, older consumers), surface the single-line
+    // fields at the top level when there's only one line.
+    if (!isMulti) {
+        const only = lineItems[0];
+        result.partNumber = only.partNumber;
+        result.styleNumber = only.styleNumber;
+        result.color = only.color;
+        result.sizes = only.sizes;
+        result.lineSizes = only.lineSizes;
+        result.baseUnitPrice = only.baseUnitPrice;
+        result.finalUnitPrice = only.finalUnitPrice;
+        result.lineTotal = only.lineTotal;
+        result.product = {
+            title: bundles[only.styleNumber]?.product?.title || null,
+            description: bundles[only.styleNumber]?.product?.description || null,
+        };
+    }
+
+    return result;
 }
 
 function sizeUpchargeFor(size, upchargeBySize) {
