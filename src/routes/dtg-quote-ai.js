@@ -506,10 +506,54 @@ function getAnthropicClient() {
 
 function buildCalcContextBlock(ctx) {
     if (!ctx || typeof ctx !== 'object') return null;
-    const safe = {
-        quoteID: typeof ctx.quoteID === 'string' && ctx.quoteID ? ctx.quoteID : null,
-    };
-    return JSON.stringify(safe, null, 2);
+    const parts = [];
+    if (typeof ctx.quoteID === 'string' && ctx.quoteID) {
+        parts.push(`quoteID: ${ctx.quoteID}`);
+    }
+
+    // 🔴 Form-is-source-of-truth: the frontend sends a live snapshot of the
+    // form on every chat request. The bot reads this BEFORE deciding what
+    // to ask the rep. Skip questions for fields already filled on the form.
+    const fs = ctx.formState;
+    if (fs && typeof fs === 'object') {
+        const lines = [];
+        lines.push('');
+        lines.push('[CURRENT FORM STATE — read this FIRST, don\'t re-ask for what\'s already set]');
+        lines.push(`- Print location: ${fs.locationCode || 'LC'} (${fs.locationLabel || 'Left Chest'})`);
+
+        if (Array.isArray(fs.rows) && fs.rows.length) {
+            lines.push(`- Existing rows (${fs.rows.length}):`);
+            for (const r of fs.rows) {
+                const sizes = Object.entries(r.sizes || {})
+                    .filter(([, q]) => Number(q) > 0)
+                    .map(([s, q]) => `${s}:${q}`)
+                    .join(' ');
+                const styleColor = `${r.style || '?'} ${r.color || '?'}`.trim();
+                if (sizes) {
+                    lines.push(`    • ${styleColor} — ${sizes} (${r.totalQty || 0} pcs)`);
+                } else {
+                    lines.push(`    • ${styleColor} — no sizes yet`);
+                }
+            }
+        } else {
+            lines.push('- Existing rows: none yet');
+        }
+
+        const c = fs.customer || {};
+        const custParts = [];
+        if (c.company) custParts.push(`company: ${c.company}`);
+        if (c.firstName || c.lastName) custParts.push(`contact: ${[c.firstName, c.lastName].filter(Boolean).join(' ')}`);
+        if (c.email) custParts.push(`email: ${c.email}`);
+        if (c.companyId) custParts.push(`companyId: ${c.companyId}`);
+        if (c.designNumber) custParts.push(`design: ${c.designNumber}`);
+        lines.push(`- Customer: ${custParts.length ? custParts.join(' · ') : 'not set'}`);
+
+        lines.push('');
+        lines.push('RULE: If any field above is already set on the form, treat it as DONE — do not ask the rep about it. Only ask for fields shown as "none yet" / "not set" / missing.');
+        parts.push(lines.join('\n'));
+    }
+
+    return parts.length ? parts.join('\n') : null;
 }
 
 function withCalcContext(messages, ctx) {
