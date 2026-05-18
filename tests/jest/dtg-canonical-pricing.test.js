@@ -25,14 +25,18 @@ const {
 } = require('../../lib/dtg-canonical-pricing');
 
 // Realistic PC54 bundle mock — 2026 margin (0.57) for all tiers.
+// Pricing_Tiers now includes a 1-23 LTM tier row (LTM_Fee: 50) — Caspio-driven.
+// DTG_Costs has NO 1-23 entries (production reality); canonical module falls
+// back to 24-47 print costs for the LTM tier.
 function pc54Bundle() {
     return {
         product: { styleNumber: 'PC54', title: 'Port & Company Core Cotton Tee' },
         pricing: {
             tiers: [
-                { TierLabel: '24-47', MinQuantity: 24, MaxQuantity: 47, MarginDenominator: 0.57 },
-                { TierLabel: '48-71', MinQuantity: 48, MaxQuantity: 71, MarginDenominator: 0.57 },
-                { TierLabel: '72+',   MinQuantity: 72, MaxQuantity: 99999, MarginDenominator: 0.57 },
+                { TierLabel: '1-23',  MinQuantity: 1,  MaxQuantity: 23,    MarginDenominator: 0.57, LTM_Fee: 50 },
+                { TierLabel: '24-47', MinQuantity: 24, MaxQuantity: 47,    MarginDenominator: 0.57, LTM_Fee: 0 },
+                { TierLabel: '48-71', MinQuantity: 48, MaxQuantity: 71,    MarginDenominator: 0.57, LTM_Fee: 0 },
+                { TierLabel: '72+',   MinQuantity: 72, MaxQuantity: 99999, MarginDenominator: 0.57, LTM_Fee: 0 },
             ],
             costs: [
                 { PrintLocationCode: 'LC', TierLabel: '24-47', PrintCost: 6.00 },
@@ -62,9 +66,10 @@ function pc90hBundle() {
         product: { styleNumber: 'PC90H', title: 'Port & Company Essential Fleece Pullover Hoodie' },
         pricing: {
             tiers: [
-                { TierLabel: '24-47', MinQuantity: 24, MaxQuantity: 47, MarginDenominator: 0.57 },
-                { TierLabel: '48-71', MinQuantity: 48, MaxQuantity: 71, MarginDenominator: 0.57 },
-                { TierLabel: '72+',   MinQuantity: 72, MaxQuantity: 99999, MarginDenominator: 0.57 },
+                { TierLabel: '1-23',  MinQuantity: 1,  MaxQuantity: 23,    MarginDenominator: 0.57, LTM_Fee: 50 },
+                { TierLabel: '24-47', MinQuantity: 24, MaxQuantity: 47,    MarginDenominator: 0.57, LTM_Fee: 0 },
+                { TierLabel: '48-71', MinQuantity: 48, MaxQuantity: 71,    MarginDenominator: 0.57, LTM_Fee: 0 },
+                { TierLabel: '72+',   MinQuantity: 72, MaxQuantity: 99999, MarginDenominator: 0.57, LTM_Fee: 0 },
             ],
             costs: [
                 { PrintLocationCode: 'LC', TierLabel: '24-47', PrintCost: 6.00 },
@@ -91,9 +96,10 @@ function pc61Bundle() {
         product: { styleNumber: 'PC61', title: 'Port & Co Essential Tee' },
         pricing: {
             tiers: [
-                { TierLabel: '24-47', MinQuantity: 24, MaxQuantity: 47, MarginDenominator: 0.6 },
-                { TierLabel: '48-71', MinQuantity: 48, MaxQuantity: 71, MarginDenominator: 0.6 },
-                { TierLabel: '72+',   MinQuantity: 72, MaxQuantity: 99999, MarginDenominator: 0.6 },
+                { TierLabel: '1-23',  MinQuantity: 1,  MaxQuantity: 23,    MarginDenominator: 0.6, LTM_Fee: 50 },
+                { TierLabel: '24-47', MinQuantity: 24, MaxQuantity: 47,    MarginDenominator: 0.6, LTM_Fee: 0 },
+                { TierLabel: '48-71', MinQuantity: 48, MaxQuantity: 71,    MarginDenominator: 0.6, LTM_Fee: 0 },
+                { TierLabel: '72+',   MinQuantity: 72, MaxQuantity: 99999, MarginDenominator: 0.6, LTM_Fee: 0 },
             ],
             costs: [
                 { PrintLocationCode: 'LC', TierLabel: '24-47', PrintCost: 6.00 },
@@ -125,14 +131,15 @@ describe('dtg-canonical-pricing — pure helpers', () => {
         expect(roundUpToHalfDollar(10.51)).toBe(11.00);
     });
 
-    test('tierForCombinedQty — under 24 returns 24-47 with LTM flag', () => {
+    test('tierForCombinedQty — qty 10 returns the 1-23 LTM row from Caspio', () => {
         const tiers = pc54Bundle().pricing.tiers;
         const t = tierForCombinedQty(tiers, 10);
-        expect(t.TierLabel).toBe('24-47');
+        expect(t.TierLabel).toBe('1-23');
         expect(t._isLtm).toBe(true);
+        expect(Number(t.LTM_Fee)).toBe(50);
     });
 
-    test('tierForCombinedQty — 36 returns 24-47', () => {
+    test('tierForCombinedQty — 36 returns 24-47 (no LTM)', () => {
         const t = tierForCombinedQty(pc54Bundle().pricing.tiers, 36);
         expect(t.TierLabel).toBe('24-47');
         expect(t._isLtm).toBe(false);
@@ -149,16 +156,26 @@ describe('dtg-canonical-pricing — pure helpers', () => {
         expect(t.TierLabel).toBe('72+');
     });
 
-    test('ltmPerUnit floors to cents (not rounds)', () => {
+    test('ltmPerUnit floors to cents using the tier row\'s LTM_Fee column', () => {
+        const ltmTier = { TierLabel: '1-23', LTM_Fee: 50 };
+        const standardTier = { TierLabel: '24-47', LTM_Fee: 0 };
         // 50/12 = 4.1666… floored → 4.16 (not 4.17)
-        expect(ltmPerUnit(12)).toBe(4.16);
+        expect(ltmPerUnit(ltmTier, 12)).toBe(4.16);
         // 50/17 = 2.9411… floored → 2.94
-        expect(ltmPerUnit(17)).toBe(2.94);
+        expect(ltmPerUnit(ltmTier, 17)).toBe(2.94);
         // 50/23 = 2.1739… floored → 2.17
-        expect(ltmPerUnit(23)).toBe(2.17);
-        // qty >= 24 → 0
-        expect(ltmPerUnit(24)).toBe(0);
-        expect(ltmPerUnit(100)).toBe(0);
+        expect(ltmPerUnit(ltmTier, 23)).toBe(2.17);
+        // Non-LTM tier (LTM_Fee = 0) → 0 regardless of qty
+        expect(ltmPerUnit(standardTier, 10)).toBe(0);
+        expect(ltmPerUnit(standardTier, 24)).toBe(0);
+        expect(ltmPerUnit(standardTier, 100)).toBe(0);
+    });
+
+    test('ltmPerUnit uses the actual LTM_Fee from the tier — Caspio-driven', () => {
+        // If accounting bumps LTM_Fee to 75 in Caspio, the math follows.
+        const tier = { TierLabel: '1-23', LTM_Fee: 75 };
+        expect(ltmPerUnit(tier, 10)).toBe(7.50); // 75/10 floored
+        expect(ltmPerUnit(tier, 17)).toBe(4.41); // 75/17 = 4.411… → 4.41
     });
 });
 
@@ -221,7 +238,7 @@ describe('priceLines — multi-line with combined-qty tier aggregation', () => {
         expect(out.lineItems[0].lineTotal).toBe(36 * 12.00);
     });
 
-    test('Single line LTM: PC54 Navy, Left Chest, 10 pieces → tier 24-47 base + LTM', () => {
+    test('Single line LTM: PC54 Navy, Left Chest, 10 pieces → tier 1-23 base + LTM', () => {
         const out = priceLines({
             locationCode: 'LC',
             lines: [
@@ -230,14 +247,17 @@ describe('priceLines — multi-line with combined-qty tier aggregation', () => {
             bundlesByStyle: { PC54: pc54Bundle() },
         });
         expect(out.combinedQuantity).toBe(10);
-        expect(out.tier).toBe('24-47 (LTM)');
+        expect(out.tier).toBe('1-23 (LTM)');
         expect(out.isLtmTier).toBe(true);
+        expect(out.ltmFee).toBe(50);
         expect(out.ltmPerUnit).toBe(5.00); // 50/10 floored = 5.00
-        // baseUnit = 12.00; final = 12.00 + 5.00 = 17.00
+        // 1-23 row's LTM_Fee=50 drives the surcharge; print cost falls
+        // back to 24-47 (the lowest non-LTM tier) since DTG_Costs has no
+        // 1-23 entries. baseUnit = 12.00; final = 12.00 + 5.00 = 17.00.
         expect(out.lineItems[0].finalUnitPrice).toBe(17.00);
     });
 
-    test('Multi-line LTM: Erik’s example (17 combined → tier 24-47 + LTM $2.94/pc)', () => {
+    test('Multi-line LTM: Erik’s example (17 combined → tier 1-23 + LTM $2.94/pc)', () => {
         // PC61 Jet Black M:2 L:5 2XL:1 = 8 pcs
         // PC61 Maroon    L:2 XL:1 2XL:2 = 5 pcs
         // PC90H Jet Blk  S:1 XL:2 4XL:1 = 4 pcs
@@ -252,8 +272,9 @@ describe('priceLines — multi-line with combined-qty tier aggregation', () => {
             bundlesByStyle: { PC61: pc61Bundle(), PC90H: pc90hBundle() },
         });
         expect(out.combinedQuantity).toBe(17);
-        expect(out.tier).toBe('24-47 (LTM)');
+        expect(out.tier).toBe('1-23 (LTM)');
         expect(out.isLtmTier).toBe(true);
+        expect(out.ltmFee).toBe(50);
         expect(out.ltmPerUnit).toBe(2.94);
         expect(out.lineItems).toHaveLength(3);
 
