@@ -277,17 +277,70 @@ function shape(contacts) {
  * accepts {styleNumber, color, sizes} OR {lines:[...]}.
  */
 async function quoteDtgPricing(input) {
+    // Build the candidate body first
+    const body = {};
+    if (input && input.locationCode) body.locationCode = input.locationCode;
+    if (Array.isArray(input?.lines) && input.lines.length > 0) {
+        body.lines = input.lines;
+    } else if (input?.styleNumber && input?.sizes) {
+        body.styleNumber = input.styleNumber;
+        body.color = input.color;
+        body.sizes = input.sizes;
+    }
+
+    // 🔴 PRE-FLIGHT COLOR VALIDATION — reject invalid colors before pricing.
+    //
+    // Without this, the bot could call quote_dtg_pricing with a color the
+    // catalog doesn't have (e.g. "Pink" for PC90H) and get back a number.
+    // ShopWorks would reject the order at push time and we'd have wasted
+    // the rep's setup. Validate every (style, color) pair against SanMar's
+    // live color list before forwarding to the canonical pricing engine.
+    const linesToValidate = Array.isArray(body.lines) && body.lines.length
+        ? body.lines
+        : (body.styleNumber ? [{ styleNumber: body.styleNumber, color: body.color }] : []);
+
+    if (linesToValidate.length) {
+        const invalidLines = [];
+        // Validate in parallel — Promise.all
+        const checks = await Promise.all(linesToValidate.map(async (line) => {
+            const style = String(line.styleNumber || '').trim().toUpperCase();
+            const color = String(line.color || '').trim();
+            if (!style || !color) return null; // canonical endpoint will reject; not our concern
+            try {
+                const r = await fetch(`${INTERNAL_API_BASE}/api/product-colors?styleNumber=${encodeURIComponent(style)}`);
+                if (!r.ok) return null; // SanMar lookup failed → let canonical pricing decide
+                const data = await r.json();
+                const colors = Array.isArray(data && data.colors) ? data.colors : [];
+                // Case-insensitive name match against COLOR_NAME OR CATALOG_COLOR
+                const colorLc = color.toLowerCase();
+                const match = colors.find((c) =>
+                    String(c.COLOR_NAME || '').toLowerCase() === colorLc ||
+                    String(c.CATALOG_COLOR || '').toLowerCase() === colorLc
+                );
+                if (!match) {
+                    // Surface top alternatives so the bot can suggest them
+                    const alternatives = colors.slice(0, 5).map((c) => c.COLOR_NAME).filter(Boolean);
+                    return { style, badColor: color, alternatives };
+                }
+                return null;
+            } catch {
+                return null; // silently allow if SanMar is unreachable
+            }
+        }));
+        for (const r of checks) if (r) invalidLines.push(r);
+
+        if (invalidLines.length) {
+            console.warn('[dtg-quote-ai] quote_dtg_pricing rejected: invalid colors', JSON.stringify(invalidLines));
+            return {
+                error: 'invalid_color',
+                message: 'One or more lines have colors that aren\'t in SanMar\'s catalog for that style. Pick a valid color and try again.',
+                invalidLines,
+            };
+        }
+    }
+
     // Forward to the canonical endpoint. Single source of truth.
     try {
-        const body = {};
-        if (input && input.locationCode) body.locationCode = input.locationCode;
-        if (Array.isArray(input?.lines) && input.lines.length > 0) {
-            body.lines = input.lines;
-        } else if (input?.styleNumber && input?.sizes) {
-            body.styleNumber = input.styleNumber;
-            body.color = input.color;
-            body.sizes = input.sizes;
-        }
         const r = await fetch(`${INTERNAL_API_BASE}/api/dtg/quote-pricing`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
