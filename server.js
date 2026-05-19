@@ -481,6 +481,11 @@ const thumbnailsRoutes = require('./src/routes/thumbnails');
 app.use('/api', thumbnailsRoutes);
 console.log('✓ Thumbnail routes loaded');
 
+// DTG Designs Routes (Designs2026 filtered by DesignType=45)
+const dtgDesignsRoutes = require('./src/routes/dtg-designs');
+app.use('/api', dtgDesignsRoutes);
+console.log('✓ DTG designs routes loaded');
+
 // Decorated Cap Prices Routes
 const decoratedCapPricesRoutes = require('./src/routes/decorated-cap-prices');
 app.use('/api', decoratedCapPricesRoutes);
