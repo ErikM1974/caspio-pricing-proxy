@@ -23,6 +23,38 @@ const { fetchAllCaspioPages } = require('../utils/caspio');
 const TABLE_NAME = 'DTG_Top_Sellers_2026';
 const RESOURCE = `/tables/${TABLE_NAME}/records`;
 
+// Per-dyno cache of MAIN_IMAGE_URL keyed by style. Built lazily on first
+// /styles request; reused thereafter. Restart-fresh on dyno cycle.
+let _imageCache = null;
+let _imagePromise = null;
+const INTERNAL_API = process.env.INTERNAL_API_BASE || 'http://localhost:' + (process.env.PORT || 3002);
+
+async function hydrateMainImages(styles) {
+    if (_imageCache) {
+        // Return current cache if all requested styles are covered
+        const missing = styles.filter((s) => !(s in _imageCache));
+        if (!missing.length) return _imageCache;
+    }
+    if (_imagePromise) return _imagePromise;
+    _imagePromise = Promise.all(styles.map(async (style) => {
+        try {
+            const r = await fetch(`${INTERNAL_API}/api/dtg/product-bundle?styleNumber=${encodeURIComponent(style)}`);
+            if (!r.ok) return [style, null];
+            const j = await r.json();
+            const colors = (j && j.product && Array.isArray(j.product.colors)) ? j.product.colors : [];
+            const first = colors.find((c) => c && c.MAIN_IMAGE_URL);
+            return [style, first ? first.MAIN_IMAGE_URL : null];
+        } catch {
+            return [style, null];
+        }
+    })).then((entries) => {
+        _imageCache = Object.assign({}, _imageCache || {}, Object.fromEntries(entries));
+        _imagePromise = null;
+        return _imageCache;
+    });
+    return _imagePromise;
+}
+
 // Caspio WHERE clauses use single quotes. Strip single quotes from any
 // user-supplied filter to avoid breaking the query / injection. Caspio's
 // REST API parses these as literal strings, so escaping by doubling
@@ -128,7 +160,9 @@ router.get('/dtg/top-sellers/styles', async (req, res) => {
         const raw = await fetchAllCaspioPages(RESOURCE, params);
 
         // Aggregate per-style — first occurrence (color_rank=1) holds the
-        // top color which we expose as the "hero" for the pill.
+        // top color which we expose as the "hero". Also accumulate top
+        // colors[] array so the frontend can render inline swatches in
+        // each card without a second API round-trip.
         const byStyle = new Map();
         for (const r of raw) {
             const style = r.style;
@@ -144,15 +178,40 @@ router.get('/dtg/top-sellers/styles', async (req, res) => {
                     top_color_catalog: r.catalog_color || '',
                     top_color_swatch: r.swatch_image_url || '',
                     color_count: 0,
+                    top_colors: [], // populated below — up to 6 top colors
                 });
             }
-            byStyle.get(style).color_count++;
+            const s = byStyle.get(style);
+            s.color_count++;
+            // Caspio rows already come back ordered by color_rank ASC, so
+            // first 6 entries per style are the top 6.
+            if (s.top_colors.length < 6) {
+                s.top_colors.push({
+                    color_name: r.color_name || '',
+                    catalog_color: r.catalog_color || '',
+                    swatch_image_url: r.swatch_image_url || '',
+                    color_units_sold: Number(r.color_units_sold || 0),
+                    color_rank: Number(r.color_rank || 0),
+                });
+            }
         }
 
         const records = [...byStyle.values()].sort((a, b) => a.style_rank - b.style_rank);
 
         const limit = parseInt(req.query.limit, 10);
         const out = Number.isFinite(limit) && limit > 0 ? records.slice(0, limit) : records;
+
+        // Hydrate main_image_url for each style — pulls model-wearing-the-shirt
+        // photos from SanMar via /api/dtg/product-bundle. Cached per dyno.
+        try {
+            const imageMap = await hydrateMainImages(out.map((r) => r.style));
+            for (const r of out) {
+                r.main_image_url = imageMap[r.style] || '';
+            }
+        } catch (e) {
+            console.warn('[dtg-top-sellers/styles] image hydration skipped:', e.message);
+            for (const r of out) r.main_image_url = '';
+        }
 
         res.set('Cache-Control', 'public, max-age=300');
         res.json({
