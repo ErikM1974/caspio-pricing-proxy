@@ -23,15 +23,17 @@ const { fetchAllCaspioPages } = require('../utils/caspio');
 const TABLE_NAME = 'DTG_Top_Sellers_2026';
 const RESOURCE = `/tables/${TABLE_NAME}/records`;
 
-// Per-dyno cache of MAIN_IMAGE_URL keyed by style. Built lazily on first
-// /styles request; reused thereafter. Restart-fresh on dyno cycle.
+// Per-dyno cache of {main_image_url, colors_by_catalog} keyed by style.
+// Built lazily on first /styles request; reused thereafter. Restart-fresh
+// on dyno cycle. `colors_by_catalog` is { [CATALOG_COLOR]: MAIN_IMAGE_URL }
+// so each top_color row can carry its own model-wearing-the-color image
+// — used by the catalog card to swap the hero when the rep clicks a swatch.
 let _imageCache = null;
 let _imagePromise = null;
 const INTERNAL_API = process.env.INTERNAL_API_BASE || 'http://localhost:' + (process.env.PORT || 3002);
 
 async function hydrateMainImages(styles) {
     if (_imageCache) {
-        // Return current cache if all requested styles are covered
         const missing = styles.filter((s) => !(s in _imageCache));
         if (!missing.length) return _imageCache;
     }
@@ -39,13 +41,25 @@ async function hydrateMainImages(styles) {
     _imagePromise = Promise.all(styles.map(async (style) => {
         try {
             const r = await fetch(`${INTERNAL_API}/api/dtg/product-bundle?styleNumber=${encodeURIComponent(style)}`);
-            if (!r.ok) return [style, null];
+            if (!r.ok) return [style, { main_image_url: null, colors_by_catalog: {} }];
             const j = await r.json();
             const colors = (j && j.product && Array.isArray(j.product.colors)) ? j.product.colors : [];
             const first = colors.find((c) => c && c.MAIN_IMAGE_URL);
-            return [style, first ? first.MAIN_IMAGE_URL : null];
+            // Build CATALOG_COLOR → MAIN_IMAGE_URL map (case-insensitive on the
+            // key so a top_color row's catalog_color always matches).
+            const colorsByCatalog = {};
+            for (const c of colors) {
+                if (!c) continue;
+                const cc = String(c.CATALOG_COLOR || '').trim();
+                const url = c.MAIN_IMAGE_URL || c.FRONT_MODEL_IMAGE_URL || c.FRONT_FLAT_IMAGE_URL || '';
+                if (cc && url) colorsByCatalog[cc] = url;
+            }
+            return [style, {
+                main_image_url: first ? first.MAIN_IMAGE_URL : null,
+                colors_by_catalog: colorsByCatalog,
+            }];
         } catch {
-            return [style, null];
+            return [style, { main_image_url: null, colors_by_catalog: {} }];
         }
     })).then((entries) => {
         _imageCache = Object.assign({}, _imageCache || {}, Object.fromEntries(entries));
@@ -201,16 +215,32 @@ router.get('/dtg/top-sellers/styles', async (req, res) => {
         const limit = parseInt(req.query.limit, 10);
         const out = Number.isFinite(limit) && limit > 0 ? records.slice(0, limit) : records;
 
-        // Hydrate main_image_url for each style — pulls model-wearing-the-shirt
-        // photos from SanMar via /api/dtg/product-bundle. Cached per dyno.
+        // Hydrate main_image_url for each style + per-color front image for
+        // each top_color row. The frontend uses front_image_url to swap the
+        // hero image when the rep clicks a different swatch. main_image_url
+        // prefers the TOP-seller color's image so the initial card hero matches
+        // the initial-selected swatch — fall back to the first SanMar-photographed
+        // color if the top color has no MAIN_IMAGE_URL.
         try {
             const imageMap = await hydrateMainImages(out.map((r) => r.style));
             for (const r of out) {
-                r.main_image_url = imageMap[r.style] || '';
+                const entry = imageMap[r.style] || {};
+                const byColor = entry.colors_by_catalog || {};
+                r.main_image_url = byColor[r.top_color_catalog] || entry.main_image_url || '';
+                if (Array.isArray(r.top_colors)) {
+                    for (const tc of r.top_colors) {
+                        tc.front_image_url = byColor[tc.catalog_color] || '';
+                    }
+                }
             }
         } catch (e) {
             console.warn('[dtg-top-sellers/styles] image hydration skipped:', e.message);
-            for (const r of out) r.main_image_url = '';
+            for (const r of out) {
+                r.main_image_url = '';
+                if (Array.isArray(r.top_colors)) {
+                    for (const tc of r.top_colors) tc.front_image_url = '';
+                }
+            }
         }
 
         res.set('Cache-Control', 'public, max-age=300');
