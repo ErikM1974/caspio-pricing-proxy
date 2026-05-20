@@ -511,6 +511,11 @@ const taxRateRoutes = require('./src/routes/tax-rate');
 app.use('/api', taxRateRoutes);
 console.log('✓ Tax Rate routes loaded');
 
+// Customer History Routes — aggregated past-order profile for DTG form pill
+const customerHistoryRoutes = require('./src/routes/customer-history');
+app.use('/api', customerHistoryRoutes);
+console.log('✓ Customer History routes loaded');
+
 // Monograms Routes (CRUD for monogram orders)
 const monogramsLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
