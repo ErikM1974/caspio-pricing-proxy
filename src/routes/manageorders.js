@@ -375,6 +375,109 @@ router.get('/manageorders/lineitems/:order_no', async (req, res) => {
 });
 
 // ========================================
+// ORDER SNAPSHOT ENDPOINT (composite read)
+// ========================================
+//
+// Combines getorderno + orders + lineitems into a single call so the
+// pricing-index "sync from ShopWorks" endpoint can fetch everything it needs
+// in one round-trip. Used by /api/quote-sessions/:quoteId/sync-from-shopworks
+// (pricing-index) and the hourly cron job.
+//
+// Returns {found: true, id_Order, order: {...}, lineItems: [...], fetchedAt}
+// when the external order exists in ManageOrders, or {found: false, reason}
+// when it hasn't been imported yet OR has been deleted from ShopWorks.
+
+const orderSnapshotCache = new Map();
+const SNAPSHOT_CACHE_DURATION = 5 * 60 * 1000; // 5 minutes — short, since this drives refresh UX
+
+/**
+ * GET /api/manageorders/order/:extOrderId/snapshot
+ *
+ * Fetches the full current ShopWorks-side state of an order by its
+ * external ID (e.g. "NWCA-OF-0048"). Returns null/found:false if the
+ * order hasn't been imported yet or was deleted in ShopWorks.
+ *
+ * Response shape:
+ *   { found: true, id_Order: 141899, order: {...}, lineItems: [...], fetchedAt: ISO }
+ *   { found: false, reason: 'not_imported_or_deleted', fetchedAt: ISO }
+ */
+router.get('/manageorders/order/:extOrderId/snapshot', async (req, res) => {
+  const extOrderId = req.params.extOrderId;
+  console.log(`GET /api/manageorders/order/${extOrderId}/snapshot requested`);
+
+  if (!extOrderId || !/^[A-Z0-9\-]+$/i.test(extOrderId)) {
+    return res.status(400).json({ error: 'Invalid extOrderId format' });
+  }
+
+  const forceRefresh = req.query.refresh === 'true';
+
+  // 5-min cache to absorb refresh-button spam
+  const cached = orderSnapshotCache.get(extOrderId);
+  if (!forceRefresh && cached && (Date.now() - cached.timestamp) < SNAPSHOT_CACHE_DURATION) {
+    console.log(`[snapshot] cache hit ${extOrderId}`);
+    return res.json({ ...cached.data, cached: true });
+  }
+
+  try {
+    // Step 1: Map ext_order_id → id_Order
+    const lookup = await fetchOrderNoByExternalId(extOrderId);
+    if (!Array.isArray(lookup) || lookup.length === 0 || !lookup[0]?.id_Order) {
+      const result = {
+        found: false,
+        reason: 'not_imported_or_deleted',
+        extOrderId,
+        fetchedAt: new Date().toISOString()
+      };
+      orderSnapshotCache.set(extOrderId, { data: result, timestamp: Date.now() });
+      return res.json(result);
+    }
+
+    const orderNo = lookup[0].id_Order;
+
+    // Step 2 + 3: Parallel fetch order header + line items
+    const [orderResult, lineItemsResult] = await Promise.all([
+      fetchOrderByNumber(orderNo),
+      fetchLineItems(orderNo),
+    ]);
+
+    if (!Array.isArray(orderResult) || orderResult.length === 0) {
+      // id_Order found but no order data — order was deleted between
+      // getorderno cache and our fetch (race condition). Treat as deleted.
+      const result = {
+        found: false,
+        reason: 'order_lookup_returned_empty',
+        extOrderId,
+        id_Order: orderNo,
+        fetchedAt: new Date().toISOString()
+      };
+      orderSnapshotCache.set(extOrderId, { data: result, timestamp: Date.now() });
+      return res.json(result);
+    }
+
+    const result = {
+      found: true,
+      id_Order: orderNo,
+      extOrderId,
+      order: orderResult[0], // /orders endpoint always returns array with one element here
+      lineItems: lineItemsResult || [],
+      fetchedAt: new Date().toISOString()
+    };
+
+    orderSnapshotCache.set(extOrderId, { data: result, timestamp: Date.now() });
+    return res.json(result);
+
+  } catch (error) {
+    console.error(`[snapshot] error for ${extOrderId}:`, error.message);
+    return res.status(500).json({
+      error: 'Failed to fetch order snapshot',
+      details: error.message,
+      extOrderId,
+      fetchedAt: new Date().toISOString()
+    });
+  }
+});
+
+// ========================================
 // PAYMENTS ENDPOINTS
 // ========================================
 
