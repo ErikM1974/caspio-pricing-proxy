@@ -444,18 +444,29 @@ router.get('/manageorders/order/:extOrderId/snapshot', async (req, res) => {
       orderNo = lookup[0].id_Order;
     }
 
-    // Step 2 + 3 + 4: Parallel fetch
+    // Step 2-6: Parallel fetch everything the quote-view needs:
     //   - /v1/orders (current ShopWorks-edited header)
     //   - /v1/lineitems (current line items)
+    //   - /v1/payments (payment history for AR — Phase 4d+)
+    //   - /v1/tracking (shipping tracking + carrier — Phase 4d+)
     //   - /order-pull (what-we-pushed — has Designs[].Locations[].ImageURL,
     //     Attachments[], and ShippingAddresses[] that /v1 doesn't expose)
     const { verifyOrder } = require('../../lib/manageorders-push-client');
-    const [orderResult, lineItemsResult, pushedResult] = await Promise.all([
+    const { fetchPayments, fetchTracking } = require('../utils/manageorders');
+    const [orderResult, lineItemsResult, pushedResult, paymentsResult, trackingResult] = await Promise.all([
       fetchOrderByNumber(orderNo),
       fetchLineItems(orderNo),
       verifyOrder(extOrderId).catch(e => {
         console.warn(`[snapshot] /order-pull lookup failed for ${extOrderId}:`, e.message);
         return null;
+      }),
+      fetchPayments(String(orderNo)).catch(e => {
+        console.warn(`[snapshot] /payments fetch failed for ${orderNo}:`, e.message);
+        return [];
+      }),
+      fetchTracking(String(orderNo)).catch(e => {
+        console.warn(`[snapshot] /tracking fetch failed for ${orderNo}:`, e.message);
+        return [];
       }),
     ]);
 
@@ -494,6 +505,8 @@ router.get('/manageorders/order/:extOrderId/snapshot', async (req, res) => {
       order: orderResult[0],            // /v1/orders — current ShopWorks state
       lineItems: lineItemsResult || [], // /v1/lineitems — current line items
       pushed,                           // /order-pull — Designs/Attachments/ShipAddr we pushed
+      payments: paymentsResult || [],   // /v1/payments — payment history
+      tracking: trackingResult || [],   // /v1/tracking — shipping tracking
       fetchedAt: new Date().toISOString()
     };
 
