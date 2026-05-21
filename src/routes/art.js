@@ -884,8 +884,9 @@ router.put('/art-requests/:designId/status', express.json(), async (req, res) =>
             }
 
             // Clear approval tracking on reopen (so elapsed badges start fresh on next approval cycle)
+            // Caspio v2 Date/Time fields reject '' — use null (mirrors On_Hold_Since clear below)
             if (isInProgress && current.Approval_Sent_Date) {
-                updateData.Approval_Sent_Date = '';
+                updateData.Approval_Sent_Date = null;
             }
 
             // Additive art time for all status updates (add session minutes to existing total)
