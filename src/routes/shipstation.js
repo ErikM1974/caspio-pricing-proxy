@@ -100,7 +100,13 @@ router.post('/create-order', express.json({ limit: '2mb' }), async (req, res) =>
             createdAt: result.createDate,
         });
     } catch (err) {
-        console.error(`[shipstation/create-order] FAILED for ${orderNumber}:`, err.message, err.body || '');
+        // Log the FULL ShipStation response body — historically truncated by
+        // " || ''" coercing the object to string. JSON.stringify makes the
+        // exact validation message visible in heroku logs.
+        const bodyStr = err.body ? JSON.stringify(err.body) : '(no body)';
+        console.error(`[shipstation/create-order] FAILED for ${orderNumber} (${err.status}):`, err.message);
+        console.error(`[shipstation/create-order] ShipStation response body:`, bodyStr);
+        console.error(`[shipstation/create-order] Outgoing payload was:`, JSON.stringify(payload, null, 2).slice(0, 2000));
         slack.notifyPushFailed({
             quoteId: orderNumber,
             error: err.message,
@@ -111,8 +117,18 @@ router.post('/create-order', express.json({ limit: '2mb' }), async (req, res) =>
             success: false,
             error: err.message,
             details: err.body || null,
+            // Echo back which fields ShipStation flagged when the body is
+            // structured (V1 returns { Message, ExceptionMessage, ModelState })
+            modelState: err.body?.ModelState || err.body?.modelState || null,
         });
     }
+});
+
+// Debug endpoint: same as /create-order but doesn't actually call ShipStation.
+// Echoes the payload back so pricing-index can verify what it built. Useful
+// when ShipStation rejects with 400 and we need to inspect.
+router.post('/dry-run', express.json({ limit: '2mb' }), (req, res) => {
+    return res.json({ success: true, dryRun: true, payload: req.body || {} });
 });
 
 /**
