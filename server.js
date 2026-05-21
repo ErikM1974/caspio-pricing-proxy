@@ -415,6 +415,15 @@ const manageOrdersPushRoutes = require('./src/routes/manageorders-push');
 app.use('/api/manageorders', manageOrdersPushRoutes);
 console.log('✓ ManageOrders PUSH routes loaded');
 
+// ShipStation routes — outbound (our app → ShipStation) + inbound webhook
+// (ShipStation → us) for tracking-number callbacks. The inbound webhook
+// router is mounted at /api/webhooks so the URL stays canonical regardless
+// of internal reorg.
+const shipstationRoutes = require('./src/routes/shipstation');
+app.use('/api/shipstation', shipstationRoutes.router);
+app.use('/api/webhooks',    shipstationRoutes.webhookRouter);
+console.log('✓ ShipStation routes loaded');
+
 // JDS Industries API routes (engravable products)
 const jdsLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
