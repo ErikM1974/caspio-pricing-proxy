@@ -419,25 +419,44 @@ router.get('/manageorders/order/:extOrderId/snapshot', async (req, res) => {
   }
 
   try {
-    // Step 1: Map ext_order_id → id_Order
-    const lookup = await fetchOrderNoByExternalId(extOrderId);
-    if (!Array.isArray(lookup) || lookup.length === 0 || !lookup[0]?.id_Order) {
-      const result = {
-        found: false,
-        reason: 'not_imported_or_deleted',
-        extOrderId,
-        fetchedAt: new Date().toISOString()
-      };
-      orderSnapshotCache.set(extOrderId, { data: result, timestamp: Date.now() });
-      return res.json(result);
+    // Step 1: Determine the id_Order.
+    //   - Caller may pass ?orderNumber=N to skip the /v1/getorderno lookup
+    //     entirely (used when rep manually linked a WO# on the quote-view)
+    //   - Otherwise, look up via getorderno (works as long as the
+    //     FileMaker MO-UPDATE sync has run since the order was created —
+    //     every 15 min between 07:00-19:00 Pacific).
+    let orderNo;
+    const explicitOrderNo = Number(req.query.orderNumber);
+    if (Number.isInteger(explicitOrderNo) && explicitOrderNo > 0 && explicitOrderNo < 10000000) {
+      orderNo = explicitOrderNo;
+    } else {
+      const lookup = await fetchOrderNoByExternalId(extOrderId);
+      if (!Array.isArray(lookup) || lookup.length === 0 || !lookup[0]?.id_Order) {
+        const result = {
+          found: false,
+          reason: 'not_imported_or_deleted',
+          extOrderId,
+          fetchedAt: new Date().toISOString()
+        };
+        orderSnapshotCache.set(extOrderId, { data: result, timestamp: Date.now() });
+        return res.json(result);
+      }
+      orderNo = lookup[0].id_Order;
     }
 
-    const orderNo = lookup[0].id_Order;
-
-    // Step 2 + 3: Parallel fetch order header + line items
-    const [orderResult, lineItemsResult] = await Promise.all([
+    // Step 2 + 3 + 4: Parallel fetch
+    //   - /v1/orders (current ShopWorks-edited header)
+    //   - /v1/lineitems (current line items)
+    //   - /order-pull (what-we-pushed — has Designs[].Locations[].ImageURL,
+    //     Attachments[], and ShippingAddresses[] that /v1 doesn't expose)
+    const { verifyOrder } = require('../../lib/manageorders-push-client');
+    const [orderResult, lineItemsResult, pushedResult] = await Promise.all([
       fetchOrderByNumber(orderNo),
       fetchLineItems(orderNo),
+      verifyOrder(extOrderId).catch(e => {
+        console.warn(`[snapshot] /order-pull lookup failed for ${extOrderId}:`, e.message);
+        return null;
+      }),
     ]);
 
     if (!Array.isArray(orderResult) || orderResult.length === 0) {
@@ -454,12 +473,27 @@ router.get('/manageorders/order/:extOrderId/snapshot', async (req, res) => {
       return res.json(result);
     }
 
+    // Extract just the parts of /order-pull we need (full payload is large).
+    // pushed.Designs[] has Locations[] with ImageURL — used for art thumbnails
+    // and accurate location counts. pushed.Attachments[] is the full file list.
+    // pushed.ShippingAddresses[] has the shipping recipient + address.
+    let pushed = null;
+    if (pushedResult && pushedResult.found && pushedResult.orderData) {
+      const p = pushedResult.orderData;
+      pushed = {
+        Designs: p.Designs || [],
+        Attachments: p.Attachments || [],
+        ShippingAddresses: p.ShippingAddresses || [],
+      };
+    }
+
     const result = {
       found: true,
       id_Order: orderNo,
       extOrderId,
-      order: orderResult[0], // /orders endpoint always returns array with one element here
-      lineItems: lineItemsResult || [],
+      order: orderResult[0],            // /v1/orders — current ShopWorks state
+      lineItems: lineItemsResult || [], // /v1/lineitems — current line items
+      pushed,                           // /order-pull — Designs/Attachments/ShipAddr we pushed
       fetchedAt: new Date().toISOString()
     };
 
