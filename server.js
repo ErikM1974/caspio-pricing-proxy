@@ -289,6 +289,11 @@ const quotesRoutes = require('./src/routes/quotes');
 app.use('/api', quotesRoutes);
 console.log('✓ Quotes routes loaded');
 
+// Quote Change Log Routes (audit trail of SW-side edits detected by sync diff)
+const quoteChangeLogRoutes = require('./src/routes/quote-change-log');
+app.use('/api', quoteChangeLogRoutes);
+console.log('✓ Quote Change Log routes loaded');
+
 // Gift Certificates Routes
 const giftCertificatesRoutes = require('./src/routes/gift-certificates');
 app.use('/api', giftCertificatesRoutes);
