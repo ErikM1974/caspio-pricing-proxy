@@ -164,6 +164,48 @@ router.get('/orders', async (req, res) => {
 });
 
 /**
+ * GET /api/shipstation/shipments?orderId=N — list shipments for a SS order.
+ * Used by the hourly fallback sync cron to discover tracking# when the
+ * SHIP_NOTIFY webhook missed delivery.
+ */
+router.get('/shipments', async (req, res) => {
+    const orderId = req.query.orderId;
+    if (!orderId) {
+        return res.status(400).json({ success: false, error: 'orderId query param required' });
+    }
+    try {
+        const shipments = await ss.listShipmentsByOrderId(orderId);
+        return res.json({ success: true, count: shipments.length, shipments });
+    } catch (err) {
+        return res.status(err.status || 500).json({
+            success: false, error: err.message, details: err.body || null,
+        });
+    }
+});
+
+/**
+ * DELETE /api/shipstation/orders/:shipstationOrderId — soft-delete in SS.
+ * Used by the SW-delete cascade — when ShopWorks operator deletes an order,
+ * we call this to remove the matching SS order from the warehouse queue.
+ * Caller (pricing-index) MUST verify orderStatus != 'shipped' before invoking.
+ */
+router.delete('/orders/:shipstationOrderId', async (req, res) => {
+    try {
+        const result = await ss.deleteOrder(req.params.shipstationOrderId);
+        slack.notifyOrderDeleted({
+            shipstationOrderId: req.params.shipstationOrderId,
+            reason: req.query.reason || 'SW cascade',
+        });
+        return res.json({ success: true, ...result });
+    } catch (err) {
+        console.error(`[shipstation/delete-order] ${req.params.shipstationOrderId}:`, err.message);
+        return res.status(err.status || 500).json({
+            success: false, error: err.message, details: err.body || null,
+        });
+    }
+});
+
+/**
  * GET /api/shipstation/webhooks — inspect current subscriptions.
  */
 router.get('/webhooks', async (req, res) => {

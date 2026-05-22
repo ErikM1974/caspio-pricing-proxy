@@ -87,8 +87,22 @@ function notifyPushFailed({ quoteId, error, status, details }) {
     return postSlack(text); // no dedup — every failure needs eyes on it
 }
 
+/**
+ * SW-cascade deleted the order in ShipStation. Fires from the
+ * DELETE /api/shipstation/orders/:id route, invoked by pricing-index's
+ * sync-from-shopworks when it detects the order was removed in OnSite.
+ * Warehouse should see this so they don't pick a phantom order.
+ */
+function notifyOrderDeleted({ shipstationOrderId, quoteId, reason }) {
+    const text = `🗑 ShipStation order ${quoteId ? `*${quoteId}* ` : ''}deleted\n` +
+        `*ShipStation #:* ${shipstationOrderId}\n` +
+        `*Reason:* ${reason || 'SW cascade'}`;
+    return postSlack(text, `${shipstationOrderId}-deleted`);
+}
+
 module.exports = {
     notifyOrderSent,
     notifyLabelShipped,
     notifyPushFailed,
+    notifyOrderDeleted,
 };
