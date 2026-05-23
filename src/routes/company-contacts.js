@@ -119,8 +119,13 @@ router.get('/company-contacts/search', async (req, res) => {
     const maxResults = Math.max(requestedLimit, 5);
 
     // Check cache
+    // v2 (2026-05-23): added Customer_Warning, Is_Tax_Exempt, Tax_Exempt_Number,
+    // CustTerms, Preferred_Terms_FromOrders, Account_Tier, Phone_Best to
+    // response. Quote builders (EMB/DTF/SCP) use these for the new customer-
+    // context banners + smart payment-terms autofill. Bump cache key to drop
+    // pre-v2 cached responses missing these fields.
     const activeFlag = includeInactive === 'true' ? 'all' : 'active';
-    const cacheKey = `search:${searchTerm.toLowerCase()}:${maxResults}:${activeFlag}`;
+    const cacheKey = `search:v2:${searchTerm.toLowerCase()}:${maxResults}:${activeFlag}`;
     const cached = contactsCache.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < CONTACTS_CACHE_TTL) {
       console.log(`Cache HIT for contacts search: ${cacheKey}`);
@@ -184,7 +189,19 @@ router.get('/company-contacts/search', async (req, res) => {
       State: r.State || '',
       Zip: r.Zip || '',
       Payment_Terms: r.Payment_Terms || '',   // NEW Phase 5 — "Net 10" / "Net 30" / etc.
-      Customerdate_LastOrdered: r.Last_Order_Date
+      Customerdate_LastOrdered: r.Last_Order_Date,
+      // Curated CRM context fields (Erik 2026-05-23). Pairs with the
+      // company-contacts-2026/search projection so EMB/DTF/SCP quote
+      // builders get the same Customer Warning banner + Tax Exempt chip +
+      // Account Tier badge + smart Payment Terms auto-fill that DTG and
+      // the Order Form already have.
+      Customer_Warning:           r.Customer_Warning || '',
+      Is_Tax_Exempt:              r.Is_Tax_Exempt === true || r.Is_Tax_Exempt === 1 || r.Is_Tax_Exempt === '1',
+      Tax_Exempt_Number:          r.Tax_Exempt_Number || '',
+      CustTerms:                  r.CustTerms || '',
+      Preferred_Terms_FromOrders: r.Preferred_Terms_FromOrders || '',
+      Account_Tier:               r.Account_Tier || '',
+      Phone_Best:                 r.Phone_Best || ''
     }));
 
     console.log(`Contacts search: ${contacts.length} result(s) found for "${searchTerm}"`);
