@@ -40,7 +40,11 @@ router.get('/company-contacts-2026/search', async (req, res) => {
     const maxResults = Math.min(Math.max(parseInt(limit, 10) || 10, 1), 25);
 
     const activeFlag = includeInactive === 'true' ? 'all' : 'active';
-    const cacheKey = `search:v2:${searchTerm.toLowerCase()}:${maxResults}:${activeFlag}`;
+    // v3 (2026-05-23): added Customer_Warning, Is_Tax_Exempt, Tax_Exempt_Number,
+    // Payment_Terms, CustTerms, Preferred_Terms_FromOrders, Account_Tier,
+    // Phone_Best fields to the response. Bump cache key so existing v2-cached
+    // responses (without those fields) get refreshed.
+    const cacheKey = `search:v3:${searchTerm.toLowerCase()}:${maxResults}:${activeFlag}`;
     const cached = contactsCache.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < CONTACTS_CACHE_TTL) {
       console.log(`Cache HIT for contacts-2026 search: ${cacheKey}`);
@@ -82,6 +86,20 @@ router.get('/company-contacts-2026/search', async (req, res) => {
           Zip: r.Zip || '',
           Sales_Rep: r.Sales_Rep || '',
           Last_Order_Date: r.Last_Order_Date || null,
+          // Erik 2026-05-23: surface curated customer-record fields so the
+          // OF + DTG quote builders can show Customer Warning banners, Tax
+          // Exempt chips, and auto-fill Payment Terms. Required by Order
+          // Form's audit fix H1 (which was previously bind-only — the
+          // frontend assumed these fields were here but the proxy never
+          // included them, so the H1 banners never fired in production).
+          Customer_Warning:           r.Customer_Warning || '',
+          Is_Tax_Exempt:              r.Is_Tax_Exempt === true || r.Is_Tax_Exempt === 1 || r.Is_Tax_Exempt === '1',
+          Tax_Exempt_Number:          r.Tax_Exempt_Number || '',
+          Payment_Terms:              r.Payment_Terms || '',
+          CustTerms:                  r.CustTerms || '',
+          Preferred_Terms_FromOrders: r.Preferred_Terms_FromOrders || '',
+          Account_Tier:               r.Account_Tier || '',
+          Phone_Best:                 r.Phone_Best || '',
           contacts: []
         };
         byCompany.set(key, bucket);
@@ -94,6 +112,10 @@ router.get('/company-contacts-2026/search', async (req, res) => {
           NameLast: r.NameLast || '',
           ct_NameFull: r.ct_NameFull || '',
           Email: r.Email || '',
+          // Per-contact Phone_Best (curated "best phone for this contact" in
+          // CompanyContactsMerge2026). Preferred over Company_Phone when set.
+          Phone_Best: r.Phone_Best || '',
+          Company_Phone: r.Company_Phone || '',
           Last_Order_Date: r.Last_Order_Date || null
         });
       }
