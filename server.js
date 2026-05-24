@@ -332,6 +332,13 @@ const dtgTopSellersRoutes = require('./src/routes/dtg-top-sellers');
 app.use('/api', dtgTopSellersRoutes);
 console.log('✓ DTG Top Sellers routes loaded');
 
+// EMB Top Sellers — backed by Caspio table EMB_Top_Sellers_2026 (Erik
+// curates from 10 years of embroidery sales). Used by the EMB chat
+// assistant's recommend_top_sellers_emb tool. 2026-05-24 (EMB Chat A).
+const embTopSellersRoutes = require('./src/routes/emb-top-sellers');
+app.use('/api', embTopSellersRoutes);
+console.log('✓ EMB Top Sellers routes loaded');
+
 // Sticker pricing route — backs Order Form sticker method (Caspio Sticker_Pricing + inline fallback)
 const stickerPricingRoutes = require('./src/routes/sticker-pricing');
 app.use('/api', stickerPricingRoutes);
@@ -709,6 +716,15 @@ console.log('✓ Contract Webstore AI route loaded (public, Claude Sonnet 4.6 + 
 const dtgQuoteAIRoute = require('./src/routes/dtg-quote-ai');
 app.use('/api/dtg-quote-ai', dtgQuoteAIRoute);
 console.log('✓ DTG Quote AI route loaded (public, Claude Sonnet 4.6 + prompt caching + Tavily web search + curated top-sellers)');
+
+// EMB Quote AI (2026-05-24, Phase EMB Chat B) — research assistant for
+// the Embroidery Quote Builder. 3 tools: lookup_customer, recommend_top_sellers_emb
+// (Caspio EMB_Top_Sellers_2026 — Erik curates from 10yr sales),
+// lookup_product_details (live SanMar query). No pricing tool — rep computes
+// pricing in the form. Same SSE streaming + tool-loop pattern as DTG.
+const embQuoteAIRoute = require('./src/routes/emb-quote-ai');
+app.use('/api/emb-quote-ai', embQuoteAIRoute);
+console.log('✓ EMB Quote AI route loaded (Claude Sonnet 4.6 + Erik-curated 10yr EMB top-sellers)');
 
 // Contract DTG Pricing — lean print-cost feed backing the contract DTG
 // calculator. Reads Contract_DTG_Costs Caspio table (5 locations × 4 tiers)
