@@ -43,14 +43,34 @@ const { getCaspioAccessToken } = require('../src/utils/caspio');
 const { inferIndustry } = require('../lib/industry-inference');
 const { webSearch } = require('../lib/web-search');
 
+// === SanMar style cache — authoritative "is this a real SanMar style?" lookup
+// Built by scripts/build-sanmar-style-cache.js — walks the bulk table once
+// and writes scripts/.sanmar-styles.cache.json (array of ~10K unique styles).
+const SANMAR_CACHE_PATH = path.join(__dirname, '.sanmar-styles.cache.json');
+let SANMAR_STYLES = null; // populated by loadSanmarStyles()
+
+function loadSanmarStyles() {
+    if (SANMAR_STYLES) return SANMAR_STYLES;
+    if (!fs.existsSync(SANMAR_CACHE_PATH)) {
+        throw new Error(
+            `SanMar style cache not found at ${SANMAR_CACHE_PATH}. ` +
+            `Run: node scripts/build-sanmar-style-cache.js (one-time setup, ~1-2 min).`
+        );
+    }
+    const arr = JSON.parse(fs.readFileSync(SANMAR_CACHE_PATH, 'utf8'));
+    SANMAR_STYLES = new Set(arr.map(s => String(s).toUpperCase()));
+    return SANMAR_STYLES;
+}
+
 // ── Config ─────────────────────────────────────────────────────────────────
 
 const args = process.argv.slice(2);
 const ARG_DAYS = (() => {
     const a = args.find(a => a.startsWith('--days='));
-    return a ? Number(a.split('=')[1]) : 365;
+    return a ? Number(a.split('=')[1]) : 3650; // default = 10 years (effectively "all")
 })();
 const ARG_SKIP_WEB = args.includes('--skip-web');
+const ARG_ALL_DATES = args.includes('--all') || ARG_DAYS >= 3650;
 
 const TOP_STYLES_PER_INDUSTRY = 25;
 const COLORS_PER_STYLE = 3;
@@ -111,13 +131,17 @@ async function fetchAll(table, where, select) {
 
 async function phase1_pullOrders(cutoffDateISO) {
     log('═══ PHASE 1: Pulling MO orders from Caspio ManageOrders_Orders ═══');
-    const where = `date_Ordered>='${cutoffDateISO}'`;
+    // When ARG_ALL_DATES is true (or --days >= 3650), skip date filter entirely.
+    const where = ARG_ALL_DATES
+        ? 'id_Order IS NOT NULL'
+        : `date_Ordered>='${cutoffDateISO}'`;
+    log(`  Filter: ${where}`);
     const orders = await fetchAll(
         'ManageOrders_Orders',
         where,
         'id_Order,id_Customer,CustomerName,ParentCompany,date_Ordered,cur_SubTotal,TotalProductQuantity'
     );
-    log(`✓ Pulled ${orders.length} orders (cutoff ${cutoffDateISO})`);
+    log(`✓ Pulled ${orders.length} orders`);
     return orders;
 }
 
@@ -163,48 +187,14 @@ function lineUnits(li) {
     return sum;
 }
 
-// ── Service-code filter — keep only real SanMar style numbers ──────────────
-// The bot is recommending GARMENTS, not decoration services or promo items.
-// SanMar styles always have BOTH letters AND digits (PC54, ST650, 112, BC3001,
-// NKDC1963, etc.) OR are pure-numeric Richardson caps (112, 113).
-// Filter rules (excludeReason returns non-null if PN is NOT a garment SKU):
-const SERVICE_CODE_BLACKLIST = new Set([
-    // Embroidery/decoration services
-    'AL', 'AL-CAP', 'AL-FULL', 'AL-FB', 'AL-SLEEVE',
-    'CTR-CAP', 'CTR-GARMT', 'CTR-HAT', 'CTR-PATCH',
-    'DECG', 'DECF', 'DECC', 'STITCHES', 'MONOGRAM',
-    'EMBLEM', 'EMBLEMS', 'PATCH', 'PATCHES', 'PVC', 'PVC-PATCH',
-    'NAME', 'NAMES', 'NAME CARD', 'NAMECARD', 'NUMBER',
-    // Fees / setup
-    'SETUP', 'SETUP-FEE', 'SETUP FEE', 'GRT-50', 'GRT-75',
-    'ART', 'ARTWORK', 'DESIGN', 'MOCKUP', 'REVISION', 'RUSH', 'EDIT',
-    'SHIPPING', 'FREIGHT', 'TAX', 'DISCOUNT', 'CREDIT',
-    // Customer-supplied (NOT SanMar)
-    'CDP', 'CUSTOMER SUPPLIED', 'CUST SUPPLIED', 'COB',
-    // Gift cards
-    'GIFT CODE', 'GIFTCODE', 'GIFT', 'GC',
-    // Misc / generic
-    'MISC', 'TEST', 'SAMPLE', 'WEIGHT', 'APRONS',
-]);
-
-const SERVICE_CODE_PREFIX_RE = /^(CTR|STK|GRT|AL|SP24|SETUP|MUG|MUGS|BAG|BAGS|GIFT)[-_\s]/i;
-// LTM = Polar Camel drinkware (non-SanMar); LTM752, LTM753, etc.
-const NON_SANMAR_BRAND_RE = /^(LTM)\d/i;
-const PURE_LETTERS_RE = /^[A-Z]+$/; // codes like "AL", "DECG", "EMBLEM" — no SanMar style is letters-only
-
-function isServiceCode(pn) {
-    if (!pn) return true;
-    const upper = String(pn).toUpperCase().trim();
-    if (SERVICE_CODE_BLACKLIST.has(upper)) return true;
-    if (SERVICE_CODE_PREFIX_RE.test(upper)) return true;
-    if (NON_SANMAR_BRAND_RE.test(upper)) return true; // LTM752 (Polar Camel) etc.
-    if (PURE_LETTERS_RE.test(upper)) return true; // letters-only = always a service code
-    // Pure-numeric — only keep 3-digit Richardson-style caps (112, 113, 168)
-    // Reject 1-2 digit codes (junk) and 4+ digit codes (likely SKU misparses)
-    if (/^\d+$/.test(upper)) {
-        if (upper.length < 3 || upper.length > 4) return true;
-    }
-    return false;
+// ── Authoritative SanMar style check ───────────────────────────────────────
+// Returns true if the PN is a real SanMar catalog style (in Sanmar_Bulk).
+// Replaces the previous blacklist-based isServiceCode() with a positive
+// cross-check — anything not in SanMar's catalog is excluded automatically.
+function isSanmarStyle(pn) {
+    if (!pn) return false;
+    const styles = loadSanmarStyles();
+    return styles.has(String(pn).toUpperCase().trim());
 }
 
 // ── Phase 3: build customer profiles ───────────────────────────────────────
@@ -244,15 +234,17 @@ function phase3_buildCustomerProfiles(orders, lineItems) {
         p.orderCount++;
         p.totalRevenue += Number(o.cur_SubTotal) || 0;
 
-        // Aggregate line items for this order — GARMENTS ONLY (filter out
-        // decoration services, fees, customer-supplied prints, promo items).
+        // Aggregate line items for this order — SANMAR CATALOG STYLES ONLY.
+        // Cross-check against Sanmar_Bulk so we exclude ALL services, fees,
+        // customer-supplied, promo items, drinkware, etc. — anything not in
+        // the SanMar catalog is rejected automatically.
         const lis = liByOrder.get(o.id_Order) || [];
         for (const li of lis) {
             const pn = stripSizeSuffix(li.PartNumber);
             const color = String(li.PartColor || '').trim();
             const units = lineUnits(li);
             if (!pn || units <= 0) continue;
-            if (isServiceCode(pn)) continue; // ← skip service codes
+            if (!isSanmarStyle(pn)) continue; // ← STRICT: must be in SanMar catalog
             const key = `${pn}|${color}`;
             p.items.set(key, (p.items.get(key) || 0) + units);
             p.totalUnits += units;
@@ -459,10 +451,15 @@ async function main() {
     fs.writeFileSync(LOG_FILE, '');
     log('═══════════════════════════════════════════════════════════════');
     log('NWCA INDUSTRY LOOKALIKES — V2 (CASPIO DATA SOURCE)');
-    log(`  Window:     ${ARG_DAYS} days`);
+    log(`  Window:     ${ARG_ALL_DATES ? 'ALL TIME (no date filter)' : ARG_DAYS + ' days'}`);
     log(`  Skip web:   ${ARG_SKIP_WEB}`);
     log(`  Output CSV: ${OUTPUT_CSV}`);
     log('═══════════════════════════════════════════════════════════════');
+
+    // Load SanMar style cache at startup — fail fast if missing.
+    log(`Loading SanMar style cache from ${SANMAR_CACHE_PATH}...`);
+    loadSanmarStyles();
+    log(`✓ ${SANMAR_STYLES.size} unique SanMar styles loaded`);
 
     const cutoff = new Date(Date.now() - ARG_DAYS * 24 * 3600 * 1000)
         .toISOString().slice(0, 10);
