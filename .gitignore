@@ -58,6 +58,10 @@ orders_check.json
 # CSV reports (may contain PII)
 *.csv
 
+# Aggregation script state/output (runtime artifacts)
+scripts/.industry-aggregation*.json
+scripts/.industry-aggregation*.log
+
 # Specific ignored files
 QUOTE_API_INTEGRATION_GUIDE_UPDATED.md
 test-heroku-files.js
