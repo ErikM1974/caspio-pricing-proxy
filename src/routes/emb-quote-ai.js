@@ -60,21 +60,34 @@ const TOOLS = [
     {
         name: 'recommend_top_sellers_emb',
         description:
-            "Return NWCA's actual top-selling EMBROIDERY products from the Caspio " +
-            "EMB_Top_Sellers_2026 table (sourced from 10 years of embroidery sales). " +
-            "Use when the rep asks 'what's our best polo for embroidery?' / 'top sellers' " +
-            "/ 'what do you recommend for a hoodie?'. Filter by category to narrow. " +
-            "Each product returned includes real sales numbers, top 4 colors with units, " +
-            "and the swatch image URL.",
+            "Return NWCA's actual top-selling EMBROIDERY products from the curated " +
+            "10-year sales data. Use when the rep asks 'what's our best polo for embroidery?' " +
+            "/ 'top sellers' / 'what do you recommend for a hoodie?' / 'best Carhartt?' / " +
+            "'top Nike?' / 'what Richardson do we sell?'. Filter by category OR brand OR both. " +
+            "Each product returned includes real sales numbers, top 4 colors with units, and " +
+            "swatch image URLs.",
         input_schema: {
             type: 'object',
             properties: {
                 category: {
                     type: 'string',
                     description:
-                        'Category filter. Common values: "T-Shirt", "Polo", "Sweatshirt", ' +
-                        '"Hoodie", "Jacket", "Cap", "Beanie", "Bag", or "any" for mixed across ' +
-                        'all categories. Pass the exact category label as stored in the Caspio table.',
+                        'Category filter (OPTIONAL). Common values: "T-Shirt", "Polo", "Sweatshirt", ' +
+                        '"Hoodie", "Jacket", "Cap", "Beanie", "Bag", "Workwear", "Woven Shirt", ' +
+                        '"Activewear", "Accessory", or "any" for mixed across all categories. ' +
+                        'Omit to allow any category.',
+                },
+                brand: {
+                    type: 'string',
+                    description:
+                        'Brand filter (OPTIONAL). Common values from NWCA top sellers: ' +
+                        '"Port Authority", "Port & Co", "Carhartt", "Sport-Tek", "Nike", ' +
+                        '"OGIO", "CornerStone", "Red Kap", "Gildan", "New Era", "Richardson", ' +
+                        '"Eddie Bauer", "The North Face". Case-insensitive partial match — ' +
+                        '"Carhartt" matches Carhartt, "Port" matches both Port Authority and Port & Co. ' +
+                        'If the brand has NO entries in our curated top sellers, the tool returns ' +
+                        'count:0 — when that happens, tell the rep we do not have that brand in our ' +
+                        'top embroidery sellers and suggest a close equivalent we DO carry.',
                 },
                 limit: { type: 'integer', description: 'Max products to return (1-10). Default 3.' },
             },
@@ -205,6 +218,7 @@ const CATEGORY_ALIASES = {
 async function recommendTopSellersEmb(input) {
     try {
         const rawCategory = String(input?.category || 'any').trim();
+        const rawBrand    = String(input?.brand || '').trim();
         const limit = Math.max(1, Math.min(10, Number(input?.limit) || 3));
 
         // Resolve bucket key — exact match first, then alias map, then 'any'.
@@ -217,7 +231,7 @@ async function recommendTopSellersEmb(input) {
             }
         }
 
-        // Pull candidates
+        // Pull candidates from the category bucket (or all if 'any')
         let products;
         if (bucketKey) {
             products = (EMB_CURATED_PRODUCTS[bucketKey] || []).slice();
@@ -226,6 +240,19 @@ async function recommendTopSellersEmb(input) {
             products = Object.values(EMB_CURATED_PRODUCTS)
                 .flat()
                 .sort((a, b) => (a.salesRank || 999) - (b.salesRank || 999));
+        }
+
+        // Brand filter (Erik 2026-05-24): "what's the top-selling Carhartt?" /
+        // "best Nike?" / "what Richardson do we sell?" — bot passes brand and
+        // we narrow the candidate list. Case-insensitive substring match so
+        // "Port" matches both "Port Authority" and "Port & Co", and "carhartt"
+        // matches "Carhartt". If no matches, return count:0 — bot's system
+        // prompt teaches it to surface that politely + suggest equivalents.
+        if (rawBrand) {
+            const needle = rawBrand.toLowerCase();
+            products = products.filter(p =>
+                String(p.brand || '').toLowerCase().includes(needle)
+            );
         }
 
         // Trim to limit + return only the fields the bot needs
@@ -257,6 +284,7 @@ async function recommendTopSellersEmb(input) {
 
         return {
             category: rawCategory,
+            brand: rawBrand || null,
             resolvedBucket: bucketKey || 'any',
             count: products.length,
             products,
