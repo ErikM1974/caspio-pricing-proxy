@@ -762,6 +762,11 @@ const embroideryPushRoutes = require('./src/routes/embroidery-push');
 app.use('/api', embroideryPushRoutes);
 console.log('✓ Embroidery Push routes loaded');
 
+// DTF Push Routes (Phase 8 — same shape as EMB push, separate transformer + config)
+const dtfPushRoutes = require('./src/routes/dtf-push');
+app.use('/api', dtfPushRoutes);
+console.log('✓ DTF Push routes loaded');
+
 // Vision Routes (ShopWorks screenshot extraction via Claude Haiku)
 const visionRoutes = require('./src/routes/vision');
 const visionLimiter = rateLimit({
