@@ -163,6 +163,50 @@ function lineUnits(li) {
     return sum;
 }
 
+// ── Service-code filter — keep only real SanMar style numbers ──────────────
+// The bot is recommending GARMENTS, not decoration services or promo items.
+// SanMar styles always have BOTH letters AND digits (PC54, ST650, 112, BC3001,
+// NKDC1963, etc.) OR are pure-numeric Richardson caps (112, 113).
+// Filter rules (excludeReason returns non-null if PN is NOT a garment SKU):
+const SERVICE_CODE_BLACKLIST = new Set([
+    // Embroidery/decoration services
+    'AL', 'AL-CAP', 'AL-FULL', 'AL-FB', 'AL-SLEEVE',
+    'CTR-CAP', 'CTR-GARMT', 'CTR-HAT', 'CTR-PATCH',
+    'DECG', 'DECF', 'DECC', 'STITCHES', 'MONOGRAM',
+    'EMBLEM', 'EMBLEMS', 'PATCH', 'PATCHES', 'PVC', 'PVC-PATCH',
+    'NAME', 'NAMES', 'NAME CARD', 'NAMECARD', 'NUMBER',
+    // Fees / setup
+    'SETUP', 'SETUP-FEE', 'SETUP FEE', 'GRT-50', 'GRT-75',
+    'ART', 'ARTWORK', 'DESIGN', 'MOCKUP', 'REVISION', 'RUSH', 'EDIT',
+    'SHIPPING', 'FREIGHT', 'TAX', 'DISCOUNT', 'CREDIT',
+    // Customer-supplied (NOT SanMar)
+    'CDP', 'CUSTOMER SUPPLIED', 'CUST SUPPLIED', 'COB',
+    // Gift cards
+    'GIFT CODE', 'GIFTCODE', 'GIFT', 'GC',
+    // Misc / generic
+    'MISC', 'TEST', 'SAMPLE', 'WEIGHT', 'APRONS',
+]);
+
+const SERVICE_CODE_PREFIX_RE = /^(CTR|STK|GRT|AL|SP24|SETUP|MUG|MUGS|BAG|BAGS|GIFT)[-_\s]/i;
+// LTM = Polar Camel drinkware (non-SanMar); LTM752, LTM753, etc.
+const NON_SANMAR_BRAND_RE = /^(LTM)\d/i;
+const PURE_LETTERS_RE = /^[A-Z]+$/; // codes like "AL", "DECG", "EMBLEM" — no SanMar style is letters-only
+
+function isServiceCode(pn) {
+    if (!pn) return true;
+    const upper = String(pn).toUpperCase().trim();
+    if (SERVICE_CODE_BLACKLIST.has(upper)) return true;
+    if (SERVICE_CODE_PREFIX_RE.test(upper)) return true;
+    if (NON_SANMAR_BRAND_RE.test(upper)) return true; // LTM752 (Polar Camel) etc.
+    if (PURE_LETTERS_RE.test(upper)) return true; // letters-only = always a service code
+    // Pure-numeric — only keep 3-digit Richardson-style caps (112, 113, 168)
+    // Reject 1-2 digit codes (junk) and 4+ digit codes (likely SKU misparses)
+    if (/^\d+$/.test(upper)) {
+        if (upper.length < 3 || upper.length > 4) return true;
+    }
+    return false;
+}
+
 // ── Phase 3: build customer profiles ───────────────────────────────────────
 
 function phase3_buildCustomerProfiles(orders, lineItems) {
@@ -200,13 +244,15 @@ function phase3_buildCustomerProfiles(orders, lineItems) {
         p.orderCount++;
         p.totalRevenue += Number(o.cur_SubTotal) || 0;
 
-        // Aggregate line items for this order
+        // Aggregate line items for this order — GARMENTS ONLY (filter out
+        // decoration services, fees, customer-supplied prints, promo items).
         const lis = liByOrder.get(o.id_Order) || [];
         for (const li of lis) {
             const pn = stripSizeSuffix(li.PartNumber);
             const color = String(li.PartColor || '').trim();
             const units = lineUnits(li);
             if (!pn || units <= 0) continue;
+            if (isServiceCode(pn)) continue; // ← skip service codes
             const key = `${pn}|${color}`;
             p.items.set(key, (p.items.get(key) || 0) + units);
             p.totalUnits += units;
