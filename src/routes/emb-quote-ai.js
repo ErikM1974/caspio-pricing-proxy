@@ -110,6 +110,45 @@ const TOOLS = [
             required: ['styleNumber'],
         },
     },
+    {
+        name: 'search_products_by_keyword',
+        description:
+            "Search ALL of SanMar's ~30K product catalog by keyword/concept. The KEYWORDS " +
+            "field SanMar maintains per product is incredibly rich — includes synonyms, " +
+            "misspellings, feature tags ('water resistant', 'wind-resistant', 'soft shell', " +
+            "'corporate attire', 'budget friendly', 'fleece lined'), and category descriptors. " +
+            "Use this when the rep asks for a CONCEPT or FEATURE rather than a brand/category, " +
+            "and the answer might NOT be in our top-40 curated list:\n" +
+            "  • 'I need a waterproof jacket'           → q: 'waterproof'\n" +
+            "  • 'Something moisture-wicking for hot weather' → q: 'moisture wicking'\n" +
+            "  • 'Find me a high-vis safety vest'       → q: 'high visibility'\n" +
+            "  • 'Show me a Carhartt softshell'         → q: 'softshell' + brand filter\n" +
+            "  • 'What flame-resistant stuff do we sell?' → q: 'flame resistant'\n" +
+            "  • 'Need a heavy-duty winter beanie'      → q: 'heavyweight beanie'\n" +
+            "Returns up to 10 matching products with title, brand, category, image, status. " +
+            "Filter by ACTIVE-only by default — rep doesn't want to pitch discontinued SKUs. " +
+            "When the rep mentions a SPECIFIC style # (PC54, J317), use lookup_product_details " +
+            "instead. When they ask for 'top sellers' / 'best X', use recommend_top_sellers_emb.",
+        input_schema: {
+            type: 'object',
+            properties: {
+                q: {
+                    type: 'string',
+                    description: 'Free-text search term — feature, fabric, attribute, or concept. 2+ chars.',
+                },
+                brand: {
+                    type: 'string',
+                    description: 'OPTIONAL brand filter to narrow results (e.g. "Carhartt", "Port Authority").',
+                },
+                category: {
+                    type: 'string',
+                    description: 'OPTIONAL SanMar category to narrow (T-Shirts / Polos/Knits / Sweatshirts/Fleece / Outerwear / Caps / Bags / Workwear / Woven Shirts / Accessories / Activewear).',
+                },
+                limit: { type: 'integer', description: 'Max results to return (1-10). Default 5.' },
+            },
+            required: ['q'],
+        },
+    },
 ];
 
 // --- Tool implementations ----------------------------------------------------
@@ -418,6 +457,84 @@ async function lookupProductDetails(input) {
     }
 }
 
+/**
+ * search_products_by_keyword — full-catalog SanMar search by keyword/concept.
+ *
+ * Hits the existing /api/products/search endpoint which searches across
+ * STYLE / PRODUCT_TITLE / PRODUCT_DESCRIPTION / KEYWORDS / BRAND_NAME with
+ * a single LIKE query. KEYWORDS is the most useful — SanMar packs every
+ * variant + synonym + misspelling in there (e.g. "water resistant water
+ * reistant water resistent water-resistant water-resistance" all in one
+ * row for J317).
+ *
+ * Filters down to ACTIVE products only (no discontinued pitching) and
+ * keeps the response compact (no descriptions in the chip data — bot can
+ * call lookup_product_details for deeper details on any one hit).
+ *
+ * Erik 2026-05-24 — opens up the entire SanMar catalog to the bot when
+ * the rep asks for something not in our top 40 (e.g. "high-vis safety vest"
+ * or "flame-resistant work shirt").
+ */
+async function searchProductsByKeyword(input) {
+    const q     = String(input?.q || '').trim();
+    const brand = String(input?.brand || '').trim();
+    const category = String(input?.category || '').trim();
+    const limit = Math.max(1, Math.min(10, Number(input?.limit) || 5));
+
+    if (q.length < 2) {
+        return { error: 'query_too_short', message: 'Need 2+ characters', q };
+    }
+
+    try {
+        // Build query — proxy's /api/products/search already does the
+        // KEYWORDS / TITLE / DESCRIPTION / BRAND OR-match for us.
+        const params = new URLSearchParams({ q, status: 'Active', limit: String(limit * 3) });
+        if (brand) params.set('brand', brand);
+        if (category) params.set('category', category);
+        const url = `${INTERNAL_API_BASE}/api/products/search?${params.toString()}`;
+        const r = await fetch(url);
+        if (!r.ok) {
+            return { error: 'search_failed', message: `HTTP ${r.status}`, q };
+        }
+        const body = await r.json();
+        const products = (body?.data?.products || body?.products || []);
+
+        // Trim to limit + drop heavy fields. Keep just what the bot needs to
+        // explain the match + cite the product. Bot can call
+        // lookup_product_details for colors/sizes if the rep wants to dig in.
+        const trimmed = products.slice(0, limit).map(p => ({
+            styleNumber: p.styleNumber || p.STYLE || '',
+            name:        stripStyleSuffix(p.productName || p.PRODUCT_TITLE || ''),
+            brand:       p.brand || p.BRAND_NAME || '',
+            category:    p.category || p.CATEGORY_NAME || '',
+            subcategory: p.subcategory || p.SUBCATEGORY_NAME || '',
+            // Short description snippet (first 200 chars, single line) so
+            // the bot has context to explain WHY this style matched the query.
+            descriptionSnippet: String(p.description || p.PRODUCT_DESCRIPTION || '')
+                .replace(/\s+/g, ' ')
+                .trim()
+                .slice(0, 200),
+            // Hero image so the bot can include the visual in its reply.
+            mainImageUrl: p.images?.main || p.PRODUCT_IMAGE || '',
+            // Price hint — bot can mention price range without quoting exact.
+            piecePrice:  p.pricing?.minPrice ?? p.PIECE_PRICE ?? null,
+            status:      p.status || p.PRODUCT_STATUS || 'Active',
+        }));
+
+        return {
+            q,
+            brand: brand || null,
+            category: category || null,
+            count: trimmed.length,
+            totalMatches: (body?.data?.products?.length || body?.products?.length || 0),
+            products: trimmed,
+        };
+    } catch (err) {
+        console.error('[emb-quote-ai] search_products_by_keyword error:', err.message);
+        return { error: 'tool_exception', message: err.message, q };
+    }
+}
+
 async function executeTool(name, input) {
     if (name === 'lookup_customer') {
         try {
@@ -440,6 +557,14 @@ async function executeTool(name, input) {
             return await lookupProductDetails(input);
         } catch (err) {
             console.error('[emb-quote-ai] lookup_product_details error:', err.message);
+            return { error: 'tool_exception', message: err.message };
+        }
+    }
+    if (name === 'search_products_by_keyword') {
+        try {
+            return await searchProductsByKeyword(input);
+        } catch (err) {
+            console.error('[emb-quote-ai] search_products_by_keyword error:', err.message);
             return { error: 'tool_exception', message: err.message };
         }
     }
