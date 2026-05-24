@@ -158,6 +158,53 @@ const TOOLS = [
         },
     },
     {
+        name: 'rank_styles_by_price',
+        description:
+            "Rank SanMar styles within a category by RELATIVE cost — cheapest or most " +
+            "expensive — without exposing the actual dollar amount. Use when the rep " +
+            "asks for cost-based recommendations like:\n" +
+            "  • 'What's the cheapest polo for embroidery?'\n" +
+            "  • 'Most expensive Carhartt jacket?'\n" +
+            "  • 'Cheapest ladies hoodie under Sport-Tek?'\n" +
+            "  • 'Top 3 most expensive caps'\n" +
+            "Server-side ranks by our SanMar wholesale case price, then strips the price " +
+            "from the response. You'll receive ONLY the ranked list (style, name, brand). " +
+            "🔴 CRITICAL: Your reply MUST NOT include dollar amounts. Use relative language " +
+            "only — 'cheapest', 'least expensive', 'mid-tier', 'premium pick', 'most expensive'. " +
+            "Reps can quote actual customer pricing via the form once they pick a style.",
+        input_schema: {
+            type: 'object',
+            properties: {
+                category: {
+                    type: 'string',
+                    description: 'REQUIRED — the SanMar category to rank within: "T-Shirts", ' +
+                        '"Polos/Knits", "Sweatshirts/Fleece", "Outerwear", "Caps", "Bags", ' +
+                        '"Workwear", "Woven Shirts", "Accessories", "Activewear". You MUST ' +
+                        'pass a category — ranking across mixed categories isn\'t meaningful ' +
+                        '(a polo will always be cheaper than a jacket).',
+                },
+                sort: {
+                    type: 'string',
+                    enum: ['cheapest', 'most_expensive'],
+                    description: 'REQUIRED — "cheapest" sorts ascending, "most_expensive" descending.',
+                },
+                brand: {
+                    type: 'string',
+                    description: 'OPTIONAL brand narrow (case-insensitive substring). ' +
+                        '"Carhartt" / "Port" / "Sport-Tek" / etc.',
+                },
+                fit: {
+                    type: 'string',
+                    enum: ['Ladies', 'Mens', 'any'],
+                    description: 'OPTIONAL fit filter — Ladies (only ladies-cut) / Mens ' +
+                        '(only mens or unisex) / any.',
+                },
+                limit: { type: 'integer', description: 'Max styles to return (1-10). Default 5.' },
+            },
+            required: ['category', 'sort'],
+        },
+    },
+    {
         name: 'search_products_by_keyword',
         description:
             "Search ALL of SanMar's ~30K product catalog by keyword/concept. The KEYWORDS " +
@@ -677,6 +724,133 @@ async function findStylesByColor(input) {
 }
 
 /**
+ * rank_styles_by_price — server-side cost ranking with PRICES STRIPPED
+ * before the response goes to the LLM. The bot only sees the ranked list
+ * (style/name/brand/image), never the dollar amount. This is intentional:
+ * even if a future prompt-injection tried to extract pricing, the model
+ * has no number to leak — it isn't in the tool result.
+ *
+ * Ranking is by MIN(CASE_PRICE) per style (a style's colors have varying
+ * prices; we use the lowest as the style's "base cost" — matches what
+ * a rep would quote for the most common colorway). For "cheapest" we
+ * sort ascending; "most_expensive" descending.
+ *
+ * Erik 2026-05-24 — answers "what's the cheapest polo?" / "most expensive
+ * Carhartt jacket?" without exposing NWCA's wholesale cost basis.
+ */
+async function rankStylesByPrice(input) {
+    const category = String(input?.category || '').trim();
+    const sort     = String(input?.sort     || '').trim().toLowerCase();
+    const brand    = String(input?.brand    || '').trim();
+    const fitRaw   = String(input?.fit      || '').trim().toLowerCase();
+    const limit    = Math.max(1, Math.min(10, Number(input?.limit) || 5));
+
+    if (!category) {
+        return { error: 'missing_category', message: 'category is required (e.g. "Polos/Knits")' };
+    }
+    if (sort !== 'cheapest' && sort !== 'most_expensive') {
+        return { error: 'bad_sort', message: 'sort must be "cheapest" or "most_expensive"', sort };
+    }
+
+    try {
+        // Pull all (style, color) rows in the category with CASE_PRICE for
+        // ranking. Active-only — no recommending discontinued SKUs.
+        const whereConditions = [
+            `CATEGORY_NAME='${category.replace(/'/g, "''")}'`,
+            `PRODUCT_STATUS='Active'`,
+        ];
+        const rows = await fetchAllCaspioPages(
+            '/tables/Sanmar_Bulk_251816_Feb2024/records',
+            {
+                'q.where': whereConditions.join(' AND '),
+                // CASE_PRICE is used internally for ranking + DROPPED before
+                // returning. The model literally never sees the number.
+                'q.select': 'STYLE, PRODUCT_TITLE, BRAND_NAME, CATEGORY_NAME, SUBCATEGORY_NAME, CASE_PRICE, PRODUCT_IMAGE',
+            }
+        );
+
+        // Apply brand filter client-side (Caspio LIKE with case-insensitivity
+        // is fine but keeps the logic in one place alongside the fit filter).
+        const ladiesRe = /\b(ladies|women|womens|woman's|women's)\b/i;
+        const wantsLadies = fitRaw === 'ladies' || fitRaw === "ladies'";
+        const wantsMens   = fitRaw === 'mens' || fitRaw === "men's" || fitRaw === 'men';
+        const brandNeedle = brand.toLowerCase();
+
+        const filtered = rows.filter(r => {
+            if (brand && !String(r.BRAND_NAME || '').toLowerCase().includes(brandNeedle)) return false;
+            if (wantsLadies || wantsMens) {
+                const isLadies = ladiesRe.test(r.PRODUCT_TITLE || '');
+                if (wantsLadies && !isLadies) return false;
+                if (wantsMens   && isLadies)  return false;
+            }
+            return true;
+        });
+
+        // Group by STYLE — take MIN(CASE_PRICE) as the style's base cost.
+        // Cheapest color within the style sets its rank position.
+        const byStyle = new Map();
+        for (const r of filtered) {
+            const style = r.STYLE;
+            if (!style) continue;
+            const price = Number(r.CASE_PRICE);
+            if (!Number.isFinite(price) || price <= 0) continue; // skip rows w/o price
+            if (!byStyle.has(style)) {
+                byStyle.set(style, {
+                    styleNumber: style,
+                    name: stripStyleSuffix(r.PRODUCT_TITLE || ''),
+                    brand: r.BRAND_NAME || '',
+                    category: r.CATEGORY_NAME || '',
+                    subcategory: r.SUBCATEGORY_NAME || '',
+                    fit: ladiesRe.test(r.PRODUCT_TITLE || '') ? 'Ladies' : 'Mens',
+                    mainImageUrl: r.PRODUCT_IMAGE || '',
+                    _minCasePrice: price,           // INTERNAL — stripped before return
+                });
+            } else {
+                const s = byStyle.get(style);
+                if (price < s._minCasePrice) s._minCasePrice = price;
+            }
+        }
+
+        // Sort by internal price field
+        const sortAsc = sort === 'cheapest';
+        const ranked = [...byStyle.values()].sort((a, b) =>
+            sortAsc ? a._minCasePrice - b._minCasePrice : b._minCasePrice - a._minCasePrice
+        ).slice(0, limit);
+
+        // 🔴 STRIP the internal price field before returning. Never goes to LLM.
+        // Add a positional rank for the bot's reply.
+        const products = ranked.map((s, i) => ({
+            rankPosition:  i + 1,
+            styleNumber:   s.styleNumber,
+            name:          s.name,
+            brand:         s.brand,
+            category:      s.category,
+            subcategory:   s.subcategory,
+            fit:           s.fit,
+            mainImageUrl:  s.mainImageUrl,
+            // NOTE: _minCasePrice deliberately NOT included. Server-side
+            // ranked; bot only sees order. See route header comment.
+        }));
+
+        return {
+            category,
+            sort,
+            brand: brand || null,
+            fit: fitRaw || null,
+            count: products.length,
+            totalCandidates: byStyle.size,
+            products,
+            // Friendly reminder embedded in the result so the model
+            // is double-reminded not to fabricate prices.
+            _reminder: 'CASE_PRICE was used for ranking but is intentionally NOT included in this response. Do NOT mention dollar amounts in your reply.',
+        };
+    } catch (err) {
+        console.error('[emb-quote-ai] rank_styles_by_price error:', err.message);
+        return { error: 'tool_exception', message: err.message };
+    }
+}
+
+/**
  * search_products_by_keyword — full-catalog SanMar search by keyword/concept.
  *
  * Hits the existing /api/products/search endpoint which searches across
@@ -784,6 +958,14 @@ async function executeTool(name, input) {
             return await searchProductsByKeyword(input);
         } catch (err) {
             console.error('[emb-quote-ai] search_products_by_keyword error:', err.message);
+            return { error: 'tool_exception', message: err.message };
+        }
+    }
+    if (name === 'rank_styles_by_price') {
+        try {
+            return await rankStylesByPrice(input);
+        } catch (err) {
+            console.error('[emb-quote-ai] rank_styles_by_price error:', err.message);
             return { error: 'tool_exception', message: err.message };
         }
     }
