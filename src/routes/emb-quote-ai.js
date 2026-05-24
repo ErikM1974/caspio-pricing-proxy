@@ -111,21 +111,20 @@ const TOOLS = [
         },
     },
     {
-        name: 'find_styles_by_pms_color',
+        name: 'find_styles_by_color',
         description:
-            "Find all SanMar styles that come in a specific PMS (Pantone) color. " +
-            "Use when the rep needs COLOR MATCHING across multiple garments — e.g. they " +
-            "already picked a polo in 'Burgundy' and need a matching hoodie + cap in the " +
-            "exact same Pantone. Each garment color in SanMar's catalog has a PMS_COLOR " +
-            "field (e.g. '7427C' for a specific maroon). This tool returns all styles " +
-            "where any color matches that PMS code, so the customer's set of garments " +
-            "looks uniform in actual print/fabric color (not just by name — names lie).\n" +
-            "Use cases:\n" +
-            "  • 'I need everything that comes in PMS 7427C'\n" +
-            "  • 'What styles match this Carhartt Brown for an embroidery set?'\n" +
-            "  • 'Find me a hoodie, polo, and cap that all match in the same red'\n" +
-            "Returns up to 15 styles with the matching color + image. Filter by category " +
-            "to narrow ('I need a CAP that matches' → category: 'Caps').",
+            "Find all SanMar styles that come in a specific color — by PMS code OR by " +
+            "color name. Use when the rep needs COLOR MATCHING across multiple garments:\n" +
+            "  • 'I need a charcoal cap AND a charcoal jacket'  → colorName: 'Charcoal'\n" +
+            "  • 'Black t-shirt, hoodie, and beanie set'        → colorName: 'Black'\n" +
+            "  • 'I need everything that comes in PMS 7427C'    → pmsColor: '7427C'\n" +
+            "  • 'Match this polo's burgundy across products'   → look up the polo's PMS\n" +
+            "    first via lookup_product_details, then call this with the PMS\n" +
+            "Pass EITHER pmsColor OR colorName (at least one). Combine with category to " +
+            "narrow ('I need a CAP that matches' → category: 'Caps'). PMS match is exact; " +
+            "color name match is case-insensitive substring so 'charcoal' hits 'Charcoal', " +
+            "'Dark Charcoal', 'Charcoal Hthr', etc.\n" +
+            "Returns up to 15 styles with the matching color + product image.",
         input_schema: {
             type: 'object',
             properties: {
@@ -133,15 +132,29 @@ const TOOLS = [
                     type: 'string',
                     description: 'PMS code (e.g. "7427C", "382C"). Case-insensitive. ' +
                         'Format varies — some have spaces ("382 C"), some don\'t ("382C"). ' +
-                        'Tool normalizes both formats.',
+                        'Tool normalizes both formats. Pass this when matching by exact Pantone.',
+                },
+                colorName: {
+                    type: 'string',
+                    description: 'Color name (e.g. "Charcoal", "Black", "Navy", "Burgundy"). ' +
+                        'Case-insensitive substring match against COLOR_NAME, so "charcoal" ' +
+                        'returns styles in Charcoal, Dark Charcoal, Charcoal Hthr, etc. ' +
+                        'Pass this when the rep just names a color (way more common than PMS).',
                 },
                 category: {
                     type: 'string',
                     description: 'OPTIONAL category narrow (T-Shirts / Polos/Knits / Sweatshirts/Fleece / Outerwear / Caps / Bags / Workwear / Woven Shirts / Accessories / Activewear).',
                 },
+                fit: {
+                    type: 'string',
+                    description: 'OPTIONAL fit filter — "Ladies" returns only ladies-cut styles, ' +
+                        '"Mens" returns only men\'s/unisex (filters OUT Ladies). Matches based ' +
+                        'on "Ladies" or "Women" or "Womens" appearing in the product title. ' +
+                        'Use for "I need a ladies t-shirt in black" / "men\'s polo in navy".',
+                    enum: ['Ladies', 'Mens', 'any'],
+                },
                 limit: { type: 'integer', description: 'Max styles to return (1-15). Default 10.' },
             },
-            required: ['pmsColor'],
         },
     },
     {
@@ -536,36 +549,60 @@ async function lookupProductDetails(input) {
 }
 
 /**
- * find_styles_by_pms_color — query SanMar bulk for all styles where any
- * color matches a PMS code. Used for cross-product color matching ("find
- * me a hoodie + cap + polo that all come in PMS 7427C").
+ * find_styles_by_color — query SanMar bulk for all styles where any
+ * color matches a PMS code OR a color name. Used for cross-product color
+ * matching (rep: "I need a charcoal cap AND charcoal jacket" / "black
+ * t-shirt set across men's + ladies'").
  *
- * Erik 2026-05-24 — SanMar's PMS_COLOR field is per (style, color) row.
- * One PMS code can appear across hundreds of (style, color) combos.
- * We aggregate per style so the bot returns distinct products, not
- * duplicate rows.
+ * Erik 2026-05-24 — supports two query modes:
+ *   - colorName: "Charcoal" → case-insensitive substring match against
+ *     COLOR_NAME. Hits "Charcoal", "Dark Charcoal", "Charcoal Heather",
+ *     "Charcoal Hthr", etc. More forgiving than exact PMS match.
+ *   - pmsColor: "7427C" → exact Pantone match. Use when the rep wants
+ *     IDENTICAL color across products (true uniform sets).
+ *
+ * Optional fit filter ('Ladies' / 'Mens' / 'any') narrows by product
+ * title — "Ladies" / "Women" / "Womens" in title = Ladies; everything
+ * else = Mens (which includes Unisex). Lets the bot answer "ladies
+ * t-shirt in black" specifically.
+ *
+ * Returns aggregated per-style. Same product, multiple color matches,
+ * counts once.
  */
-async function findStylesByPmsColor(input) {
-    const pmsRaw  = String(input?.pmsColor || '').trim();
-    const category = String(input?.category || '').trim();
-    const limit = Math.max(1, Math.min(15, Number(input?.limit) || 10));
+async function findStylesByColor(input) {
+    const pmsRaw   = String(input?.pmsColor  || '').trim();
+    const nameRaw  = String(input?.colorName || '').trim();
+    const category = String(input?.category  || '').trim();
+    const fitRaw   = String(input?.fit       || '').trim().toLowerCase();
+    const limit    = Math.max(1, Math.min(15, Number(input?.limit) || 10));
 
-    if (pmsRaw.length < 2) {
-        return { error: 'pms_too_short', message: 'Need a PMS code like "7427C" or "382 C"', pmsColor: pmsRaw };
+    if (!pmsRaw && !nameRaw) {
+        return {
+            error: 'no_color_filter',
+            message: 'Pass at least one of: pmsColor (e.g. "7427C") or colorName (e.g. "Charcoal")',
+        };
     }
 
     try {
-        // Normalize PMS — strip spaces, uppercase. SanMar stores both
-        // "382 C" and "382C" inconsistently. Match against both.
-        const pmsNoSpace = pmsRaw.replace(/\s+/g, '').toUpperCase();
-        const pmsWithSpace = pmsNoSpace.replace(/^(\d+)([A-Z]+)$/, '$1 $2');
-        const sqlNoSpace = pmsNoSpace.replace(/'/g, "''");
-        const sqlWithSpace = pmsWithSpace.replace(/'/g, "''");
+        const whereConditions = [`PRODUCT_STATUS='Active'`];
 
-        const whereConditions = [
-            `(PMS_COLOR='${sqlNoSpace}' OR PMS_COLOR='${sqlWithSpace}')`,
-            `PRODUCT_STATUS='Active'`,
-        ];
+        if (pmsRaw) {
+            // Normalize PMS — strip spaces, uppercase. SanMar stores both
+            // "382 C" and "382C" inconsistently. Match against both formats.
+            const pmsNoSpace = pmsRaw.replace(/\s+/g, '').toUpperCase();
+            const pmsWithSpace = pmsNoSpace.replace(/^(\d+)([A-Z]+)$/, '$1 $2');
+            const sqlNoSpace = pmsNoSpace.replace(/'/g, "''");
+            const sqlWithSpace = pmsWithSpace.replace(/'/g, "''");
+            whereConditions.push(`(PMS_COLOR='${sqlNoSpace}' OR PMS_COLOR='${sqlWithSpace}')`);
+        }
+
+        if (nameRaw) {
+            // Case-insensitive substring on COLOR_NAME. Caspio LIKE is
+            // case-insensitive by default, no UPPER() needed.
+            const sqlName = nameRaw.replace(/'/g, "''");
+            whereConditions.push(`COLOR_NAME LIKE '%${sqlName}%'`);
+        }
+
         if (category) {
             whereConditions.push(`CATEGORY_NAME='${category.replace(/'/g, "''")}'`);
         }
@@ -578,11 +615,25 @@ async function findStylesByPmsColor(input) {
             }
         );
 
+        // Apply fit filter client-side (PRODUCT_TITLE pattern match — Caspio
+        // LIKE doesn't have word-boundary support, so it's cleaner here).
+        const ladiesRe = /\b(ladies|women|womens|woman's|women's)\b/i;
+        const wantsLadies = fitRaw === 'ladies' || fitRaw === "ladies'";
+        const wantsMens   = fitRaw === 'mens' || fitRaw === "men's" || fitRaw === 'men';
+        const filteredRows = rows.filter(r => {
+            if (!wantsLadies && !wantsMens) return true;
+            const title = String(r.PRODUCT_TITLE || '');
+            const isLadies = ladiesRe.test(title);
+            if (wantsLadies) return isLadies;
+            if (wantsMens)   return !isLadies;
+            return true;
+        });
+
         // Aggregate per style — bot wants distinct products, not duplicate
         // rows for each color match. Keep the first matching color as the
         // "exemplar" so the bot can show the swatch.
         const byStyle = new Map();
-        for (const r of rows) {
+        for (const r of filteredRows) {
             const style = r.STYLE;
             if (!style) continue;
             if (!byStyle.has(style)) {
@@ -592,6 +643,7 @@ async function findStylesByPmsColor(input) {
                     brand: r.BRAND_NAME || '',
                     category: r.CATEGORY_NAME || '',
                     subcategory: r.SUBCATEGORY_NAME || '',
+                    fit: ladiesRe.test(r.PRODUCT_TITLE || '') ? 'Ladies' : 'Mens',
                     matchingColors: [],
                     mainImageUrl: r.PRODUCT_IMAGE || '',
                 });
@@ -610,16 +662,17 @@ async function findStylesByPmsColor(input) {
         const products = [...byStyle.values()].slice(0, limit);
 
         return {
-            pmsColor: pmsRaw,
-            normalized: pmsNoSpace,
+            pmsColor: pmsRaw || null,
+            colorName: nameRaw || null,
             category: category || null,
+            fit: fitRaw || null,
             count: products.length,
             totalMatches: byStyle.size,
             products,
         };
     } catch (err) {
-        console.error('[emb-quote-ai] find_styles_by_pms_color error:', err.message);
-        return { error: 'tool_exception', message: err.message, pmsColor: pmsRaw };
+        console.error('[emb-quote-ai] find_styles_by_color error:', err.message);
+        return { error: 'tool_exception', message: err.message, pmsColor: pmsRaw, colorName: nameRaw };
     }
 }
 
@@ -734,11 +787,13 @@ async function executeTool(name, input) {
             return { error: 'tool_exception', message: err.message };
         }
     }
-    if (name === 'find_styles_by_pms_color') {
+    if (name === 'find_styles_by_color' || name === 'find_styles_by_pms_color') {
+        // Accept the old name for backwards compat in case the model
+        // remembers it from cached prompts during the rollover.
         try {
-            return await findStylesByPmsColor(input);
+            return await findStylesByColor(input);
         } catch (err) {
-            console.error('[emb-quote-ai] find_styles_by_pms_color error:', err.message);
+            console.error('[emb-quote-ai] find_styles_by_color error:', err.message);
             return { error: 'tool_exception', message: err.message };
         }
     }
