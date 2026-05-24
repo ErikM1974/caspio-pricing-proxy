@@ -767,6 +767,11 @@ const dtfPushRoutes = require('./src/routes/dtf-push');
 app.use('/api', dtfPushRoutes);
 console.log('✓ DTF Push routes loaded');
 
+// SCP (Screen Print) Push Routes (Phase 8 — same shape as DTF push)
+const scpPushRoutes = require('./src/routes/scp-push');
+app.use('/api', scpPushRoutes);
+console.log('✓ SCP Push routes loaded');
+
 // Vision Routes (ShopWorks screenshot extraction via Claude Haiku)
 const visionRoutes = require('./src/routes/vision');
 const visionLimiter = rateLimit({
