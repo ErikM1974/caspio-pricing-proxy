@@ -111,6 +111,40 @@ const TOOLS = [
         },
     },
     {
+        name: 'find_styles_by_pms_color',
+        description:
+            "Find all SanMar styles that come in a specific PMS (Pantone) color. " +
+            "Use when the rep needs COLOR MATCHING across multiple garments — e.g. they " +
+            "already picked a polo in 'Burgundy' and need a matching hoodie + cap in the " +
+            "exact same Pantone. Each garment color in SanMar's catalog has a PMS_COLOR " +
+            "field (e.g. '7427C' for a specific maroon). This tool returns all styles " +
+            "where any color matches that PMS code, so the customer's set of garments " +
+            "looks uniform in actual print/fabric color (not just by name — names lie).\n" +
+            "Use cases:\n" +
+            "  • 'I need everything that comes in PMS 7427C'\n" +
+            "  • 'What styles match this Carhartt Brown for an embroidery set?'\n" +
+            "  • 'Find me a hoodie, polo, and cap that all match in the same red'\n" +
+            "Returns up to 15 styles with the matching color + image. Filter by category " +
+            "to narrow ('I need a CAP that matches' → category: 'Caps').",
+        input_schema: {
+            type: 'object',
+            properties: {
+                pmsColor: {
+                    type: 'string',
+                    description: 'PMS code (e.g. "7427C", "382C"). Case-insensitive. ' +
+                        'Format varies — some have spaces ("382 C"), some don\'t ("382C"). ' +
+                        'Tool normalizes both formats.',
+                },
+                category: {
+                    type: 'string',
+                    description: 'OPTIONAL category narrow (T-Shirts / Polos/Knits / Sweatshirts/Fleece / Outerwear / Caps / Bags / Workwear / Woven Shirts / Accessories / Activewear).',
+                },
+                limit: { type: 'integer', description: 'Max styles to return (1-15). Default 10.' },
+            },
+            required: ['pmsColor'],
+        },
+    },
+    {
         name: 'search_products_by_keyword',
         description:
             "Search ALL of SanMar's ~30K product catalog by keyword/concept. The KEYWORDS " +
@@ -410,6 +444,10 @@ async function lookupProductDetails(input) {
             catalog: c.CATALOG_COLOR || '',
             swatchUrl: c.COLOR_SWATCH_IMAGE_URL || c.SWATCH_IMAGE_URL || '',
             modelUrl: c.MAIN_IMAGE_URL || c.FRONT_MODEL_IMAGE_URL || '',
+            // Erik 2026-05-24: PMS code per color — bot uses this for color
+            // matching across products ("find a hoodie that matches THIS
+            // polo's burgundy"). Not all colors have PMS values populated.
+            pmsColor: c.PMS_COLOR || c.pmsColor || '',
         }));
 
         // Compute size upcharges from sizesRaw[*].maxCasePrice
@@ -439,6 +477,44 @@ async function lookupProductDetails(input) {
             ? sizes.filter(s => s.hasUpcharge).map(s => `${s.size} +$${s.upcharge.toFixed(2)}`).join(', ')
             : null;
 
+        // Erik 2026-05-24: companion styles + PMS-per-color enrichment.
+        // The bundle endpoint doesn't surface COMPANION_STYLES or PMS_COLOR
+        // so we do a small parallel Caspio query to grab them. Best-effort:
+        // if it fails the bot still gets the basic lookup back.
+        let companionStyles = [];
+        const pmsByColor = {};  // {COLOR_NAME_LOWER: 'PMS code'}
+        try {
+            const enrichRows = await fetchAllCaspioPages(
+                '/tables/Sanmar_Bulk_251816_Feb2024/records',
+                {
+                    'q.where': `STYLE='${styleNumber.replace(/'/g, "''")}'`,
+                    'q.select': 'COMPANION_STYLES, COLOR_NAME, PMS_COLOR',
+                }
+            );
+            if (Array.isArray(enrichRows) && enrichRows.length > 0) {
+                // COMPANION_STYLES is the same value across all rows for a
+                // style — take from the first row. Split on common separators.
+                const csRaw = enrichRows[0].COMPANION_STYLES || '';
+                companionStyles = String(csRaw)
+                    .split(/[,;\s]+/)
+                    .map(s => s.trim())
+                    .filter(s => s && s.toUpperCase() !== styleNumber.toUpperCase());
+                // PMS varies per color
+                for (const r of enrichRows) {
+                    if (r.COLOR_NAME && r.PMS_COLOR) {
+                        pmsByColor[String(r.COLOR_NAME).toLowerCase()] = r.PMS_COLOR;
+                    }
+                }
+                // Stamp PMS onto each color in our colors[] response
+                for (const c of colors) {
+                    const key = String(c.name || '').toLowerCase();
+                    if (pmsByColor[key]) c.pmsColor = pmsByColor[key];
+                }
+            }
+        } catch (enrichErr) {
+            console.warn(`[emb-quote-ai] companion/PMS enrichment failed for ${styleNumber}:`, enrichErr.message);
+        }
+
         return {
             styleNumber,
             title: product.title || product.PRODUCT_TITLE || '',
@@ -449,11 +525,101 @@ async function lookupProductDetails(input) {
             sizeCount: sizes.length,
             hasUpcharges,
             upchargeSummary,
+            companionStyles,         // e.g. ["L500"] for K500 (ladies' equivalent)
+            hasCompanions: companionStyles.length > 0,
             source: 'caspio-sanmar-bulk',
         };
     } catch (err) {
         console.error('[emb-quote-ai] lookup_product_details error:', err.message);
         return { error: 'network', message: err.message };
+    }
+}
+
+/**
+ * find_styles_by_pms_color — query SanMar bulk for all styles where any
+ * color matches a PMS code. Used for cross-product color matching ("find
+ * me a hoodie + cap + polo that all come in PMS 7427C").
+ *
+ * Erik 2026-05-24 — SanMar's PMS_COLOR field is per (style, color) row.
+ * One PMS code can appear across hundreds of (style, color) combos.
+ * We aggregate per style so the bot returns distinct products, not
+ * duplicate rows.
+ */
+async function findStylesByPmsColor(input) {
+    const pmsRaw  = String(input?.pmsColor || '').trim();
+    const category = String(input?.category || '').trim();
+    const limit = Math.max(1, Math.min(15, Number(input?.limit) || 10));
+
+    if (pmsRaw.length < 2) {
+        return { error: 'pms_too_short', message: 'Need a PMS code like "7427C" or "382 C"', pmsColor: pmsRaw };
+    }
+
+    try {
+        // Normalize PMS — strip spaces, uppercase. SanMar stores both
+        // "382 C" and "382C" inconsistently. Match against both.
+        const pmsNoSpace = pmsRaw.replace(/\s+/g, '').toUpperCase();
+        const pmsWithSpace = pmsNoSpace.replace(/^(\d+)([A-Z]+)$/, '$1 $2');
+        const sqlNoSpace = pmsNoSpace.replace(/'/g, "''");
+        const sqlWithSpace = pmsWithSpace.replace(/'/g, "''");
+
+        const whereConditions = [
+            `(PMS_COLOR='${sqlNoSpace}' OR PMS_COLOR='${sqlWithSpace}')`,
+            `PRODUCT_STATUS='Active'`,
+        ];
+        if (category) {
+            whereConditions.push(`CATEGORY_NAME='${category.replace(/'/g, "''")}'`);
+        }
+
+        const rows = await fetchAllCaspioPages(
+            '/tables/Sanmar_Bulk_251816_Feb2024/records',
+            {
+                'q.where': whereConditions.join(' AND '),
+                'q.select': 'STYLE, PRODUCT_TITLE, BRAND_NAME, CATEGORY_NAME, SUBCATEGORY_NAME, COLOR_NAME, CATALOG_COLOR, PMS_COLOR, PRODUCT_IMAGE, COLOR_SQUARE_IMAGE',
+            }
+        );
+
+        // Aggregate per style — bot wants distinct products, not duplicate
+        // rows for each color match. Keep the first matching color as the
+        // "exemplar" so the bot can show the swatch.
+        const byStyle = new Map();
+        for (const r of rows) {
+            const style = r.STYLE;
+            if (!style) continue;
+            if (!byStyle.has(style)) {
+                byStyle.set(style, {
+                    styleNumber: style,
+                    name: stripStyleSuffix(r.PRODUCT_TITLE || ''),
+                    brand: r.BRAND_NAME || '',
+                    category: r.CATEGORY_NAME || '',
+                    subcategory: r.SUBCATEGORY_NAME || '',
+                    matchingColors: [],
+                    mainImageUrl: r.PRODUCT_IMAGE || '',
+                });
+            }
+            const s = byStyle.get(style);
+            if (s.matchingColors.length < 3) {
+                s.matchingColors.push({
+                    name: r.COLOR_NAME || '',
+                    catalog: r.CATALOG_COLOR || '',
+                    pmsColor: r.PMS_COLOR || '',
+                    swatchUrl: r.COLOR_SQUARE_IMAGE || '',
+                });
+            }
+        }
+
+        const products = [...byStyle.values()].slice(0, limit);
+
+        return {
+            pmsColor: pmsRaw,
+            normalized: pmsNoSpace,
+            category: category || null,
+            count: products.length,
+            totalMatches: byStyle.size,
+            products,
+        };
+    } catch (err) {
+        console.error('[emb-quote-ai] find_styles_by_pms_color error:', err.message);
+        return { error: 'tool_exception', message: err.message, pmsColor: pmsRaw };
     }
 }
 
@@ -565,6 +731,14 @@ async function executeTool(name, input) {
             return await searchProductsByKeyword(input);
         } catch (err) {
             console.error('[emb-quote-ai] search_products_by_keyword error:', err.message);
+            return { error: 'tool_exception', message: err.message };
+        }
+    }
+    if (name === 'find_styles_by_pms_color') {
+        try {
+            return await findStylesByPmsColor(input);
+        } catch (err) {
+            console.error('[emb-quote-ai] find_styles_by_pms_color error:', err.message);
             return { error: 'tool_exception', message: err.message };
         }
     }

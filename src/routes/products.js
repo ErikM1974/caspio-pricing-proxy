@@ -55,13 +55,19 @@ router.get('/product-details', async (req, res) => {
       whereClause += ` AND COLOR_NAME='${color}'`;
     }
 
-    // Use the original field names from the Caspio table
+    // Use the original field names from the Caspio table.
+    // Erik 2026-05-24: added COMPANION_STYLES (men's↔ladies' style pairs),
+    // PMS_COLOR (Pantone reference for color matching across styles), and
+    // KEYWORDS (rich SanMar-maintained tag index w/ synonyms + misspellings).
+    // All three power new EMB-chat tool behaviors. Additive — existing
+    // consumers ignore unknown fields, so no regression risk.
     const selectFields = [
       'STYLE', 'PRODUCT_TITLE', 'PRODUCT_DESCRIPTION', 'COLOR_NAME', 'CATALOG_COLOR',
       'BRAND_NAME', 'FRONT_MODEL', 'BACK_MODEL', 'FRONT_FLAT', 'BACK_FLAT',
       'PIECE_PRICE', 'DOZEN_PRICE', 'CASE_PRICE',
       'CATEGORY_NAME', 'SUBCATEGORY_NAME', 'PRODUCT_STATUS',
-      'PRODUCT_IMAGE', 'COLOR_SQUARE_IMAGE'
+      'PRODUCT_IMAGE', 'COLOR_SQUARE_IMAGE',
+      'COMPANION_STYLES', 'PMS_COLOR', 'KEYWORDS'
     ];
 
     let records = await fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
