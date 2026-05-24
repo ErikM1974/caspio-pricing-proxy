@@ -500,6 +500,11 @@ const dtgDesignsRoutes = require('./src/routes/dtg-designs');
 app.use('/api', dtgDesignsRoutes);
 console.log('✓ DTG designs routes loaded');
 
+// Phase 11.1 (2026-05-24) — generalized designs-by-method lookup for EMB/DTF/SCP/etc.
+const designsByMethodRoutes = require('./src/routes/designs-by-method');
+app.use('/api', designsByMethodRoutes);
+console.log('✓ Designs by-method routes loaded');
+
 // Decorated Cap Prices Routes
 const decoratedCapPricesRoutes = require('./src/routes/decorated-cap-prices');
 app.use('/api', decoratedCapPricesRoutes);
