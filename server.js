@@ -344,9 +344,29 @@ console.log('✓ EMB Top Sellers routes loaded');
 // Tavily web classification, SanMar-only). Used by the EMB chat assistant's
 // lookup_lookalike_customers tool to answer "what do other [industry]
 // customers buy?". 2026-05-24 (EMB Smart A2).
+// 2026-05-25 (EMB Smart E1): rebuilt from 10yr SanMar history keyed on Erik's
+// manual Customer_Type (15 categories, not regex-inferred 18). Same endpoint.
 const industryLookalikesRoutes = require('./src/routes/industry-lookalikes');
 app.use('/api/industry-lookalikes', industryLookalikesRoutes);
-console.log('✓ Industry Lookalikes routes loaded (18 industries, SanMar styles only)');
+console.log('✓ Industry Lookalikes routes loaded (15 Customer_Types, 10yr SanMar data)');
+
+// Customer Profile 10yr — backed by Caspio table Customer_Profile_10yr_2026
+// (one row per active SanMar-buying customer, pre-aggregated quarterly from
+// contacts × bridge × line items). Powers the bot's lookup_customer_master_profile
+// tool — replaces the old lookup_customer_history which only had 1yr of MO data.
+// 2026-05-25 (EMB Smart E2).
+const customerProfileRoutes = require('./src/routes/customer-profile');
+app.use('/api/customer-profile', customerProfileRoutes);
+console.log('✓ Customer Profile 10yr routes loaded (1,642 SanMar-buyer profiles)');
+
+// SanMar Style Performance 10yr — backed by Caspio table
+// Sanmar_Style_Performance_10yr_26 (one row per SanMar STYLE with 10yr units,
+// revenue, margin, top colors, customer types, paired-with). Powers the bot's
+// lookup_style_performance + recommend_high_margin_alternative tools.
+// Caspio name suffix is _26 (not _2026) — original was too long. 2026-05-25 (EMB Smart E2).
+const stylePerformanceRoutes = require('./src/routes/style-performance');
+app.use('/api/style-performance', stylePerformanceRoutes);
+console.log('✓ SanMar Style Performance 10yr routes loaded (2,162 styles, full margin data)');
 
 // Sticker pricing route — backs Order Form sticker method (Caspio Sticker_Pricing + inline fallback)
 const stickerPricingRoutes = require('./src/routes/sticker-pricing');

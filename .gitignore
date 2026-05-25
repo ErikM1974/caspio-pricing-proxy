@@ -61,6 +61,8 @@ orders_check.json
 # Aggregation script state/output (runtime artifacts)
 scripts/.industry-aggregation*.json
 scripts/.industry-aggregation*.log
+scripts/.build-customer-profiles-10yr.log
+scripts/.sanmar-styles.cache.json
 
 # Specific ignored files
 QUOTE_API_INTEGRATION_GUIDE_UPDATED.md

@@ -201,7 +201,17 @@ router.get('/company-contacts/search', async (req, res) => {
       CustTerms:                  r.CustTerms || '',
       Preferred_Terms_FromOrders: r.Preferred_Terms_FromOrders || '',
       Account_Tier:               r.Account_Tier || '',
-      Phone_Best:                 r.Phone_Best || ''
+      Phone_Best:                 r.Phone_Best || '',
+      // EMB Smart E2 (2026-05-25) — Erik's manual industry classification +
+      // financial signals. Surfaced for the EMB chat bot's lookup_customer
+      // tool so it can route Customer_Type-based questions without a 2nd call,
+      // and quote-builder customer banners can show whale/tier status.
+      Customer_Type:              r.Customer_Type || '',
+      Sales_Group:                r.Sales_Group || '',
+      YTD_Sales:                  Number(r.YTD_Sales) || 0,
+      Is_Active:                  r.Is_Active === true || r.Is_Active === 1 || r.Is_Active === '1',
+      Is_Dead:                    r.Is_Dead === true || r.Is_Dead === 1 || r.Is_Dead === '1',
+      Is_Stale:                   r.Is_Stale === true || r.Is_Stale === 1 || r.Is_Stale === '1',
     }));
 
     console.log(`Contacts search: ${contacts.length} result(s) found for "${searchTerm}"`);

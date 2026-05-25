@@ -46,8 +46,16 @@ const TOOLS = [
             "Search the NWCA customer/contact database for a company or contact. " +
             "Use this whenever the user mentions a customer by company name OR contact name. " +
             "Returns up to 5 matches with company, contact name, email, service rep, " +
-            "and last-ordered date. Pass the most distinctive phrase (e.g. 'Acme Fuel' " +
-            "or 'Allison Dumas' or an email fragment).",
+            "last-ordered date, AND (as of E2): Customer_Type (Erik's manual industry " +
+            "classification — 15 buckets like Construction, Corporate, Food Service, " +
+            "Fire/Police, School, Medical, Military, Retail, Religious, etc.), " +
+            "Account_Tier (GOLD/SILVER/BRONZE/Win Back/House), YTD_Sales (year-to-date $), " +
+            "Customer_Warning (any rep alert), Is_Active/Is_Dead/Is_Stale flags.\n\n" +
+            "After this returns a match with id_Customer, IMMEDIATELY call " +
+            "lookup_customer_master_profile(idCustomer) to get the customer's full 10-year " +
+            "buying history — top styles, top brands, last bought, reorder probability. " +
+            "That's what makes the bot sound like a senior AE.\n\n" +
+            "Pass the most distinctive phrase (e.g. 'Acme Fuel' or 'Allison Dumas' or an email fragment).",
         input_schema: {
             type: 'object',
             properties: {
@@ -292,6 +300,100 @@ const TOOLS = [
             required: ['companyName'],
         },
     },
+    // === EMB Smart E2: lookup_customer_master_profile ======================
+    {
+        name: 'lookup_customer_master_profile',
+        description:
+            "Pull the FULL 10-year profile for one customer. Call this RIGHT AFTER " +
+            "lookup_customer matches a real customer with an id_Customer. Returns: " +
+            "Customer_Type, Account_Tier (GOLD/SILVER/BRONZE/Win Back/House), Sales_Rep, " +
+            "Total_Revenue_10yr (10yr SanMar spend), Order_Count_10yr, Avg_Order_Size, " +
+            "Top_5_Styles (their actual buys, ranked by units), Top_Style_Top_3_Colors, " +
+            "Top_3_Brands, Top_Design_Type, Last_Style_Bought + Last_Color_Bought, " +
+            "Last_Order_Date, Reorder_Probability (high/medium/low), Customer_Warning, " +
+            "Payment_Terms, Phone_Best, Email. This is what makes you sound like a senior AE.\n\n" +
+            "Bot reply pattern:\n" +
+            "  \"Absher Construction — Customer_Type: Construction, GOLD tier (Nika's account), " +
+            "63 SanMar orders over 10 years totaling $23K, last ordered May 22 (high reorder " +
+            "probability). Top items: BG500 bags (270 each), CP90 caps, C914 beanies. Brand " +
+            "mix: Port & Co (451 units), Port Authority (68). They pay Net 10. Want to quote " +
+            "more of these?\"\n\n" +
+            "🔴 ALWAYS surface Customer_Warning if non-empty BEFORE quoting.\n" +
+            "🔴 If hasHistory:false / found:false, customer hasn't bought SanMar from us in " +
+            "10 years — fall back to lookup_lookalike_customers(Customer_Type) for ideas.",
+        input_schema: {
+            type: 'object',
+            properties: {
+                idCustomer: {
+                    type: 'integer',
+                    description: 'Customer ID from a prior lookup_customer call. Must be a positive integer.',
+                },
+                companyName: {
+                    type: 'string',
+                    description: 'OPTIONAL — pass instead of idCustomer if you only have the name. ' +
+                        'Substring match (case-insensitive). Returns the highest-revenue match.',
+                },
+            },
+        },
+    },
+    // === EMB Smart E2: lookup_style_performance ============================
+    {
+        name: 'lookup_style_performance',
+        description:
+            "Pull 10-year performance data for ONE SanMar style — how it's actually sold " +
+            "for NWCA over a decade. Returns: total_units_10yr, total_revenue_10yr, " +
+            "total_orders_10yr, avg_margin_pct, decade_rank, brand_name, category_name, " +
+            "subcategory_name, top 3 colors with units, customer_types_that_buy (% per type), " +
+            "frequently_paired_with (top 3 co-ordered styles), companion_styles (SanMar's " +
+            "curated companion list — usually men's/ladies' pairs), keywords, product_status.\n\n" +
+            "Use when the rep asks:\n" +
+            "  • 'How does PC54 actually sell for us?' → lookup_style_performance('PC54')\n" +
+            "  • 'What goes well with C112?'           → check frequently_paired_with\n" +
+            "  • 'Is CTJ162 worth recommending?'       → margin + status + decade_rank\n" +
+            "  • 'Who buys ST650?'                     → customer_types_that_buy\n\n" +
+            "🔴 NEVER mention raw dollar amounts (avg_sell_price, avg_our_cost, msrp) to the " +
+            "rep in chat — only show margin % and unit volume. Dollars stay internal.",
+        input_schema: {
+            type: 'object',
+            properties: {
+                style: {
+                    type: 'string',
+                    description: 'SanMar style number (PC54, CP90, K500, J317, etc.) — case-insensitive.',
+                },
+            },
+            required: ['style'],
+        },
+    },
+    // === EMB Smart E2: recommend_high_margin_alternative ===================
+    {
+        name: 'recommend_high_margin_alternative',
+        description:
+            "When the rep is about to quote a LOW-MARGIN style, suggest profitable " +
+            "same-category alternatives. Returns the base style's margin + up to 5 same-category " +
+            "styles with HIGHER avg_margin_pct + meaningful 10yr unit volume (proven sellers).\n\n" +
+            "Use proactively when the rep mentions a style and you know (from " +
+            "lookup_style_performance) its margin is below ~40%. Common low-margin styles: " +
+            "Carhartt jackets (CTJ162 = 14.6%, CT100617 = 35.6%) — bot can suggest comparable " +
+            "Port Authority / Eddie Bauer alternatives with 50-70% margins.\n\n" +
+            "🔴 NO DOLLAR AMOUNTS. Talk margins as PERCENTAGES + relative language only: " +
+            "'this style runs at X% margin, an alternative is Y% margin — more profitable'. " +
+            "Never mention what we paid or what we sold it for.\n\n" +
+            "Reply pattern:\n" +
+            "  \"CTJ162 (Carhartt Shoreline) runs at 14.6% margin. If customer is " +
+            "flexible, comparable Outerwear alternatives with much higher margin: " +
+            "J317 Port Authority Soft Shell (62%), EB532 Eddie Bauer Shaded Crosshatch " +
+            "(44%). All proven sellers — 1,000+ lifetime units each.\"",
+        input_schema: {
+            type: 'object',
+            properties: {
+                style: {
+                    type: 'string',
+                    description: 'The base SanMar style we want to find alternatives for.',
+                },
+            },
+            required: ['style'],
+        },
+    },
     {
         name: 'search_products_by_keyword',
         description:
@@ -389,16 +491,17 @@ async function lookupCustomerSmart(query) {
 function shapeContacts(contacts) {
     return contacts.map((c) => {
         const company = c.CustomerCompanyName || null;
-        // Run name-pattern industry inference inline so the bot has industry
-        // context immediately — saves a tool round-trip for the common case
-        // where the company name is unambiguous (e.g. "Fife High School",
-        // "Acme Electric Co"). Bot can still call classify_company_via_web
-        // for ambiguous names. `industry` is null if inference fails.
-        const inf = company ? inferIndustry(company) : { industry: 'Unknown', confidence: 'unknown', signal: null };
+        // E2 (2026-05-25): Erik's manual Customer_Type now flows through from
+        // contacts CSV — prefer that over my regex inference. Only fall back
+        // to inferIndustry when Customer_Type is blank/missing.
+        const erikType = (c.Customer_Type || '').trim();
+        const inf = !erikType && company
+            ? inferIndustry(company)
+            : { industry: erikType || 'Unknown', confidence: erikType ? 'manual' : 'unknown', signal: erikType ? 'Customer_Type (Erik)' : null };
         return {
             company,
             customer_number: c.id_Customer != null ? String(c.id_Customer) : null,
-            id_Customer: c.id_Customer != null ? Number(c.id_Customer) : null, // numeric form for lookup_customer_history
+            id_Customer: c.id_Customer != null ? Number(c.id_Customer) : null, // numeric form for lookup_customer_master_profile
             contact_name: c.ct_NameFull || null,
             contact_first: c.NameFirst || null,
             contact_last: c.NameLast || null,
@@ -414,11 +517,28 @@ function shapeContacts(contacts) {
             email_salesrep: c.Email_Salesrep || null,
             payment_terms: c.Payment_Terms || null,
             last_ordered: c.Customerdate_LastOrdered || null,
-            // NEW (EMB Smart A2): industry inferred from company name.
-            // If 'Unknown', the bot should call classify_company_via_web.
+            // NEW (EMB Smart A2): industry inferred from company name OR
+            // Erik's manual Customer_Type when present (preferred).
+            // If 'Unknown' AND industry_confidence='unknown', the bot should
+            // call classify_company_via_web.
             industry: inf.industry,
             industry_confidence: inf.confidence,
             industry_signal: inf.signal,
+            // NEW (EMB Smart E2): senior-AE context fields. Bot uses these
+            // BEFORE deciding whether to call lookup_customer_master_profile.
+            // Customer_Warning surfaces deal-breakers (e.g. "DO NOT ship to
+            // wrong address again"). YTD_Sales flags whales. Account_Tier
+            // tells the bot how white-glove to be.
+            customer_type: inf.industry,                             // mirror of `industry` for clarity
+            account_tier: c.Account_Tier || null,                    // e.g. "GOLD '26 - NIKA"
+            sales_group: c.Sales_Group || null,                      // rep/team label
+            ytd_sales: Number(c.YTD_Sales) || 0,                     // year-to-date $ (all categories, not just SanMar)
+            customer_warning: c.Customer_Warning || null,            // any free-text alert from CRM
+            is_active: c.Is_Active === true,
+            is_dead: c.Is_Dead === true,
+            is_stale: c.Is_Stale === true,
+            tax_exempt_number: c.Tax_Exempt_Number || null,
+            is_tax_exempt: c.Is_Tax_Exempt === true,
         };
     });
 }
@@ -1181,6 +1301,115 @@ async function classifyCompanyViaWeb(input) {
     }
 }
 
+// === EMB Smart E2: lookup_customer_master_profile =========================
+async function lookupCustomerMasterProfile(input) {
+    const id = Number(input?.idCustomer);
+    const name = String(input?.companyName || '').trim();
+    if (!Number.isInteger(id) && !name) {
+        return { error: 'bad_input', message: 'Pass either idCustomer (preferred) or companyName' };
+    }
+    try {
+        const url = Number.isInteger(id) && id > 0
+            ? `${INTERNAL_API_BASE}/api/customer-profile/${id}`
+            : `${INTERNAL_API_BASE}/api/customer-profile/by-company/${encodeURIComponent(name)}`;
+        const r = await fetch(url);
+        if (!r.ok) return { error: 'http_' + r.status, message: 'customer-profile endpoint failed' };
+        const data = await r.json();
+        if (!data.found) {
+            return {
+                found: false,
+                lookup_kind: id ? 'idCustomer' : 'companyName',
+                lookup_value: id || name,
+                message: data.message || `No 10-year profile found. Customer may not have any SanMar purchases on record.`,
+            };
+        }
+        // Single-profile (by id) vs multi-match (by name)
+        const profile = data.profile || (data.profiles || [])[0];
+        return {
+            found: true,
+            profile,
+            other_matches: data.profiles && data.profiles.length > 1
+                ? data.profiles.slice(1).map(p => ({ id_Customer: p.id_Customer, name: p.CustomerCompanyName, revenue: p.Total_Revenue_10yr }))
+                : [],
+        };
+    } catch (err) {
+        console.error('[emb-quote-ai] lookup_customer_master_profile error:', err.message);
+        return { error: 'tool_exception', message: err.message };
+    }
+}
+
+// === EMB Smart E2: lookup_style_performance ===============================
+async function lookupStylePerformance(input) {
+    const style = String(input?.style || '').trim().toUpperCase();
+    if (!style) return { error: 'bad_input', message: 'style parameter required' };
+    try {
+        const url = `${INTERNAL_API_BASE}/api/style-performance/${encodeURIComponent(style)}`;
+        const r = await fetch(url);
+        if (!r.ok) return { error: 'http_' + r.status, message: 'style-performance endpoint failed' };
+        const data = await r.json();
+        if (!data.found) {
+            return { found: false, style, message: data.message };
+        }
+        // Strip raw dollar amounts before returning to the bot (rule:
+        // bot never mentions case price). Keep margin % which is useful for
+        // upsell logic.
+        const s = data.style;
+        return {
+            found: true,
+            style: s.style,
+            product_title: s.product_title,
+            brand_name: s.brand_name,
+            category_name: s.category_name,
+            subcategory_name: s.subcategory_name,
+            decade_rank: s.decade_rank,
+            total_units_10yr: s.total_units_10yr,
+            total_revenue_10yr: s.total_revenue_10yr, // big-aggregate revenue is OK to mention
+            total_orders_10yr: s.total_orders_10yr,
+            avg_margin_pct: s.avg_margin_pct,
+            // PRICE FIELDS DELIBERATELY STRIPPED: avg_sell_price, avg_our_cost, msrp, current_case_price
+            product_status: s.product_status,
+            top_colors: s.top_colors,
+            customer_types_that_buy: s.customer_types_that_buy,
+            frequently_paired_with: s.frequently_paired_with,
+            companion_styles: s.companion_styles,
+            keywords: s.keywords,
+        };
+    } catch (err) {
+        console.error('[emb-quote-ai] lookup_style_performance error:', err.message);
+        return { error: 'tool_exception', message: err.message };
+    }
+}
+
+// === EMB Smart E2: recommend_high_margin_alternative ======================
+async function recommendHighMarginAlternative(input) {
+    const style = String(input?.style || '').trim().toUpperCase();
+    if (!style) return { error: 'bad_input', message: 'style parameter required' };
+    try {
+        const url = `${INTERNAL_API_BASE}/api/style-performance/high-margin-alternatives/${encodeURIComponent(style)}`;
+        const r = await fetch(url);
+        if (!r.ok) return { error: 'http_' + r.status, message: 'high-margin-alternatives endpoint failed' };
+        const data = await r.json();
+        if (!data.found) return { found: false, style, message: data.message };
+        // Strip raw price fields from base + alternatives — only show margin %
+        const stripPrice = (s) => ({
+            style: s.style, product_title: s.product_title, brand_name: s.brand_name,
+            category_name: s.category_name, subcategory_name: s.subcategory_name,
+            avg_margin_pct: s.avg_margin_pct, decade_rank: s.decade_rank,
+            total_units_10yr: s.total_units_10yr,
+        });
+        return {
+            found: true,
+            base: stripPrice(data.base),
+            alternatives: (data.alternatives || []).map(stripPrice),
+            count: data.count,
+            _note: data._note,
+        };
+    } catch (err) {
+        console.error('[emb-quote-ai] recommend_high_margin_alternative error:', err.message);
+        return { error: 'tool_exception', message: err.message };
+    }
+}
+
 async function executeTool(name, input) {
     if (name === 'lookup_customer') {
         try {
@@ -1254,6 +1483,31 @@ async function executeTool(name, input) {
             return await classifyCompanyViaWeb(input);
         } catch (err) {
             console.error('[emb-quote-ai] classify_company_via_web error:', err.message);
+            return { error: 'tool_exception', message: err.message };
+        }
+    }
+    // === EMB Smart E2: new tools ============================================
+    if (name === 'lookup_customer_master_profile') {
+        try {
+            return await lookupCustomerMasterProfile(input);
+        } catch (err) {
+            console.error('[emb-quote-ai] lookup_customer_master_profile error:', err.message);
+            return { error: 'tool_exception', message: err.message };
+        }
+    }
+    if (name === 'lookup_style_performance') {
+        try {
+            return await lookupStylePerformance(input);
+        } catch (err) {
+            console.error('[emb-quote-ai] lookup_style_performance error:', err.message);
+            return { error: 'tool_exception', message: err.message };
+        }
+    }
+    if (name === 'recommend_high_margin_alternative') {
+        try {
+            return await recommendHighMarginAlternative(input);
+        } catch (err) {
+            console.error('[emb-quote-ai] recommend_high_margin_alternative error:', err.message);
             return { error: 'tool_exception', message: err.message };
         }
     }
