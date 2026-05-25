@@ -146,13 +146,49 @@ router.get('/high-margin-alternatives/:style', async (req, res) => {
         }
         const baseRow = shapeRow(base[0]);
 
-        // Step 2: pull same-category styles with HIGHER margin + meaningful volume
-        const minUnits = Math.max(100, Math.floor(baseRow.total_units_10yr * 0.05)); // at least 5% of base volume
-        const alts = await fetchAllCaspioPages(RESOURCE, {
-            'q.where': `category_name='${baseRow.category_name}' AND avg_margin_pct>${baseRow.avg_margin_pct} AND total_units_10yr>=${minUnits} AND style<>'${style}'`,
+        // Step 2: pull alternatives with HIGHER margin + meaningful volume.
+        // FILTER STRATEGY: filter by subcategory_name when present (e.g. "Work
+        // Jackets") so we don't pitch aprons as jacket alternatives. Fall back
+        // to category_name when subcategory is empty.
+        // EMB Smart E2 fix (2026-05-25): the original version only filtered by
+        // category_name, which returned aprons as alternatives to Carhartt
+        // jackets (CTJ162) — both are "Workwear" but vastly different products.
+        const minUnits = Math.max(100, Math.floor(baseRow.total_units_10yr * 0.05));
+        const whereParts = [
+            `avg_margin_pct>${baseRow.avg_margin_pct}`,
+            `total_units_10yr>=${minUnits}`,
+            `style<>'${style}'`,
+        ];
+        const useSubcategory = baseRow.subcategory_name && baseRow.subcategory_name.trim();
+        if (useSubcategory) {
+            const sub = baseRow.subcategory_name.replace(/'/g, '');
+            whereParts.push(`subcategory_name='${sub}'`);
+        } else if (baseRow.category_name) {
+            const cat = baseRow.category_name.replace(/'/g, '');
+            whereParts.push(`category_name='${cat}'`);
+        }
+
+        let alts = await fetchAllCaspioPages(RESOURCE, {
+            'q.where': whereParts.join(' AND '),
             'q.orderBy': 'avg_margin_pct DESC',
             'q.limit': 10,
         }, { maxPages: 1 });
+
+        // FALLBACK: if subcategory filter returned nothing, widen to category
+        let fallbackUsed = false;
+        if ((!alts || alts.length === 0) && useSubcategory && baseRow.category_name) {
+            fallbackUsed = true;
+            const cat = baseRow.category_name.replace(/'/g, '');
+            const widerWhere = [
+                `avg_margin_pct>${baseRow.avg_margin_pct}`,
+                `total_units_10yr>=${minUnits}`,
+                `style<>'${style}'`,
+                `category_name='${cat}'`,
+            ].join(' AND ');
+            alts = await fetchAllCaspioPages(RESOURCE, {
+                'q.where': widerWhere, 'q.orderBy': 'avg_margin_pct DESC', 'q.limit': 10,
+            }, { maxPages: 1 });
+        }
 
         const payload = {
             success: true,
@@ -160,7 +196,12 @@ router.get('/high-margin-alternatives/:style', async (req, res) => {
             base: baseRow,
             alternatives: (alts || []).slice(0, 5).map(shapeRow),
             count: Math.min((alts || []).length, 5),
-            _note: `Filtered to category="${baseRow.category_name}", margin > ${baseRow.avg_margin_pct}%, with at least ${minUnits} lifetime units of sales to ensure proven sellers.`,
+            filter_strategy: useSubcategory
+                ? (fallbackUsed
+                    ? `subcategory="${baseRow.subcategory_name}" (returned 0) → widened to category="${baseRow.category_name}"`
+                    : `subcategory="${baseRow.subcategory_name}"`)
+                : `category="${baseRow.category_name}"`,
+            _note: `Filtered to ${useSubcategory && !fallbackUsed ? `subcategory="${baseRow.subcategory_name}"` : `category="${baseRow.category_name}"`}, margin > ${baseRow.avg_margin_pct}%, with at least ${minUnits} lifetime units to ensure proven sellers.`,
         };
         cacheAlternatives.set(style, { ts: Date.now(), payload });
         res.json({ ...payload, _source: 'live' });
