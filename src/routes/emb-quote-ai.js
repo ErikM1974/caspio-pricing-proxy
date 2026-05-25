@@ -33,6 +33,8 @@ const router = express.Router();
 const { Anthropic, APIError } = require('@anthropic-ai/sdk');
 const { CONTRACT_EMB_QUOTE_AI_SYSTEM_PROMPT } = require('../../lib/emb-quote-ai-prompt');
 const { EMB_CURATED_PRODUCTS } = require('../../lib/emb-curated-products');
+const { inferIndustry } = require('../../lib/industry-inference');
+const { webSearch } = require('../../lib/web-search');
 
 const INTERNAL_API_BASE = process.env.PROXY_PUBLIC_URL ||
     'https://caspio-pricing-proxy-ab30a049961a.herokuapp.com';
@@ -204,6 +206,92 @@ const TOOLS = [
             required: ['category', 'sort'],
         },
     },
+    // === EMB Smart A1: lookup_customer_history ============================
+    {
+        name: 'lookup_customer_history',
+        description:
+            "Pull THIS customer's actual order history from the past year — top items they've " +
+            "ordered before, top brands, top categories, average order size, total revenue, " +
+            "last ship-to. Call this RIGHT AFTER lookup_customer matches a real customer record " +
+            "with an idCustomer. This is what makes you sound like a senior account manager: " +
+            "instead of generic top sellers, you can say 'Acme Electrical's last year — PC78H " +
+            "Jet Black (24 pieces), C112 Black (36 pieces). Avg order $1,800. Want me to quote " +
+            "more of these?'.\n" +
+            "If the customer is COLD (no order history), the response has hasHistory: false — " +
+            "fall back to lookup_lookalike_customers(industry) for what other similar customers buy.",
+        input_schema: {
+            type: 'object',
+            properties: {
+                idCustomer: {
+                    type: 'integer',
+                    description: 'Customer ID from a prior lookup_customer call. Must be a positive integer.',
+                },
+                windowDays: {
+                    type: 'integer',
+                    description: 'Days of history to scan. Default 365 (one year). Min 30, max 730.',
+                },
+            },
+            required: ['idCustomer'],
+        },
+    },
+    // === EMB Smart A2: lookup_lookalike_customers ==========================
+    {
+        name: 'lookup_lookalike_customers',
+        description:
+            "Return what OTHER NWCA customers in the same INDUSTRY have actually purchased — " +
+            "their top SanMar styles + most popular colors. Use this when:\n" +
+            "  • The customer is COLD (lookup_customer_history returned hasHistory: false)\n" +
+            "  • The rep asks 'what do other [industry] customers buy?' / 'what's typical for schools?'\n" +
+            "  • The customer has limited history and you want to broaden suggestions\n" +
+            "  • A NEW customer name suggests an industry (e.g. 'Fife High School' → Education)\n" +
+            "Data is pre-aggregated from real NWCA orders — every style returned is a SanMar " +
+            "catalog item with real unit counts. Bot reply pattern: 'Other [industry] customers " +
+            "commonly buy: STYLE1 (top color: X, Y units), STYLE2, STYLE3. Based on N customers / $Y in orders.'\n" +
+            "🔴 If the response includes sampleSizeNote, MENTION IT — small buckets need hedging.",
+        input_schema: {
+            type: 'object',
+            properties: {
+                industry: {
+                    type: 'string',
+                    description: 'One of the 18 valid industry buckets: Construction, Construction/Trades, ' +
+                        'Construction/Electrical, Public Safety, Professional Services, Education, ' +
+                        'Government, Retail, Agriculture, Hospitality, Healthcare, Religious, ' +
+                        'Logistics/Transportation, Manufacturing, Energy/Utilities, Sports/Recreation, ' +
+                        'Non-profit, Unknown. Use EXACT spelling (case-sensitive on slashes).',
+                },
+                limit: {
+                    type: 'integer',
+                    description: 'Max styles to return (1-25). Default 10.',
+                },
+            },
+            required: ['industry'],
+        },
+    },
+    // === EMB Smart A3: classify_company_via_web ============================
+    {
+        name: 'classify_company_via_web',
+        description:
+            "When the customer's company name doesn't reveal their industry (e.g. 'Apex Solutions', " +
+            "'Diamond Catering', 'Puget Systems'), Google them and read the snippet to figure out " +
+            "what kind of business they are. ONLY call this when:\n" +
+            "  • lookup_customer succeeded but the name is ambiguous, AND\n" +
+            "  • You can't already infer the industry from the name itself\n" +
+            "Returns: { industry, confidence, signal, snippet } — uses the same 18 industry buckets " +
+            "as lookup_lookalike_customers, so you can chain: classify_company_via_web → " +
+            "lookup_lookalike_customers(industry).\n" +
+            "🔴 ON ERROR (Tavily quota / network): the tool returns { error: 'web_search_unavailable' }. " +
+            "When that happens, ask the rep to tell you the customer's industry directly instead of crashing.",
+        input_schema: {
+            type: 'object',
+            properties: {
+                companyName: {
+                    type: 'string',
+                    description: 'The customer\'s company name. 3+ chars.',
+                },
+            },
+            required: ['companyName'],
+        },
+    },
     {
         name: 'search_products_by_keyword',
         description:
@@ -299,25 +387,40 @@ async function lookupCustomerSmart(query) {
 }
 
 function shapeContacts(contacts) {
-    return contacts.map((c) => ({
-        company: c.CustomerCompanyName || null,
-        customer_number: c.id_Customer != null ? String(c.id_Customer) : null,
-        contact_name: c.ct_NameFull || null,
-        contact_first: c.NameFirst || null,
-        contact_last: c.NameLast || null,
-        email: c.ContactNumbersEmail || null,
-        company_email: c.Company_Email || null,
-        phone: c.Company_Phone || null,
-        address: c.Address || null,
-        city: c.City || null,
-        state: c.State || null,
-        zip: c.Zip || null,
-        rep: c.CustomerCustomerServiceRep || null,
-        account_owner: c.Account_Owner || null,
-        email_salesrep: c.Email_Salesrep || null,
-        payment_terms: c.Payment_Terms || null,
-        last_ordered: c.Customerdate_LastOrdered || null,
-    }));
+    return contacts.map((c) => {
+        const company = c.CustomerCompanyName || null;
+        // Run name-pattern industry inference inline so the bot has industry
+        // context immediately — saves a tool round-trip for the common case
+        // where the company name is unambiguous (e.g. "Fife High School",
+        // "Acme Electric Co"). Bot can still call classify_company_via_web
+        // for ambiguous names. `industry` is null if inference fails.
+        const inf = company ? inferIndustry(company) : { industry: 'Unknown', confidence: 'unknown', signal: null };
+        return {
+            company,
+            customer_number: c.id_Customer != null ? String(c.id_Customer) : null,
+            id_Customer: c.id_Customer != null ? Number(c.id_Customer) : null, // numeric form for lookup_customer_history
+            contact_name: c.ct_NameFull || null,
+            contact_first: c.NameFirst || null,
+            contact_last: c.NameLast || null,
+            email: c.ContactNumbersEmail || null,
+            company_email: c.Company_Email || null,
+            phone: c.Company_Phone || null,
+            address: c.Address || null,
+            city: c.City || null,
+            state: c.State || null,
+            zip: c.Zip || null,
+            rep: c.CustomerCustomerServiceRep || null,
+            account_owner: c.Account_Owner || null,
+            email_salesrep: c.Email_Salesrep || null,
+            payment_terms: c.Payment_Terms || null,
+            last_ordered: c.Customerdate_LastOrdered || null,
+            // NEW (EMB Smart A2): industry inferred from company name.
+            // If 'Unknown', the bot should call classify_company_via_web.
+            industry: inf.industry,
+            industry_confidence: inf.confidence,
+            industry_signal: inf.signal,
+        };
+    });
 }
 
 /**
@@ -928,6 +1031,156 @@ async function searchProductsByKeyword(input) {
     }
 }
 
+// === EMB Smart A1: lookup_customer_history ================================
+async function lookupCustomerHistory(input) {
+    const idCustomer = Number(input?.idCustomer);
+    if (!Number.isInteger(idCustomer) || idCustomer <= 0) {
+        return { error: 'bad_input', message: 'idCustomer must be a positive integer' };
+    }
+    const windowDays = Number.isFinite(Number(input?.windowDays))
+        ? Math.max(30, Math.min(730, Number(input.windowDays)))
+        : 365;
+    try {
+        const url = `${INTERNAL_API_BASE}/api/customer-history/${idCustomer}?windowDays=${windowDays}`;
+        const r = await fetch(url);
+        if (!r.ok) {
+            return { error: 'http_' + r.status, message: 'customer-history endpoint failed' };
+        }
+        const data = await r.json();
+        // Slim down the response — drop fields the bot doesn't need (contactBackfill is
+        // a UI-only field; lastShipTo + dates are useful; behavioral aggregations are the gold).
+        return {
+            idCustomer: data.idCustomer,
+            hasHistory: data.hasHistory,
+            orderCount: data.orderCount || 0,
+            windowDays,
+            firstOrderDate: data.firstOrderDate || null,
+            lastOrderDate: data.lastOrderDate || null,
+            lastOrderDaysAgo: data.lastOrderDaysAgo || null,
+            topItems: data.topItems || [],         // [{partNumber, color, units}]
+            topBrands: data.topBrands || [],       // [{brand, units}]
+            topCategories: data.topCategories || [], // [{category, units}]
+            topTerms: data.topTerms || null,       // e.g. 'Net 30'
+            topShipMethod: data.topShipMethod || null,
+            totalRevenue: data.totalRevenue || 0,
+            avgOrderSize: data.avgOrderSize || 0,
+            lastDesignName: data.lastDesignName || null,
+            lastShipTo: data.lastShipTo || null,
+        };
+    } catch (err) {
+        console.error('[emb-quote-ai] lookup_customer_history error:', err.message);
+        return { error: 'tool_exception', message: err.message };
+    }
+}
+
+// === EMB Smart A2: lookup_lookalike_customers =============================
+async function lookupLookalikeCustomers(input) {
+    const industry = String(input?.industry || '').trim();
+    if (!industry) {
+        return { error: 'bad_input', message: 'industry parameter is required' };
+    }
+    const limit = Number.isFinite(Number(input?.limit))
+        ? Math.max(1, Math.min(25, Number(input.limit)))
+        : 10;
+    try {
+        const url = `${INTERNAL_API_BASE}/api/industry-lookalikes/${encodeURIComponent(industry)}?limit=${limit}`;
+        const r = await fetch(url);
+        if (!r.ok) {
+            return { error: 'http_' + r.status, message: 'industry-lookalikes endpoint failed' };
+        }
+        const data = await r.json();
+        if (!data.found) {
+            return {
+                industry,
+                found: false,
+                message: data.message || `No lookalike data for industry "${industry}".`,
+            };
+        }
+        return {
+            industry: data.industry,
+            found: true,
+            customerCount: data.customerCount,
+            totalUnits: data.totalUnits,
+            totalRevenue: data.totalRevenue,
+            sampleSizeNote: data.sampleSizeNote || null,
+            topStyles: data.topStyles || [],   // [{style, style_rank, total_units, top_colors: [...]}]
+            exemplars: (data.exemplars || []).slice(0, 5),
+            _note: data._note,
+        };
+    } catch (err) {
+        console.error('[emb-quote-ai] lookup_lookalike_customers error:', err.message);
+        return { error: 'tool_exception', message: err.message };
+    }
+}
+
+// === EMB Smart A3: classify_company_via_web ===============================
+// Port of the classification flow from scripts/aggregate-industry-lookalikes-v2.js
+// (phase4). Tries inferIndustry first (free) — only falls back to Tavily if the
+// name itself isn't classifiable.
+async function classifyCompanyViaWeb(input) {
+    const companyName = String(input?.companyName || '').trim();
+    if (companyName.length < 3) {
+        return { error: 'bad_input', message: 'companyName must be 3+ characters' };
+    }
+    // First — try name-pattern inference (free, instant). Most customers
+    // classify here without any Tavily call.
+    const nameInf = inferIndustry(companyName);
+    if (nameInf.industry !== 'Unknown') {
+        return {
+            companyName,
+            industry: nameInf.industry,
+            confidence: nameInf.confidence,
+            signal: nameInf.signal,
+            source: 'name_pattern',
+        };
+    }
+    // Fall back to web search
+    try {
+        const result = await webSearch({
+            query: `"${companyName}" company business industry`,
+            purpose: 'EMB chat bot — classify customer industry',
+            maxResults: 3,
+            searchDepth: 'basic',
+        });
+        if (result?.error) {
+            return {
+                companyName,
+                industry: 'Unknown',
+                error: result.error,
+                message: result.message || 'Web search unavailable',
+            };
+        }
+        // Prefer Tavily's curated `answer` field over scraped snippets — same
+        // strategy as the aggregator. Falls back to snippets if no answer.
+        let inf = { industry: 'Unknown', confidence: 'unknown', signal: null };
+        if (result?.answer) {
+            inf = inferIndustry(String(result.answer).slice(0, 1000));
+        }
+        if (inf.industry === 'Unknown' && Array.isArray(result?.results)) {
+            const blob = result.results.map(x => `${x.title || ''} ${x.snippet || x.content || ''}`).join(' ');
+            if (blob) inf = inferIndustry(blob.slice(0, 1500));
+        }
+        return {
+            companyName,
+            industry: inf.industry,
+            confidence: inf.industry === 'Unknown' ? 'unknown' : 'web-classified',
+            signal: inf.signal,
+            source: 'web_search',
+            snippet: result?.answer
+                ? String(result.answer).slice(0, 250)
+                : ((result?.results || [])[0]?.snippet || '').slice(0, 250),
+        };
+    } catch (err) {
+        console.error('[emb-quote-ai] classify_company_via_web error:', err.message);
+        return {
+            companyName,
+            industry: 'Unknown',
+            error: 'tool_exception',
+            message: err.message,
+        };
+    }
+}
+
 async function executeTool(name, input) {
     if (name === 'lookup_customer') {
         try {
@@ -976,6 +1229,31 @@ async function executeTool(name, input) {
             return await findStylesByColor(input);
         } catch (err) {
             console.error('[emb-quote-ai] find_styles_by_color error:', err.message);
+            return { error: 'tool_exception', message: err.message };
+        }
+    }
+    // === EMB Smart A1/A2/A3 ====================================================
+    if (name === 'lookup_customer_history') {
+        try {
+            return await lookupCustomerHistory(input);
+        } catch (err) {
+            console.error('[emb-quote-ai] lookup_customer_history error:', err.message);
+            return { error: 'tool_exception', message: err.message };
+        }
+    }
+    if (name === 'lookup_lookalike_customers') {
+        try {
+            return await lookupLookalikeCustomers(input);
+        } catch (err) {
+            console.error('[emb-quote-ai] lookup_lookalike_customers error:', err.message);
+            return { error: 'tool_exception', message: err.message };
+        }
+    }
+    if (name === 'classify_company_via_web') {
+        try {
+            return await classifyCompanyViaWeb(input);
+        } catch (err) {
+            console.error('[emb-quote-ai] classify_company_via_web error:', err.message);
             return { error: 'tool_exception', message: err.message };
         }
     }

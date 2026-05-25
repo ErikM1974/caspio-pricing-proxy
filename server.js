@@ -339,6 +339,15 @@ const embTopSellersRoutes = require('./src/routes/emb-top-sellers');
 app.use('/api', embTopSellersRoutes);
 console.log('✓ EMB Top Sellers routes loaded');
 
+// Industry Lookalikes — backed by Caspio table Industry_Lookalikes_2026
+// (pre-aggregated quarterly from MO order history + industry inference +
+// Tavily web classification, SanMar-only). Used by the EMB chat assistant's
+// lookup_lookalike_customers tool to answer "what do other [industry]
+// customers buy?". 2026-05-24 (EMB Smart A2).
+const industryLookalikesRoutes = require('./src/routes/industry-lookalikes');
+app.use('/api/industry-lookalikes', industryLookalikesRoutes);
+console.log('✓ Industry Lookalikes routes loaded (18 industries, SanMar styles only)');
+
 // Sticker pricing route — backs Order Form sticker method (Caspio Sticker_Pricing + inline fallback)
 const stickerPricingRoutes = require('./src/routes/sticker-pricing');
 app.use('/api', stickerPricingRoutes);
