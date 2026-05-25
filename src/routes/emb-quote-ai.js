@@ -1350,10 +1350,18 @@ async function lookupStylePerformance(input) {
         if (!data.found) {
             return { found: false, style, message: data.message };
         }
-        // Strip raw dollar amounts before returning to the bot (rule:
-        // bot never mentions case price). Keep margin % which is useful for
-        // upsell logic.
+        // Bot is REP-ONLY (chat panel internal to NWCA). Strip raw SanMar
+        // case price (avg_our_cost / current_case_price) — those are what we
+        // PAY SanMar, sensitive vendor data we never echo. Keep margin %,
+        // unit profit $, and total lifetime $ — those are computed metrics
+        // the rep needs to make smart upsell/quote decisions.
         const s = data.style;
+        const avgUnitProfit = (s.avg_sell_price > 0 && s.avg_our_cost > 0)
+            ? Math.round((s.avg_sell_price - s.avg_our_cost) * 100) / 100
+            : 0;
+        const totalLifetimeProfit = (s.total_units_10yr > 0 && avgUnitProfit > 0)
+            ? Math.round(s.total_units_10yr * avgUnitProfit)
+            : 0;
         return {
             found: true,
             style: s.style,
@@ -1363,10 +1371,17 @@ async function lookupStylePerformance(input) {
             subcategory_name: s.subcategory_name,
             decade_rank: s.decade_rank,
             total_units_10yr: s.total_units_10yr,
-            total_revenue_10yr: s.total_revenue_10yr, // big-aggregate revenue is OK to mention
+            total_revenue_10yr: s.total_revenue_10yr,
             total_orders_10yr: s.total_orders_10yr,
             avg_margin_pct: s.avg_margin_pct,
-            // PRICE FIELDS DELIBERATELY STRIPPED: avg_sell_price, avg_our_cost, msrp, current_case_price
+            // NEW (2026-05-25): margin DOLLARS so the bot can reason about
+            // absolute profit, not just %. CTJ162 is 14.6% margin BUT makes
+            // $14+/unit profit — better than a 76% margin tee at $7/unit.
+            // Use these instead of raw prices when comparing across categories.
+            avg_unit_profit_dollars: avgUnitProfit,
+            total_lifetime_profit_dollars: totalLifetimeProfit,
+            // PRICE FIELDS DELIBERATELY STRIPPED: avg_sell_price, avg_our_cost,
+            // msrp, current_case_price (don't expose SanMar's vendor pricing).
             product_status: s.product_status,
             top_colors: s.top_colors,
             customer_types_that_buy: s.customer_types_that_buy,
@@ -1390,17 +1405,28 @@ async function recommendHighMarginAlternative(input) {
         if (!r.ok) return { error: 'http_' + r.status, message: 'high-margin-alternatives endpoint failed' };
         const data = await r.json();
         if (!data.found) return { found: false, style, message: data.message };
-        // Strip raw price fields from base + alternatives — only show margin %
-        const stripPrice = (s) => ({
-            style: s.style, product_title: s.product_title, brand_name: s.brand_name,
-            category_name: s.category_name, subcategory_name: s.subcategory_name,
-            avg_margin_pct: s.avg_margin_pct, decade_rank: s.decade_rank,
-            total_units_10yr: s.total_units_10yr,
-        });
+        // Strip SanMar vendor pricing (cost, sell price) from base + alternatives.
+        // KEEP margin % AND avg_unit_profit_dollars so the bot can reason about
+        // both efficiency (%) and absolute dollars per unit. CTJ162 lesson:
+        // 14.6% margin still makes $14+/unit — better than a 76% tee at $7.
+        const shape = (s) => {
+            const avgUnitProfit = (s.avg_sell_price > 0 && s.avg_our_cost > 0)
+                ? Math.round((s.avg_sell_price - s.avg_our_cost) * 100) / 100
+                : 0;
+            return {
+                style: s.style, product_title: s.product_title, brand_name: s.brand_name,
+                category_name: s.category_name, subcategory_name: s.subcategory_name,
+                avg_margin_pct: s.avg_margin_pct,
+                avg_unit_profit_dollars: avgUnitProfit,  // NEW — absolute $ per unit
+                decade_rank: s.decade_rank,
+                total_units_10yr: s.total_units_10yr,
+            };
+        };
+        const stripPrice = shape; // backwards-compat alias if anyone calls it
         return {
             found: true,
-            base: stripPrice(data.base),
-            alternatives: (data.alternatives || []).map(stripPrice),
+            base: shape(data.base),
+            alternatives: (data.alternatives || []).map(shape),
             count: data.count,
             _note: data._note,
         };
