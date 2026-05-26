@@ -1153,7 +1153,7 @@ async function searchProductsByKeyword(input) {
                 const inClause = styleList.map(s => `'${String(s).replace(/'/g, "''")}'`).join(',');
                 const histRows = await fetchAllCaspioPages('/tables/Sanmar_Style_Performance_10yr_26/records', {
                     'q.where': `style IN (${inClause})`,
-                    'q.select': 'style,total_units_10yr,decade_rank',
+                    'q.select': 'style,total_units_10yr,decade_rank,avg_our_cost,category_name',
                     'q.limit': 100,
                 });
                 const histByStyle = new Map();
@@ -1173,6 +1173,41 @@ async function searchProductsByKeyword(input) {
                     const bU = b.nwca_units_10yr || 0;
                     return bU - aU;
                 });
+
+                // Phase G follow-up #2 (2026-05-25): also compute target customer
+                // price at qty 25 for EVERY result so the bot can quote without
+                // needing extra lookup_style_performance calls per pick.
+                //
+                // Cost basis:
+                //   - WITH history → use avg_our_cost from Sanmar_Style_Performance (most accurate)
+                //   - WITHOUT history → fall back to piecePrice from SanMar catalog (proxy)
+                // Then apply standard formula: (cost + embroideryCost@qty25) / 0.57
+                try {
+                    await embPricingCache.ensureFresh();
+                    const denom = embPricingCache.getMarginDenominator();
+                    if (denom && denom > 0) {
+                        for (const t of trimmed) {
+                            const hist = histByStyle.get(String(t.styleNumber).toUpperCase());
+                            const costFromHistory = hist ? Number(hist.avg_our_cost) : 0;
+                            // Use history cost if available, else fall back to piecePrice
+                            const garmentCost = costFromHistory > 0 ? costFromHistory : (Number(t.piecePrice) || 0);
+                            if (garmentCost > 0) {
+                                const itemType = embPricingCache.classifyItemType(t.category || (hist && hist.category_name) || '');
+                                const embCost = embPricingCache.getEmbroideryCost({ itemType, qty: 25 });
+                                if (embCost != null) {
+                                    const allIn = garmentCost + embCost;
+                                    t.target_customer_price_at_qty_25 = Math.round((allIn / denom) * 100) / 100;
+                                    t.target_price_basis = costFromHistory > 0
+                                        ? 'NWCA avg cost from 10yr history'
+                                        : 'SanMar catalog piece price (no NWCA history available)';
+                                }
+                            }
+                        }
+                    }
+                } catch (priceErr) {
+                    console.warn('[emb-quote-ai] target price enrichment failed:', priceErr.message);
+                    // Non-fatal — bot still gets history-sorted results
+                }
             }
         } catch (histErr) {
             console.warn('[emb-quote-ai] search history enrichment failed:', histErr.message);
