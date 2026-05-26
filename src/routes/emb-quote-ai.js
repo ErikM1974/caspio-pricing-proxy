@@ -1136,7 +1136,48 @@ async function searchProductsByKeyword(input) {
             // Price hint — bot can mention price range without quoting exact.
             piecePrice:  p.pricing?.minPrice ?? p.PIECE_PRICE ?? null,
             status:      p.status || p.PRODUCT_STATUS || 'Active',
+            // Phase G follow-up (2026-05-25): NWCA history cross-reference.
+            // Filled in by enrichWithNwcaHistory below — null until then.
+            nwca_units_10yr: null,
+            nwca_decade_rank: null,
         }));
+
+        // Phase G follow-up: cross-reference each search hit with our 10yr sales
+        // table so the bot can surface proven sellers ahead of catalog-only styles.
+        // ONE Caspio batch query (style IN list), not per-result. Failure-tolerant —
+        // if this lookup fails, results are still returned without history fields.
+        try {
+            const styleList = trimmed.map(t => t.styleNumber).filter(Boolean);
+            if (styleList.length > 0) {
+                const { fetchAllCaspioPages } = require('../utils/caspio');
+                const inClause = styleList.map(s => `'${String(s).replace(/'/g, "''")}'`).join(',');
+                const histRows = await fetchAllCaspioPages('/tables/Sanmar_Style_Performance_10yr_26/records', {
+                    'q.where': `style IN (${inClause})`,
+                    'q.select': 'style,total_units_10yr,decade_rank',
+                    'q.limit': 100,
+                });
+                const histByStyle = new Map();
+                for (const r of (histRows || [])) {
+                    if (r.style) histByStyle.set(String(r.style).toUpperCase(), r);
+                }
+                for (const t of trimmed) {
+                    const hist = histByStyle.get(String(t.styleNumber).toUpperCase());
+                    if (hist) {
+                        t.nwca_units_10yr = Number(hist.total_units_10yr) || 0;
+                        t.nwca_decade_rank = Number(hist.decade_rank) || null;
+                    }
+                }
+                // Sort: proven sellers first (units DESC), unsold styles last.
+                trimmed.sort((a, b) => {
+                    const aU = a.nwca_units_10yr || 0;
+                    const bU = b.nwca_units_10yr || 0;
+                    return bU - aU;
+                });
+            }
+        } catch (histErr) {
+            console.warn('[emb-quote-ai] search history enrichment failed:', histErr.message);
+            // Non-fatal — return results without history annotations
+        }
 
         return {
             q,
@@ -1145,6 +1186,7 @@ async function searchProductsByKeyword(input) {
             count: trimmed.length,
             totalMatches: (body?.data?.products?.length || body?.products?.length || 0),
             products: trimmed,
+            _note: 'Results sorted by NWCA 10yr sales history (proven sellers first). nwca_units_10yr=null means SanMar catalog only — we have never sold this style.',
         };
     } catch (err) {
         console.error('[emb-quote-ai] search_products_by_keyword error:', err.message);
