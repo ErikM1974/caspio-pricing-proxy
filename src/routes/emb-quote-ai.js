@@ -35,6 +35,7 @@ const { CONTRACT_EMB_QUOTE_AI_SYSTEM_PROMPT } = require('../../lib/emb-quote-ai-
 const { EMB_CURATED_PRODUCTS } = require('../../lib/emb-curated-products');
 const { inferIndustry } = require('../../lib/industry-inference');
 const { webSearch } = require('../../lib/web-search');
+const embPricingCache = require('../../lib/emb-pricing-cache');
 
 const INTERNAL_API_BASE = process.env.PROXY_PUBLIC_URL ||
     'https://caspio-pricing-proxy-ab30a049961a.herokuapp.com';
@@ -1338,6 +1339,64 @@ async function lookupCustomerMasterProfile(input) {
     }
 }
 
+// === EMB Smart G: imputed TARGET deal margin (uses Caspio Pricing_Tiers + Embroidery_Costs)
+//
+// What this computes: for a style at its typical order qty, what's the
+// customer-facing per-unit price + per-unit profit at NWCA's standard formula:
+//     SellPrice = (GarmentCost + EmbroideryCost) / MarginDenominator (0.57)
+// → Target margin: 43% all-in
+//
+// Fields added per style:
+//   avg_qty_per_order                          int (units / orders)
+//   imputed_embroidery_cost_per_unit            $ NWCA internal cost for 8K stitch
+//   imputed_all_in_cost_per_unit                $ garment wholesale + embroidery
+//   imputed_target_customer_price_per_unit      $ what we'd charge at 43% target margin
+//   imputed_target_profit_per_unit              $ what we'd net at target
+//   margin_assumptions                          text noting "8K stitch, qty tier X-Y"
+//
+// IMPORTANT — we do NOT compute "historical actual deal margin." Caspio's
+// avg_sell_price is the line price from ShopWorks line items, which in many
+// historical orders is the garment-only line (embroidery was on a separate
+// line that doesn't roll up into this aggregation). Adding our internal
+// embroidery cost to that garment-only sell price produces misleading
+// "deal margin below cost" numbers. So we expose:
+//   - Garment-side actual margin (existing: avg_margin_pct + avg_unit_profit_dollars)
+//   - Target all-in customer price + profit (new fields above)
+// The bot uses garment-side for ranking; target-side for "what would we quote."
+//
+// Graceful degrade: if cache unavailable or required source fields missing,
+// these fields are omitted entirely.
+function enrichWithImputedMargin(s) {
+    if (!s) return s;
+    const denom = embPricingCache.getMarginDenominator();
+    if (!denom || denom <= 0) return s; // cache not ready — graceful degrade
+
+    const sanmarCost = Number(s.avg_our_cost) || 0;
+    const units = Number(s.total_units_10yr) || 0;
+    const orders = Number(s.total_orders_10yr) || 0;
+    if (sanmarCost <= 0 || orders <= 0) return s;
+
+    const avgQtyPerOrder = Math.max(1, Math.round(units / orders));
+    const itemType = embPricingCache.classifyItemType(s.category_name);
+    const embroideryCost = embPricingCache.getEmbroideryCost({ itemType, qty: avgQtyPerOrder });
+    if (embroideryCost == null) return s;
+
+    const allInCost = sanmarCost + embroideryCost;
+    const targetPrice = Math.round((allInCost / denom) * 100) / 100;
+    const targetProfit = Math.round((targetPrice - allInCost) * 100) / 100;
+    const tier = embPricingCache.pickTier(avgQtyPerOrder);
+
+    return {
+        ...s,
+        avg_qty_per_order: avgQtyPerOrder,
+        imputed_embroidery_cost_per_unit: embroideryCost,
+        imputed_all_in_cost_per_unit: Math.round(allInCost * 100) / 100,
+        imputed_target_customer_price_per_unit: targetPrice,
+        imputed_target_profit_per_unit: targetProfit,
+        margin_assumptions: `8K stitch ${itemType.toLowerCase()}, single logo, qty tier ${tier}, today's Caspio pricing — TARGET margin 43%`,
+    };
+}
+
 // === EMB Smart E2: lookup_style_performance ===============================
 async function lookupStylePerformance(input) {
     const style = String(input?.style || '').trim().toUpperCase();
@@ -1355,12 +1414,16 @@ async function lookupStylePerformance(input) {
         // PAY SanMar, sensitive vendor data we never echo. Keep margin %,
         // unit profit $, and total lifetime $ — those are computed metrics
         // the rep needs to make smart upsell/quote decisions.
-        const s = data.style;
-        const avgUnitProfit = (s.avg_sell_price > 0 && s.avg_our_cost > 0)
-            ? Math.round((s.avg_sell_price - s.avg_our_cost) * 100) / 100
+        const sRaw = data.style;
+        // Phase G: enrich with all-in deal margin from Caspio Pricing_Tiers + Embroidery_Costs.
+        // ensureFresh awaited so cold-cache responses don't skip imputation on first hit.
+        try { await embPricingCache.ensureFresh(); } catch (_) { /* graceful degrade */ }
+        const s = enrichWithImputedMargin(sRaw);
+        const avgUnitProfit = (sRaw.avg_sell_price > 0 && sRaw.avg_our_cost > 0)
+            ? Math.round((sRaw.avg_sell_price - sRaw.avg_our_cost) * 100) / 100
             : 0;
-        const totalLifetimeProfit = (s.total_units_10yr > 0 && avgUnitProfit > 0)
-            ? Math.round(s.total_units_10yr * avgUnitProfit)
+        const totalLifetimeProfit = (sRaw.total_units_10yr > 0 && avgUnitProfit > 0)
+            ? Math.round(sRaw.total_units_10yr * avgUnitProfit)
             : 0;
         return {
             found: true,
@@ -1373,13 +1436,22 @@ async function lookupStylePerformance(input) {
             total_units_10yr: s.total_units_10yr,
             total_revenue_10yr: s.total_revenue_10yr,
             total_orders_10yr: s.total_orders_10yr,
+            avg_qty_per_order: s.avg_qty_per_order,  // Phase G — derived
+            // GARMENT-SIDE margin (SanMar wholesale spread only — useful for
+            // garment-vs-garment ranking, NOT for "is this deal profitable")
             avg_margin_pct: s.avg_margin_pct,
-            // NEW (2026-05-25): margin DOLLARS so the bot can reason about
-            // absolute profit, not just %. CTJ162 is 14.6% margin BUT makes
-            // $14+/unit profit — better than a 76% margin tee at $7/unit.
-            // Use these instead of raw prices when comparing across categories.
             avg_unit_profit_dollars: avgUnitProfit,
             total_lifetime_profit_dollars: totalLifetimeProfit,
+            // PHASE G — TARGET all-in pricing (garment + embroidery cost).
+            // Bot's quote builder formula: SellPrice = (GarmentCost + EmbroideryCost) / 0.57.
+            // → Target margin always 43%. These are what we WOULD quote at standard
+            // pricing today, not historical actuals. Use to answer "what would I quote
+            // PC54 for at 25 units?" or "how much do we make per unit at target."
+            imputed_embroidery_cost_per_unit: s.imputed_embroidery_cost_per_unit,
+            imputed_all_in_cost_per_unit: s.imputed_all_in_cost_per_unit,
+            imputed_target_customer_price_per_unit: s.imputed_target_customer_price_per_unit,
+            imputed_target_profit_per_unit: s.imputed_target_profit_per_unit,
+            margin_assumptions: s.margin_assumptions,
             // PRICE FIELDS DELIBERATELY STRIPPED: avg_sell_price, avg_our_cost,
             // msrp, current_case_price (don't expose SanMar's vendor pricing).
             product_status: s.product_status,
@@ -1409,17 +1481,28 @@ async function recommendHighMarginAlternative(input) {
         // KEEP margin % AND avg_unit_profit_dollars so the bot can reason about
         // both efficiency (%) and absolute dollars per unit. CTJ162 lesson:
         // 14.6% margin still makes $14+/unit — better than a 76% tee at $7.
-        const shape = (s) => {
-            const avgUnitProfit = (s.avg_sell_price > 0 && s.avg_our_cost > 0)
-                ? Math.round((s.avg_sell_price - s.avg_our_cost) * 100) / 100
+        // Phase G: also enrich with all-in deal margin (garment + embroidery).
+        try { await embPricingCache.ensureFresh(); } catch (_) { /* graceful degrade */ }
+        const shape = (sRaw) => {
+            const s = enrichWithImputedMargin(sRaw);
+            const avgUnitProfit = (sRaw.avg_sell_price > 0 && sRaw.avg_our_cost > 0)
+                ? Math.round((sRaw.avg_sell_price - sRaw.avg_our_cost) * 100) / 100
                 : 0;
             return {
                 style: s.style, product_title: s.product_title, brand_name: s.brand_name,
                 category_name: s.category_name, subcategory_name: s.subcategory_name,
+                // Garment-side (existing)
                 avg_margin_pct: s.avg_margin_pct,
-                avg_unit_profit_dollars: avgUnitProfit,  // NEW — absolute $ per unit
+                avg_unit_profit_dollars: avgUnitProfit,
                 decade_rank: s.decade_rank,
                 total_units_10yr: s.total_units_10yr,
+                avg_qty_per_order: s.avg_qty_per_order,
+                // Phase G — target all-in pricing (43% margin formula)
+                imputed_embroidery_cost_per_unit: s.imputed_embroidery_cost_per_unit,
+                imputed_all_in_cost_per_unit: s.imputed_all_in_cost_per_unit,
+                imputed_target_customer_price_per_unit: s.imputed_target_customer_price_per_unit,
+                imputed_target_profit_per_unit: s.imputed_target_profit_per_unit,
+                margin_assumptions: s.margin_assumptions,
             };
         };
         const stripPrice = shape; // backwards-compat alias if anyone calls it
@@ -1578,6 +1661,14 @@ function withCalcContext(messages, ctx) {
 }
 
 // --- Route -------------------------------------------------------------------
+
+// Phase G — debug endpoint for verifying the embroidery pricing cache loaded
+// at startup. Returns Pricing_Tiers row count, Embroidery_Costs row count,
+// the universal marginDenominator (should be 0.57), and a 6-row sample of
+// the loaded costs. Used for smoke-testing the cache post-deploy.
+router.get('/emb-margin-cache-status', (req, res) => {
+    res.json(embPricingCache.getCacheStatus());
+});
 
 router.post('/chat', express.json({ limit: '256kb' }), async (req, res) => {
     const { messages, calcContext } = req.body || {};
