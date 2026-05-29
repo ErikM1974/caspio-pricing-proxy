@@ -66,4 +66,38 @@ function resolveAEName(value) {
     return local.charAt(0).toUpperCase() + local.slice(1);
 }
 
-module.exports = { REP_EMAIL_MAP, resolveAEEmail, resolveAEName };
+/**
+ * Looser variant of resolveAEEmail for free-text Note_By values, which are
+ * often a FULL name ("Erik Mickelson", "Taneisha Clark") rather than the
+ * bare first name the REP_EMAIL_MAP is keyed on. Used by the art-note
+ * watcher fan-out where a stand-in who posted a reply ("Erik Mickelson"
+ * covering Taneisha) must still resolve to an internal inbox with NO Caspio
+ * schema change.
+ *
+ * Strategy:
+ *   1. Try resolveAEEmail(value) verbatim (handles bare first names + emails).
+ *   2. If that's null AND the value is a non-email string containing a space,
+ *      retry with just the first-name token ("Erik Mickelson" -> "Erik").
+ *
+ * Like resolveAEEmail, this NEVER returns a non-internal/customer email —
+ * the underlying resolveAEEmail enforces the @nwcustomapparel.com guard.
+ *
+ * Examples:
+ *   resolveAEEmailLoose('Erik Mickelson')   -> 'erik@nwcustomapparel.com'
+ *   resolveAEEmailLoose('Taneisha')         -> 'taneisha@nwcustomapparel.com'
+ *   resolveAEEmailLoose('Jane Customer')    -> null  (no map hit on "Jane")
+ *   resolveAEEmailLoose('foo@gmail.com')    -> null  (external email)
+ */
+function resolveAEEmailLoose(value) {
+    var direct = resolveAEEmail(value);
+    if (direct) return direct;
+    if (!value || typeof value !== 'string') return null;
+    var trimmed = value.trim();
+    if (!trimmed || trimmed.indexOf('@') !== -1) return null;
+    if (!/\s/.test(trimmed)) return null;
+    var firstToken = trimmed.split(/\s+/)[0];
+    if (!firstToken) return null;
+    return resolveAEEmail(firstToken);
+}
+
+module.exports = { REP_EMAIL_MAP, resolveAEEmail, resolveAEName, resolveAEEmailLoose };

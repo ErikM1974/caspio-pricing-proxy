@@ -9,6 +9,9 @@ const { notifyArtRequestReopen } = require('../utils/slack-art-reopen-notify');
 const { notifyRushArtRequest } = require('../utils/slack-rush-art-notify');
 const { notifyArtStatusTransition } = require('../utils/slack-art-status-notify');
 const { notifyArtReminder } = require('../utils/slack-art-reminder-notify');
+const { notifyArtNote } = require('../utils/slack-art-note-notify');
+const { sendArtNoteEmail } = require('../utils/send-art-note-email');
+const { resolveAEEmail, resolveAEName, resolveAEEmailLoose } = require('../utils/rep-email-map');
 const config = require('../../config');
 
 const caspioApiBaseUrl = config.caspio.apiBaseUrl;
@@ -668,43 +671,51 @@ router.post('/design-notes', express.json(), async (req, res) => {
     try {
         // Validate required fields
         const { ID_Design, Note_Type, Note_Text } = req.body;
-        
+
         if (!ID_Design || !Note_Type || !Note_Text) {
-            return res.status(400).json({ 
-                error: 'Missing required fields: ID_Design, Note_Type, and Note_Text are required' 
+            return res.status(400).json({
+                error: 'Missing required fields: ID_Design, Note_Type, and Note_Text are required'
             });
         }
-        
+
         // Validate field lengths
         if (Note_Type.length > 255) {
             return res.status(400).json({ error: 'Note_Type must be 255 characters or less' });
         }
-        
+
         if (Note_Text.length > 64000) {
             return res.status(400).json({ error: 'Note_Text must be 64000 characters or less' });
         }
-        
+
+        // Notification controls (optional — do NOT persist to Caspio):
+        //   Posted_By_Role  'ae' | 'artist'  — explicit direction (overrides heuristic)
+        //   Posted_By_Email                  — the poster's own email (excluded from watchers)
+        //   notify          default true     — only `notify === false` skips fan-out
+        const Posted_By_Role = req.body.Posted_By_Role;
+        const Posted_By_Email = req.body.Posted_By_Email;
+        const notify = req.body.notify;
+
         // Build request body (Note_ID and Note_Date are auto-generated)
         const noteData = {
             ID_Design: parseInt(ID_Design),
             Note_Type,
             Note_Text
         };
-        
+
         // Add optional fields if provided
         if (req.body.Note_By) {
             noteData.Note_By = req.body.Note_By;
         }
-        
+
         if (req.body.Parent_Note_ID) {
             noteData.Parent_Note_ID = parseInt(req.body.Parent_Note_ID);
         }
-        
+
         console.log('Creating new design note:', noteData);
-        
+
         const token = await getCaspioAccessToken();
         const url = `${caspioApiBaseUrl}/tables/DesignNotes/records`;
-        
+
         const response = await axios({
             method: 'post',
             url: url,
@@ -715,16 +726,202 @@ router.post('/design-notes', express.json(), async (req, res) => {
             data: noteData,
             timeout: 15000
         });
-        
+
         console.log('Design note created successfully');
+
+        // Caspio POST to DesignNotes returns an empty body, so we usually don't
+        // have the new Note_ID. Best-effort: read it if Caspio echoed a row.
+        // Falsy → null, which just disables Slack dedup (acceptable per spec).
+        let createdNoteId = null;
+        const created = response.data && (response.data.Result ? response.data.Result[0] : response.data);
+        if (created && created.Note_ID != null) {
+            createdNoteId = created.Note_ID;
+        }
+
+        // ── Direction-aware fan-out (Slack + email + watchers) ────────────
+        // Fire-and-forget, exactly like notifyArtRequestSubmission on the
+        // create-artrequest route. Wrapped so it can NEVER reject the response
+        // — a note must always save even if every notifier fails.
+        const fireNoteNotifications = async () => {
+            try {
+                // (a) Opt-out — only an explicit `notify === false` skips.
+                if (notify === false) {
+                    console.log('[ART_NOTE_NOTIFY_SKIP] notify=false design=' + ID_Design);
+                    return;
+                }
+
+                // (b) Look up the request for routing context. NEVER select a
+                // Watchers column — a bad q.select 500s. Tolerate empty result.
+                let reqRow = null;
+                try {
+                    const lookupWhere = `ID_Design=${parseInt(ID_Design)}`;
+                    const lookupUrl = `${caspioApiBaseUrl}/tables/ArtRequests/records`
+                        + `?q.where=${encodeURIComponent(lookupWhere)}`
+                        + `&q.select=${encodeURIComponent('Sales_Rep,User_Email,CompanyName,Design_Num_SW,Item_Type')}`
+                        + `&q.limit=1`;
+                    const lookupResp = await axios({
+                        method: 'get',
+                        url: lookupUrl,
+                        headers: { 'Authorization': `Bearer ${token}` },
+                        timeout: 8000
+                    });
+                    reqRow = (lookupResp.data && lookupResp.data.Result && lookupResp.data.Result[0]) || null;
+                } catch (lookupErr) {
+                    console.warn('[ART_NOTE_NOTIFY_LOOKUP_FAIL]', ID_Design, lookupErr.message);
+                }
+
+                const salesRepRaw = (reqRow && (reqRow.Sales_Rep || reqRow.User_Email)) || '';
+                const company = (reqRow && reqRow.CompanyName) || '';
+                const designNum = (reqRow && reqRow.Design_Num_SW) || '';
+                const noteBy = noteData.Note_By || '';
+
+                // (c) Direction — explicit role wins; else heuristic on Note_By.
+                let direction;
+                if (Posted_By_Role === 'ae' || Posted_By_Role === 'artist') {
+                    direction = Posted_By_Role;
+                } else {
+                    const noteByLower = String(noteBy).toLowerCase();
+                    const artistMarkers = ['steve', 'ruth', 'art804', 'art dept', 'art department'];
+                    direction = artistMarkers.some(function (m) { return noteByLower.indexOf(m) !== -1; })
+                        ? 'artist'
+                        : 'ae';
+                }
+
+                // (d) Primary recipient.
+                //   ae     → Steve (art dept).
+                //   artist → the rep of record (may be null → skip primary email,
+                //            still Slack + watchers).
+                let primary;
+                if (direction === 'ae') {
+                    primary = { email: 'art@nwcustomapparel.com', name: 'Steve', isRep: false };
+                } else {
+                    primary = {
+                        email: resolveAEEmail(salesRepRaw),
+                        name: resolveAEName(salesRepRaw),
+                        isRep: true
+                    };
+                }
+                const primaryEmailLower = primary.email ? String(primary.email).toLowerCase() : '';
+
+                // (e) Watchers — everyone who has posted a note on this design,
+                // resolved to an internal email, minus the primary recipient and
+                // minus the current poster. This is what lets a stand-in (e.g.
+                // "Erik Mickelson" covering Taneisha) receive the reply with NO
+                // Caspio schema change. NEVER select a Watchers column.
+                const posterEmails = new Set();
+                if (Posted_By_Email) posterEmails.add(String(Posted_By_Email).toLowerCase());
+                const selfResolved = resolveAEEmailLoose(noteBy);
+                if (selfResolved) posterEmails.add(String(selfResolved).toLowerCase());
+
+                let watcherEmails = [];
+                try {
+                    const watcherWhere = `ID_Design=${parseInt(ID_Design)}`;
+                    const watcherUrl = `${caspioApiBaseUrl}/tables/DesignNotes/records`
+                        + `?q.where=${encodeURIComponent(watcherWhere)}`
+                        + `&q.select=${encodeURIComponent('Note_By')}`;
+                    const watcherResp = await axios({
+                        method: 'get',
+                        url: watcherUrl,
+                        headers: { 'Authorization': `Bearer ${token}` },
+                        timeout: 8000
+                    });
+                    const watcherRows = (watcherResp.data && watcherResp.data.Result) || [];
+                    const seen = new Set();
+                    watcherRows.forEach(function (row) {
+                        const resolved = resolveAEEmailLoose(row && row.Note_By);
+                        if (!resolved) return;
+                        const lower = String(resolved).toLowerCase();
+                        if (lower === primaryEmailLower) return;     // primary already covered
+                        if (posterEmails.has(lower)) return;          // don't notify the poster
+                        if (seen.has(lower)) return;                  // dedupe
+                        seen.add(lower);
+                        watcherEmails.push(resolved);
+                    });
+                } catch (watcherErr) {
+                    console.warn('[ART_NOTE_NOTIFY_WATCHER_FAIL]', ID_Design, watcherErr.message);
+                }
+
+                // (f) Fan out — every call resolves-never-throws.
+                // Caspio doesn't echo the new Note_ID, so dedup on a stable
+                // content key instead of leaving dedup off: this collapses a
+                // genuine double-submit (same design + type + text within the
+                // 5-min window) WITHOUT merging distinct back-and-forth notes.
+                const slackDedupId = createdNoteId != null
+                    ? createdNoteId
+                    : (String(ID_Design) + '|' + String(Note_Type || '') + '|' + String(Note_Text || '').slice(0, 80));
+                notifyArtNote({
+                    idDesign: ID_Design,
+                    noteId: slackDedupId,
+                    noteType: Note_Type,
+                    noteText: Note_Text,
+                    noteBy: noteBy,
+                    direction: direction,
+                    company: company,
+                    designNum: designNum
+                });
+
+                // Primary email — for an artist note the recipient is the rep
+                // (?view=ae link); from_name shows who actually wrote it.
+                if (primary.email) {
+                    sendArtNoteEmail({
+                        toEmail: primary.email,
+                        toName: primary.name,
+                        fromName: direction === 'ae' ? (noteBy || 'NWCA Art Hub') : 'Steve (Art Dept)',
+                        idDesign: ID_Design,
+                        company: company,
+                        noteType: Note_Type,
+                        noteText: Note_Text,
+                        recipientIsRep: direction === 'artist'
+                    });
+                } else {
+                    console.log('[ART_NOTE_NOTIFY] no primary email (direction=' + direction
+                        + ', rep=' + JSON.stringify(salesRepRaw) + ') — Slack + watchers only');
+                }
+
+                // Watcher emails — always reps viewing the AE page.
+                watcherEmails.forEach(function (watcherEmail) {
+                    sendArtNoteEmail({
+                        toEmail: watcherEmail,
+                        toName: resolveAEName(watcherEmail),
+                        fromName: noteBy || 'NWCA Art Hub',
+                        idDesign: ID_Design,
+                        company: company,
+                        noteType: Note_Type,
+                        noteText: Note_Text,
+                        recipientIsRep: true
+                    });
+                });
+
+                // (g) In-app toast: the in-memory art notification queue is
+                // SERVER-SIDE ONLY and cannot be called programmatically in-process
+                // (POST /api/art-notifications pushes to a module-scoped array, with
+                // no export for in-process access). We intentionally do NOT HTTP-call
+                // our own server here — skip silently.
+
+                console.log('[ART_NOTE_NOTIFY_OK] design=' + ID_Design
+                    + ' direction=' + direction
+                    + ' primary=' + (primary.email || 'none')
+                    + ' watchers=' + watcherEmails.length);
+            } catch (notifyErr) {
+                // (h) Last-resort guard — never throw out of fire-and-forget.
+                console.error('[ART_NOTE_NOTIFY_ERR]', ID_Design,
+                    (notifyErr && notifyErr.message) || notifyErr);
+            }
+        };
+
+        // Fire without awaiting; swallow any rejection so it can't bubble.
+        Promise.resolve().then(fireNoteNotifications).catch(function (e) {
+            console.error('[ART_NOTE_NOTIFY_ERR]', ID_Design, (e && e.message) || e);
+        });
+
         res.status(201).json({
             message: 'Design note created successfully',
             data: response.data
         });
-        
+
     } catch (error) {
         console.error('Error creating design note:', error.response?.data || error.message);
-        res.status(500).json({ 
+        res.status(500).json({
             error: 'Failed to create design note',
             details: error.response?.data || error.message
         });
