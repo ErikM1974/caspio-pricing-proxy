@@ -16,7 +16,7 @@ const caspioApiBaseUrl = config.caspio.apiBaseUrl;
 const TABLE_NAME = 'Policies';
 const PRIMARY_KEY = 'Policy_ID';
 
-const VALID_CATEGORIES = ['Financial', 'Operations', 'Customer Service', 'HR', 'Training'];
+const VALID_CATEGORIES = ['Financial', 'Operations', 'Customer Service', 'Marketing', 'HR', 'Training'];
 const VALID_STATUSES = ['Draft', 'Published', 'Archived'];
 
 // Caspio Text(64000) hard cap. Save MUST fail loudly above this — silent
