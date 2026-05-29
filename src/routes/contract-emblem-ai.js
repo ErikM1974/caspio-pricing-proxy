@@ -175,17 +175,28 @@ function shape(contacts) {
 // /api/emblem-pricing already caches Caspio responses, but this avoids an
 // extra HTTP hop per quote_emblem_price call.
 let emblemGridCache = null;
+let emblemGridCacheAt = 0;
+const EMBLEM_GRID_TTL_MS = 10 * 60 * 1000; // 10 min — pick up Caspio price edits without a dyno restart
 async function loadEmblemPricing() {
-    if (emblemGridCache) return emblemGridCache;
+    const now = Date.now();
+    if (emblemGridCache && (now - emblemGridCacheAt) < EMBLEM_GRID_TTL_MS) return emblemGridCache;
     try {
         const r = await fetch(`${INTERNAL_API_BASE}/api/emblem-pricing`);
         if (!r.ok) throw new Error('emblem-pricing API ' + r.status);
         const data = await r.json();
         if (!data.grid || !data.rules) throw new Error('emblem-pricing returned malformed payload');
         emblemGridCache = data;
+        emblemGridCacheAt = now;
         return data;
     } catch (err) {
         console.error('[contract-emblem-ai] loadEmblemPricing failed:', err.message);
+        // Serve the last good cache (if any) rather than failing the quote during
+        // a transient upstream blip — but log it. An inline upstream fallback is
+        // still surfaced to the rep via pricingSource (see quoteEmblemPrice).
+        if (emblemGridCache) {
+            console.warn('[contract-emblem-ai] serving cached emblem grid after refresh failure');
+            return emblemGridCache;
+        }
         throw err;
     }
 }
@@ -264,7 +275,9 @@ async function quoteEmblemPrice(input) {
     const qtyTier = QTY_TIERS[qtyIdx];
 
     // Load grid + rules
-    const { grid, rules } = await loadEmblemPricing();
+    const pricing = await loadEmblemPricing();
+    const { grid, rules } = pricing;
+    const pricingSource = pricing.source || 'unknown'; // 'caspio' | 'inline' | 'unknown'
     const row = grid[sizeKey];
     if (!Array.isArray(row) || row[qtyIdx] == null) {
         return {
@@ -317,6 +330,7 @@ async function quoteEmblemPrice(input) {
 
     return {
         offGrid: false,
+        pricingSource,
         partNumber,
         size: sizeKey,
         quantity: qtyTier,
