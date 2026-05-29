@@ -56,8 +56,16 @@ function buildParams(args) {
     var linkId = (args.linkId != null && args.linkId !== '') ? args.linkId : idDesign;
     // Reps land on the AE view of the detail page; Steve/Ruth get the plain
     // detail page. recipientIsRep drives the only difference.
+    //
+    // Use a VALUE-LESS '?ae' flag, NOT '?view=ae'. The literal '=' is the
+    // quoted-printable escape character, and the '=' inside the rendered link
+    // is not QP-escaped in the delivered email, so '?view=ae' arrives mangled
+    // as '?view�' (the AE-view toggle is lost; the base link still works).
+    // '?ae' has no '=' and survives intact. Both detail pages (art-request-detail.js
+    // and mockup-detail.js) recognize '?ae' AND the legacy '?view=ae' that
+    // in-app links still use, so this is backward-compatible.
     var detailLink = SITE_ORIGIN + basePath + linkId
-        + (args.recipientIsRep ? '?view=ae' : '');
+        + (args.recipientIsRep ? '?ae' : '');
 
     return {
         to_email:     args.toEmail,

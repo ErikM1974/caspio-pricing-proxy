@@ -3,7 +3,7 @@
  *
  * Covers the contract the Art Hub note email depends on:
  *   • !toEmail            → skip with 'no-recipient', emailjs.send NOT called
- *   • detail_link suffix  → '?view=ae' when recipientIsRep, absent otherwise
+ *   • detail_link suffix  → '?ae' (=-free) when recipientIsRep, absent otherwise
  *                           (asserted via __test__.buildParams — no send)
  *   • resolves            → emailjs.send rejection returns {sent:false,error},
  *                           never throws (route fires this fire-and-forget)
@@ -43,30 +43,33 @@ describe('sendArtNoteEmail — recipient guard', () => {
     });
 });
 
-describe('buildParams — detail_link view=ae suffix', () => {
-    test("recipientIsRep true → detail_link ends with '?view=ae'", () => {
+describe('buildParams — detail_link ae flag', () => {
+    test("recipientIsRep true → detail_link ends with '?ae' (no '=' to mangle in email)", () => {
         const params = buildParams({
             toEmail: 'taneisha@nwcustomapparel.com',
             idDesign: 40402,
             recipientIsRep: true
         });
         expect(params.detail_link).toContain('/art-request/40402');
-        expect(params.detail_link.endsWith('?view=ae')).toBe(true);
+        expect(params.detail_link.endsWith('?ae')).toBe(true);
+        // Regression guard: the rep link must contain NO '=' (the quoted-printable
+        // escape char) or it corrupts in the delivered email.
+        expect(params.detail_link).not.toContain('=');
     });
 
-    test("recipientIsRep false → detail_link has NO '?view=ae'", () => {
+    test("recipientIsRep false → detail_link has NO ae flag", () => {
         const params = buildParams({
             toEmail: 'art@nwcustomapparel.com',
             idDesign: 40402,
             recipientIsRep: false
         });
         expect(params.detail_link).toContain('/art-request/40402');
-        expect(params.detail_link).not.toContain('?view=ae');
+        expect(params.detail_link).not.toContain('?ae');
     });
 
-    test('recipientIsRep omitted (falsy) → no ?view=ae', () => {
+    test('recipientIsRep omitted (falsy) → no ae flag', () => {
         const params = buildParams({ toEmail: 'x@nwcustomapparel.com', idDesign: 7 });
-        expect(params.detail_link).not.toContain('?view=ae');
+        expect(params.detail_link).not.toContain('?ae');
     });
 
     test('maps the EmailJS template params used by template_art_note_added', () => {
@@ -116,7 +119,7 @@ describe('buildParams — mockup-note reuse (detailPath + linkId)', () => {
         expect(params.design_id).toBe('12345');
     });
 
-    test('mockup rep recipient still gets ?view=ae on the /mockup/ link', () => {
+    test('mockup rep recipient gets the ?ae flag on the /mockup/ link', () => {
         const params = buildParams({
             toEmail: 'taneisha@nwcustomapparel.com',
             idDesign: 'NIKE-01',
@@ -125,7 +128,8 @@ describe('buildParams — mockup-note reuse (detailPath + linkId)', () => {
             recipientIsRep: true
         });
         expect(params.detail_link).toContain('/mockup/88');
-        expect(params.detail_link.endsWith('?view=ae')).toBe(true);
+        expect(params.detail_link.endsWith('?ae')).toBe(true);
+        expect(params.detail_link).not.toContain('=');
     });
 
     test('linkId falls back to idDesign when omitted', () => {
@@ -159,7 +163,7 @@ describe('sendArtNoteEmail — send path', () => {
         expect(serviceId).toBe('service_test');
         expect(templateId).toBe('template_art_note_added');
         expect(templateParams.to_email).toBe('taneisha@nwcustomapparel.com');
-        expect(templateParams.detail_link.endsWith('?view=ae')).toBe(true);
+        expect(templateParams.detail_link.endsWith('?ae')).toBe(true);
         expect(creds).toMatchObject({ publicKey: 'public_test', privateKey: 'private_test' });
     });
 
