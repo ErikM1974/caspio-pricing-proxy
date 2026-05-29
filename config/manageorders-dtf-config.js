@@ -9,15 +9,19 @@
  *
  * Created 2026-05-23 — Phase 8 DTF push scaffolding.
  *
- * 🚧 TODO before going live (Erik action items):
- *   1. Create new OnSite integration "DTF Quote NWCA"
- *   2. Confirm id_Customer for DTF quote customer (placeholder below)
- *   3. Confirm id_OrderType for DTF orders (placeholder below)
- *   4. Confirm id_DesignType for DTF designs (placeholder = 5 = DTF guess)
- *   5. Get any DTF-specific service part numbers (transfer/labor/freight)
- *      if you want them as separate LinesOE instead of baked into the
- *      garment row price (current implementation: bakes them in + uses
- *      Notes On Order to itemize for the operator).
+ * ✅ The push is functional. Quotes carry the REAL ShopWorks customer (from
+ *    the quote's customer #), shipping, discount, rush/art/graphic-design
+ *    charges, ship-to address, dates, and PO. id_Customer below is only a
+ *    FALLBACK for quotes saved with no customer # entered.
+ *
+ * 🚧 Remaining Erik action items (refinements, not blockers):
+ *   1. id_OrderType — confirm the ShopWorks order type for DTF. Currently 21
+ *      (Custom Embroidery, shared with EMB). Set DTF's own type if it has one.
+ *   2. id_DesignType — confirm DTF's design type id (currently 5, a guess).
+ *   3. Graphic-design service code — currently billed on the 'Art' part. If
+ *      ShopWorks has a dedicated graphic-design code, swap it in the transformer.
+ *   4. (Optional) Create a dedicated "DTF Quote NWCA" OnSite integration to
+ *      group DTF orders separately from EMB.
  */
 
 const { translateSize, SIZE_MAPPING, NOTE_TYPES } = require('./manageorders-push-config');
@@ -42,9 +46,9 @@ const {
  * the "DTF Quote NWCA" integration in OnSite.
  */
 const DTF_ONSITE_DEFAULTS = {
-  // 🚧 TODO: update to dedicated DTF customer once Erik creates it.
-  // For now reuses EMB integration customer (orders still land in SW
-  // correctly, just visible under EMB's customer view in OnSite).
+  // FALLBACK ONLY — used when a quote has no customer # entered. Real quotes
+  // attach to their actual ShopWorks customer (session.CustomerNumber).
+  // 3739 is the EMB integration customer.
   id_Customer: 3739,
   id_CompanyLocation: 2,
   // 🚧 TODO: confirm id_OrderType for DTF. EMB uses 21 = Custom Embroidery.
