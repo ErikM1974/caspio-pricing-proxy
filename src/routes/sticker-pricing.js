@@ -29,7 +29,7 @@ const INLINE_GRID = [
   { PartNumber: 'STK-2X2-3000',  Size: '2x2', Quantity: 3000,  TotalPrice: 874.00,   PricePerSticker: 0.29, IsBestValue: false },
   { PartNumber: 'STK-2X2-5000',  Size: '2x2', Quantity: 5000,  TotalPrice: 1275.00,  PricePerSticker: 0.26, IsBestValue: false },
   { PartNumber: 'STK-2X2-10000', Size: '2x2', Quantity: 10000, TotalPrice: 2158.00,  PricePerSticker: 0.22, IsBestValue: false },
-  { PartNumber: 'STK-3X3-50',    Size: '3x3', Quantity: 50,    TotalPrice: 128.00,   PricePerSticker: 2.56, IsBestValue: false },
+  { PartNumber: 'STK-3X3-50',    Size: '3x3', Quantity: 50,    TotalPrice: 98.00,    PricePerSticker: 1.96, IsBestValue: false },  // 2026-05-29: was 128.00/2.56 — broke volume monotonicity (50 cost more than 100). Lowered onto the curve.
   { PartNumber: 'STK-3X3-100',   Size: '3x3', Quantity: 100,   TotalPrice: 124.00,   PricePerSticker: 1.24, IsBestValue: false },
   { PartNumber: 'STK-3X3-200',   Size: '3x3', Quantity: 200,   TotalPrice: 234.00,   PricePerSticker: 1.17, IsBestValue: true  },
   { PartNumber: 'STK-3X3-300',   Size: '3x3', Quantity: 300,   TotalPrice: 296.00,   PricePerSticker: 0.99, IsBestValue: false },
@@ -62,7 +62,7 @@ const INLINE_GRID = [
   // 6x6 — extrapolated from 3x3/4x4/5x5 curve at each qty (quadratic next-step formula),
   // qty=10000 manually capped at $12,000 to preserve volume-discount monotonicity.
   { PartNumber: 'STK-6X6-50',    Size: '6x6', Quantity: 50,    TotalPrice: 218.00,   PricePerSticker: 4.36, IsBestValue: false },
-  { PartNumber: 'STK-6X6-100',   Size: '6x6', Quantity: 100,   TotalPrice: 286.00,   PricePerSticker: 2.86, IsBestValue: false },
+  { PartNumber: 'STK-6X6-100',   Size: '6x6', Quantity: 100,   TotalPrice: 383.00,   PricePerSticker: 3.83, IsBestValue: false },  // 2026-05-29: was 286.00/2.86 — under-extrapolated (only 7.5% over 5x5-100 despite 44% more area), made 200 cost less/pc. Raised to area-scaled.
   { PartNumber: 'STK-6X6-200',   Size: '6x6', Quantity: 200,   TotalPrice: 588.00,   PricePerSticker: 2.94, IsBestValue: true  },
   { PartNumber: 'STK-6X6-300',   Size: '6x6', Quantity: 300,   TotalPrice: 774.00,   PricePerSticker: 2.58, IsBestValue: false },
   { PartNumber: 'STK-6X6-500',   Size: '6x6', Quantity: 500,   TotalPrice: 1125.00,  PricePerSticker: 2.25, IsBestValue: false },
@@ -75,6 +75,42 @@ const INLINE_GRID = [
 
 const SETUP_FEE_PART = 'GRT-50';
 const SETUP_FEE_AMOUNT = 50.00;
+
+// "Best Value" badge — computed per size as the KNEE of the price-per-piece
+// curve, NOT a hard-coded quantity. For each size we take the % per-piece
+// improvement between consecutive tiers, then flag the tier where that
+// improvement decelerates most (the curve goes from steep → flat). This
+// overrides any stored/inline IsBestValue so the badge stays honest as prices
+// change, and never lands on a tier that's pricier-per-piece than the next one.
+// With the current grid this resolves to: 2x2/4x4/5x5/6x6 → 200, 3x3 → 100.
+function computeBestValue(grid) {
+  const bySize = {};
+  for (const row of grid) {
+    row.IsBestValue = false;
+    (bySize[row.Size] = bySize[row.Size] || []).push(row);
+  }
+  for (const size of Object.keys(bySize)) {
+    const rows = bySize[size].sort((a, b) => a.Quantity - b.Quantity);
+    if (rows.length === 0) continue;
+    if (rows.length < 3) { rows[rows.length - 1].IsBestValue = true; continue; }
+    // imp[i] = fractional per-piece improvement going from tier i to tier i+1.
+    const imp = [];
+    for (let i = 0; i < rows.length - 1; i++) {
+      const prev = rows[i].PricePerSticker;
+      const next = rows[i + 1].PricePerSticker;
+      imp[i] = prev > 0 ? (prev - next) / prev : 0;
+    }
+    // Knee = the tier where the savings decelerate most (imp[i-1] - imp[i] max).
+    let kneeIdx = rows.length - 1;
+    let bestDecel = -Infinity;
+    for (let i = 1; i < rows.length - 1; i++) {
+      const decel = imp[i - 1] - imp[i];
+      if (decel > bestDecel) { bestDecel = decel; kneeIdx = i; }
+    }
+    rows[kneeIdx].IsBestValue = true;
+  }
+  return grid;
+}
 
 // Pre-computed sorted size list (used by AI's quote_sticker_price tool for bounding-box lookups).
 const STANDARD_SIZES = ['2x2', '3x3', '4x4', '5x5', '6x6'];
@@ -122,12 +158,13 @@ async function loadGrid() {
         })
         .filter(r => r.PartNumber && r.Size && r.Quantity > 0)
         .sort((a, b) => a.Size.localeCompare(b.Size) || a.Quantity - b.Quantity);
-      return { grid, source: 'caspio' };
+      return { grid: computeBestValue(grid), source: 'caspio' };
     }
   } catch (err) {
     console.warn('[sticker-pricing] Caspio fetch failed, falling back to inline:', err.message);
   }
-  return { grid: INLINE_GRID, source: 'inline' };
+  // Clone the inline rows so computeBestValue doesn't mutate the module-level const.
+  return { grid: computeBestValue(INLINE_GRID.map(r => ({ ...r }))), source: 'inline' };
 }
 
 router.get('/sticker-pricing', async (_req, res) => {
