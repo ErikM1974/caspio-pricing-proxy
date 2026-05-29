@@ -18,7 +18,7 @@
 //   POST   /api/mockups/:id/auto-recover-mockup — Single-slot Box folder relink
 //   POST   /api/mockups/auto-recover-mockups-bulk — Bulk auto-recover (max 50 entries)
 //   GET    /api/mockup-notes/:mockupId — Get notes for a mockup
-//   POST   /api/mockup-notes     — Add a note to a mockup
+//   POST   /api/mockup-notes     — Add a note to a mockup (direction-aware Slack + email + watcher fan-out; notify:false to skip)
 //   GET    /api/thread-colors    — List thread colors (cached 1hr, ?instock=true)
 //   GET    /api/locations        — List locations (cached 1hr, ?type=EMB,CAP)
 
@@ -31,6 +31,9 @@ const { notifyMockupSubmission } = require('../utils/slack-mockup-submission-not
 const { notifyMockupRevision } = require('../utils/slack-mockup-revision-notify');
 const { notifyRushMockup } = require('../utils/slack-rush-mockup-notify');
 const { notifyMockupStatusTransition } = require('../utils/slack-mockup-status-notify');
+const { notifyMockupNote } = require('../utils/slack-mockup-note-notify');
+const { sendArtNoteEmail } = require('../utils/send-art-note-email');
+const { resolveAEEmail, resolveAEName, resolveAEEmailLoose } = require('../utils/rep-email-map');
 const config = require('../../config');
 
 const caspioApiBaseUrl = config.caspio.apiBaseUrl;
@@ -1304,16 +1307,27 @@ router.post('/mockup-notes', async (req, res) => {
             return res.status(400).json({ success: false, error: 'Missing Mockup_ID or Note_Text' });
         }
 
+        // Notification controls (optional — do NOT persist to Caspio):
+        //   Posted_By_Role  'ae' | 'artist'  — explicit direction (overrides heuristic)
+        //   Posted_By_Email                  — the poster's own email (excluded from watchers)
+        //   notify          default true     — only `notify === false` skips fan-out
+        // Audit/system note POSTs (status changes, reminders, file-adds) pass
+        // notify:false so only the human note composer fans out.
+        const Posted_By_Role = req.body.Posted_By_Role;
+        const Posted_By_Email = req.body.Posted_By_Email;
+        const notify = req.body.notify;
+
         const token = await getCaspioAccessToken();
         const url = `${caspioApiBaseUrl}/tables/${NOTES_TABLE}/records`;
 
+        const resolvedNoteType = Note_Type || 'artist_note';
         const data = {
             Mockup_ID: parseInt(Mockup_ID),
             Author: Author || 'unknown',
             Author_Name: Author_Name || 'Unknown',
             Note_Text,
             Created_Date: new Date().toISOString(),
-            Note_Type: Note_Type || 'artist_note'
+            Note_Type: resolvedNoteType
         };
 
         const resp = await axios.post(url, data, {
@@ -1324,7 +1338,202 @@ router.post('/mockup-notes', async (req, res) => {
             timeout: 15000
         });
 
-        console.log(`Mockup note added: Mockup ${Mockup_ID} by ${Author_Name} (${Note_Type})`);
+        console.log(`Mockup note added: Mockup ${Mockup_ID} by ${Author_Name} (${resolvedNoteType})`);
+
+        // ── Direction-aware fan-out (Slack + email + watchers) ────────────
+        // Twin of fireNoteNotifications() on POST /api/design-notes. Fire-and-
+        // forget, wrapped so it can NEVER reject the response — a note must
+        // always save even if every notifier fails.
+        const NOTE_TYPE_LABELS = {
+            ae_instruction: 'AE Instruction',
+            artist_note: 'Digitizing Note',
+            status_change: 'Status Change',
+            revision_request: 'Revision Request',
+            customer_approval_sent: 'Customer Approval Sent'
+        };
+        const humanNoteType = NOTE_TYPE_LABELS[resolvedNoteType]
+            || String(resolvedNoteType).replace(/_/g, ' ');
+        const noteBy = data.Author_Name && data.Author_Name !== 'Unknown'
+            ? data.Author_Name
+            : (data.Author && data.Author !== 'unknown' ? data.Author : '');
+
+        const fireNoteNotifications = async () => {
+            try {
+                // (a) Opt-out — only an explicit `notify === false` skips.
+                if (notify === false) {
+                    console.log('[MOCKUP_NOTE_NOTIFY_SKIP] notify=false mockup=' + Mockup_ID);
+                    return;
+                }
+
+                // (b) Look up the mockup for routing context. NEVER select a
+                // non-existent column — a bad q.select 500s. Tolerate empty.
+                let mockupRow = null;
+                try {
+                    const lookupWhere = `ID=${parseInt(Mockup_ID)}`;
+                    const lookupUrl = `${caspioApiBaseUrl}/tables/${MOCKUPS_TABLE}/records`
+                        + `?q.where=${encodeURIComponent(lookupWhere)}`
+                        + `&q.select=${encodeURIComponent('Sales_Rep,Submitted_By,Company_Name,Design_Number')}`
+                        + `&q.limit=1`;
+                    const lookupResp = await axios({
+                        method: 'get',
+                        url: lookupUrl,
+                        headers: { 'Authorization': `Bearer ${token}` },
+                        timeout: 8000
+                    });
+                    mockupRow = (lookupResp.data && lookupResp.data.Result && lookupResp.data.Result[0]) || null;
+                } catch (lookupErr) {
+                    console.warn('[MOCKUP_NOTE_NOTIFY_LOOKUP_FAIL]', Mockup_ID, lookupErr.message);
+                }
+
+                // Mockups use Submitted_By where ArtRequests uses User_Email.
+                const repRaw = (mockupRow && (mockupRow.Sales_Rep || mockupRow.Submitted_By)) || '';
+                const company = (mockupRow && mockupRow.Company_Name) || '';
+                const designNum = (mockupRow && mockupRow.Design_Number) || '';
+
+                // (c) Direction — explicit role wins; else Note_Type; else a
+                // heuristic on the author (Ruth is the only artist here).
+                let direction;
+                if (Posted_By_Role === 'ae' || Posted_By_Role === 'artist') {
+                    direction = Posted_By_Role;
+                } else if (resolvedNoteType === 'ae_instruction') {
+                    direction = 'ae';
+                } else if (resolvedNoteType === 'artist_note') {
+                    direction = 'artist';
+                } else {
+                    const byLower = String(noteBy).toLowerCase();
+                    const artistMarkers = ['ruth', 'digitiz', 'art dept', 'art department'];
+                    direction = artistMarkers.some(function (m) { return byLower.indexOf(m) !== -1; })
+                        ? 'artist'
+                        : 'ae';
+                }
+
+                // (d) Primary recipient.
+                //   ae     → Ruth (digitizing).
+                //   artist → the rep of record (may be null → skip primary email,
+                //            still Slack + watchers).
+                let primary;
+                if (direction === 'ae') {
+                    primary = { email: 'ruth@nwcustomapparel.com', name: 'Ruth', isRep: false };
+                } else {
+                    primary = {
+                        email: resolveAEEmail(repRaw),
+                        name: resolveAEName(repRaw),
+                        isRep: true
+                    };
+                }
+                const primaryEmailLower = primary.email ? String(primary.email).toLowerCase() : '';
+
+                // (e) Watchers — everyone who has posted a note on this mockup,
+                // resolved to an internal email, minus the primary recipient and
+                // minus the current poster. Lets a stand-in covering an absent
+                // rep receive the reply with NO Caspio schema change. Author can
+                // be a full name OR an email; Author_Name is a first name — try
+                // both. NEVER select a non-existent column.
+                const posterEmails = new Set();
+                if (Posted_By_Email) posterEmails.add(String(Posted_By_Email).toLowerCase());
+                const selfResolved = resolveAEEmailLoose(data.Author_Name) || resolveAEEmailLoose(data.Author);
+                if (selfResolved) posterEmails.add(String(selfResolved).toLowerCase());
+
+                let watcherEmails = [];
+                try {
+                    const watcherWhere = `Mockup_ID=${parseInt(Mockup_ID)}`;
+                    const watcherUrl = `${caspioApiBaseUrl}/tables/${NOTES_TABLE}/records`
+                        + `?q.where=${encodeURIComponent(watcherWhere)}`
+                        + `&q.select=${encodeURIComponent('Author,Author_Name')}`;
+                    const watcherResp = await axios({
+                        method: 'get',
+                        url: watcherUrl,
+                        headers: { 'Authorization': `Bearer ${token}` },
+                        timeout: 8000
+                    });
+                    const watcherRows = (watcherResp.data && watcherResp.data.Result) || [];
+                    const seen = new Set();
+                    watcherRows.forEach(function (row) {
+                        const resolved = resolveAEEmailLoose(row && row.Author)
+                            || resolveAEEmailLoose(row && row.Author_Name);
+                        if (!resolved) return;
+                        const lower = String(resolved).toLowerCase();
+                        if (lower === primaryEmailLower) return;     // primary already covered
+                        if (posterEmails.has(lower)) return;          // don't notify the poster
+                        if (seen.has(lower)) return;                  // dedupe
+                        seen.add(lower);
+                        watcherEmails.push(resolved);
+                    });
+                } catch (watcherErr) {
+                    console.warn('[MOCKUP_NOTE_NOTIFY_WATCHER_FAIL]', Mockup_ID, watcherErr.message);
+                }
+
+                // (f) Fan out — every call resolves-never-throws. Caspio doesn't
+                // echo a new note id, so dedup on a stable content key: collapses
+                // a genuine double-submit (same mockup + type + text within the
+                // 5-min window) WITHOUT merging distinct back-and-forth notes.
+                const slackDedupId = String(Mockup_ID) + '|' + String(resolvedNoteType)
+                    + '|' + String(Note_Text || '').slice(0, 80);
+                notifyMockupNote({
+                    mockupId: Mockup_ID,
+                    noteId: slackDedupId,
+                    noteType: humanNoteType,
+                    noteText: Note_Text,
+                    noteBy: noteBy || 'someone',
+                    direction: direction,
+                    company: company,
+                    designNum: designNum
+                });
+
+                // Primary email — for an artist note the recipient is the rep
+                // (?view=ae link); from_name shows who actually wrote it. The
+                // shared template_art_note_added is reused via detailPath; the
+                // link uses the mockup ID, the displayed design_id uses the
+                // human-facing Design_Number.
+                if (primary.email) {
+                    sendArtNoteEmail({
+                        toEmail: primary.email,
+                        toName: primary.name,
+                        fromName: noteBy || (direction === 'ae' ? 'NWCA Digitizing' : 'Ruth (Digitizing)'),
+                        idDesign: designNum || Mockup_ID,
+                        linkId: Mockup_ID,
+                        detailPath: '/mockup/',
+                        company: company,
+                        noteType: humanNoteType,
+                        noteText: Note_Text,
+                        recipientIsRep: direction === 'artist'
+                    });
+                } else {
+                    console.log('[MOCKUP_NOTE_NOTIFY] no primary email (direction=' + direction
+                        + ', rep=' + JSON.stringify(repRaw) + ') — Slack + watchers only');
+                }
+
+                // Watcher emails — always reps viewing the AE page.
+                watcherEmails.forEach(function (watcherEmail) {
+                    sendArtNoteEmail({
+                        toEmail: watcherEmail,
+                        toName: resolveAEName(watcherEmail),
+                        fromName: noteBy || 'NWCA Digitizing',
+                        idDesign: designNum || Mockup_ID,
+                        linkId: Mockup_ID,
+                        detailPath: '/mockup/',
+                        company: company,
+                        noteType: humanNoteType,
+                        noteText: Note_Text,
+                        recipientIsRep: true
+                    });
+                });
+
+                console.log('[MOCKUP_NOTE_NOTIFY_OK] mockup=' + Mockup_ID
+                    + ' direction=' + direction
+                    + ' primary=' + (primary.email || 'none')
+                    + ' watchers=' + watcherEmails.length);
+            } catch (notifyErr) {
+                // (g) Last-resort guard — never throw out of fire-and-forget.
+                console.error('[MOCKUP_NOTE_NOTIFY_ERR]', Mockup_ID,
+                    (notifyErr && notifyErr.message) || notifyErr);
+            }
+        };
+
+        // Fire without awaiting; swallow any rejection so it can't bubble.
+        Promise.resolve().then(fireNoteNotifications).catch(function (e) {
+            console.error('[MOCKUP_NOTE_NOTIFY_ERR]', Mockup_ID, (e && e.message) || e);
+        });
 
         res.status(201).json({
             success: true,

@@ -36,15 +36,27 @@ const TEMPLATE_ID = 'template_art_note_added';
  * Exported via __test__ so tests can assert the detail_link suffix logic
  * (?view=ae for reps) without actually sending.
  *
+ * The same EmailJS template (template_art_note_added) renders both art-request
+ * notes and digitizing-mockup notes, so two optional args let a mockup note
+ * link to its own detail page without a second template:
+ *   args.detailPath — '/art-request/' (default) or '/mockup/'.
+ *   args.linkId     — the id used IN the link (Digitizing_Mockups.ID for a
+ *                     mockup), distinct from the displayed design_id which
+ *                     stays args.idDesign (the human-facing Design_Number).
+ *                     Defaults to idDesign so existing art callers are
+ *                     unchanged.
+ *
  * @param {object} args — same shape as sendArtNoteEmail's argument.
  * @returns {object} EmailJS templateParams.
  */
 function buildParams(args) {
     args = args || {};
     var idDesign = args.idDesign;
+    var basePath = args.detailPath || '/art-request/';
+    var linkId = (args.linkId != null && args.linkId !== '') ? args.linkId : idDesign;
     // Reps land on the AE view of the detail page; Steve/Ruth get the plain
     // detail page. recipientIsRep drives the only difference.
-    var detailLink = SITE_ORIGIN + '/art-request/' + idDesign
+    var detailLink = SITE_ORIGIN + basePath + linkId
         + (args.recipientIsRep ? '?view=ae' : '');
 
     return {
@@ -73,6 +85,8 @@ function buildParams(args) {
  * @param {string}  [args.noteType]     — note type / header title.
  * @param {string}  [args.noteText]     — the note body.
  * @param {boolean} [args.recipientIsRep] — true => detail_link gets ?view=ae.
+ * @param {string}  [args.detailPath]   — link base path ('/art-request/' default, '/mockup/' for mockups).
+ * @param {number|string} [args.linkId] — id used in the link (defaults to idDesign).
  * @returns {Promise<{sent:boolean, skipped?:string, error?:string}>}
  *          Always resolves — never throws.
  */

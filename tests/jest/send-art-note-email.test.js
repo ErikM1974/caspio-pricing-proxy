@@ -91,6 +91,51 @@ describe('buildParams — detail_link view=ae suffix', () => {
             from_name: 'Steve (Art Dept)'
         });
     });
+
+    test('default detailPath is /art-request/ (art callers unchanged)', () => {
+        const params = buildParams({ toEmail: 'x@nwcustomapparel.com', idDesign: 40402 });
+        expect(params.detail_link).toContain('/art-request/40402');
+        expect(params.detail_link).not.toContain('/mockup/');
+    });
+});
+
+describe('buildParams — mockup-note reuse (detailPath + linkId)', () => {
+    test("detailPath '/mockup/' + linkId routes the link to the mockup page", () => {
+        const params = buildParams({
+            toEmail: 'ruth@nwcustomapparel.com',
+            idDesign: '12345',     // human-facing Design_Number (display)
+            linkId: 88,            // Digitizing_Mockups.ID (link target)
+            detailPath: '/mockup/',
+            recipientIsRep: false
+        });
+        // Link uses the mockup ID, not the design number.
+        expect(params.detail_link).toContain('/mockup/88');
+        expect(params.detail_link).not.toContain('/art-request/');
+        expect(params.detail_link).not.toContain('/mockup/12345');
+        // Displayed design_id still shows the human-facing Design_Number.
+        expect(params.design_id).toBe('12345');
+    });
+
+    test('mockup rep recipient still gets ?view=ae on the /mockup/ link', () => {
+        const params = buildParams({
+            toEmail: 'taneisha@nwcustomapparel.com',
+            idDesign: 'NIKE-01',
+            linkId: 88,
+            detailPath: '/mockup/',
+            recipientIsRep: true
+        });
+        expect(params.detail_link).toContain('/mockup/88');
+        expect(params.detail_link.endsWith('?view=ae')).toBe(true);
+    });
+
+    test('linkId falls back to idDesign when omitted', () => {
+        const params = buildParams({
+            toEmail: 'x@nwcustomapparel.com',
+            idDesign: 777,
+            detailPath: '/mockup/'
+        });
+        expect(params.detail_link).toContain('/mockup/777');
+    });
 });
 
 describe('sendArtNoteEmail — send path', () => {
