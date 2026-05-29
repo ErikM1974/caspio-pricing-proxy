@@ -14,14 +14,18 @@
  *    charges, ship-to address, dates, and PO. id_Customer below is only a
  *    FALLBACK for quotes saved with no customer # entered.
  *
- * 🚧 Remaining Erik action items (refinements, not blockers):
- *   1. id_OrderType — confirm the ShopWorks order type for DTF. Currently 21
- *      (Custom Embroidery, shared with EMB). Set DTF's own type if it has one.
- *   2. id_DesignType — confirm DTF's design type id (currently 5, a guess).
- *   3. Graphic-design service code — currently billed on the 'Art' part. If
+ * ✅ Order type (18 = Transfers → revenue acct 4005) + design type (8) corrected
+ *    2026-05-29 to the VERIFIED ShopWorks IDs the Order Form push uses (were the
+ *    EMB-copied placeholders 21 / 5).
+ *
+ * 🚧 Remaining (OnSite-side, optional/refinement — NOT correctness blockers):
+ *   1. Confirm the OnSite integration handling ExtSource 'NWCA-DTF' leaves
+ *      "Order Type ID" / "DesignType ID" BLANK in its Supplemental Settings so the
+ *      payload's 18 / 8 are honored (mirrors the "Order Form" integration setup).
+ *   2. Graphic-design service code — currently billed on the 'Art' part. If
  *      ShopWorks has a dedicated graphic-design code, swap it in the transformer.
- *   4. (Optional) Create a dedicated "DTF Quote NWCA" OnSite integration to
- *      group DTF orders separately from EMB.
+ *   3. (Optional) Create a dedicated "DTF Quote NWCA" integration to group DTF
+ *      orders separately from EMB.
  */
 
 const { translateSize, SIZE_MAPPING, NOTE_TYPES } = require('./manageorders-push-config');
@@ -38,12 +42,10 @@ const {
 /**
  * DTF OnSite Default Values
  *
- * 🚧 PLACEHOLDERS — confirm with Erik before first live push.
- * Values below copy EMB's defaults so DTF lands in the same integration
- * customer / order type until DTF gets its own. That's intentional —
- * orders won't be lost, just grouped under EMB's customer view.
- * Update id_Customer + id_OrderType + id_DesignType once Erik creates
- * the "DTF Quote NWCA" integration in OnSite.
+ * Order type + design type use the VERIFIED ShopWorks IDs (18 / 8) the Order Form
+ * push already uses (corrected 2026-05-29 from the EMB-copied placeholders 21 / 5).
+ * id_Customer 3739 is a FALLBACK only — real quotes attach to their actual
+ * ShopWorks customer via session.CustomerNumber.
  */
 const DTF_ONSITE_DEFAULTS = {
   // FALLBACK ONLY — used when a quote has no customer # entered. Real quotes
@@ -51,16 +53,16 @@ const DTF_ONSITE_DEFAULTS = {
   // 3739 is the EMB integration customer.
   id_Customer: 3739,
   id_CompanyLocation: 2,
-  // 🚧 TODO: confirm id_OrderType for DTF. EMB uses 21 = Custom Embroidery.
-  // DTF might want its own (e.g., 22 = DTF Transfer) OR can share 21.
-  id_OrderType: 21,
+  // 18 = "Transfers" → revenue acct 4005 Transfer Sales. VERIFIED against the live
+  // ShopWorks Order Types list 2026-05-02 (OF-0027) and already used by the Order
+  // Form push. (Was 21 = Custom Embroidery, which posted DTF orders to the
+  // embroidery revenue account 4050.) Source: memory/MANAGEORDERS_COMPLETE_REFERENCE.md.
+  id_OrderType: 18,
   id_EmpCreatedBy: 2,
   AutoHold: 0,
 
-  // 🚧 TODO: confirm id_DesignType. Per server.js DESIGN_TYPE_ID guesses:
-  // 1=DTG, 2=Embroidery, 3=standard (wrong/missing), 5=DTF (guess).
-  // Erik to verify in OnSite Settings.
-  id_DesignType: 5,
+  // 8 = Transfer design type (VERIFIED 2026-05-02, same source). Was a guess (5).
+  id_DesignType: 8,
   id_Artist: 24,                  // Same as EMB
 
   id_ProductClass: 1,

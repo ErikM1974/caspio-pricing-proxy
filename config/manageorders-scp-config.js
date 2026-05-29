@@ -2,20 +2,27 @@
  * ManageOrders PUSH API - Screen Print Quote Configuration
  *
  * OnSite integration settings for SCP quote push.
- *
- * OnSite Integration: "Screen Print Quote NWCA" (TBD — Erik to create in OnSite)
  * URL: manageordersapi.com/onsite (shared base; differentiated by ExtSource)
  *
  * Created 2026-05-23 — Phase 8 SCP push.
+ * Order/design type IDs corrected to verified values 2026-05-29.
  *
- * 🚧 TODO before going live (Erik action items):
- *   1. Create new OnSite integration "Screen Print Quote NWCA"
- *   2. Confirm id_Customer for SCP quote customer (placeholder = EMB's 3739)
- *   3. Confirm id_OrderType for SCP orders (placeholder = 21 = Custom Embroidery)
- *      Note: SCP probably wants its own (e.g., 23 = Screen Print).
- *   4. Confirm id_DesignType for SCP designs (placeholder = 4 = Screen Print guess)
- *   5. Confirm SCP service codes — SPSU (new screen) and SPRESET (reused screen)
- *      already exist in EMB's KNOWN_FEE_PNS, so they're shared. Good.
+ * ✅ Order type + design type now use the VERIFIED ShopWorks IDs (13 / 1) the
+ *    Order Form push already uses — orders post as "Screen Print Subcontract" to
+ *    revenue account 4200 Subcontract Screenprinted Sales (NOT the embroidery
+ *    account 4050 the old placeholder 21 produced). Real quotes carry the actual
+ *    customer via session.CustomerNumber; service codes SPSU/SPRESET/LTM/Art/
+ *    GRT-75/RUSH are shared with EMB's KNOWN_FEE_PNS.
+ *
+ * 🚧 Remaining (OnSite-side, optional/refinement — NOT correctness blockers):
+ *   1. Confirm the OnSite integration that handles ExtSource 'NWCA-SCP' leaves
+ *      "Order Type ID" / "DesignType ID" BLANK in its Supplemental Settings so the
+ *      payload's 13 / 1 are honored (mirrors the "Order Form" integration setup).
+ *      If those settings are hardcoded, the integration value overrides the payload.
+ *   2. (Optional) Create a dedicated "Screen Print Quote NWCA" integration to GROUP
+ *      SCP orders separately from EMB, and a dedicated no-customer fallback
+ *      id_Customer (today 3739 = EMB quote customer; only hit when a quote has no
+ *      customer # entered).
  */
 
 const { translateSize, SIZE_MAPPING, NOTE_TYPES } = require('./manageorders-push-config');
@@ -38,16 +45,22 @@ const {
  * integration in OnSite.
  */
 const SCP_ONSITE_DEFAULTS = {
-  // 🚧 TODO: update to dedicated SCP customer once Erik creates it.
+  // FALLBACK ONLY — real quotes attach to their actual ShopWorks customer via
+  // session.CustomerNumber (see transformer). 3739 is the shared EMB quote
+  // customer, used only when a quote was saved with no customer # entered.
   id_Customer: 3739,
   id_CompanyLocation: 2,
-  // 🚧 TODO: confirm id_OrderType for SCP. Probably 23 = Screen Print.
-  id_OrderType: 21,
+  // 13 = "Screen Print Subcontract" → revenue acct 4200 Subcontract Screenprinted
+  // Sales. VERIFIED against the live ShopWorks Order Types list 2026-05-02 (OF-0027)
+  // and already used by the Order Form push. (Was 21 = Custom Embroidery, which
+  // mislabeled SCP orders AND posted them to the embroidery revenue account 4050.)
+  // Source: memory/MANAGEORDERS_COMPLETE_REFERENCE.md "idOrderType per method".
+  id_OrderType: 13,
   id_EmpCreatedBy: 2,
   AutoHold: 0,
 
-  // 🚧 TODO: confirm id_DesignType for SCP (guess = 4).
-  id_DesignType: 4,
+  // 1 = Screenprint design type (VERIFIED 2026-05-02, same source). Was a guess (4).
+  id_DesignType: 1,
   id_Artist: 24,
 
   id_ProductClass: 1,
