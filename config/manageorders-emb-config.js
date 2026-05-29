@@ -191,8 +191,14 @@ function extractSequence(quoteId) {
  * @returns {string} ExtOrderID (e.g., 'EMB-177' or 'EMB-TEST-177')
  */
 function generateEmbExtOrderID(quoteId, isTest = false) {
-  const seq = extractSequence(quoteId);
-  return isTest ? `EMB-TEST-${seq}` : `EMB-${seq}`;
+  // Include the YEAR + sequence so ExtOrderIDs stay unique across years.
+  // Quote sequences reset to 1 every year (quote-sequence route is keyed on
+  // Prefix + Year), so "EMB-{seq}" alone collides annually — e.g. EMB-2025-177
+  // and EMB-2026-177 would both become "EMB-177". Use the full year-sequence
+  // tail from the QuoteID instead: "EMB-2026-177" -> "EMB-2026-177".
+  const parts = String(quoteId || '').split('-');
+  const core = parts.length > 1 ? parts.slice(1).join('-') : extractSequence(quoteId);
+  return isTest ? `EMB-TEST-${core}` : `EMB-${core}`;
 }
 
 /**
