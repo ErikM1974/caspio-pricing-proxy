@@ -19,10 +19,6 @@ const TABLE_VENDORS = 'tbl_vendor_basics';
 const TABLE_POS = 'PurchaseOrders';
 const TABLE_SUPACOLOR_JOBS = 'Supacolor_Jobs';
 
-// Vendor master rarely changes; cache it so repeated statement runs don't re-hit Caspio.
-const VENDOR_CACHE_TTL_MS = 30 * 60 * 1000;
-let vendorCache = null; // { rows, ts }
-
 // YYYY-MM-DD guard for the optional date floor (prevents SQL injection in q.where).
 function safeIsoDate(s) {
     return typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
@@ -31,18 +27,15 @@ function safeIsoDate(s) {
 /**
  * GET /api/vendors
  * Returns the full vendor master so the formatter can match BoA descriptions
- * against the Payee column. ~457 rows = one page.
+ * against the Payee column. ~457 rows = one page. NOT cached — the list is tiny and
+ * the formatter reads it once per run, so a cache only delays newly-added vendors.
  */
 router.get('/vendors', async (req, res) => {
     try {
-        if (vendorCache && Date.now() - vendorCache.ts < VENDOR_CACHE_TTL_MS) {
-            return res.json({ success: true, count: vendorCache.rows.length, vendors: vendorCache.rows, cached: true });
-        }
         const rows = await fetchAllCaspioPages(`/tables/${TABLE_VENDORS}/records`, {
             'q.select': 'ID_Vendor,VendorName,Payee',
             'q.limit': 1000
         });
-        vendorCache = { rows, ts: Date.now() };
         res.json({ success: true, count: rows.length, vendors: rows });
     } catch (error) {
         console.error('Error fetching vendors:', error.message);
