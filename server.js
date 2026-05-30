@@ -416,6 +416,11 @@ const supacolorJobsRoutes = require('./src/routes/supacolor-jobs');
 app.use('/api', supacolorJobsRoutes);
 console.log('✓ Supacolor Jobs routes loaded');
 
+// Credit-Card Reconciliation Lookups (Atmos card formatter: vendors, POs, supacolor PO index)
+const creditCardLookupRoutes = require('./src/routes/creditcard-lookups');
+app.use('/api', creditCardLookupRoutes);
+console.log('✓ Credit-Card Lookup routes loaded');
+
 // EMB Design Files Routes (parsed EMB metadata + colorways)
 const embDesignRoutes = require('./src/routes/emb-design-routes');
 app.use('/api', embDesignRoutes);
