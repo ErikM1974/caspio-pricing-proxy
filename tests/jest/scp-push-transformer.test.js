@@ -206,3 +206,25 @@ describe('SCP push transformer — shipping address', () => {
     expect(ship.ShipCity).toBe('');
   });
 });
+
+describe('SCP push transformer — design attachment', () => {
+  test('new design with uploaded artwork uses DesignName (not `name`) so it lands in SW', () => {
+    // ManageOrders reads the design name under `DesignName` (proven by
+    // push-client.js transformDesigns:446). Emitting `name` made it land BLANK
+    // in ShopWorks — confirmed live on EMB-TEST-2026-9001 (2026-06-01).
+    const session = baseSession({
+      Notes: JSON.stringify({
+        frontLocation: 'Full Front', frontColors: 2, isDarkGarment: true, setupFeeTotal: 90,
+        newDesignName: 'ACME Logo',
+        referenceArtwork: [
+          { hostedUrl: 'https://example.com/logo.png', placement: 'Front', fileName: 'logo.png' },
+        ],
+      }),
+    });
+    const order = transformQuoteToOrder(session, [garment()], { isTest: true });
+    expect(order.Designs).toHaveLength(1);
+    expect(order.Designs[0].DesignName).toBe('ACME Logo'); // the fix
+    expect(order.Designs[0].name).toBeUndefined();          // old (ignored) key gone
+    expect(order.Designs[0].Locations[0].ImageURL).toBe('https://example.com/logo.png');
+  });
+});
