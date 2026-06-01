@@ -223,8 +223,16 @@ describe('SCP push transformer — design attachment', () => {
     });
     const order = transformQuoteToOrder(session, [garment()], { isTest: true });
     expect(order.Designs).toHaveLength(1);
-    expect(order.Designs[0].DesignName).toBe('ACME Logo'); // the fix
-    expect(order.Designs[0].name).toBeUndefined();          // old (ignored) key gone
-    expect(order.Designs[0].Locations[0].ImageURL).toBe('https://example.com/logo.png');
+    const d = order.Designs[0];
+    expect(d.DesignName).toBe('ACME Logo'); // the fix
+    expect(d.name).toBeUndefined();          // old (ignored) key gone
+    expect(d.Locations[0].ImageURL).toBe('https://example.com/logo.png');
+
+    // Enrichment (2026-06-01): ink colors + a stable ExtDesignID that the
+    // garment lines reference, so the design and lines link in ShopWorks.
+    expect(d.Locations[0].TotalColors).toBe('2'); // 2 front + 0 back
+    expect(d.ExtDesignID).toBe('G-1');            // QuoteID SPC-0101-1 → seq 1
+    const garmentLine = order.LinesOE.find((l) => l.PartNumber.startsWith('PC54'));
+    expect(garmentLine.ExtDesignIDBlock).toBe(d.ExtDesignID); // line → design link
   });
 });
