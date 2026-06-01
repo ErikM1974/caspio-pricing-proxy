@@ -164,8 +164,17 @@ router.get('/quote_items', async (req, res) => {
   try {
     let whereConditions = [];
     
-    if (req.query.quoteID) {
-      whereConditions.push(`QuoteID='${req.query.quoteID}'`);
+    // Accept both `quoteID` (camelCase) and `QuoteID` (PascalCase). The quote
+    // builders send PascalCase, which silently bypassed this filter and returned
+    // ALL items — making the builders' loadQuote() load the WRONG quote. Also
+    // sanitize (was raw-interpolated → SQL-injection risk). (2026-06-01)
+    const qItemId = req.query.quoteID || req.query.QuoteID;
+    if (qItemId) {
+      const sanitizedItemQuoteID = sanitizeQuoteID(qItemId);
+      if (!sanitizedItemQuoteID) {
+        return res.status(400).json({ error: 'Invalid QuoteID format' });
+      }
+      whereConditions.push(`QuoteID='${sanitizedItemQuoteID}'`);
     }
     if (req.query.styleNumber) {
       whereConditions.push(`StyleNumber='${req.query.styleNumber}'`);
@@ -328,9 +337,13 @@ router.get('/quote_sessions', async (req, res) => {
       }
     }
 
-    // Support individual parameters (backward compatibility)
-    if (req.query.quoteID) {
-      const sanitizedQuoteID = sanitizeQuoteID(req.query.quoteID);
+    // Support individual parameters (backward compatibility). Accept both
+    // `quoteID` (camelCase) and `QuoteID` (PascalCase) — the quote builders send
+    // PascalCase, which bypassed this filter and returned ALL sessions, so
+    // loadQuote() picked sessions[0] (the WRONG quote). (2026-06-01)
+    const qSessId = req.query.quoteID || req.query.QuoteID;
+    if (qSessId) {
+      const sanitizedQuoteID = sanitizeQuoteID(qSessId);
       if (!sanitizedQuoteID) {
         return res.status(400).json({
           error: 'Invalid quoteID parameter',
