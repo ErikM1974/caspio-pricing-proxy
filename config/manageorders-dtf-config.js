@@ -36,6 +36,8 @@ const {
   getSalesRepName,
   formatDateForAPI,
   extractSequence,
+  buildExtOrderID,
+  getQuoteYear,
   ORDER_LEVEL_FEES,
 } = require('./manageorders-emb-config');
 
@@ -74,23 +76,25 @@ const DTF_ONSITE_DEFAULTS = {
 const DTF_BASE_URL = 'https://manageordersapi.com/onsite';
 
 /**
- * Generate ExtOrderID for DTF quotes.
- *
- * Format: 'DTF-<seq>' for production, 'DTF-TEST-<seq>' for test pushes.
+ * Generate ExtOrderID for DTF quotes. Delegates to the shared, year-safe
+ * buildExtOrderID. DTF quote IDs are `DTF{MMDD}-{seq}` (daily reset, no year),
+ * so the year is injected from the quote's persisted date:
+ *   'DTF0521-1' (2026) → 'DTF-2026-0521-1'  ·  test → 'DTF-TEST-2026-0521-1'
  *
  * @param {string} quoteId — Quote ID (e.g., 'DTF0521-1')
  * @param {boolean} isTest — Whether this is a test push
+ * @param {string|number} [year] — 4-digit year from getQuoteYear(session)
  * @returns {string} ExtOrderID
  */
-function generateDtfExtOrderID(quoteId, isTest = false) {
-  const seq = extractSequence(quoteId);
-  return isTest ? `DTF-TEST-${seq}` : `DTF-${seq}`;
+function generateDtfExtOrderID(quoteId, isTest = false, year) {
+  return buildExtOrderID('DTF', quoteId, isTest, year);
 }
 
 module.exports = {
   DTF_ONSITE_DEFAULTS,
   DTF_BASE_URL,
   generateDtfExtOrderID,
+  getQuoteYear,
   // Re-export shared utilities so the transformer + route only need this file
   translateSize,
   SIZE_MAPPING,

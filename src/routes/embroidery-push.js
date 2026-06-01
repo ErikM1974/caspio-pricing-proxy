@@ -88,6 +88,33 @@ router.post('/embroidery-push/push-quote', express.json(), async (req, res) => {
     const orderJson = transformQuoteToOrder(session, items, { isTest });
     console.log(`[EMB Push] Transformed to ExtOrderID: ${orderJson.ExtOrderID} with ${orderJson.LinesOE.length} line items`);
 
+    // 5a. Guard: never push an empty order. Zero line items means the
+    //     transformer recognized no products/fees — fix the quote, don't push.
+    //     (Parity with the scp-push / dtf-push guards.)
+    if (orderJson.LinesOE.length === 0) {
+      return res.status(400).json({
+        error: 'Transform produced zero line items',
+        details: 'Quote has no embroidery products. Add a product before pushing.',
+        quoteId,
+      });
+    }
+
+    // 5b. Guard: a GARMENT line (one with a Size) priced at $0 is a pricing bug —
+    //     block it so we never push a free order. Service/fee lines are
+    //     deliberately NOT checked here: the AS-Garm / AS-CAP primary stitch
+    //     surcharge is a flat $0/$4/$10 tier and legitimately emits a $0 line at
+    //     the base tier, so the broad scp/dtf "$0 line" check would false-block EMB.
+    const zeroPricedGarment = orderJson.LinesOE.find(
+      (l) => String(l.Size || '').trim() !== '' && Number(l.Price) <= 0 && Number(l.Qty) > 0
+    );
+    if (zeroPricedGarment) {
+      return res.status(400).json({
+        error: '$0 garment line',
+        details: `Line ${zeroPricedGarment.PartNumber} (${zeroPricedGarment.Size} × ${zeroPricedGarment.Qty}) has no price. Fix the quote before pushing.`,
+        quoteId,
+      });
+    }
+
     // 6. Authenticate against /embroidery endpoint
     const token = await getTokenForEndpoint(EMB_BASE_URL);
 

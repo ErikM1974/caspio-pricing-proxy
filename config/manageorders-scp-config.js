@@ -33,6 +33,8 @@ const {
   getSalesRepName,
   formatDateForAPI,
   extractSequence,
+  buildExtOrderID,
+  getQuoteYear,
   ORDER_LEVEL_FEES,
 } = require('./manageorders-emb-config');
 
@@ -72,22 +74,25 @@ const SCP_ONSITE_DEFAULTS = {
 const SCP_BASE_URL = 'https://manageordersapi.com/onsite';
 
 /**
- * Generate ExtOrderID for SCP quotes.
- * Format: 'SCP-<seq>' for production, 'SCP-TEST-<seq>' for test pushes.
+ * Generate ExtOrderID for SCP quotes. Delegates to the shared, year-safe
+ * buildExtOrderID. SCP quote IDs are `SP{MMDD}-{seq}` (daily reset, no year), so
+ * the year is injected from the quote's persisted date:
+ *   'SP0601-1' (2026) → 'SCP-2026-0601-1'  ·  test → 'SCP-TEST-2026-0601-1'
  *
- * @param {string} quoteId — Quote ID (e.g., 'SPC-1748022123456' or 'SPC-2026-001')
+ * @param {string} quoteId — Quote ID (e.g., 'SP0601-1')
  * @param {boolean} isTest — Whether this is a test push
+ * @param {string|number} [year] — 4-digit year from getQuoteYear(session)
  * @returns {string} ExtOrderID
  */
-function generateScpExtOrderID(quoteId, isTest = false) {
-  const seq = extractSequence(quoteId);
-  return isTest ? `SCP-TEST-${seq}` : `SCP-${seq}`;
+function generateScpExtOrderID(quoteId, isTest = false, year) {
+  return buildExtOrderID('SCP', quoteId, isTest, year);
 }
 
 module.exports = {
   SCP_ONSITE_DEFAULTS,
   SCP_BASE_URL,
   generateScpExtOrderID,
+  getQuoteYear,
   // Re-export shared utilities
   translateSize,
   SIZE_MAPPING,

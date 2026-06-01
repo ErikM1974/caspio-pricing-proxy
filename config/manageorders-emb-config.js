@@ -184,21 +184,65 @@ function extractSequence(quoteId) {
 }
 
 /**
- * Generate ExtOrderID for embroidery quotes
+ * Derive the 4-digit year for an ExtOrderID from a quote's STABLE persisted
+ * date, so a re-push in a later year doesn't change the ID. Falls back to the
+ * current year when no date is available.
+ *
+ * @param {Object} session - quote_sessions record
+ * @returns {string} 4-digit year (e.g., '2026')
+ */
+function getQuoteYear(session = {}) {
+  const raw = session.DateOrderPlaced || session.CreatedAt_Quote || session.CreatedAt || '';
+  const m = String(raw).match(/(20\d\d)/);
+  return m ? m[1] : String(new Date().getFullYear());
+}
+
+/**
+ * Build a year-safe ExtOrderID from a quote ID. Single source of truth for all
+ * three push methods so they can't drift.
+ *
+ * Quote IDs come in two shapes:
+ *   - EMB:     `EMB-2026-177`            (Prefix-YEAR-seq — year already embedded)
+ *   - SCP/DTF: `SP0601-1` / `DTF0601-1`  (Prefix+MMDD-seq — NO year, DAILY reset)
+ *
+ * Using only the trailing sequence (the old extractSequence approach) is unsafe:
+ * it collides DAILY for SCP/DTF (`SP0601-1` and `SP0602-1` both reduce to `-1`)
+ * and annually for EMB. This keeps the full distinguishing tail and guarantees a
+ * 20xx year leads it, so ExtOrderIDs stay globally unique.
+ *
+ * @param {string} outPrefix - ExtOrderID prefix ('EMB' | 'SCP' | 'DTF')
+ * @param {string} quoteId   - Source quote ID
+ * @param {boolean} isTest   - Prefix the core with TEST-
+ * @param {string|number} [year] - 4-digit year (from getQuoteYear); only used
+ *                                  when the quote ID has no embedded 20xx year
+ * @returns {string} ExtOrderID
+ */
+function buildExtOrderID(outPrefix, quoteId, isTest = false, year) {
+  const raw = String(quoteId || '').trim();
+  // Strip the leading alpha prefix (+ an optional following hyphen):
+  //   'EMB-2026-177' → '2026-177' · 'SP0601-1' → '0601-1' · 'DTF0601-1' → '0601-1'
+  let tail = raw.replace(/^[A-Za-z]+-?/, '') || '0';
+  // Ensure a real 20xx year leads the tail. EMB tails already do (2026-…);
+  // SCP/DTF MMDD tails (0601-…) do not — prepend the quote's year so a daily
+  // sequence like `0601-1` can't collide with another day's `0602-1` → `-1`.
+  if (!/^20\d\d(\D|$)/.test(tail)) {
+    tail = `${year || new Date().getFullYear()}-${tail}`;
+  }
+  const core = isTest ? `TEST-${tail}` : tail;
+  return `${outPrefix}-${core}`;
+}
+
+/**
+ * Generate ExtOrderID for embroidery quotes. Delegates to the shared
+ * buildExtOrderID; EMB quote IDs already embed the year (`EMB-2026-177`), so the
+ * output is unchanged.
  *
  * @param {string} quoteId - Quote ID (e.g., 'EMB-2026-177')
  * @param {boolean} isTest - Whether this is a test push
- * @returns {string} ExtOrderID (e.g., 'EMB-177' or 'EMB-TEST-177')
+ * @returns {string} ExtOrderID (e.g., 'EMB-2026-177')
  */
 function generateEmbExtOrderID(quoteId, isTest = false) {
-  // Include the YEAR + sequence so ExtOrderIDs stay unique across years.
-  // Quote sequences reset to 1 every year (quote-sequence route is keyed on
-  // Prefix + Year), so "EMB-{seq}" alone collides annually — e.g. EMB-2025-177
-  // and EMB-2026-177 would both become "EMB-177". Use the full year-sequence
-  // tail from the QuoteID instead: "EMB-2026-177" -> "EMB-2026-177".
-  const parts = String(quoteId || '').split('-');
-  const core = parts.length > 1 ? parts.slice(1).join('-') : extractSequence(quoteId);
-  return isTest ? `EMB-TEST-${core}` : `EMB-${core}`;
+  return buildExtOrderID('EMB', quoteId, isTest);
 }
 
 /**
@@ -243,6 +287,8 @@ module.exports = {
   TAX_ACCOUNT_LOOKUP,
   getTaxAccount,
   extractSequence,
+  buildExtOrderID,
+  getQuoteYear,
   generateEmbExtOrderID,
   getSalesRepName,
   formatDateForAPI,

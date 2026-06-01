@@ -131,11 +131,20 @@ describe('SCP push transformer — order total integrity', () => {
 });
 
 describe('SCP push transformer — notes & tax', () => {
+  test('order-level notes use the API-recognized `Notes` key, not `NotesOnOrders`', () => {
+    // ManageOrders /onsite/order-push reads order notes under `Notes` (see
+    // manageorders-push-client.js:241 + the EMB transformer). A `NotesOnOrders`
+    // key is silently dropped — this guard stops it from regressing.
+    const order = transformQuoteToOrder(baseSession(), [garment()], { isTest: true });
+    expect(Array.isArray(order.Notes)).toBe(true);
+    expect(order.NotesOnOrders).toBeUndefined();
+  });
+
   test('every note carries a valid OnSite note Type (no undefined .Order typos)', () => {
     const session = baseSession({ ArtCharge: 50 });
     const order = transformQuoteToOrder(session, [garment()], { isTest: true });
-    expect(order.NotesOnOrders.length).toBeGreaterThan(0);
-    order.NotesOnOrders.forEach((n) => {
+    expect(order.Notes.length).toBeGreaterThan(0);
+    order.Notes.forEach((n) => {
       expect(VALID_NOTE_TYPES).toContain(n.Type);
     });
   });
@@ -143,7 +152,7 @@ describe('SCP push transformer — notes & tax', () => {
   test('tax note shows the rate as a real percentage (TaxRate stored as 10.1, not 1010%)', () => {
     const session = baseSession();
     const order = transformQuoteToOrder(session, [garment()], { isTest: true });
-    const taxNote = order.NotesOnOrders.find((n) => /Sales tax/.test(n.Note));
+    const taxNote = order.Notes.find((n) => /Sales tax/.test(n.Note));
     expect(taxNote).toBeTruthy();
     expect(taxNote.Note).toMatch(/10\.10%/);
     expect(taxNote.Note).not.toMatch(/1010/);
@@ -151,7 +160,7 @@ describe('SCP push transformer — notes & tax', () => {
 
   test('a decimal TaxRate (0.101) is also handled correctly', () => {
     const order = transformQuoteToOrder(baseSession({ TaxRate: 0.101 }), [garment()], { isTest: true });
-    const taxNote = order.NotesOnOrders.find((n) => /Sales tax/.test(n.Note));
+    const taxNote = order.Notes.find((n) => /Sales tax/.test(n.Note));
     expect(taxNote.Note).toMatch(/10\.10%/);
   });
 
@@ -164,5 +173,36 @@ describe('SCP push transformer — notes & tax', () => {
   test('order carries the verified Screen Print order type 13 (not embroidery 21)', () => {
     const order = transformQuoteToOrder(baseSession(), [garment()], { isTest: true });
     expect(order.id_OrderType).toBe(13);
+  });
+});
+
+describe('SCP push transformer — shipping address', () => {
+  test('ship-to populates the OnSite ShipAddress01/ShipCity fields from ShipToAddress columns', () => {
+    const session = baseSession({
+      ShipToAddress: '2025 Freeman Rd E', ShipToCity: 'Milton',
+      ShipToState: 'WA', ShipToZip: '98354', ShipMethod: 'UPS Ground',
+    });
+    const order = transformQuoteToOrder(session, [garment()], { isTest: true });
+    const ship = order.ShippingAddresses[0];
+
+    // Correct API schema (NOT the old Address/City/State/Zip keys)
+    expect(ship.ShipAddress01).toBe('2025 Freeman Rd E');
+    expect(ship.ShipCity).toBe('Milton');
+    expect(ship.ShipState).toBe('WA');
+    expect(ship.ShipZip).toBe('98354');
+    expect(ship.ShipMethod).toBe('UPS Ground');
+    expect(ship.ShipCompany).toBe('Acme Co');
+    expect(ship.ExtShipID).toBe('SHIP-1');
+    // Old broken keys must be gone
+    expect(ship.Address).toBeUndefined();
+    expect(ship.City).toBeUndefined();
+  });
+
+  test('no address → Customer Pickup with blank address fields (no crash)', () => {
+    const order = transformQuoteToOrder(baseSession(), [garment()], { isTest: true });
+    const ship = order.ShippingAddresses[0];
+    expect(ship.ShipMethod).toBe('Customer Pickup');
+    expect(ship.ShipAddress01).toBe('');
+    expect(ship.ShipCity).toBe('');
   });
 });
