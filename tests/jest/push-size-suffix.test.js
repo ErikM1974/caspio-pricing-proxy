@@ -77,3 +77,46 @@ describe('Push transformers emit BASE part number (SW appends the size modifier)
     expect(garmentLines(order).some((l) => /_/.test(l.PartNumber))).toBe(false);
   });
 });
+
+/**
+ * Regression: design ExtDesignID must be GLOBALLY unique (built from the full
+ * QuoteID, not the trailing sequence). The old `G-${extractSequence(QuoteID)}`
+ * collided — same trailing number across methods/days → ShopWorks merged the
+ * designs into one (a Transfer order showed an Embroidery design). 2026-06-02.
+ */
+const designOf = (o) => (o.Designs || [])[0] || {};
+const notesArt = (name) => JSON.stringify({ newDesignName: name, referenceArtwork: [{ hostedUrl: 'https://example.com/logo.png', placement: 'Front', fileName: 'logo.png' }], frontColors: 2 });
+const importArt = (name) => JSON.stringify({ importNotes: [], newDesignName: name, referenceArtwork: [{ hostedUrl: 'https://example.com/logo.png', placement: 'Left Chest', fileName: 'logo.png' }] });
+
+describe('Push design ExtDesignID is globally unique (full QuoteID, not trailing seq)', () => {
+  test('SCP: ExtDesignID = G-<QuoteID> and garment lines link to it', () => {
+    const o = scp.transformQuoteToOrder(baseSession({ QuoteID: 'SP0602-9402', Notes: notesArt('SCP Logo') }), [
+      { EmbellishmentType: 'screenprint', StyleNumber: 'PC54', Color: 'Navy', ProductName: 'Tee', SizeBreakdown: '{"S":12}', FinalUnitPrice: 10, LineNumber: 1 },
+    ]);
+    expect(designOf(o).ExtDesignID).toBe('G-SP0602-9402');
+    expect((o.LinesOE || []).find((l) => l.Size === 'S').ExtDesignIDBlock).toBe('G-SP0602-9402');
+  });
+
+  test('DTF: same trailing seq, different QuoteID → DIFFERENT design ids (the bug)', () => {
+    const mk = (qid) => dtf.transformQuoteToOrder(baseSession({ QuoteID: qid, Notes: notesArt('DTF Logo') }), [
+      { EmbellishmentType: 'dtf', StyleNumber: '29M', Color: 'Black', ProductName: 'Tee', SizeBreakdown: '{"S":5}', FinalUnitPrice: 12, LineNumber: 1 },
+    ]);
+    const a = designOf(mk('DTF0601-5')).ExtDesignID;
+    const b = designOf(mk('DTF0602-5')).ExtDesignID;
+    expect(a).toBe('G-DTF0601-5');
+    expect(b).toBe('G-DTF0602-5');
+    expect(a).not.toBe(b); // used to both be 'G-5' → merged in ShopWorks
+  });
+
+  test('cross-method: SCP + EMB with the same trailing 9402 get different design ids', () => {
+    const s = scp.transformQuoteToOrder(baseSession({ QuoteID: 'SP0602-9402', Notes: notesArt('S') }), [
+      { EmbellishmentType: 'screenprint', StyleNumber: 'PC54', Color: 'Navy', ProductName: 'Tee', SizeBreakdown: '{"S":5}', FinalUnitPrice: 10, LineNumber: 1 },
+    ]);
+    const e = emb.transformQuoteToOrder(baseSession({ QuoteID: 'EMB-2026-9402', StitchCount: 8000, ImportNotes: importArt('E') }), [
+      { EmbellishmentType: 'embroidery', StyleNumber: 'PC61', Color: 'Black', ProductName: 'Tee', SizeBreakdown: '{"L":6}', FinalUnitPrice: 18, LineNumber: 1 },
+    ]);
+    expect(designOf(s).ExtDesignID).toBe('G-SP0602-9402');
+    expect(designOf(e).ExtDesignID).toBe('G-EMB-2026-9402');
+    expect(designOf(s).ExtDesignID).not.toBe(designOf(e).ExtDesignID);
+  });
+});
