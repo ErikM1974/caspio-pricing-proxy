@@ -137,3 +137,28 @@ describe('SCP routes print specs to Notes To Production (press floor)', () => {
     expect(prod.Note).toMatch(/white underbase required/);
   });
 });
+
+describe('Sales-tax note: DTG-style, account-accurate (2200.101 for 10.1%, 2202 out-of-state)', () => {
+  const orderNotes = (o) => (o.Notes || []).filter((n) => n.Type === 'Notes On Order').map((n) => n.Note);
+
+  test('SCP 10.1% WA pickup → account 2200.101 + full breakdown', () => {
+    const o = scp.transformQuoteToOrder(baseSession({
+      QuoteID: 'SP-TAX', TaxRate: 10.1, TaxAmount: 55.75, SubtotalAmount: 552,
+      ShipMethod: 'Customer Pickup', ShipToState: 'WA', Notes: notesArt('X'),
+    }), [{ EmbellishmentType: 'screenprint', StyleNumber: 'PC54', Color: 'Navy', ProductName: 'Tee', SizeBreakdown: '{"S":12}', FinalUnitPrice: 10, LineNumber: 1 }]);
+    const n = orderNotes(o);
+    expect(n).toContain('Subtotal: $552.00');
+    expect(n.some((x) => /Tax Account: 2200\.101 —/.test(x))).toBe(true);
+    expect(n).toContain('Apply Tax: Manually in ShopWorks');
+  });
+
+  test('DTF out-of-state (OR) → 2202, do not apply', () => {
+    const o = dtf.transformQuoteToOrder(baseSession({
+      QuoteID: 'DTF-OOS', TaxRate: 0, TaxAmount: 0, SubtotalAmount: 300,
+      ShipToState: 'OR', ShipMethod: 'UPS Ground', Notes: notesArt('X'),
+    }), [{ EmbellishmentType: 'dtf', StyleNumber: '29M', Color: 'Black', ProductName: 'Tee', SizeBreakdown: '{"S":10}', FinalUnitPrice: 12, LineNumber: 1 }]);
+    const n = orderNotes(o);
+    expect(n.some((x) => /2202/.test(x))).toBe(true);
+    expect(n.some((x) => /DO NOT APPLY \(out of state\)/.test(x))).toBe(true);
+  });
+});

@@ -119,7 +119,7 @@ const TAX_ACCOUNT_LOOKUP = {
   9.8: '2200.98',
   9.9: '2200.99',
   10.0: '2200.100',
-  10.1: '2200',
+  10.1: '2200.101',
   10.2: '2200.102',
   10.25: '2200.302',
   10.3: '2200.103',
@@ -145,7 +145,7 @@ function getTaxAccount(taxRate, shipState) {
 
   // No tax rate and no state → default to customer pickup (WA 10.1%)
   if (!taxRate && !shipState) {
-    return { accountCode: '2200', description: 'Customer Pickup - Milton, WA 10.1%' };
+    return { accountCode: '2200.101', description: 'Customer Pickup - Milton, WA 10.1%' };
   }
 
   // Convert decimal to percentage for lookup (0.101 → 10.1)
@@ -158,9 +158,9 @@ function getTaxAccount(taxRate, shipState) {
     };
   }
 
-  // Fallback: if rate is ~10.1% (within 0.1%), use default 2200
+  // Fallback: if rate is ~10.1% (within 0.1%), use the Milton/WA 10.1% account
   if (Math.abs(taxPct - 10.1) < 0.1) {
-    return { accountCode: '2200', description: `WA Sales Tax ${taxPct}% (default)` };
+    return { accountCode: '2200.101', description: `WA Sales Tax ${taxPct}%` };
   }
 
   // Unknown rate — flag for manual review
@@ -277,8 +277,55 @@ function formatDateForAPI(dateStr) {
   }
 }
 
+/**
+ * Build the Notes-On-Order sales-tax block, one fact per line, mirroring the
+ * order-form/DTG style Erik prefers. Returns an ARRAY of strings (each becomes
+ * its own row in ShopWorks's Notes On Order tab). Shared by EMB/SCP/DTF so all
+ * four push paths read identically. Added 2026-06-02.
+ *
+ * @param {Object} p
+ * @param {number} p.subtotal   pre-tax subtotal
+ * @param {number} p.taxRate    rate as a DECIMAL (0.101)
+ * @param {number} p.taxAmount  computed tax amount
+ * @param {string} p.accountCode  GL account from getTaxAccount (e.g. '2200.101')
+ * @param {string} p.accountDesc  account description
+ * @param {string} p.shipState    ship-to state (out-of-state → no tax / 2202)
+ * @param {string} p.shipMethod   ship method (pickup → flat Milton rate)
+ * @returns {string[]}
+ */
+function buildSalesTaxNote({ subtotal = 0, taxRate = 0, taxAmount = 0, accountCode = '', accountDesc = '', shipState = '', shipMethod = '' } = {}) {
+  const sub = Number(subtotal) || 0;
+  const rate = Number(taxRate) || 0;
+  const amt = Number(taxAmount) || 0;
+  const ratePct = rate > 0 ? (rate * 100).toFixed(2) : null;
+  const isPickup = /pickup|will[\s-]?call/i.test(String(shipMethod || ''));
+  const st = String(shipState || '').toUpperCase();
+  const isOutOfState = st && st !== 'WA' && !isPickup;
+
+  const lines = [`Subtotal: $${sub.toFixed(2)}`];
+  if (isOutOfState) {
+    lines.push('Tax: DO NOT APPLY (out of state)');
+    lines.push(`State: ${st}`);
+    lines.push('Tax Account: 2202 — Out of State Sales');
+    lines.push(`Total: $${sub.toFixed(2)} (no tax)`);
+    return lines;
+  }
+  if (ratePct && accountCode) {
+    lines.push(`Tax Rate: ${ratePct}% (${isPickup ? 'Milton pickup — flat' : 'WA destination'})`);
+    lines.push(`Tax Amount: $${amt.toFixed(2)}`);
+    lines.push(`Total with Tax: $${(sub + amt).toFixed(2)}`);
+    lines.push(`Tax Account: ${accountCode} — ${accountDesc || ratePct + '%'}`);
+    lines.push('Apply Tax: Manually in ShopWorks');
+  } else {
+    lines.push('Tax: NEEDS REVIEW');
+    lines.push('Rep: Confirm destination + apply correct WA rate before invoicing');
+  }
+  return lines;
+}
+
 module.exports = {
   EMB_ONSITE_DEFAULTS,
+  buildSalesTaxNote,
   EMB_BASE_URL,
   SALES_REP_MAP,
   ORDER_LEVEL_FEES,
