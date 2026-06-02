@@ -120,3 +120,20 @@ describe('Push design ExtDesignID is globally unique (full QuoteID, not trailing
     expect(designOf(s).ExtDesignID).not.toBe(designOf(e).ExtDesignID);
   });
 });
+
+describe('SCP routes print specs to Notes To Production (press floor)', () => {
+  test('production note carries locations, colors per side, screens incl. underbase', () => {
+    const o = scp.transformQuoteToOrder(baseSession({
+      QuoteID: 'SP0602-PROD',
+      Notes: JSON.stringify({ frontLocation: 'Full Front', frontColors: 3, backLocation: 'Full Back', backColors: 2, isDarkGarment: true, newDesignName: 'X', referenceArtwork: [{ hostedUrl: 'https://x/l.png', placement: 'Full Front' }] }),
+    }), [
+      { EmbellishmentType: 'screenprint', StyleNumber: 'PC61', Color: 'Black', ProductName: 'Tee', SizeBreakdown: '{"S":12}', FinalUnitPrice: 14, LineNumber: 1 },
+    ]);
+    const prod = (o.Notes || []).find((n) => n.Type === 'Notes To Production');
+    expect(prod).toBeTruthy();
+    expect(prod.Note).toMatch(/Front: Full Front — 3 colors/);
+    expect(prod.Note).toMatch(/Back: Full Back — 2 colors/);
+    expect(prod.Note).toMatch(/Screens to burn: 7 \(3 front \+ 2 back \+ 2 white underbase\)/);
+    expect(prod.Note).toMatch(/white underbase required/);
+  });
+});
