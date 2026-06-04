@@ -18,8 +18,17 @@
  */
 const express = require('express');
 const router = express.Router();
+const { fetchAllCaspioPages } = require('../utils/caspio');
 
 const ORIGIN_ZIP = '98354'; // NWCA, Milton WA
+
+// Default OUTBOUND pieces-per-box by category — data-backed (real SanMar inbound cartons,
+// 2026-06-04 sample, with a decorated-bulk shave). Overridable WITHOUT a deploy via the
+// Caspio `Box_Density_Reference` table (columns: Category, PiecesPerBox) — Erik's "config
+// lives in Caspio" rule. Import data/box-density-reference.csv to create/seed that table.
+const BOX_DENSITY_DEFAULTS = {
+  Cap: 60, 'T-Shirt': 58, Polo: 36, Sweatshirt: 16, Hoodie: 16, Jacket: 17, Outerwear: 15,
+};
 
 // Coarse destination-ZIP-prefix → UPS zone (origin 983). Continental US = zones 2-8.
 // Replace with the real per-origin zone chart for accuracy.
@@ -85,6 +94,31 @@ router.post('/shipping/estimate-ups-ground', (req, res) => {
     console.error('[shipping/estimate-ups-ground]', err);
     return res.status(500).json({ error: 'Failed to compute shipping estimate' });
   }
+});
+
+/**
+ * GET /api/shipping/box-density
+ *   Category → outbound pieces-per-box, read from the Caspio `Box_Density_Reference` table
+ *   when it exists (so Erik can tune it without a deploy), else the data-backed defaults.
+ *   The freight estimator uses this to count boxes. (2026-06-04)
+ */
+router.get('/shipping/box-density', async (req, res) => {
+  try {
+    const rows = await fetchAllCaspioPages('/tables/Box_Density_Reference/records', {});
+    if (Array.isArray(rows) && rows.length) {
+      const density = { ...BOX_DENSITY_DEFAULTS };
+      rows.forEach((r) => {
+        const cat = r.Category || r.category;
+        const ppb = parseFloat(r.PiecesPerBox || r.piecesPerBox);
+        if (cat && ppb > 0) density[cat] = ppb;
+      });
+      return res.json({ source: 'caspio', density });
+    }
+  } catch (e) {
+    // Table not created yet / read error → fall back to the data-backed defaults.
+    console.warn('[box-density] Caspio table unavailable, using defaults:', e.message);
+  }
+  return res.json({ source: 'default', density: BOX_DENSITY_DEFAULTS });
 });
 
 module.exports = router;
