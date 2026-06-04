@@ -274,6 +274,11 @@ const inventoryRoutes = require('./src/routes/inventory');
 app.use('/api', inventoryRoutes);
 console.log('✓ Inventory routes loaded');
 
+// Shipping estimate routes (UPS Ground prepay estimate) — 2026-06-04
+const shippingRoutes = require('./src/routes/shipping');
+app.use('/api', shippingRoutes);
+console.log('✓ Shipping routes loaded');
+
 // Products Routes
 const productRoutes = require('./src/routes/products');
 app.use('/api', productRoutes);
