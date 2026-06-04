@@ -69,6 +69,7 @@ const KNOWN_FEE_PNS = new Set([
   'AL-CAP', 'DECG-FB', '3D-EMB', 'GRT-50', 'GRT-75',
   'SPRESET', 'SPSU',
   'Laser Patch', 'SECC',
+  'CB', 'CS',  // Cap Back / Cap Side embroidery (legacy/imported; new builder uses AL-CAP) — 2026-06-04
 ]);
 
 /**
