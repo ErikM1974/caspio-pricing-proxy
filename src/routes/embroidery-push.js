@@ -62,6 +62,21 @@ router.post('/embroidery-push/push-quote', express.json(), async (req, res) => {
     }
     const session = sessions[0];
 
+    // 2a. Guard: a REAL (non-test) push must carry a Customer #. Without it the transformer
+    //     silently routes the order to the embroidery catch-all customer 3739 — a wrong-account
+    //     order. The frontend gates on this, but a force re-push or direct API call can bypass
+    //     that, so backstop it here. Test pushes intentionally use 3739. (2026-06-04 audit)
+    if (!isTest) {
+      const custNo = parseInt(session.CustomerNumber, 10);
+      if (!custNo) {
+        return res.status(400).json({
+          error: 'Customer # required',
+          details: 'This quote has no ShopWorks Customer #. Set it before pushing — otherwise the order would land on the catch-all customer 3739.',
+          quoteId,
+        });
+      }
+    }
+
     // 3. Check duplicate push
     if (session.PushedToShopWorks && !force) {
       return res.status(409).json({
