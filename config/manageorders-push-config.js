@@ -28,6 +28,12 @@ const ONSITE_DEFAULTS = {
   // Source identification
   ExtSource: 'NWCA',              // Source identifier for this API
   ExtCustomerPref: 'NWCA',        // Prefix for external customer IDs
+
+  // APISource: the value the OnSite "Manage Orders" integration filters imports on.
+  // That integration imports ONLY orders whose APISource matches it exactly, so we
+  // stamp it on every push (EMB/SCP/DTF/3-Day Tees/Order Form) to route them all
+  // through the one integration. (Erik 2026-06-04 — "ManageOrders" on everything.)
+  APISource: 'ManageOrders',
 };
 
 /**
