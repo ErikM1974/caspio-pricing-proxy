@@ -40,6 +40,7 @@ router.post('/scp-push/push-quote', express.json(), async (req, res) => {
 
     const sessions = await fetchAllCaspioPages('/tables/Quote_Sessions/records', {
       'q.where': `QuoteID='${quoteId}'`,
+      'q.orderBy': 'PK_ID DESC',  // newest save first — duplicate QuoteID rows must NOT push stale totals (Erik 2026-06-05)
     });
     if (!sessions || sessions.length === 0) {
       return res.status(404).json({ error: `Quote ${quoteId} not found` });
@@ -153,6 +154,7 @@ router.get('/scp-push/preview/:quoteId', async (req, res) => {
 
     const sessions = await fetchAllCaspioPages('/tables/Quote_Sessions/records', {
       'q.where': `QuoteID='${quoteId}'`,
+      'q.orderBy': 'PK_ID DESC',  // newest save first — duplicate QuoteID rows must NOT push stale totals (Erik 2026-06-05)
     });
     if (!sessions || sessions.length === 0) {
       return res.status(404).json({ error: `Quote ${quoteId} not found` });

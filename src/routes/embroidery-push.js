@@ -55,11 +55,13 @@ router.post('/embroidery-push/push-quote', express.json(), async (req, res) => {
     console.log(`[EMB Push] Fetching session for ${quoteId}...`);
     const sessions = await fetchAllCaspioPages('/tables/Quote_Sessions/records', {
       'q.where': `QuoteID='${quoteId}'`,
+      'q.orderBy': 'PK_ID DESC',  // newest save first — duplicate QuoteID rows must NOT push stale totals (Erik 2026-06-05)
     });
 
     if (!sessions || sessions.length === 0) {
       return res.status(404).json({ error: `Quote ${quoteId} not found` });
     }
+    if (sessions.length > 1) console.warn(`[EMB Push] ${sessions.length} session rows for ${quoteId} — using newest PK_ID=${sessions[0].PK_ID} (Subtotal ${sessions[0].SubtotalAmount}). Possible duplicate QuoteID.`);
     const session = sessions[0];
 
     // 2a. Guard: a REAL (non-test) push must carry a Customer #. Without it the transformer
@@ -291,6 +293,7 @@ router.get('/embroidery-push/preview/:quoteId', async (req, res) => {
 
     const sessions = await fetchAllCaspioPages('/tables/Quote_Sessions/records', {
       'q.where': `QuoteID='${quoteId}'`,
+      'q.orderBy': 'PK_ID DESC',  // newest save first — duplicate QuoteID rows must NOT push stale totals (Erik 2026-06-05)
     });
 
     if (!sessions || sessions.length === 0) {
