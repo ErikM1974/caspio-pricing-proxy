@@ -465,7 +465,7 @@ router.post('/tax-rates/lookup', async (req, res) => {
             return res.json({
                 success: true,
                 rate: cached.rate,
-                taxRate: parseFloat((cached.rate * 100).toFixed(1)),
+                taxRate: parseFloat((cached.rate * 100).toFixed(2)),
                 account: account ? account.Account_Number : '2200',
                 accountName: account ? account.Account_Name : 'WA Sales Tax',
                 locationCode: cached.locationCode,
@@ -477,7 +477,7 @@ router.post('/tax-rates/lookup', async (req, res) => {
             return res.json({
                 success: true,
                 rate: cached.rate,
-                taxRate: parseFloat((cached.rate * 100).toFixed(1)),
+                taxRate: parseFloat((cached.rate * 100).toFixed(2)),
                 account: '2200',
                 accountName: 'WA Sales Tax',
                 locationCode: cached.locationCode,
@@ -513,7 +513,7 @@ router.post('/tax-rates/lookup', async (req, res) => {
             return res.json({
                 success: true,
                 rate: dorResult.rate,
-                taxRate: parseFloat((dorResult.rate * 100).toFixed(1)),
+                taxRate: parseFloat((dorResult.rate * 100).toFixed(2)),
                 account: account ? account.Account_Number : '2200',
                 accountName: account ? account.Account_Name : 'WA Sales Tax',
                 locationCode: dorResult.locationCode,
@@ -526,7 +526,7 @@ router.post('/tax-rates/lookup', async (req, res) => {
             return res.json({
                 success: true,
                 rate: dorResult.rate,
-                taxRate: parseFloat((dorResult.rate * 100).toFixed(1)),
+                taxRate: parseFloat((dorResult.rate * 100).toFixed(2)),
                 account: '2200',
                 accountName: 'WA Sales Tax',
                 locationCode: dorResult.locationCode,

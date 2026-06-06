@@ -23,6 +23,14 @@ function sanitizeEmail(email) {
   return emailRegex.test(email) ? email : null;
 }
 
+// SanMar style format: alphanumeric + _ - . (covers size-suffixed PNs like PC54_2X). Prevents
+// Caspio WHERE-clause injection when filtering Quote_Items by StyleNumber. (audit P0-2 2026-06-06)
+function sanitizeStyleNumber(style) {
+  if (!style || typeof style !== 'string') return null;
+  const sanitized = style.replace(/[^a-zA-Z0-9_\-\.]/g, '').trim();
+  return (sanitized.length > 0 && sanitized.length <= 30) ? sanitized : null;
+}
+
 function sanitizeStatus(status) {
   const validStatuses = ['active', 'pending', 'completed', 'abandoned', 'expired'];
   return validStatuses.includes(status?.toLowerCase()) ? status : null;
@@ -198,7 +206,14 @@ router.get('/quote_items', async (req, res) => {
       whereConditions.push(`QuoteID='${sanitizedItemQuoteID}'`);
     }
     if (req.query.styleNumber) {
-      whereConditions.push(`StyleNumber='${req.query.styleNumber}'`);
+      // P0-2 (audit 2026-06-06): styleNumber was raw-interpolated into the Caspio WHERE clause on a
+      // public, unauthenticated endpoint → predicate injection leaking cross-customer Quote_Items.
+      // Sanitize like QuoteID above.
+      const safeStyle = sanitizeStyleNumber(req.query.styleNumber);
+      if (!safeStyle) {
+        return res.status(400).json({ error: 'Invalid styleNumber format' });
+      }
+      whereConditions.push(`StyleNumber='${safeStyle}'`);
     }
 
     const params = {};

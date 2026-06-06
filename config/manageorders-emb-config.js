@@ -149,8 +149,10 @@ function getTaxAccount(taxRate, shipState) {
     return { accountCode: '2200.101', description: 'Customer Pickup - Milton, WA 10.1%' };
   }
 
-  // Convert decimal to percentage for lookup (0.101 → 10.1)
-  const taxPct = Math.round(taxRate * 1000) / 10;
+  // Convert decimal to percentage for lookup, 2-decimal precision (0.101 → 10.1, 0.1025 → 10.25).
+  // P1-6 (audit 2026-06-06): 1-decimal rounding made hundredth-place GL accounts (10.25/10.35) unreachable
+  // and misrouted true half-percent rates. Existing tenth/integer keys still match.
+  const taxPct = Math.round(taxRate * 10000) / 100;
 
   if (TAX_ACCOUNT_LOOKUP[taxPct]) {
     return {
