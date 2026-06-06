@@ -18,6 +18,16 @@ const config = require('../../config');
 const caspioApiBaseUrl = config.caspio.apiBaseUrl;
 const TABLE_NAME = 'EMB_Design_Files';
 
+// Validate a Caspio numeric PK before interpolating into a q.where clause. Returns the integer or null.
+// Blocks predicate injection — including a destructive `DELETE … WHERE ID=0 OR 1=1`. (audit P0-3 2026-06-06)
+function parsePkId(v) {
+    if (v == null) return null;
+    const s = String(v).trim();
+    if (!/^\d+$/.test(s)) return null;   // digits only
+    const n = parseInt(s, 10);
+    return n > 0 ? n : null;
+}
+
 // ── List EMB Design Files ────────────────────────────────────────────
 
 /**
@@ -33,7 +43,9 @@ router.get('/emb-designs', async (req, res) => {
         const whereConditions = [];
 
         if (req.query.mockupId) {
-            whereConditions.push(`Mockup_ID=${req.query.mockupId}`);
+            const mid = parsePkId(req.query.mockupId);
+            if (!mid) return res.status(400).json({ success: false, error: 'Invalid mockupId' });
+            whereConditions.push(`Mockup_ID=${mid}`);
         }
 
         if (req.query.designNumber) {
@@ -87,7 +99,8 @@ router.get('/emb-designs', async (req, res) => {
  */
 router.get('/emb-designs/by-mockup/:mockupId', async (req, res) => {
     try {
-        const { mockupId } = req.params;
+        const mockupId = parsePkId(req.params.mockupId);
+        if (!mockupId) return res.status(400).json({ success: false, error: 'Invalid mockupId' });
         const resource = `/tables/${TABLE_NAME}/records`;
         const params = {
             'q.where': `Mockup_ID=${mockupId}`,
@@ -118,7 +131,8 @@ router.get('/emb-designs/by-mockup/:mockupId', async (req, res) => {
  */
 router.get('/emb-designs/:id', async (req, res) => {
     try {
-        const { id } = req.params;
+        const id = parsePkId(req.params.id);
+        if (!id) return res.status(400).json({ success: false, error: 'Invalid id' });
         const token = await getCaspioAccessToken();
         const url = `${caspioApiBaseUrl}/tables/${TABLE_NAME}/records?q.where=ID=${id}`;
 
@@ -190,7 +204,7 @@ router.post('/emb-designs', async (req, res) => {
             // Fallback: query newest record for this mockup
             console.warn('No ID in Location header for EMB design. Header:', locationHeader);
             try {
-                const queryUrl = `${caspioApiBaseUrl}/tables/${TABLE_NAME}/records?q.where=Mockup_ID=${data.Mockup_ID}&q.orderBy=${encodeURIComponent('ID DESC')}&q.pageSize=1`;
+                const queryUrl = `${caspioApiBaseUrl}/tables/${TABLE_NAME}/records?q.where=Mockup_ID=${parsePkId(data.Mockup_ID) || 0}&q.orderBy=${encodeURIComponent('ID DESC')}&q.pageSize=1`;
                 const queryResp = await axios.get(queryUrl, {
                     headers: { 'Authorization': `Bearer ${token}` },
                     timeout: 15000
@@ -227,7 +241,8 @@ router.post('/emb-designs', async (req, res) => {
  */
 router.put('/emb-designs/:id', async (req, res) => {
     try {
-        const { id } = req.params;
+        const id = parsePkId(req.params.id);
+        if (!id) return res.status(400).json({ success: false, error: 'Invalid id' });
         const token = await getCaspioAccessToken();
         const url = `${caspioApiBaseUrl}/tables/${TABLE_NAME}/records?q.where=ID=${id}`;
 
@@ -258,10 +273,10 @@ router.put('/emb-designs/:id', async (req, res) => {
  */
 router.delete('/emb-designs/:id', async (req, res) => {
     try {
-        const { id } = req.params;
+        const id = parsePkId(req.params.id);
 
         if (!id) {
-            return res.status(400).json({ success: false, error: 'Missing required parameter: id' });
+            return res.status(400).json({ success: false, error: 'Invalid or missing id' });
         }
 
         const token = await getCaspioAccessToken();

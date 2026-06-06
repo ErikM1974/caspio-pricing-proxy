@@ -55,12 +55,29 @@ router.post('/embroidery-push/push-quote', express.json(), async (req, res) => {
     console.log(`[EMB Push] Fetching session for ${quoteId}...`);
     const sessions = await fetchAllCaspioPages('/tables/Quote_Sessions/records', {
       'q.where': `QuoteID='${quoteId}'`,
+      'q.orderBy': 'PK_ID DESC',  // newest save first — duplicate QuoteID rows must NOT push stale totals (Erik 2026-06-05)
     });
 
     if (!sessions || sessions.length === 0) {
       return res.status(404).json({ error: `Quote ${quoteId} not found` });
     }
+    if (sessions.length > 1) console.warn(`[EMB Push] ${sessions.length} session rows for ${quoteId} — using newest PK_ID=${sessions[0].PK_ID} (Subtotal ${sessions[0].SubtotalAmount}). Possible duplicate QuoteID.`);
     const session = sessions[0];
+
+    // 2a. Guard: a REAL (non-test) push must carry a Customer #. Without it the transformer
+    //     silently routes the order to the embroidery catch-all customer 3739 — a wrong-account
+    //     order. The frontend gates on this, but a force re-push or direct API call can bypass
+    //     that, so backstop it here. Test pushes intentionally use 3739. (2026-06-04 audit)
+    if (!isTest) {
+      const custNo = parseInt(session.CustomerNumber, 10);
+      if (!custNo) {
+        return res.status(400).json({
+          error: 'Customer # required',
+          details: 'This quote has no ShopWorks Customer #. Set it before pushing — otherwise the order would land on the catch-all customer 3739.',
+          quoteId,
+        });
+      }
+    }
 
     // 3. Check duplicate push
     if (session.PushedToShopWorks && !force) {
@@ -276,6 +293,7 @@ router.get('/embroidery-push/preview/:quoteId', async (req, res) => {
 
     const sessions = await fetchAllCaspioPages('/tables/Quote_Sessions/records', {
       'q.where': `QuoteID='${quoteId}'`,
+      'q.orderBy': 'PK_ID DESC',  // newest save first — duplicate QuoteID rows must NOT push stale totals (Erik 2026-06-05)
     });
 
     if (!sessions || sessions.length === 0) {

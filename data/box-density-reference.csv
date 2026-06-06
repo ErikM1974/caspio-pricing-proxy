@@ -1,0 +1,8 @@
+Category,PiecesPerBox,DecoratedFactor,FullCartonPieces,AvgWeightLb,TypicalCaseSize,DataBasis,SampleSize
+Cap,60,0.85,144,0.27,144,"SanMar case 144; light/small; observed only in mixed boxes (CP85x15, C840x10, Richardson112x10)",mixed
+T-Shirt,58,0.80,74,0.45,72,"Real full cartons 70-78 (PC55=70, 1717=60, ST700=58, CS201=55)",14
+Polo,36,0.75,48,0.60,36,"Thin sample (max box=13, all small orders); SanMar case norm 36-48",5
+Sweatshirt,16,0.80,20,1.40,24,"Real full cartons 18-20 (PC78H x4); strongest signal in dataset",8
+Hoodie,16,0.80,20,1.55,24,"Same class as Sweatshirt; fleece/heavyweight",8
+Jacket,17,0.70,24,1.70,24,"All qty-1 in 7-day sample; SanMar case norm 24 (12 for 3XL); embroidery adds the most bulk",4
+Outerwear,15,0.70,24,1.90,24,"Heaviest/bulkiest; same basis as Jacket, slightly tighter",4

@@ -179,9 +179,16 @@ async function callDorApi(addr, city, zip) {
         const locationCode = locationMatch ? locationMatch[1] : null;
         const resultCode = resultMatch ? parseInt(resultMatch[1]) : null;
 
-        // ResultCode meanings: 0 = exact match, 1 = ZIP centroid, 2 = error
-        if (resultCode === 2) {
-            console.warn('[Tax Rates] DOR returned error result code 2');
+        // The DOR API returns a valid LOCAL rate even when it can't match the exact
+        // street address — it falls back to the ZIP-level rate and sets a non-zero
+        // ResultCode (observed: 2 or 5, each with a correct Rate). Only a negative/
+        // zero rate means "no rate found" (DOR returns Rate=-1.0). So accept any
+        // positive rate regardless of ResultCode.
+        // Bug fix 2026-06-03: ResultCode 2 was wrongly treated as an error and the
+        // correct rate discarded — e.g. Bellevue 98004 returned Rate=.103 ResultCode=2
+        // but the endpoint fell back to the default 10.1% (the WRONG rate).
+        if (!(rate > 0)) {
+            console.warn(`[Tax Rates] DOR returned no usable rate (rate=${rate}, resultCode=${resultCode})`);
             return null;
         }
 
@@ -458,7 +465,7 @@ router.post('/tax-rates/lookup', async (req, res) => {
             return res.json({
                 success: true,
                 rate: cached.rate,
-                taxRate: parseFloat((cached.rate * 100).toFixed(1)),
+                taxRate: parseFloat((cached.rate * 100).toFixed(2)),
                 account: account ? account.Account_Number : '2200',
                 accountName: account ? account.Account_Name : 'WA Sales Tax',
                 locationCode: cached.locationCode,
@@ -470,7 +477,7 @@ router.post('/tax-rates/lookup', async (req, res) => {
             return res.json({
                 success: true,
                 rate: cached.rate,
-                taxRate: parseFloat((cached.rate * 100).toFixed(1)),
+                taxRate: parseFloat((cached.rate * 100).toFixed(2)),
                 account: '2200',
                 accountName: 'WA Sales Tax',
                 locationCode: cached.locationCode,
@@ -480,8 +487,14 @@ router.post('/tax-rates/lookup', async (req, res) => {
         }
     }
 
-    // Step 3: Call WA DOR API
-    const dorResult = await callDorApi(cleanAddress, cleanCity, zip5);
+    // Step 3: Call WA DOR API (address-based). If that yields nothing AND a street
+    // address was supplied, retry ZIP-only (ZIP-centroid) before defaulting — an
+    // unmatched/garbled street must not cost us the correct ZIP-level rate. (2026-06-03)
+    let dorResult = await callDorApi(cleanAddress, cleanCity, zip5);
+    if (!dorResult && cleanAddress) {
+        console.warn('[Tax Rates] Address-based DOR lookup failed; retrying ZIP-only');
+        dorResult = await callDorApi('', cleanCity, zip5);
+    }
 
     if (dorResult) {
         // Step 4a: Cache DOR result
@@ -500,7 +513,7 @@ router.post('/tax-rates/lookup', async (req, res) => {
             return res.json({
                 success: true,
                 rate: dorResult.rate,
-                taxRate: parseFloat((dorResult.rate * 100).toFixed(1)),
+                taxRate: parseFloat((dorResult.rate * 100).toFixed(2)),
                 account: account ? account.Account_Number : '2200',
                 accountName: account ? account.Account_Name : 'WA Sales Tax',
                 locationCode: dorResult.locationCode,
@@ -513,7 +526,7 @@ router.post('/tax-rates/lookup', async (req, res) => {
             return res.json({
                 success: true,
                 rate: dorResult.rate,
-                taxRate: parseFloat((dorResult.rate * 100).toFixed(1)),
+                taxRate: parseFloat((dorResult.rate * 100).toFixed(2)),
                 account: '2200',
                 accountName: 'WA Sales Tax',
                 locationCode: dorResult.locationCode,

@@ -5,7 +5,6 @@ const router = express.Router();
 const axios = require('axios');
 const FormData = require('form-data');
 const multer = require('multer');
-const { Readable } = require('stream');
 const config = require('../../config');
 
 // Configure multer to store files in memory
@@ -107,10 +106,15 @@ router.post('/files/upload', upload.single('file'), async (req, res) => {
         // FILE_EXISTS collision) once more with a timestamp suffix.
         async function attemptUpload(filename) {
             const fd = new FormData();
-            const stream = Readable.from(file.buffer);
-            fd.append('Files', stream, {
+            // Append the Buffer DIRECTLY (not Readable.from(buffer)): form-data then sends a real
+            // Content-Length so Caspio doesn't receive chunked transfer-encoding (which it resets →
+            // "socket hang up"). A Buffer is also reusable, so the 409-rename retry below no longer
+            // sends an already-consumed (empty) stream. + timeout so a hung connection fails fast.
+            // Mirrors the working sibling thumbnails.js. (audit fix 2026-06-05)
+            fd.append('Files', file.buffer, {
                 filename: filename,
-                contentType: file.mimetype
+                contentType: file.mimetype,
+                knownLength: file.buffer.length
             });
             return axios.post(url, fd, {
                 headers: {
@@ -118,7 +122,8 @@ router.post('/files/upload', upload.single('file'), async (req, res) => {
                     ...fd.getHeaders()
                 },
                 maxBodyLength: Infinity,
-                maxContentLength: Infinity
+                maxContentLength: Infinity,
+                timeout: 60000
             });
         }
 
@@ -180,6 +185,14 @@ router.post('/files/upload', upload.single('file'), async (req, res) => {
                 success: false,
                 error: 'File too large',
                 code: 'FILE_TOO_LARGE'
+            });
+        } else if (error.code === 'ECONNABORTED' || error.code === 'ECONNRESET' || /socket hang up|timeout/i.test(error.message || '')) {
+            // Network/timeout reaching Caspio (the old raw "socket hang up") — surface a clear,
+            // retryable message instead of a generic 500. (audit fix 2026-06-05)
+            res.status(504).json({
+                success: false,
+                error: 'The artwork upload timed out reaching Caspio. Please try again.',
+                code: 'UPLOAD_TIMEOUT'
             });
         } else {
             res.status(500).json({
