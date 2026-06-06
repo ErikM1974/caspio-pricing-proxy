@@ -15,7 +15,7 @@ const router = express.Router();
 const axios = require('axios');
 const { fetchAllCaspioPages, makeCaspioRequest } = require('../utils/caspio');
 const { getTokenForEndpoint } = require('../../lib/manageorders-push-auth');
-const { transformQuoteToOrder } = require('../../lib/embroidery-push-transformer');
+const { transformQuoteToOrder, parseImportNotes } = require('../../lib/embroidery-push-transformer');
 const { EMB_BASE_URL, generateEmbExtOrderID } = require('../../config/manageorders-emb-config');
 
 /**
@@ -74,6 +74,21 @@ router.post('/embroidery-push/push-quote', express.json(), async (req, res) => {
         return res.status(400).json({
           error: 'Customer # required',
           details: 'This quote has no ShopWorks Customer #. Set it before pushing — otherwise the order would land on the catch-all customer 3739.',
+          quoteId,
+        });
+      }
+    }
+
+    // P2-12 (audit 2026-06-06): server-side backstop — if artwork was uploaded but the design wasn't named,
+    // the order pushes with the art silently dropped and a "NO DESIGN LINKED" note. The frontend gates this,
+    // but a direct API call / force re-push bypasses it. Mirror the frontend gate here. (test pushes skip)
+    if (!isTest) {
+      const _notes = parseImportNotes(session);
+      const _hasArt = (_notes.referenceArtwork || []).some((f) => f && f.hostedUrl);
+      if (_hasArt && !(_notes.newDesignName || '').trim()) {
+        return res.status(400).json({
+          error: 'Design name required',
+          details: 'Artwork was uploaded but the design has no name. Name it before pushing — otherwise the artwork is dropped and the order pushes with "NO DESIGN LINKED".',
           quoteId,
         });
       }
@@ -154,15 +169,21 @@ router.post('/embroidery-push/push-quote', express.json(), async (req, res) => {
 
     // 8. Update PushedToShopWorks timestamp in Caspio
     const timestamp = new Date().toISOString();
-    try {
-      await makeCaspioRequest('put', '/tables/Quote_Sessions/records',
-        { 'q.where': `PK_ID=${session.PK_ID}` },
-        { PushedToShopWorks: timestamp }
-      );
-      console.log(`[EMB Push] Updated PushedToShopWorks for ${quoteId} at PK_ID=${session.PK_ID}`);
-    } catch (updateError) {
-      // Non-fatal — the push succeeded, we just couldn't mark it
-      console.error(`[EMB Push] WARNING: Push succeeded but failed to update PushedToShopWorks:`, updateError.message);
+    // P2-3 (audit 2026-06-06): if this PUT fails the dup-guard (the 409 above) is disarmed → a later push
+    // creates a SECOND ShopWorks order. Retry once, and if it still fails surface a warning in the response
+    // so the rep knows not to re-push.
+    let dedupFlagSet = false;
+    for (let attempt = 1; attempt <= 2 && !dedupFlagSet; attempt++) {
+      try {
+        await makeCaspioRequest('put', '/tables/Quote_Sessions/records',
+          { 'q.where': `PK_ID=${session.PK_ID}` },
+          { PushedToShopWorks: timestamp }
+        );
+        dedupFlagSet = true;
+        console.log(`[EMB Push] Updated PushedToShopWorks for ${quoteId} at PK_ID=${session.PK_ID}`);
+      } catch (updateError) {
+        console.error(`[EMB Push] WARNING (attempt ${attempt}/2): push succeeded but failed to set PushedToShopWorks:`, updateError.message);
+      }
     }
 
     // 9. Return success
@@ -174,6 +195,8 @@ router.post('/embroidery-push/push-quote', express.json(), async (req, res) => {
       lineItemCount: orderJson.LinesOE.length,
       designCount: orderJson.Designs.length,
       message: `Quote ${quoteId} pushed to ShopWorks as ${orderJson.ExtOrderID}`,
+      // P2-3 (audit 2026-06-06): warn loudly if the dedup flag couldn't be saved — re-pushing would duplicate.
+      ...(dedupFlagSet ? {} : { warning: 'Order pushed, but the duplicate-prevention flag could NOT be saved. Do NOT re-push this quote — it would create a SECOND ShopWorks order. Contact dev.' }),
       pushResponse: pushResponse.data,
     });
 
