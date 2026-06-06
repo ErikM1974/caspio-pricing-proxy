@@ -28,6 +28,15 @@ function sanitizeStatus(status) {
   return validStatuses.includes(status?.toLowerCase()) ? status : null;
 }
 
+// Validate a numeric route :id before interpolating into a Caspio q.where PK_ID filter.
+// Caspio q.where accepts SQL-style operators (e.g. OR), so a raw `/api/quote_items/0 OR 1=1`
+// would widen a GET/PUT/DELETE to ALL rows. Real PK_IDs are positive integers. (review C6 2026-06-05)
+function parsePkId(id) {
+  const pk = parseInt(id, 10);
+  if (!Number.isInteger(pk) || pk <= 0 || String(pk) !== String(id)) return null;
+  return pk;
+}
+
 // Cache for quote sessions (5 minute TTL)
 const quoteSessionsCache = new Map();
 const QUOTE_SESSIONS_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
@@ -41,13 +50,19 @@ router.get('/quote_analytics', async (req, res) => {
     let whereConditions = [];
     
     if (req.query.sessionID) {
-      whereConditions.push(`SessionID='${req.query.sessionID}'`);
+      const s = sanitizeSessionID(req.query.sessionID);
+      if (!s) return res.status(400).json({ error: 'Invalid sessionID parameter' });
+      whereConditions.push(`SessionID='${s}'`);
     }
-    if (req.query.quoteID) {
-      whereConditions.push(`QuoteID='${req.query.quoteID}'`);
+    const qaId = req.query.quoteID || req.query.QuoteID;
+    if (qaId) {
+      const q = sanitizeQuoteID(qaId);
+      if (!q) return res.status(400).json({ error: 'Invalid quoteID parameter' });
+      whereConditions.push(`QuoteID='${q}'`);
     }
     if (req.query.eventType) {
-      whereConditions.push(`EventType='${req.query.eventType}'`);
+      // eventType is open-ended (analytics names), so escape quotes rather than whitelist. (review C13 2026-06-05)
+      whereConditions.push(`EventType='${String(req.query.eventType).replace(/'/g, "''")}'`);
     }
 
     const params = {};
@@ -67,11 +82,13 @@ router.get('/quote_analytics', async (req, res) => {
 // GET /api/quote_analytics/:id
 router.get('/quote_analytics/:id', async (req, res) => {
   const { id } = req.params;
+  const pk = parsePkId(id);
+  if (pk === null) return res.status(400).json({ error: 'Invalid id' });
   console.log(`GET /api/quote_analytics/${id} requested`);
 
   try {
     const records = await fetchAllCaspioPages('/tables/Quote_Analytics/records', {
-      'q.where': `PK_ID=${id}`
+      'q.where': `PK_ID=${pk}`
     });
 
     if (records.length === 0) {
@@ -114,6 +131,8 @@ router.post('/quote_analytics', express.json(), async (req, res) => {
 // PUT /api/quote_analytics/:id
 router.put('/quote_analytics/:id', express.json(), async (req, res) => {
   const { id } = req.params;
+  const pk = parsePkId(id);
+  if (pk === null) return res.status(400).json({ error: 'Invalid id' });
   console.log(`PUT /api/quote_analytics/${id} requested with body:`, req.body);
 
   try {
@@ -126,7 +145,7 @@ router.put('/quote_analytics/:id', express.json(), async (req, res) => {
     }
 
     const result = await makeCaspioRequest('put', '/tables/Quote_Analytics/records', 
-      { 'q.where': `PK_ID=${id}` }, 
+      { 'q.where': `PK_ID=${pk}` }, 
       updates
     );
     
@@ -141,11 +160,13 @@ router.put('/quote_analytics/:id', express.json(), async (req, res) => {
 // DELETE /api/quote_analytics/:id
 router.delete('/quote_analytics/:id', async (req, res) => {
   const { id } = req.params;
+  const pk = parsePkId(id);
+  if (pk === null) return res.status(400).json({ error: 'Invalid id' });
   console.log(`DELETE /api/quote_analytics/${id} requested`);
 
   try {
     const result = await makeCaspioRequest('delete', '/tables/Quote_Analytics/records', 
-      { 'q.where': `PK_ID=${id}` }
+      { 'q.where': `PK_ID=${pk}` }
     );
     
     console.log('Quote analytics deleted successfully');
@@ -197,11 +218,13 @@ router.get('/quote_items', async (req, res) => {
 // GET /api/quote_items/:id
 router.get('/quote_items/:id', async (req, res) => {
   const { id } = req.params;
+  const pk = parsePkId(id);
+  if (pk === null) return res.status(400).json({ error: 'Invalid id' });
   console.log(`GET /api/quote_items/${id} requested`);
 
   try {
     const records = await fetchAllCaspioPages('/tables/Quote_Items/records', {
-      'q.where': `PK_ID=${id}`
+      'q.where': `PK_ID=${pk}`
     });
 
     if (records.length === 0) {
@@ -265,6 +288,8 @@ router.post('/quote_items', express.json(), async (req, res) => {
 // PUT /api/quote_items/:id
 router.put('/quote_items/:id', express.json(), async (req, res) => {
   const { id } = req.params;
+  const pk = parsePkId(id);
+  if (pk === null) return res.status(400).json({ error: 'Invalid id' });
   console.log(`PUT /api/quote_items/${id} requested with body:`, req.body);
 
   try {
@@ -277,7 +302,7 @@ router.put('/quote_items/:id', express.json(), async (req, res) => {
     }
 
     const result = await makeCaspioRequest('put', '/tables/Quote_Items/records', 
-      { 'q.where': `PK_ID=${id}` }, 
+      { 'q.where': `PK_ID=${pk}` }, 
       updates
     );
     
@@ -292,11 +317,13 @@ router.put('/quote_items/:id', express.json(), async (req, res) => {
 // DELETE /api/quote_items/:id
 router.delete('/quote_items/:id', async (req, res) => {
   const { id } = req.params;
+  const pk = parsePkId(id);
+  if (pk === null) return res.status(400).json({ error: 'Invalid id' });
   console.log(`DELETE /api/quote_items/${id} requested`);
 
   try {
     const result = await makeCaspioRequest('delete', '/tables/Quote_Items/records', 
-      { 'q.where': `PK_ID=${id}` }
+      { 'q.where': `PK_ID=${pk}` }
     );
     
     console.log('Quote item deleted successfully');
@@ -439,11 +466,13 @@ router.get('/quote_sessions', async (req, res) => {
 // GET /api/quote_sessions/:id
 router.get('/quote_sessions/:id', async (req, res) => {
   const { id } = req.params;
+  const pk = parsePkId(id);
+  if (pk === null) return res.status(400).json({ error: 'Invalid id' });
   console.log(`GET /api/quote_sessions/${id} requested`);
 
   try {
     const records = await fetchAllCaspioPages('/tables/Quote_Sessions/records', {
-      'q.where': `PK_ID=${id}`
+      'q.where': `PK_ID=${pk}`
     });
 
     if (records.length === 0) {
@@ -486,6 +515,8 @@ router.post('/quote_sessions', express.json(), async (req, res) => {
 // PUT /api/quote_sessions/:id
 router.put('/quote_sessions/:id', express.json(), async (req, res) => {
   const { id } = req.params;
+  const pk = parsePkId(id);
+  if (pk === null) return res.status(400).json({ error: 'Invalid id' });
   console.log(`PUT /api/quote_sessions/${id} requested with body:`, req.body);
 
   try {
@@ -498,7 +529,7 @@ router.put('/quote_sessions/:id', express.json(), async (req, res) => {
     }
 
     const result = await makeCaspioRequest('put', '/tables/Quote_Sessions/records', 
-      { 'q.where': `PK_ID=${id}` }, 
+      { 'q.where': `PK_ID=${pk}` }, 
       updates
     );
     
@@ -513,11 +544,13 @@ router.put('/quote_sessions/:id', express.json(), async (req, res) => {
 // DELETE /api/quote_sessions/:id
 router.delete('/quote_sessions/:id', async (req, res) => {
   const { id } = req.params;
+  const pk = parsePkId(id);
+  if (pk === null) return res.status(400).json({ error: 'Invalid id' });
   console.log(`DELETE /api/quote_sessions/${id} requested`);
 
   try {
     const result = await makeCaspioRequest('delete', '/tables/Quote_Sessions/records', 
-      { 'q.where': `PK_ID=${id}` }
+      { 'q.where': `PK_ID=${pk}` }
     );
     
     console.log('Quote session deleted successfully');
