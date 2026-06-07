@@ -81,6 +81,14 @@ async function fetchTaxAccounts(forceRefresh = false) {
             return numA - numB;
         });
 
+        // [2026-06-07] Caspio returns Account_Number / Parent_Account as NUMBERS — normalize to strings so
+        // downstream string compares (e.g. === '2200', which was silently failing) and the JSON the builder
+        // consumes are consistent (and a numeric "2200.96" can't drop a trailing digit on the wire).
+        records.forEach((r) => {
+            if (typeof r.Account_Number === 'number') r.Account_Number = String(r.Account_Number);
+            if (typeof r.Parent_Account === 'number') r.Parent_Account = String(r.Parent_Account);
+        });
+
         accountsCache.set(cacheKey, {
             data: records,
             timestamp: Date.now()
@@ -457,8 +465,13 @@ router.post('/tax-rates/lookup', async (req, res) => {
     const cleanCity = sanitizeAddress(city);
     const zip5 = cleanZip.substring(0, 5);
 
-    // Step 2: Check DOR cache (keyed by ZIP)
-    const cacheKey = zip5;
+    // Step 2: Check DOR cache. [2026-06-07] Key by full ADDRESS (not just ZIP). A WA ZIP can straddle tax
+    // jurisdictions, so caching by ZIP let whichever lookup hit a ZIP first (often an approximate ZIP-centroid
+    // result, resultCode 5) serve EVERY address in that ZIP — including precise ones that should get an exact
+    // rate. Per-address caching keeps each lookup at its true DOR rate. ZIP-only lookups still cache by ZIP.
+    const cacheKey = cleanAddress
+        ? `${cleanAddress.toLowerCase().replace(/\s+/g, ' ').trim()}|${(cleanCity || '').toLowerCase().trim()}|${zip5}`
+        : zip5;
     const cached = dorCache.get(cacheKey);
 
     if (cached && Date.now() - cached.timestamp < DOR_CACHE_TTL) {
