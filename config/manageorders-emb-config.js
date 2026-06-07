@@ -141,12 +141,12 @@ const TAX_ACCOUNT_LOOKUP = {
 function getTaxAccount(taxRate, shipState) {
   // Out of state → account 2202
   if (shipState && shipState.toUpperCase() !== 'WA') {
-    return { accountCode: '2202', description: 'Out of State Sales' };
+    return { accountCode: '2202', description: 'Out of State Sales', partNumber: '' };  // out of state → no WA tax line
   }
 
   // No tax rate and no state → default to customer pickup (WA 10.1%)
   if (!taxRate && !shipState) {
-    return { accountCode: '2200.101', description: 'Customer Pickup - Milton, WA 10.1%' };
+    return { accountCode: '2200.101', description: 'Customer Pickup - Milton, WA 10.1%', partNumber: 'Tax_10.1' };
   }
 
   // Convert decimal to percentage for lookup, 2-decimal precision (0.101 → 10.1, 0.1025 → 10.25).
@@ -158,18 +158,20 @@ function getTaxAccount(taxRate, shipState) {
     return {
       accountCode: TAX_ACCOUNT_LOOKUP[taxPct],
       description: `WA Sales Tax ${taxPct}%`,
+      partNumber: `Tax_${taxPct}`,  // ShopWorks tax line-item part, e.g. Tax_9.6 — drives the destination rate (2026-06-07)
     };
   }
 
   // Fallback: if rate is ~10.1% (within 0.1%), use the Milton/WA 10.1% account
   if (Math.abs(taxPct - 10.1) < 0.1) {
-    return { accountCode: '2200.101', description: `WA Sales Tax ${taxPct}%` };
+    return { accountCode: '2200.101', description: `WA Sales Tax ${taxPct}%`, partNumber: 'Tax_10.1' };
   }
 
   // Unknown rate — flag for manual review
   return {
     accountCode: '',
     description: `MANUAL REVIEW: Tax rate ${taxPct}% not in lookup table`,
+    partNumber: '',  // unknown rate → no part; rep applies tax manually (Notes On Order carries the rate)
   };
 }
 
