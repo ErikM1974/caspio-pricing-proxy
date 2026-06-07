@@ -449,6 +449,10 @@ router.get('/quote_sessions', async (req, res) => {
     const params = {};
     if (whereConditions.length > 0) {
       params['q.where'] = whereConditions.join(' AND ');
+      // [A2] (audit 2026-06-06): newest row first, so a duplicate-QuoteID read (builder loadQuote / sync)
+      // binds the SAME PK_ID that push/preview stamp — else the read picks an oldest/unpushed duplicate
+      // row → split-brain → a second ShopWorks order. (Cache key is whereConditions-only → order-safe.)
+      params['q.orderBy'] = 'PK_ID DESC';
     }
 
     console.log('Caspio query params:', JSON.stringify(params));
