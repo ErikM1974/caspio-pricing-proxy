@@ -337,8 +337,11 @@ router.put('/tax-rates/:id', async (req, res) => {
     const { id } = req.params;
     const updates = req.body;
 
-    if (!id) {
-        return res.status(400).json({ success: false, error: 'ID_Account is required' });
+    // [A1] (audit 2026-06-06): id was raw-interpolated into the Caspio WHERE clause below → unauth
+    // predicate injection on a mutation/soft-delete route. Validate (numeric ID_Account) before use.
+    const safeId = sanitizeAccountNumber(id);
+    if (!safeId) {
+        return res.status(400).json({ success: false, error: 'Invalid ID_Account' });
     }
 
     delete updates.ID_Account;
@@ -350,7 +353,7 @@ router.put('/tax-rates/:id', async (req, res) => {
     try {
         console.log(`[Tax Rates] Updating ID_Account='${id}':`, updates);
         await makeCaspioRequest('put', '/tables/sales_tax_accounts_2026/records',
-            { 'q.where': `ID_Account='${id}'` }, updates);
+            { 'q.where': `ID_Account='${safeId}'` }, updates);
 
         accountsCache.clear();
 
@@ -378,14 +381,17 @@ router.put('/tax-rates/:id', async (req, res) => {
 router.delete('/tax-rates/:id', async (req, res) => {
     const { id } = req.params;
 
-    if (!id) {
-        return res.status(400).json({ success: false, error: 'ID_Account is required' });
+    // [A1] (audit 2026-06-06): id was raw-interpolated into the Caspio WHERE clause below → unauth
+    // predicate injection on a mutation/soft-delete route. Validate (numeric ID_Account) before use.
+    const safeId = sanitizeAccountNumber(id);
+    if (!safeId) {
+        return res.status(400).json({ success: false, error: 'Invalid ID_Account' });
     }
 
     try {
         console.log(`[Tax Rates] Soft delete (deactivate) ID_Account='${id}'`);
         await makeCaspioRequest('put', '/tables/sales_tax_accounts_2026/records',
-            { 'q.where': `ID_Account='${id}'` }, { Active: 'No' });
+            { 'q.where': `ID_Account='${safeId}'` }, { Active: 'No' });
 
         accountsCache.clear();
 
