@@ -99,7 +99,7 @@ const TAX_ACCOUNT_LOOKUP = {
   7.7: '2200.77',
   7.8: '2200.78',
   7.9: '2200.79',
-  8.0: '2200.80',
+  8.0: '2200.8',    // matches the Caspio sales_tax_accounts_2026 table (was 2200.80) — 2026-06-07
   8.1: '2200.81',
   8.2: '2200.82',
   8.3: '2200.83',
@@ -109,7 +109,7 @@ const TAX_ACCOUNT_LOOKUP = {
   8.7: '2200.87',
   8.8: '2200.88',
   8.9: '2200.89',
-  9.0: '2200.90',
+  9.0: '2200.9',    // matches the Caspio sales_tax_accounts_2026 table (was 2200.90) — 2026-06-07
   9.1: '2200.91',
   9.2: '2200.92',
   9.3: '2200.93',
@@ -119,7 +119,7 @@ const TAX_ACCOUNT_LOOKUP = {
   9.7: '2200.97',
   9.8: '2200.98',
   9.9: '2200.99',
-  10.0: '2200.100',
+  10.0: '2200.1',   // matches the Caspio sales_tax_accounts_2026 table (was 2200.100) — 2026-06-07
   10.1: '2200.101',
   10.2: '2200.102',
   10.25: '2200.302',
@@ -141,12 +141,12 @@ const TAX_ACCOUNT_LOOKUP = {
 function getTaxAccount(taxRate, shipState) {
   // Out of state → account 2202
   if (shipState && shipState.toUpperCase() !== 'WA') {
-    return { accountCode: '2202', description: 'Out of State Sales' };
+    return { accountCode: '2202', description: 'Out of State Sales', partNumber: '' };  // out of state → no WA tax line
   }
 
   // No tax rate and no state → default to customer pickup (WA 10.1%)
   if (!taxRate && !shipState) {
-    return { accountCode: '2200.101', description: 'Customer Pickup - Milton, WA 10.1%' };
+    return { accountCode: '2200.101', description: 'Customer Pickup - Milton, WA 10.1%', partNumber: 'Tax_10.1' };
   }
 
   // Convert decimal to percentage for lookup, 2-decimal precision (0.101 → 10.1, 0.1025 → 10.25).
@@ -158,18 +158,20 @@ function getTaxAccount(taxRate, shipState) {
     return {
       accountCode: TAX_ACCOUNT_LOOKUP[taxPct],
       description: `WA Sales Tax ${taxPct}%`,
+      partNumber: `Tax_${taxPct}`,  // ShopWorks tax line-item part, e.g. Tax_9.6 — drives the destination rate (2026-06-07)
     };
   }
 
   // Fallback: if rate is ~10.1% (within 0.1%), use the Milton/WA 10.1% account
   if (Math.abs(taxPct - 10.1) < 0.1) {
-    return { accountCode: '2200.101', description: `WA Sales Tax ${taxPct}%` };
+    return { accountCode: '2200.101', description: `WA Sales Tax ${taxPct}%`, partNumber: 'Tax_10.1' };
   }
 
   // Unknown rate — flag for manual review
   return {
     accountCode: '',
     description: `MANUAL REVIEW: Tax rate ${taxPct}% not in lookup table`,
+    partNumber: '',  // unknown rate → no part; rep applies tax manually (Notes On Order carries the rate)
   };
 }
 
@@ -287,7 +289,8 @@ function formatDateForAPI(dateStr) {
  * four push paths read identically. Added 2026-06-02.
  *
  * @param {Object} p
- * @param {number} p.subtotal   pre-tax subtotal
+ * @param {number} p.subtotal   pre-tax subtotal (products + fees, EXCLUDES shipping)
+ * @param {number} p.shipping   shipping fee (WA taxes it with the goods → folded into the taxable base + total)
  * @param {number} p.taxRate    rate as a DECIMAL (0.101)
  * @param {number} p.taxAmount  computed tax amount
  * @param {string} p.accountCode  GL account from getTaxAccount (e.g. '2200.101')
@@ -296,27 +299,39 @@ function formatDateForAPI(dateStr) {
  * @param {string} p.shipMethod   ship method (pickup → flat Milton rate)
  * @returns {string[]}
  */
-function buildSalesTaxNote({ subtotal = 0, taxRate = 0, taxAmount = 0, accountCode = '', accountDesc = '', shipState = '', shipMethod = '' } = {}) {
+function buildSalesTaxNote({ subtotal = 0, shipping = 0, taxRate = 0, taxAmount = 0, accountCode = '', accountDesc = '', shipState = '', shipMethod = '' } = {}) {
   const sub = Number(subtotal) || 0;
+  const ship = Number(shipping) || 0;
   const rate = Number(taxRate) || 0;
   const amt = Number(taxAmount) || 0;
   const ratePct = rate > 0 ? (rate * 100).toFixed(2) : null;
   const isPickup = /pickup|will[\s-]?call/i.test(String(shipMethod || ''));
   const st = String(shipState || '').toUpperCase();
   const isOutOfState = st && st !== 'WA' && !isPickup;
+  const isWholesale = String(accountCode) === '2203';
+  const preTax = sub + ship; // WA taxes shipping with the goods → the taxable base AND the total include it
 
   const lines = [`Subtotal: $${sub.toFixed(2)}`];
+  if (ship > 0) lines.push(`Shipping: $${ship.toFixed(2)}`);
+
+  if (isWholesale) {
+    lines.push('Tax: NONE — Wholesale / Reseller (WA reseller permit on file)');
+    lines.push('Tax Account: 2203 — Wholesale Sales');
+    lines.push(`Total: $${preTax.toFixed(2)} (no tax)`);
+    return lines;
+  }
   if (isOutOfState) {
     lines.push('Tax: DO NOT APPLY (out of state)');
     lines.push(`State: ${st}`);
     lines.push('Tax Account: 2202 — Out of State Sales');
-    lines.push(`Total: $${sub.toFixed(2)} (no tax)`);
+    lines.push(`Total: $${preTax.toFixed(2)} (no tax)`);
     return lines;
   }
   if (ratePct && accountCode) {
     lines.push(`Tax Rate: ${ratePct}% (${isPickup ? 'Milton pickup — flat' : 'WA destination'})`);
+    if (ship > 0) lines.push(`Taxable: $${preTax.toFixed(2)} (subtotal + shipping)`);
     lines.push(`Tax Amount: $${amt.toFixed(2)}`);
-    lines.push(`Total with Tax: $${(sub + amt).toFixed(2)}`);
+    lines.push(`Total with Tax: $${(preTax + amt).toFixed(2)}`);  // [2026-06-07] now includes shipping (was sub + tax only)
     lines.push(`Tax Account: ${accountCode} — ${accountDesc || ratePct + '%'}`);
     lines.push('Apply Tax: Manually in ShopWorks');
   } else {
