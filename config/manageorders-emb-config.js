@@ -289,7 +289,8 @@ function formatDateForAPI(dateStr) {
  * four push paths read identically. Added 2026-06-02.
  *
  * @param {Object} p
- * @param {number} p.subtotal   pre-tax subtotal
+ * @param {number} p.subtotal   pre-tax subtotal (products + fees, EXCLUDES shipping)
+ * @param {number} p.shipping   shipping fee (WA taxes it with the goods → folded into the taxable base + total)
  * @param {number} p.taxRate    rate as a DECIMAL (0.101)
  * @param {number} p.taxAmount  computed tax amount
  * @param {string} p.accountCode  GL account from getTaxAccount (e.g. '2200.101')
@@ -298,27 +299,39 @@ function formatDateForAPI(dateStr) {
  * @param {string} p.shipMethod   ship method (pickup → flat Milton rate)
  * @returns {string[]}
  */
-function buildSalesTaxNote({ subtotal = 0, taxRate = 0, taxAmount = 0, accountCode = '', accountDesc = '', shipState = '', shipMethod = '' } = {}) {
+function buildSalesTaxNote({ subtotal = 0, shipping = 0, taxRate = 0, taxAmount = 0, accountCode = '', accountDesc = '', shipState = '', shipMethod = '' } = {}) {
   const sub = Number(subtotal) || 0;
+  const ship = Number(shipping) || 0;
   const rate = Number(taxRate) || 0;
   const amt = Number(taxAmount) || 0;
   const ratePct = rate > 0 ? (rate * 100).toFixed(2) : null;
   const isPickup = /pickup|will[\s-]?call/i.test(String(shipMethod || ''));
   const st = String(shipState || '').toUpperCase();
   const isOutOfState = st && st !== 'WA' && !isPickup;
+  const isWholesale = String(accountCode) === '2203';
+  const preTax = sub + ship; // WA taxes shipping with the goods → the taxable base AND the total include it
 
   const lines = [`Subtotal: $${sub.toFixed(2)}`];
+  if (ship > 0) lines.push(`Shipping: $${ship.toFixed(2)}`);
+
+  if (isWholesale) {
+    lines.push('Tax: NONE — Wholesale / Reseller (WA reseller permit on file)');
+    lines.push('Tax Account: 2203 — Wholesale Sales');
+    lines.push(`Total: $${preTax.toFixed(2)} (no tax)`);
+    return lines;
+  }
   if (isOutOfState) {
     lines.push('Tax: DO NOT APPLY (out of state)');
     lines.push(`State: ${st}`);
     lines.push('Tax Account: 2202 — Out of State Sales');
-    lines.push(`Total: $${sub.toFixed(2)} (no tax)`);
+    lines.push(`Total: $${preTax.toFixed(2)} (no tax)`);
     return lines;
   }
   if (ratePct && accountCode) {
     lines.push(`Tax Rate: ${ratePct}% (${isPickup ? 'Milton pickup — flat' : 'WA destination'})`);
+    if (ship > 0) lines.push(`Taxable: $${preTax.toFixed(2)} (subtotal + shipping)`);
     lines.push(`Tax Amount: $${amt.toFixed(2)}`);
-    lines.push(`Total with Tax: $${(sub + amt).toFixed(2)}`);
+    lines.push(`Total with Tax: $${(preTax + amt).toFixed(2)}`);  // [2026-06-07] now includes shipping (was sub + tax only)
     lines.push(`Tax Account: ${accountCode} — ${accountDesc || ratePct + '%'}`);
     lines.push('Apply Tax: Manually in ShopWorks');
   } else {
