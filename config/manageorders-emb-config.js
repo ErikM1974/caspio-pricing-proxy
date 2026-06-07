@@ -341,9 +341,49 @@ function buildSalesTaxNote({ subtotal = 0, shipping = 0, taxRate = 0, taxAmount 
   return lines;
 }
 
+/**
+ * Build the "Notes To Accounting" sales-tax verification note (single multi-line string) so the
+ * accountant can confirm the tax rate / account / total ShopWorks shows after the rep selects the tax
+ * line at invoicing. Mirrors buildSalesTaxNote's figures. Added 2026-06-07 (Erik — for Bradley).
+ */
+function buildAccountingTaxNote({ subtotal = 0, shipping = 0, taxRate = 0, taxAmount = 0, accountCode = '', accountDesc = '', shipState = '', shipMethod = '' } = {}) {
+  const sub = Number(subtotal) || 0;
+  const ship = Number(shipping) || 0;
+  const rate = Number(taxRate) || 0;
+  const amt = Number(taxAmount) || 0;
+  const ratePct = rate > 0 ? (rate * 100).toFixed(2) : null;
+  const isPickup = /pickup|will[\s-]?call/i.test(String(shipMethod || ''));
+  const st = String(shipState || '').toUpperCase();
+  const isOutOfState = st && st !== 'WA' && !isPickup;
+  const isWholesale = String(accountCode) === '2203';
+  const preTax = sub + ship;
+  const lines = ['SALES TAX — please verify (Accounting):'];
+
+  if (isWholesale) {
+    lines.push('WHOLESALE / RESELLER — NO TAX (WA reseller permit on file)');
+    lines.push('Tax Account: 2203 — Wholesale Sales');
+    lines.push(`Order Total (no tax): $${preTax.toFixed(2)}`);
+  } else if (isOutOfState) {
+    lines.push(`OUT OF STATE (${st}) — NO TAX`);
+    lines.push('Tax Account: 2202 — Out of State Sales');
+    lines.push(`Order Total (no tax): $${preTax.toFixed(2)}`);
+  } else if (ratePct && accountCode) {
+    lines.push(`Tax Account: ${accountCode} — ${accountDesc || ratePct + '%'}`);
+    lines.push(`Tax Rate: ${ratePct}% (${isPickup ? 'Milton pickup — flat' : 'WA destination'})`);
+    lines.push(`Taxable: $${preTax.toFixed(2)} (subtotal $${sub.toFixed(2)}${ship > 0 ? ` + shipping $${ship.toFixed(2)}` : ''})`);
+    lines.push(`Tax Amount: $${amt.toFixed(2)}`);
+    lines.push(`Order Total w/ Tax: $${(preTax + amt).toFixed(2)}`);
+    lines.push(`→ Confirm ShopWorks Tax line = ${accountCode} (${ratePct}%) and the total matches.`);
+  } else {
+    lines.push('Tax: NEEDS REVIEW — confirm destination + correct WA rate before invoicing.');
+  }
+  return lines.join('\n');
+}
+
 module.exports = {
   EMB_ONSITE_DEFAULTS,
   buildSalesTaxNote,
+  buildAccountingTaxNote,
   EMB_BASE_URL,
   SALES_REP_MAP,
   ORDER_LEVEL_FEES,
