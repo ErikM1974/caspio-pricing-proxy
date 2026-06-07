@@ -2,99 +2,199 @@
  * Shipping estimate routes.
  *
  * POST /api/shipping/estimate-ups-ground
- *   Rough outbound UPS Ground freight estimate from NWCA (origin ZIP 98354, Milton WA)
- *   to a customer ZIP, given billable weight (lb) + number of boxes. Purpose: let the rep
- *   put an estimated freight line on the quote so the customer PRE-PAYS the full amount
- *   (no second credit-card charge after shipping). Erik's ask, 2026-06-04.
+ *   Outbound UPS Ground freight estimate from NWCA (origin ZIP 98354, Milton WA) to a
+ *   customer ZIP. Purpose: let the rep put an estimated freight line on the quote so the
+ *   customer PRE-PAYS the full amount (no second credit-card charge after shipping).
+ *   Erik's ask, 2026-06-04. Rate model upgraded 2026-06-07 (Erik: "static grid now").
  *
- *   Body: { toZip, weightLb | totalWeightOz, boxes, residential? }
- *   Returns: { estimate, zone, billableWeightLb, boxes, perBox, method, rough, note }
+ *   Body: { toZip, weightLb | totalWeightOz, boxes, boxWeightsLb?, residential? }
+ *     - boxWeightsLb (optional): array of per-box weights (lb). When present, each box is
+ *       priced at its OWN weight (a 17 lb jacket box + a 6 lb tee box bill correctly),
+ *       which beats splitting the grand total evenly. Falls back to even split if omitted.
+ *   Returns: { estimate, zone, zoneSource, rough, billableWeightLb, boxes, perBox[],
+ *              fuelSurchargePct, residential, method, origin, toZip, note }
  *
- *   ⚠️ ROUGH: until the real UPS data is loaded, zone is derived from coarse ZIP-prefix
- *   buckets (origin 983) and the rate is a LINEAR model anchored to published UPS Ground
- *   daily rates (zone 2: 1lb $11.99 / 5lb $14.19 … zone 8: 1lb $15.03 / 5lb $21.72).
- *   To make it accurate, replace zoneForZip() with the real ups-zone-983 chart and
- *   ZONE_MODEL with the published UPS Ground rate grid (Erik downloads both from ups.com).
+ *   ── Accuracy model ──────────────────────────────────────────────────────────────────
+ *   Rates + zones are DATA, loaded from data/ups-ground-rates.json (edit that file, no
+ *   deploy). The grid is UPS 2025 Ground DAILY list rates (zones 2-8 x anchor weights),
+ *   interpolated by weight; fuel surcharge + residential are separate terms.
+ *
+ *   These are PUBLISHED LIST rates = an UPPER BOUND (NWCA's negotiated rates are lower) —
+ *   intentional, so the customer prepays enough. `rough:true` is returned whenever the zone
+ *   came from the approximate ZIP-range fallback (i.e. always, until the exact origin-983
+ *   zone chart is loaded into zonePrefixMap — download 983.xls from ups.com in a browser,
+ *   then run scripts/build-ups-zone-map.js).
+ *
+ *   FUTURE (Erik: "UPS API later"): swap groundRate()/zoneForZip() for a live call to the
+ *   UPS Rating REST API (developer.ups.com) with NWCA's account for true negotiated cost.
  */
 const express = require('express');
 const router = express.Router();
+const fs = require('fs');
+const path = require('path');
 const { fetchAllCaspioPages } = require('../utils/caspio');
 
 const ORIGIN_ZIP = '98354'; // NWCA, Milton WA
 
-// Default OUTBOUND pieces-per-box by category — data-backed (real SanMar inbound cartons,
-// 2026-06-04 sample, with a decorated-bulk shave). Overridable WITHOUT a deploy via the
-// Caspio `Box_Density_Reference` table (columns: Category, PiecesPerBox) — Erik's "config
-// lives in Caspio" rule. Import data/box-density-reference.csv to create/seed that table.
-const BOX_DENSITY_DEFAULTS = {
-  Cap: 60, 'T-Shirt': 58, Polo: 36, Sweatshirt: 16, Hoodie: 16, Jacket: 17, Outerwear: 15,
+// ── Rate data (data/ups-ground-rates.json) with an embedded fallback ──
+const RATES_FALLBACK = {
+  effectiveYear: '2025',
+  fuelSurchargePct: 0.255,
+  residentialSurchargeUsd: 6.50,
+  anchorsLb: [1, 5, 10, 20, 40, 70],
+  ratesByZone: {
+    2: [11.32, 13.38, 15.08, 18.11, 25.53, 32.89],
+    3: [11.69, 14.83, 16.11, 20.27, 31.00, 42.04],
+    4: [12.75, 16.19, 17.78, 20.66, 35.32, 48.57],
+    5: [13.31, 17.61, 19.41, 25.46, 42.36, 59.80],
+    6: [13.77, 18.34, 20.08, 29.68, 52.87, 70.85],
+    7: [13.99, 19.37, 22.58, 36.17, 62.23, 80.81],
+    8: [14.17, 20.49, 24.91, 40.87, 72.27, 97.27],
+  },
+  zonePrefixMap: {},
+  zoneRanges: [
+    { min: 980, max: 994, zone: 2 }, { min: 970, max: 979, zone: 3 },
+    { min: 995, max: 999, zone: 8 }, { min: 967, max: 968, zone: 8 },
+    { min: 832, max: 838, zone: 4 }, { min: 590, max: 599, zone: 4 },
+    { min: 840, max: 847, zone: 4 }, { min: 889, max: 898, zone: 4 },
+    { min: 820, max: 831, zone: 5 }, { min: 800, max: 816, zone: 5 },
+    { min: 850, max: 865, zone: 5 }, { min: 936, max: 966, zone: 5 },
+    { min: 900, max: 935, zone: 6 }, { min: 870, max: 884, zone: 6 },
+    { min: 750, max: 799, zone: 6 }, { min: 730, max: 749, zone: 6 },
+    { min: 660, max: 693, zone: 6 }, { min: 570, max: 588, zone: 6 },
+    { min: 550, max: 567, zone: 6 }, { min: 600, max: 658, zone: 7 },
+    { min: 700, max: 729, zone: 7 }, { min: 460, max: 499, zone: 7 },
+    { min: 430, max: 459, zone: 7 }, { min: 530, max: 549, zone: 7 },
+    { min: 350, max: 427, zone: 7 }, { min: 300, max: 349, zone: 8 },
+    { min: 270, max: 299, zone: 8 }, { min: 220, max: 269, zone: 8 },
+    { min: 100, max: 219, zone: 8 }, { min: 0, max: 99, zone: 8 },
+  ],
+  defaultZone: 5,
 };
 
-// Coarse destination-ZIP-prefix → UPS zone (origin 983). Continental US = zones 2-8.
-// Replace with the real per-origin zone chart for accuracy.
-function zoneForZip(zip) {
-  const p = parseInt(String(zip || '').slice(0, 3), 10);
-  if (isNaN(p)) return 5;
-  if (p >= 980 && p <= 994) return 2;                              // WA (+ close ID)
-  if ((p >= 970 && p <= 979) || (p >= 995 && p <= 999)) return 3;  // OR, AK
-  if (p >= 889 && p <= 961) return 4;                              // CA / NV / parts UT
-  if (p >= 800 && p <= 884) return 5;                              // CO / AZ / NM / UT
-  if (p >= 580 && p <= 799) return 6;                              // Plains / TX / central
-  if (p >= 350 && p <= 579) return 7;                              // Midwest / South
-  return 8;                                                        // East coast
+function loadRates() {
+  try {
+    const file = path.join(__dirname, '..', '..', 'data', 'ups-ground-rates.json');
+    const json = JSON.parse(fs.readFileSync(file, 'utf8'));
+    // minimal sanity check
+    if (json && json.ratesByZone && json.anchorsLb) return json;
+    console.warn('[shipping] ups-ground-rates.json missing required keys — using fallback');
+  } catch (e) {
+    console.warn('[shipping] could not load ups-ground-rates.json — using fallback:', e.message);
+  }
+  return RATES_FALLBACK;
+}
+const RATES = loadRates();
+
+// ── Billable weight: UPS rounds UP to the next whole pound, min 1 lb ──
+function billableLb(lb) {
+  const n = Number(lb) || 0;
+  return Math.max(1, Math.ceil(n));
 }
 
-// Linear rate model per zone: $ = base + perLb * billableLb. Anchored to published
-// UPS Ground daily rates at 1 lb and 5 lb. Crude at high weights — refine with the grid.
-const ZONE_MODEL = {
-  2: { base: 11.44, perLb: 0.55 },
-  3: { base: 11.76, perLb: 0.74 },
-  4: { base: 12.08, perLb: 0.93 },
-  5: { base: 12.40, perLb: 1.11 },
-  6: { base: 12.72, perLb: 1.30 },
-  7: { base: 13.04, perLb: 1.48 },
-  8: { base: 13.36, perLb: 1.67 },
-};
+// ── Resolve destination ZIP → UPS Ground zone (origin 983) ──
+// Prefers the exact zonePrefixMap (real 983 chart) when present; else the approximate
+// ZIP-range fallback. Returns { zone, source, rough }.
+function zoneForZip(zip) {
+  const prefix = String(zip || '').slice(0, 3);
+  const map = RATES.zonePrefixMap || {};
+  if (map[prefix] != null) {
+    return { zone: parseInt(map[prefix], 10), source: 'ups-983-chart', rough: false };
+  }
+  const p = parseInt(prefix, 10);
+  if (!isNaN(p)) {
+    for (const r of (RATES.zoneRanges || [])) {
+      if (p >= r.min && p <= r.max) return { zone: r.zone, source: 'approx-range', rough: true };
+    }
+  }
+  return { zone: RATES.defaultZone || 5, source: 'default', rough: true };
+}
 
-const FUEL_FACTOR = 1.12;          // rough fuel surcharge multiplier
-const RESIDENTIAL_SURCHARGE = 6.50; // per shipment, residential delivery
+// ── UPS Ground NET (pre-fuel) rate for a zone at a given weight, by interpolating the
+// published anchor grid. Extrapolates linearly beyond the last anchor (heavy boxes rare). ──
+function groundRate(zone, lb) {
+  const grid = RATES.ratesByZone[zone] || RATES.ratesByZone[String(zone)] || RATES.ratesByZone[8] || RATES.ratesByZone['8'];
+  const anchors = RATES.anchorsLb;
+  const w = billableLb(lb);
+  if (w <= anchors[0]) return grid[0];
+  for (let i = 1; i < anchors.length; i++) {
+    if (w <= anchors[i]) {
+      const w0 = anchors[i - 1], w1 = anchors[i], r0 = grid[i - 1], r1 = grid[i];
+      return r0 + (r1 - r0) * (w - w0) / (w1 - w0);
+    }
+  }
+  const n = anchors.length;
+  const slope = (grid[n - 1] - grid[n - 2]) / (anchors[n - 1] - anchors[n - 2]);
+  return grid[n - 1] + slope * (w - anchors[n - 1]);
+}
+
+// ── Core estimate (pure, exported for tests) ──
+function computeEstimate({ toZip, weightLb, totalWeightOz, boxes, boxWeightsLb, residential }) {
+  const total = Number(weightLb) || (Number(totalWeightOz) ? Number(totalWeightOz) / 16 : 0);
+  const nBoxes = Math.max(1, parseInt(boxes, 10) || 1);
+  const { zone, source, rough } = zoneForZip(toZip);
+
+  // Per-box weights: use the caller's array if valid, else split the total evenly.
+  let perBoxWeights = Array.isArray(boxWeightsLb) ? boxWeightsLb.map(Number).filter((w) => w > 0) : [];
+  if (!perBoxWeights.length) {
+    const each = total / nBoxes;
+    perBoxWeights = Array.from({ length: nBoxes }, () => each);
+  }
+
+  const fuel = RATES.fuelSurchargePct || 0;
+  let baseSum = 0;
+  const perBox = perBoxWeights.map((w) => {
+    const base = groundRate(zone, w);
+    baseSum += base;
+    return { weightLb: billableLb(w), base: +base.toFixed(2), withFuel: +(base * (1 + fuel)).toFixed(2) };
+  });
+
+  let estimate = baseSum * (1 + fuel);
+  if (residential) estimate += (RATES.residentialSurchargeUsd || 0);
+  estimate = +estimate.toFixed(2);
+
+  return {
+    estimate,
+    method: 'UPS Ground',
+    origin: ORIGIN_ZIP,
+    toZip: String(toZip).slice(0, 5),
+    zone,
+    zoneSource: source,
+    rough,
+    billableWeightLb: perBoxWeights.reduce((s, w) => s + billableLb(w), 0),
+    boxes: perBox.length,
+    perBox,
+    fuelSurchargePct: fuel,
+    residential: !!residential,
+    rateYear: RATES.effectiveYear,
+    note: rough
+      ? 'Estimate uses real UPS Ground Daily list rates but an APPROXIMATE zone (load the exact origin-983 chart into ups-ground-rates.json for precision). List rates are an upper bound vs negotiated.'
+      : 'Estimate uses real UPS Ground Daily list rates + exact origin-983 zone. List rates are an upper bound vs NWCA negotiated rates.',
+  };
+}
 
 router.post('/shipping/estimate-ups-ground', (req, res) => {
   try {
-    const { toZip, weightLb, totalWeightOz, boxes, residential } = req.body || {};
-    let lb = Number(weightLb) || (Number(totalWeightOz) ? Number(totalWeightOz) / 16 : 0);
-    if (!toZip || !lb || lb <= 0) {
-      return res.status(400).json({ error: 'toZip and a positive weight (weightLb or totalWeightOz) are required' });
+    const { toZip, weightLb, totalWeightOz, boxes, boxWeightsLb, residential } = req.body || {};
+    const lb = Number(weightLb) || (Number(totalWeightOz) ? Number(totalWeightOz) / 16 : 0);
+    const hasBoxWeights = Array.isArray(boxWeightsLb) && boxWeightsLb.some((w) => Number(w) > 0);
+    if (!toZip || (!lb && !hasBoxWeights)) {
+      return res.status(400).json({ error: 'toZip and a positive weight (weightLb, totalWeightOz, or boxWeightsLb) are required' });
     }
-    const nBoxes = Math.max(1, parseInt(boxes, 10) || 1);
-    const zone = zoneForZip(toZip);
-    const model = ZONE_MODEL[zone] || ZONE_MODEL[5];
-
-    // UPS bills per package; bias up — billable weight per box, min 1 lb.
-    const perBoxLb = Math.max(1, Math.ceil(lb / nBoxes));
-    const perBoxBase = model.base + model.perLb * perBoxLb;
-    const perBox = +(perBoxBase * FUEL_FACTOR).toFixed(2);
-    let estimate = +(perBox * nBoxes).toFixed(2);
-    if (residential) estimate = +(estimate + RESIDENTIAL_SURCHARGE).toFixed(2);
-
-    return res.json({
-      estimate,
-      method: 'UPS Ground',
-      origin: ORIGIN_ZIP,
-      toZip: String(toZip).slice(0, 5),
-      zone,
-      billableWeightLb: Math.ceil(lb),
-      boxes: nBoxes,
-      perBox,
-      residential: !!residential,
-      rough: true,
-      note: 'Rough estimate (coarse zone + linear rate + fuel). Load the UPS 983 zone chart + Ground rate grid for accuracy.',
-    });
+    return res.json(computeEstimate({ toZip, weightLb, totalWeightOz, boxes, boxWeightsLb, residential }));
   } catch (err) {
     console.error('[shipping/estimate-ups-ground]', err);
     return res.status(500).json({ error: 'Failed to compute shipping estimate' });
   }
 });
+
+// Default OUTBOUND pieces-per-box by category — data-backed (real SanMar inbound cartons,
+// 2026-06-04 sample, with a decorated-bulk shave). Overridable WITHOUT a deploy via the
+// Caspio `Box_Density_Reference` table (columns: Category, PiecesPerBox) — Erik's "config
+// lives in Caspio" rule. Seed it with: node scripts/seed-box-density-caspio.js
+const BOX_DENSITY_DEFAULTS = {
+  Cap: 60, 'T-Shirt': 58, Polo: 36, Sweatshirt: 16, Hoodie: 16, Jacket: 17, Outerwear: 15,
+};
 
 /**
  * GET /api/shipping/box-density
@@ -122,3 +222,8 @@ router.get('/shipping/box-density', async (req, res) => {
 });
 
 module.exports = router;
+// Exported for unit tests (tests/jest/shipping-estimate.test.js)
+module.exports.computeEstimate = computeEstimate;
+module.exports.zoneForZip = zoneForZip;
+module.exports.groundRate = groundRate;
+module.exports.billableLb = billableLb;

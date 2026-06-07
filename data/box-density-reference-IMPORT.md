@@ -25,7 +25,14 @@ HIGH on purpose (so the customer prepays enough freight — never a second card 
 ## What's NOT here (and why)
 - **Per-style weight + case pack** — already live in Caspio's SanMar catalog (`/api/inventory`
   `PIECE_WEIGHT`/`CASE_SIZE`); the estimator reads it directly. Don't duplicate it (it'd rot).
-- **Box dimensions / carton weights** — SanMar's shipment API does NOT return these (confirmed).
-  Carton weight = per-piece weight × qty.
+- **Box dimensions** — NO SanMar service returns carton L/W/H. A true dimensional model needs
+  us to log our own outbound boxes (see below).
+- **Carton weight** — the PromoStandards **ASN** the proxy uses (`sanmar-shipments.js`) does NOT
+  return per-box weight, so the estimator computes carton weight = per-piece weight × qty. BUT
+  note (corrected 2026-06-07): SanMar's separate **License Plate Number / GetPackingSlip** service
+  DOES return a real per-box `Weight` + `ShipmentUnitIndex` (box #) + the items in the box. It's
+  scan-keyed (post-ship, by LPN barcode only), so it's a future CALIBRATION source — scan inbound
+  cartons at receiving to ground-truth pieces-per-box + weight — not a pre-ship lookup. Details:
+  `Pricing Index/memory/freight-estimator-details.md`.
 - **True measured decorated density** — would require logging OUR outbound boxes (box → contents);
   not captured today. Future upgrade: extend the Box Labels feature to log outbound, then re-derive.
