@@ -389,6 +389,20 @@ const emblemPricingRoutes = require('./src/routes/emblem-pricing');
 app.use('/api', emblemPricingRoutes);
 console.log('✓ Emblem pricing route loaded');
 
+// [C1] (audit 2026-06-06): rate-limit the real-money push + file-upload routes (were unlimited). Generous
+// per-IP cap (120 / 15 min) — a busy office won't hit it, but it blocks scripted abuse. Mounted at the exact
+// sub-paths so it ONLY counts /api/embroidery-push/* and /api/files/* — never read/pricing traffic.
+const writeLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  trustProxy: true,
+  message: { error: 'Too many requests — please slow down and try again shortly.' }
+});
+app.use('/api/embroidery-push', writeLimiter);
+app.use('/api/files', writeLimiter);
+
 // File Upload Routes (Caspio Files API v3)
 const filesRoutes = require('./src/routes/files-simple');
 app.use('/api', filesRoutes);
