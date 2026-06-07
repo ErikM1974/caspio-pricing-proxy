@@ -29,15 +29,20 @@ describe('groundRate — anchor cells exact, between anchors interpolated', () =
   });
 });
 
-describe('zoneForZip — origin 983 (Milton WA)', () => {
+describe('zoneForZip — origin 983 (Milton WA), exact UPS 983 chart', () => {
   test.each([
-    ['98390', 2], ['98101', 2], ['97201', 3], ['90001', 6], ['10001', 8], ['33101', 8],
+    ['98390', 2], ['98101', 2], ['97201', 2], ['90001', 5], ['80202', 5], ['10001', 8], ['33101', 8],
   ])('%s → zone %p', (zip, zone) => {
     expect(ship.zoneForZip(zip).zone).toBe(zone);
   });
-  test('range-derived zones are flagged rough', () => {
-    expect(ship.zoneForZip('98390').rough).toBe(true);
-    expect(ship.zoneForZip('98390').source).toBe('approx-range');
+  test('mapped zips are exact (sourced from the real 983 chart, not rough)', () => {
+    expect(ship.zoneForZip('98390').source).toBe('ups-983-chart');
+    expect(ship.zoneForZip('98390').rough).toBe(false);
+  });
+  test('unmapped zips (e.g. AK) fall back to the approximate range, flagged rough', () => {
+    const ak = ship.zoneForZip('99501');
+    expect(ak.source).toBe('approx-range');
+    expect(ak.rough).toBe(true);
   });
 });
 
