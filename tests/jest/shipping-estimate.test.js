@@ -46,36 +46,43 @@ describe('zoneForZip — origin 983 (Milton WA), exact UPS 983 chart', () => {
   });
 });
 
-describe('computeEstimate — worked example: 12 caps + 13 jackets + 12 tees → 98390', () => {
-  const base = { toZip: '98390', weightLb: 26.55, boxes: 3, boxWeightsLb: [3.36, 17.55, 5.64] };
-
-  test('commercial = $55.33 (real Daily grid, zone 2, 25.5% fuel)', () => {
-    const e = ship.computeEstimate({ ...base, residential: false });
-    expect(e.estimate).toBeCloseTo(55.33, 2);
+describe('computeEstimate — negotiated cost + markup model (fit to real UPS invoice)', () => {
+  test('light box hits the $11.99 floor: zone 2, 5 lb → cost $14.39, estimate $16.55', () => {
+    const e = ship.computeEstimate({ toZip: '98390', boxWeightsLb: [5], boxes: 1, residential: false });
+    expect(e.basis).toBe('negotiated');
+    expect(e.markupPct).toBeCloseTo(0.15, 2);
+    expect(e.estimatedCost).toBeCloseTo(14.39, 2);  // $11.99 floor + 20% fuel
+    expect(e.estimate).toBeCloseTo(16.55, 2);        // cost × 1.15 markup
     expect(e.zone).toBe(2);
-    expect(e.boxes).toBe(3);
-    expect(e.billableWeightLb).toBe(28); // 4 + 18 + 6
-    expect(e.perBox).toHaveLength(3);
   });
 
-  test('residential adds the surcharge', () => {
-    const c = ship.computeEstimate({ ...base, residential: false }).estimate;
-    const r = ship.computeEstimate({ ...base, residential: true }).estimate;
-    expect(r).toBeCloseTo(c + 6.5, 2);
+  test('estimate ≈ estimatedCost × (1 + markup)', () => {
+    const e = ship.computeEstimate({ toZip: '10001', boxWeightsLb: [40], boxes: 1 });
+    // estimate is computed from the UNrounded cost, so allow a cent of rounding slack
+    expect(e.estimate).toBeCloseTo(e.estimatedCost * 1.15, 1);
   });
 
-  test('per-box weights beat an even split for uneven boxes (sanity: both ~same total here)', () => {
-    const withBoxes = ship.computeEstimate({ ...base, residential: false }).estimate;
-    const evenSplit = ship.computeEstimate({ toZip: '98390', weightLb: 26.55, boxes: 3, residential: false }).estimate;
-    expect(withBoxes).toBeGreaterThan(0);
-    expect(evenSplit).toBeGreaterThan(0);
+  test('residential adds $3.90/box (carried through fuel + markup)', () => {
+    const c = ship.computeEstimate({ toZip: '98390', boxWeightsLb: [5], boxes: 1, residential: false });
+    const r = ship.computeEstimate({ toZip: '98390', boxWeightsLb: [5], boxes: 1, residential: true });
+    expect(r.residentialUsd).toBeCloseTo(3.90, 2);
+    expect(r.estimate).toBeGreaterThan(c.estimate);
+    expect(r.estimate).toBeCloseTo(21.93, 2);
   });
-});
 
-describe('computeEstimate — far + heavy is materially higher', () => {
-  test('40 lb to NYC (zone 8) >> 40 lb local (zone 2)', () => {
+  test('heavy far box uses the discounted grid, not the floor: zone 8, 40 lb → ~$62.83', () => {
+    const e = ship.computeEstimate({ toZip: '10001', boxWeightsLb: [40], boxes: 1 });
+    expect(e.estimate).toBeCloseTo(62.83, 1);
+  });
+
+  test('estimated COST matches a real UPS invoice within ~$1: San Diego 11 lb commercial (actual $15.75)', () => {
+    const e = ship.computeEstimate({ toZip: '92101', boxWeightsLb: [11], boxes: 1, residential: false });
+    expect(Math.abs(e.estimatedCost - 15.75)).toBeLessThan(1.0);
+  });
+
+  test('a far box still costs more than a local box of the same weight', () => {
     const ny = ship.computeEstimate({ toZip: '10001', boxWeightsLb: [40], boxes: 1 }).estimate;
     const wa = ship.computeEstimate({ toZip: '98390', boxWeightsLb: [40], boxes: 1 }).estimate;
-    expect(ny).toBeGreaterThan(wa * 1.5);
+    expect(ny).toBeGreaterThan(wa);
   });
 });

@@ -39,8 +39,13 @@ const ORIGIN_ZIP = '98354'; // NWCA, Milton WA
 // ── Rate data (data/ups-ground-rates.json) with an embedded fallback ──
 const RATES_FALLBACK = {
   effectiveYear: '2025',
-  fuelSurchargePct: 0.255,
-  residentialSurchargeUsd: 6.50,
+  mode: 'negotiated',
+  negotiatedDiscount: 0.63,   // NWCA negotiated base / UPS list-net (fit from real invoice)
+  floorUsd: 11.99,            // NWCA negotiated minimum package charge (per box)
+  markupPct: 0.15,           // small handling markup on estimated cost
+  fuelSurchargePct: 0.20,
+  residentialSurchargeUsd: 3.90,
+  dasUsd: 0,
   anchorsLb: [1, 5, 10, 20, 40, 70],
   ratesByZone: {
     2: [11.32, 13.38, 15.08, 18.11, 25.53, 32.89],
@@ -142,19 +147,36 @@ function computeEstimate({ toZip, weightLb, totalWeightOz, boxes, boxWeightsLb, 
   }
 
   const fuel = RATES.fuelSurchargePct || 0;
+  const mode = RATES.mode || 'negotiated';
+  const discount = RATES.negotiatedDiscount || 1;
+  const floor = RATES.floorUsd || 0;
+  const markup = RATES.markupPct || 0;
+  const resiUsd = RATES.residentialSurchargeUsd || 0;
+  const dasUsd = RATES.dasUsd || 0;
+
+  // Per-box base. In 'negotiated' mode (default): NWCA's contract = list-net x discount,
+  // with a per-box floor (the negotiated minimum dominates light packages). Fit to a real
+  // UPS invoice (903313166). In 'list' mode: raw published list rate (upper bound).
   let baseSum = 0;
   const perBox = perBoxWeights.map((w) => {
-    const base = groundRate(zone, w);
+    const listNet = groundRate(zone, w);
+    const base = mode === 'list' ? listNet : Math.max(floor, listNet * discount);
     baseSum += base;
-    return { weightLb: billableLb(w), base: +base.toFixed(2), withFuel: +(base * (1 + fuel)).toFixed(2) };
+    return { weightLb: billableLb(w), base: +base.toFixed(2) };
   });
 
-  let estimate = baseSum * (1 + fuel);
-  if (residential) estimate += (RATES.residentialSurchargeUsd || 0);
-  estimate = +estimate.toFixed(2);
+  const nBox = perBox.length;
+  const residentialUsd = residential ? resiUsd * nBox : 0;       // UPS bills residential per package
+  const dasTotal = dasUsd * nBox;                                // per package (0 unless configured)
+  const fuelUsd = fuel * (baseSum + residentialUsd + dasTotal);  // fuel applies to base + accessorials
+  const estimatedCost = baseSum + residentialUsd + dasTotal + fuelUsd;
+  const estimate = +(estimatedCost * (1 + markup)).toFixed(2);   // cost + small handling markup
 
   return {
     estimate,
+    estimatedCost: +estimatedCost.toFixed(2),
+    markupPct: markup,
+    basis: mode,
     method: 'UPS Ground',
     origin: ORIGIN_ZIP,
     toZip: String(toZip).slice(0, 5),
@@ -162,14 +184,16 @@ function computeEstimate({ toZip, weightLb, totalWeightOz, boxes, boxWeightsLb, 
     zoneSource: source,
     rough,
     billableWeightLb: perBoxWeights.reduce((s, w) => s + billableLb(w), 0),
-    boxes: perBox.length,
+    boxes: nBox,
     perBox,
     fuelSurchargePct: fuel,
+    residentialUsd: +residentialUsd.toFixed(2),
+    dasUsd: +dasTotal.toFixed(2),
     residential: !!residential,
     rateYear: RATES.effectiveYear,
-    note: rough
-      ? 'Estimate uses real UPS Ground Daily list rates but an APPROXIMATE zone (load the exact origin-983 chart into ups-ground-rates.json for precision). List rates are an upper bound vs negotiated.'
-      : 'Estimate uses real UPS Ground Daily list rates + exact origin-983 zone. List rates are an upper bound vs NWCA negotiated rates.',
+    note: mode === 'list'
+      ? `UPS list rate (upper bound).${rough ? ' Zone approximate.' : ''}`
+      : `Estimated NWCA cost (negotiated) + ${Math.round(markup * 100)}% handling.${rough ? ' Zone approximate.' : ''}`,
   };
 }
 
