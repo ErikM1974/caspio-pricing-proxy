@@ -176,6 +176,32 @@ function getTaxAccount(taxRate, shipState) {
 }
 
 /**
+ * Parse a quote session's per-order Wholesale flag (Quote_Sessions.IsWholesale).
+ * A missing/blank/No value is NEVER wholesale (never auto-wholesale a taxable order).
+ * @param {Object} session
+ * @returns {boolean}
+ */
+function isWholesaleSession(session) {
+  const v = session && session.IsWholesale;
+  return v === true || v === 'Yes' || v === 1 || v === '1' || String(v).toLowerCase() === 'true';
+}
+
+/**
+ * Resolve the ShopWorks GL tax account for an order. Wholesale/reseller (per-order IsWholesale checkbox)
+ * → 0 tax routed to the Wholesale Sales account 2203, regardless of destination rate (short-circuits the
+ * rate lookup). Otherwise defers to getTaxAccount (out-of-state 2202 / WA rate accounts / Milton pickup).
+ * Shared by the EMB, DTF, and SCP push transformers so the 2203 routing lives in ONE place (2026-06-08).
+ * @param {{ taxRate:number, shipState:string, isWholesale:boolean }} opts
+ * @returns {{ accountCode:string, description:string, partNumber:string }}
+ */
+function resolveTaxAccount({ taxRate, shipState, isWholesale }) {
+  if (isWholesale) {
+    return { accountCode: '2203', description: 'Wholesale Sales (WA reseller permit — no tax)', partNumber: '' };
+  }
+  return getTaxAccount(taxRate, shipState);
+}
+
+/**
  * Extract the sequence number from a QuoteID.
  * "EMB-2026-250" → "250"
  *
@@ -381,6 +407,8 @@ function buildAccountingTaxNote({ subtotal = 0, shipping = 0, taxRate = 0, taxAm
 }
 
 module.exports = {
+  isWholesaleSession,
+  resolveTaxAccount,
   EMB_ONSITE_DEFAULTS,
   buildSalesTaxNote,
   buildAccountingTaxNote,
