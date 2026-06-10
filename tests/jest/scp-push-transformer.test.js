@@ -150,9 +150,11 @@ describe('SCP push transformer — notes & tax', () => {
   });
 
   test('tax note shows the rate as a real percentage (TaxRate stored as 10.1, not 1010%)', () => {
+    // buildSalesTaxNote (shared, reformatted 2026-06-02) emits one fact per
+    // note row — the rate lives on its own 'Tax Rate: …' line.
     const session = baseSession();
     const order = transformQuoteToOrder(session, [garment()], { isTest: true });
-    const taxNote = order.Notes.find((n) => /Sales tax/.test(n.Note));
+    const taxNote = order.Notes.find((n) => /Tax Rate:/.test(n.Note));
     expect(taxNote).toBeTruthy();
     expect(taxNote.Note).toMatch(/10\.10%/);
     expect(taxNote.Note).not.toMatch(/1010/);
@@ -160,7 +162,7 @@ describe('SCP push transformer — notes & tax', () => {
 
   test('a decimal TaxRate (0.101) is also handled correctly', () => {
     const order = transformQuoteToOrder(baseSession({ TaxRate: 0.101 }), [garment()], { isTest: true });
-    const taxNote = order.Notes.find((n) => /Sales tax/.test(n.Note));
+    const taxNote = order.Notes.find((n) => /Tax Rate:/.test(n.Note));
     expect(taxNote.Note).toMatch(/10\.10%/);
   });
 
@@ -231,7 +233,9 @@ describe('SCP push transformer — design attachment', () => {
     // Enrichment (2026-06-01): ink colors + a stable ExtDesignID that the
     // garment lines reference, so the design and lines link in ShopWorks.
     expect(d.Locations[0].TotalColors).toBe('2'); // 2 front + 0 back
-    expect(d.ExtDesignID).toBe('G-1');            // QuoteID SPC-0101-1 → seq 1
+    // Full QuoteID, not trailing seq — globally unique across quote prefixes
+    // (collision fix 1329465; pinned in push-size-suffix.test.js).
+    expect(d.ExtDesignID).toBe('G-SPC-0101-1');
     const garmentLine = order.LinesOE.find((l) => l.PartNumber.startsWith('PC54'));
     expect(garmentLine.ExtDesignIDBlock).toBe(d.ExtDesignID); // line → design link
   });
