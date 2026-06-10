@@ -829,6 +829,13 @@ const serviceCodesRoutes = require('./src/routes/service-codes');
 app.use('/api', serviceCodesRoutes);
 console.log('✓ Service Codes routes loaded');
 
+// DTG Print-Area Calibration (Custom T-Shirts storefront, 2026-06-10)
+// Staff-laid print-envelope placements per style/view/color → Caspio
+// DTG_Calibration; the storefront designer anchors to these (no-deploy edits).
+const dtgCalibrationRoutes = require('./src/routes/dtg-calibration');
+app.use('/api', dtgCalibrationRoutes);
+console.log('✓ DTG Calibration routes loaded');
+
 // Order Form Customer Suggestions Routes (Phase 6c, 2026-05-03)
 // Reads/writes Customer_Service_History to power the order form's
 // "Suggested for {Company}" rail section.
