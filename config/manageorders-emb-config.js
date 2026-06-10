@@ -70,6 +70,11 @@ const KNOWN_FEE_PNS = new Set([
   'SPRESET', 'SPSU',
   'Laser Patch', 'SECC',
   'CB', 'CS',  // Cap Back / Cap Side embroidery (legacy/imported; new builder uses AL-CAP) — 2026-06-04
+  // WEIGHT — per-person weight embroidery (wrestling singlets). Real SW part: the ShopWorks
+  // import parser (frontend shopworks-import-parser.js:1618) classifies WEIGHT lines coming
+  // FROM live ShopWorks orders, and the EMB builder's Add Service bar saves StyleNumber
+  // 'WEIGHT'. Was missing here, so WEIGHT rows demoted to notes → under-billed. (audit 2026-06-10)
+  'WEIGHT',
 ]);
 
 /**
@@ -80,6 +85,38 @@ const KNOWN_FEE_PNS_UPPER = new Set(
 );
 
 /**
+ * Quote-builder fee styles that have NO part of their own in ShopWorks but map
+ * 1:1 onto a real configured part. Keys are UPPERCASE (matched after
+ * normalization), values are the canonical ShopWorks part number.
+ *
+ * 'FB' — the builder's standalone Full Back service rows save StyleNumber 'FB',
+ * but the ShopWorks part for Full Back Embroidery is 'DECG-FB' (canonical list
+ * #22, MANAGEORDERS_COMPLETE_REFERENCE.md). Alias so FB rows bill as a real
+ * line instead of demoting to an order note. (audit 2026-06-10)
+ */
+const FEE_PN_ALIASES = {
+  'FB': 'DECG-FB',
+  // 'Name/Number' was verified to NOT exist as its own ShopWorks part (hard-deleted from
+  // Caspio 2026-05-03 — see MANAGEORDERS_COMPLETE_REFERENCE.md "Removed 2026-05-03"). The
+  // builder's Add Service bar still saves StyleNumber 'Name/Number' ($15 default), which
+  // demoted to a note → under-billed. Bill it under the real 'Monogram' part ("Dir.
+  // Embroider Names on Garments") — the same bucket the SW import parser uses for
+  // NAME/NUMBER lines. The line's Description still says "Name & Number". (audit 2026-06-10)
+  'NAME/NUMBER': 'Monogram',
+  'NAME': 'Monogram',  // legacy saved StyleNumber for the same service (builder SERVICE_STYLE_NUMBERS)
+};
+
+/**
+ * UPPERCASE → canonical-case map for KNOWN_FEE_PNS. ShopWorks part numbers are
+ * case-sensitive on the receiving end ('CTR-Garmt', not 'CTR-GARMT'), so the
+ * value SENT must be the canonical spelling even when the saved StyleNumber
+ * passed the case-insensitive gate. (audit 2026-06-10)
+ */
+const KNOWN_FEE_PNS_CANONICAL = new Map(
+  Array.from(KNOWN_FEE_PNS, (p) => [String(p).toUpperCase(), p])
+);
+
+/**
  * Case-insensitive membership check for fee/service part numbers.
  * Use this everywhere instead of `KNOWN_FEE_PNS.has(pn)`.
  *
@@ -87,7 +124,41 @@ const KNOWN_FEE_PNS_UPPER = new Set(
  * @returns {boolean}
  */
 function isKnownFeeCode(pn) {
-  return KNOWN_FEE_PNS_UPPER.has(String(pn || '').toUpperCase());
+  const upper = String(pn || '').trim().toUpperCase();
+  return KNOWN_FEE_PNS_UPPER.has(upper) || Object.prototype.hasOwnProperty.call(FEE_PN_ALIASES, upper);
+}
+
+/**
+ * Resolve a saved fee StyleNumber to the canonical ShopWorks part number:
+ * applies FEE_PN_ALIASES first (FB → DECG-FB), then canonical casing from
+ * KNOWN_FEE_PNS ('CTR-GARMT' → 'CTR-Garmt'). Returns null when the PN is not
+ * a known ShopWorks part (caller demotes it to an explicit UNBILLED note).
+ *
+ * @param {string} pn - Part number (any case)
+ * @returns {string|null} Canonical ShopWorks part number, or null if unknown
+ */
+function canonicalFeePN(pn) {
+  const upper = String(pn || '').trim().toUpperCase();
+  if (!upper) return null;
+  const aliased = Object.prototype.hasOwnProperty.call(FEE_PN_ALIASES, upper)
+    ? String(FEE_PN_ALIASES[upper]).toUpperCase()
+    : upper;
+  return KNOWN_FEE_PNS_CANONICAL.get(aliased) || null;
+}
+
+/**
+ * Normalize a tax rate to a decimal fraction. EMB saves TaxRate as a decimal
+ * (0.101), but hand-edited / imported / legacy rows can be percent-shaped
+ * (10.1) — which blew up downstream as 'Tax Rate: 1010%' + MANUAL REVIEW
+ * account. Values > 1 are treated as percentages. Mirrors the DTF/SCP
+ * transformers' toRateDecimal. (audit 2026-06-10)
+ *
+ * @param {*} raw - Saved TaxRate (decimal or percent shaped)
+ * @returns {number} Rate as a decimal fraction (0.101)
+ */
+function toRateDecimal(raw) {
+  const n = parseFloat(raw) || 0;
+  return n > 1 ? n / 100 : n;
 }
 
 /**
@@ -416,7 +487,10 @@ module.exports = {
   SALES_REP_MAP,
   ORDER_LEVEL_FEES,
   KNOWN_FEE_PNS,
+  FEE_PN_ALIASES,
   isKnownFeeCode,
+  canonicalFeePN,
+  toRateDecimal,
   TAX_ACCOUNT_LOOKUP,
   getTaxAccount,
   extractSequence,

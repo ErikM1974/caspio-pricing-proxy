@@ -6,8 +6,13 @@
  *
  * Endpoints:
  *   POST /api/embroidery-push/push-quote  — Transform & push a quote
- *   GET  /api/embroidery-push/verify/:extOrderId — Verify order exists
  *   GET  /api/embroidery-push/health — Test auth connectivity
+ *   GET  /api/embroidery-push/preview/:quoteId — Preview ExternalOrderJson without pushing
+ *
+ * REMOVED (audit 2026-06-10): GET /verify/:extOrderId — it queried MO order-pull with
+ * only an ExtOrderID param, which MO rejects (order-pull requires date-range params),
+ * so it always 400'd. The frontend verifies imports via the working
+ * GET /api/manageorders/getorderno/:ext_order_id instead (src/routes/manageorders.js).
  */
 
 const express = require('express');
@@ -64,16 +69,25 @@ router.post('/embroidery-push/push-quote', express.json(), async (req, res) => {
     if (sessions.length > 1) console.warn(`[EMB Push] ${sessions.length} session rows for ${quoteId} — using newest PK_ID=${sessions[0].PK_ID} (Subtotal ${sessions[0].SubtotalAmount}). Possible duplicate QuoteID.`);
     const session = sessions[0];
 
-    // 2a. Guard: a REAL (non-test) push must carry a Customer #. Without it the transformer
+    // 2a. Guard: a REAL (non-test) push must carry a VALID Customer #. Without it the transformer
     //     silently routes the order to the embroidery catch-all customer 3739 — a wrong-account
     //     order. The frontend gates on this, but a force re-push or direct API call can bypass
     //     that, so backstop it here. Test pushes intentionally use 3739. (2026-06-04 audit)
+    //     Strict digits-only: parseInt truncated typos at the first non-digit ('12B45' → customer 12),
+    //     silently pushing the order to the WRONG ShopWorks account. (audit 2026-06-10)
     if (!isTest) {
-      const custNo = parseInt(session.CustomerNumber, 10);
-      if (!custNo) {
+      const rawCust = String(session.CustomerNumber == null ? '' : session.CustomerNumber).trim();
+      if (!rawCust || /^0+$/.test(rawCust)) {
         return res.status(400).json({
           error: 'Customer # required',
           details: 'This quote has no ShopWorks Customer #. Set it before pushing — otherwise the order would land on the catch-all customer 3739.',
+          quoteId,
+        });
+      }
+      if (!/^\d+$/.test(rawCust)) {
+        return res.status(400).json({
+          error: 'Invalid Customer #',
+          details: `Customer # "${rawCust}" is not a valid ShopWorks customer number (digits only). Fix it before pushing — a partial-numeric typo would silently push the order to the wrong customer account.`,
           quoteId,
         });
       }
@@ -150,6 +164,35 @@ router.post('/embroidery-push/push-quote', express.json(), async (req, res) => {
     // 6. Authenticate against /embroidery endpoint
     const token = await getTokenForEndpoint(EMB_BASE_URL);
 
+    // 6a. Duplicate-push TOCTOU guard (audit 2026-06-10): the step-3 check read
+    //     PushedToShopWorks seconds ago — two concurrent pushes (two tabs, rep +
+    //     manager, retry racing a slow first attempt) could BOTH pass it and create
+    //     two ShopWorks orders. Re-read the flag right before the MO POST and 409 if
+    //     someone else won the race. NOTE: this NARROWS the window (from the whole
+    //     fetch+transform span down to recheck→POST, milliseconds) but does NOT
+    //     eliminate it — Caspio has no atomic conditional-write claim we can take
+    //     here. force=true intentionally bypasses, same as the step-3 check.
+    if (!force) {
+      try {
+        const recheck = await fetchAllCaspioPages('/tables/Quote_Sessions/records', {
+          'q.where': `PK_ID=${session.PK_ID}`,
+          'q.select': 'PushedToShopWorks',
+        });
+        if (recheck && recheck[0] && recheck[0].PushedToShopWorks) {
+          return res.status(409).json({
+            error: 'Quote already pushed to ShopWorks',
+            pushedAt: recheck[0].PushedToShopWorks,
+            extOrderId: generateEmbExtOrderID(quoteId, false),
+            message: 'A concurrent push completed first. Use force=true to push again.',
+          });
+        }
+      } catch (recheckError) {
+        // Recheck is a best-effort guard — never block a push on its failure
+        // (the step-3 check already passed). Log and continue.
+        console.warn(`[EMB Push] Duplicate-push recheck failed (continuing): ${recheckError.message}`);
+      }
+    }
+
     // 7. POST to ManageOrders PUSH API
     console.log(`[EMB Push] Pushing to ${EMB_BASE_URL}/order-push...`);
     const pushResponse = await axios.post(
@@ -222,55 +265,8 @@ router.post('/embroidery-push/push-quote', express.json(), async (req, res) => {
   }
 });
 
-/**
- * GET /api/embroidery-push/verify/:extOrderId
- *
- * Verify an order exists in ManageOrders by pulling it back.
- */
-router.get('/embroidery-push/verify/:extOrderId', async (req, res) => {
-  const { extOrderId } = req.params;
-
-  try {
-    if (!extOrderId) {
-      return res.status(400).json({ error: 'extOrderId is required' });
-    }
-
-    const token = await getTokenForEndpoint(EMB_BASE_URL);
-
-    // Pull orders from ManageOrders — search by ExtOrderID
-    const pullResponse = await axios.get(
-      `${EMB_BASE_URL}/order-pull`,
-      {
-        params: {
-          ExtOrderID: extOrderId,
-        },
-        headers: {
-          'Accept': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        timeout: 15000,
-      }
-    );
-
-    const orders = pullResponse.data;
-    const found = Array.isArray(orders) && orders.length > 0;
-
-    res.json({
-      found,
-      extOrderId,
-      orderCount: found ? orders.length : 0,
-      orderData: found ? orders[0] : null,
-    });
-
-  } catch (error) {
-    console.error(`[EMB Push] Verify error for ${extOrderId}:`, error.message);
-    res.status(500).json({
-      error: 'Failed to verify order',
-      details: error.message,
-      extOrderId,
-    });
-  }
-});
+// GET /verify/:extOrderId was REMOVED here (audit 2026-06-10) — see file header.
+// Import verification lives at GET /api/manageorders/getorderno/:ext_order_id.
 
 /**
  * GET /api/embroidery-push/health
