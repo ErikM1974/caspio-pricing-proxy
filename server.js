@@ -290,6 +290,20 @@ const categoriesRoutes = require('./src/routes/categories');
 app.use('/api', categoriesRoutes);
 console.log('✓ Catalog categories routes loaded');
 
+// Decoration Method Eligibility Routes (2026-06-11) — category rules + per-style
+// overrides from Caspio (Decoration_Method_Rules / Decoration_Method_Overrides),
+// so Erik tunes which methods a product offers with no deploy. 1h cache, 502 on failure.
+const decorationMethodsRoutes = require('./src/routes/decoration-methods');
+app.use('/api', decorationMethodsRoutes);
+console.log('✓ Decoration methods routes loaded');
+
+// Custom Caps Catalog Route (2026-06-11) — curated hats-store lineup from
+// Caspio CAPS_Catalog_2026 (styles + hero colors); Erik edits the lineup in
+// Caspio with no deploy. 1h cache, 502 on failure (consumer falls back loudly).
+const capsCatalogRoutes = require('./src/routes/caps-catalog');
+app.use('/api', capsCatalogRoutes);
+console.log('✓ Caps catalog routes loaded');
+
 // Cart Routes
 const cartRoutes = require('./src/routes/cart');
 app.use('/api', cartRoutes);
