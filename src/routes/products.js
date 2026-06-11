@@ -5,6 +5,7 @@ const router = express.Router();
 const { makeCaspioRequest, fetchAllCaspioPages } = require('../utils/caspio');
 const { mapFieldsForBackwardCompatibility, createProductColorsResponse, createColorSwatchesResponse } = require('../utils/field-mapper');
 const { getActiveColors } = require('./sanmar-product-data');
+const { computeDisplayPrice, formatDisplayPriceLabel, getBlankDisplayPricingConfig } = require('../utils/catalog-display-price');
 
 // Cache for product search (5 minute TTL)
 const productSearchCache = new Map();
@@ -576,6 +577,12 @@ router.get('/products/search', async (req, res) => {
     // Group records by STYLE to create unique products
     const productsByStyle = new Map();
 
+    // Per-style garment costs for the server-computed "from $X" display price.
+    // Convention matches /api/pricing-bundle's `sizes[]`: cost per size = MAX(CASE_PRICE)
+    // across colors; the display base = the CHEAPEST size's cost.
+    // style -> Map(sizeKey -> max CASE_PRICE)
+    const sizeCostsByStyle = new Map();
+
     allRecords.forEach(record => {
       const style = record.STYLE;
       if (!productsByStyle.has(style)) {
@@ -677,23 +684,62 @@ router.get('/products/search', async (req, res) => {
       if (record.SIZE) {
         product.sizes.add(record.SIZE);
       }
+
+      // Track per-size garment cost (max CASE_PRICE per size) for displayPrice.
+      // Sizeless rows bucket under '' so single-variant products still price.
+      const caseCost = parseFloat(record.CASE_PRICE);
+      if (Number.isFinite(caseCost) && caseCost > 0) {
+        const sizeKey = record.SIZE ? String(record.SIZE).trim().toUpperCase() : '';
+        if (!sizeCostsByStyle.has(style)) {
+          sizeCostsByStyle.set(style, new Map());
+        }
+        const sizeCosts = sizeCostsByStyle.get(style);
+        sizeCosts.set(sizeKey, Math.max(sizeCosts.get(sizeKey) || 0, caseCost));
+      }
     });
 
+    // Fetch the BLANK margin + rounding config ONCE (1h-cached in the helper — never a
+    // per-product Caspio call). null => Caspio unavailable => displayPrice omitted (null)
+    // for every product. Erik's #1 rule: no hardcoded fallback price, ever.
+    const blankPricingConfig = await getBlankDisplayPricingConfig();
+
     // Convert Map to array and format final products
-    let products = Array.from(productsByStyle.values()).map(product => ({
-      ...product,
-      colors: Array.from(product.colors.values()),
-      sizes: Array.from(product.sizes).sort((a, b) => {
-        // Sort sizes in logical order (XS, S, M, L, XL, 2XL, etc.)
-        const sizeOrder = ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL', '6XL'];
-        const aIndex = sizeOrder.indexOf(a);
-        const bIndex = sizeOrder.indexOf(b);
-        if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
-        if (aIndex !== -1) return -1;
-        if (bIndex !== -1) return 1;
-        return a.localeCompare(b);
-      })
-    }));
+    const stylesMissingDisplayPrice = [];
+    let products = Array.from(productsByStyle.values()).map(product => {
+      // Server-computed "from $X" price (ADDITIVE fields — response stays backward-compatible).
+      // Base = cheapest size's cost; margin + rounding 100% Caspio-sourced via the cached
+      // BLANK config. Missing cost or config => null (frontend shows no price — never wrong).
+      const sizeCosts = sizeCostsByStyle.get(product.styleNumber);
+      const baseCost = (sizeCosts && sizeCosts.size > 0) ? Math.min(...sizeCosts.values()) : null;
+      const displayPrice = blankPricingConfig
+        ? computeDisplayPrice(baseCost, blankPricingConfig.marginDenominator, blankPricingConfig.roundingMethod)
+        : null;
+      if (displayPrice === null) {
+        stylesMissingDisplayPrice.push(product.styleNumber);
+      }
+
+      return {
+        ...product,
+        colors: Array.from(product.colors.values()),
+        sizes: Array.from(product.sizes).sort((a, b) => {
+          // Sort sizes in logical order (XS, S, M, L, XL, 2XL, etc.)
+          const sizeOrder = ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL', '6XL'];
+          const aIndex = sizeOrder.indexOf(a);
+          const bIndex = sizeOrder.indexOf(b);
+          if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
+          if (aIndex !== -1) return -1;
+          if (bIndex !== -1) return 1;
+          return a.localeCompare(b);
+        }),
+        displayPrice,
+        displayPriceLabel: formatDisplayPriceLabel(displayPrice)
+      };
+    });
+
+    if (stylesMissingDisplayPrice.length > 0) {
+      // Visible per Erik's #1 rule — these cards will render without a price.
+      console.warn(`[products/search] displayPrice omitted for ${stylesMissingDisplayPrice.length} style(s) (${blankPricingConfig ? 'no valid garment cost' : 'BLANK pricing config unavailable'}): ${stylesMissingDisplayPrice.join(', ')}`);
+    }
 
     console.log(`Grouped into ${products.length} unique products`);
 
@@ -839,12 +885,17 @@ router.get('/products/search', async (req, res) => {
 
     console.log(`Returning ${paginatedProducts.length} products for page ${pageNum}`);
 
-    // Cache the response
-    productSearchCache.set(cacheKey, {
-      data: response,
-      timestamp: now
-    });
-    console.log(`[CACHE SET] products/search - Cache size: ${productSearchCache.size}`);
+    // Cache the response — but NOT when the BLANK pricing config was unavailable, so a
+    // transient Caspio failure doesn't pin null displayPrices for the full cache TTL.
+    if (blankPricingConfig) {
+      productSearchCache.set(cacheKey, {
+        data: response,
+        timestamp: now
+      });
+      console.log(`[CACHE SET] products/search - Cache size: ${productSearchCache.size}`);
+    } else {
+      console.warn('[products/search] Response NOT cached (BLANK pricing config unavailable) — next request retries');
+    }
 
     // Limit cache size (keep last 50 entries)
     if (productSearchCache.size > 50) {
