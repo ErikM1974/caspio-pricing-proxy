@@ -284,6 +284,12 @@ const productRoutes = require('./src/routes/products');
 app.use('/api', productRoutes);
 console.log('✓ Product routes loaded');
 
+// Catalog Categories Routes (2026-06-11) — live category list + counts for the
+// customer catalog nav/mega-menu (replaces the frontend's hardcoded taxonomy).
+const categoriesRoutes = require('./src/routes/categories');
+app.use('/api', categoriesRoutes);
+console.log('✓ Catalog categories routes loaded');
+
 // Cart Routes
 const cartRoutes = require('./src/routes/cart');
 app.use('/api', cartRoutes);
