@@ -290,6 +290,13 @@ const categoriesRoutes = require('./src/routes/categories');
 app.use('/api', categoriesRoutes);
 console.log('✓ Catalog categories routes loaded');
 
+// Decoration Method Eligibility Routes (2026-06-11) — category rules + per-style
+// overrides from Caspio (Decoration_Method_Rules / Decoration_Method_Overrides),
+// so Erik tunes which methods a product offers with no deploy. 1h cache, 502 on failure.
+const decorationMethodsRoutes = require('./src/routes/decoration-methods');
+app.use('/api', decorationMethodsRoutes);
+console.log('✓ Decoration methods routes loaded');
+
 // Cart Routes
 const cartRoutes = require('./src/routes/cart');
 app.use('/api', cartRoutes);
