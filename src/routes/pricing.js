@@ -1020,10 +1020,21 @@ router.get('/pricing-bundle', async (req, res) => {
         break;
     }
 
-    // If styleNumber was provided, process and add size-specific data
-    if (styleNumber && results.length >= 7) {
-        const [, , , , upchargeResults, inventoryResult, sizeOrderResults] = results;
-        
+    // If styleNumber was provided, process and add size-specific data.
+    // The style-specific queries (upcharges, inventory, sizeOrder) are appended
+    // AFTER the base queries [tiers, rules, locations, costs]. DTF inserts an
+    // extra Transfer_Freight query between the cost query and the style queries,
+    // so for DTF the style block starts one slot later. A fixed `[, , , ,]` skip
+    // mis-read DTF's slots (freight→upcharges, upcharges→inventory) → garmentCosts
+    // empty → `sizes: []` → the Order Form's DTF garment cost was unavailable and
+    // it silently under-priced (no garment markup/labor/freight). Compute the
+    // offset from the method instead.
+    const styleQueryStart = (method === 'DTF') ? 5 : 4;
+    if (styleNumber && results.length >= styleQueryStart + 3) {
+        const upchargeResults = results[styleQueryStart];
+        const inventoryResult = results[styleQueryStart + 1];
+        const sizeOrderResults = results[styleQueryStart + 2];
+
         // Process selling price display add-ons
         let sellingPriceDisplayAddOns = {};
         if (upchargeResults && upchargeResults.length > 0) {
