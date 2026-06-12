@@ -5,7 +5,7 @@ const router = express.Router();
 const { makeCaspioRequest, fetchAllCaspioPages } = require('../utils/caspio');
 const { mapFieldsForBackwardCompatibility, createProductColorsResponse, createColorSwatchesResponse } = require('../utils/field-mapper');
 const { getActiveColors } = require('./sanmar-product-data');
-const { computeDisplayPrice, formatDisplayPriceLabel, getBlankDisplayPricingConfig } = require('../utils/catalog-display-price');
+const { computeDisplayPrice, formatDisplayPriceLabel, getDecoratedDisplayPricingConfig } = require('../utils/catalog-display-price');
 
 // Cache for product search (5 minute TTL)
 const productSearchCache = new Map();
@@ -698,21 +698,26 @@ router.get('/products/search', async (req, res) => {
       }
     });
 
-    // Fetch the BLANK margin + rounding config ONCE (1h-cached in the helper — never a
-    // per-product Caspio call). null => Caspio unavailable => displayPrice omitted (null)
-    // for every product. Erik's #1 rule: no hardcoded fallback price, ever.
-    const blankPricingConfig = await getBlankDisplayPricingConfig();
+    // Fetch the DECORATED (embroidery-included) margin/cost config ONCE (1h-cached in
+    // the helper — never a per-product Caspio call). Erik 2026-06-11: cards show
+    // "from $X with logo" = the product page's 72+ embroidered price (cheapest
+    // color/size). Caps use EmbroideryCaps math, everything else EmbroideryShirts.
+    // null => Caspio unavailable => displayPrice omitted (no fallback price, ever).
+    const decoratedPricingConfig = await getDecoratedDisplayPricingConfig();
 
     // Convert Map to array and format final products
     const stylesMissingDisplayPrice = [];
     let products = Array.from(productsByStyle.values()).map(product => {
-      // Server-computed "from $X" price (ADDITIVE fields — response stays backward-compatible).
-      // Base = cheapest size's cost; margin + rounding 100% Caspio-sourced via the cached
-      // BLANK config. Missing cost or config => null (frontend shows no price — never wrong).
+      // Server-computed "from $X with logo" price (ADDITIVE fields — response stays
+      // backward-compatible). Base = cheapest size's cost; margin + 8K embroidery cost +
+      // rounding 100% Caspio-sourced. Missing cost or config => null (no price — never wrong).
       const sizeCosts = sizeCostsByStyle.get(product.styleNumber);
       const baseCost = (sizeCosts && sizeCosts.size > 0) ? Math.min(...sizeCosts.values()) : null;
-      const displayPrice = blankPricingConfig
-        ? computeDisplayPrice(baseCost, blankPricingConfig.marginDenominator, blankPricingConfig.roundingMethod)
+      const methodConfig = decoratedPricingConfig
+        ? (product.category === 'Caps' ? decoratedPricingConfig.cap : decoratedPricingConfig.garment)
+        : null;
+      const displayPrice = methodConfig
+        ? computeDisplayPrice(baseCost, methodConfig.marginDenominator, methodConfig.roundingMethod, methodConfig.embCost)
         : null;
       if (displayPrice === null) {
         stylesMissingDisplayPrice.push(product.styleNumber);
@@ -738,7 +743,7 @@ router.get('/products/search', async (req, res) => {
 
     if (stylesMissingDisplayPrice.length > 0) {
       // Visible per Erik's #1 rule — these cards will render without a price.
-      console.warn(`[products/search] displayPrice omitted for ${stylesMissingDisplayPrice.length} style(s) (${blankPricingConfig ? 'no valid garment cost' : 'BLANK pricing config unavailable'}): ${stylesMissingDisplayPrice.join(', ')}`);
+      console.warn(`[products/search] displayPrice omitted for ${stylesMissingDisplayPrice.length} style(s) (${decoratedPricingConfig ? 'no valid garment cost or method config' : 'decorated pricing config unavailable'}): ${stylesMissingDisplayPrice.join(', ')}`);
     }
 
     console.log(`Grouped into ${products.length} unique products`);
@@ -885,9 +890,9 @@ router.get('/products/search', async (req, res) => {
 
     console.log(`Returning ${paginatedProducts.length} products for page ${pageNum}`);
 
-    // Cache the response — but NOT when the BLANK pricing config was unavailable, so a
+    // Cache the response — but NOT when the decorated pricing config was unavailable, so a
     // transient Caspio failure doesn't pin null displayPrices for the full cache TTL.
-    if (blankPricingConfig) {
+    if (decoratedPricingConfig) {
       productSearchCache.set(cacheKey, {
         data: response,
         timestamp: now
