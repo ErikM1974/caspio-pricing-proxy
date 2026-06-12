@@ -24,7 +24,7 @@ const axios = require('axios');
 const { fetchAllCaspioPages, makeCaspioRequest } = require('../utils/caspio');
 const { getTokenForEndpoint } = require('../../lib/manageorders-push-auth');
 const { transformQuoteToOrder } = require('../../lib/dtf-push-transformer');
-const { DTF_BASE_URL, generateDtfExtOrderID } = require('../../config/manageorders-dtf-config');
+const { DTF_BASE_URL, generateDtfExtOrderID, getQuoteYear } = require('../../config/manageorders-dtf-config');
 
 /**
  * POST /api/dtf-push/push-quote
@@ -71,7 +71,10 @@ router.post('/dtf-push/push-quote', express.json(), async (req, res) => {
       return res.status(409).json({
         error: 'Quote already pushed to ShopWorks',
         pushedAt: session.PushedToShopWorks,
-        extOrderId: generateDtfExtOrderID(quoteId, false),
+        // [2026-06-11] year + isTest were hardcoded — a 2026 quote re-attempted in
+        // 2027 echoed a nonexistent DTF-2027-… ID, and duplicate TEST pushes echoed
+        // the non-test ID. The real push path already passes both.
+        extOrderId: generateDtfExtOrderID(quoteId, isTest, getQuoteYear(session)),
         message: 'Use force=true to push again',
       });
     }
