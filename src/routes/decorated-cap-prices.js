@@ -70,10 +70,16 @@ router.get('/decorated-cap-prices', async (req, res) => {
       'q.select': 'MarginDenominator'
     });
 
-    // Get margin (fallback to 0.57 if not found for safety)
-    const marginDenominator = marginTiers.length > 0 && marginTiers[0].MarginDenominator
-      ? marginTiers[0].MarginDenominator
-      : 0.57;
+    // No fallback margin (2026-06-11 sweep: a stale 0.57 literal silently
+    // under-priced after Erik's 2026-05-24 margin change — Erik's #1 rule:
+    // visible failure beats a wrong price).
+    const marginDenominator = marginTiers.length > 0 ? parseFloat(marginTiers[0].MarginDenominator) : NaN;
+    if (!Number.isFinite(marginDenominator) || marginDenominator <= 0) {
+      console.error(`No MarginDenominator for EmbroideryCaps tier '${tier}'`);
+      return res.status(500).json({
+        error: `No margin found for EmbroideryCaps tier '${tier}'`
+      });
+    }
     console.log(`Margin denominator for EmbroideryCaps tier ${tier}: ${marginDenominator}`);
 
     // 4. Calculate decorated price for each style

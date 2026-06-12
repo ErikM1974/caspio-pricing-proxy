@@ -14,6 +14,7 @@ const {
   computeDisplayPrice,
   formatDisplayPriceLabel,
   getBlankDisplayPricingConfig,
+  getDecoratedDisplayPricingConfig,
   _resetBlankConfigCacheForTests
 } = require('../../src/utils/catalog-display-price');
 
@@ -83,21 +84,96 @@ describe('computeDisplayPrice', () => {
     expect(computeDisplayPrice(3.00, 0, 'HalfDollarCeil_Final')).toBeNull();
     expect(computeDisplayPrice(3.00, NaN, 'HalfDollarCeil_Final')).toBeNull();
   });
+
+  test('decorated: (base/margin)+embCost, CeilDollar — equals the EMB 72+ ladder (Erik 2026-06-11)', () => {
+    // CTK84-style numbers: blank 18.29 / 0.53 + $12 (Shirt 8K @72+) = 46.51 → $47
+    expect(computeDisplayPrice(18.29, 0.53, 'CeilDollar', 12)).toBe(47);
+    // PC61: 3.42 / 0.53 + 12 = 18.45 → $19 (matches the configurator's 72+ EMB column)
+    expect(computeDisplayPrice(3.42, 0.53, 'CeilDollar', 12)).toBe(19);
+    // Cap (Richardson 112): 6.75 / 0.53 + 9.50 = 22.24 → $23 (= verified hats lineup 72+)
+    expect(computeDisplayPrice(6.75, 0.53, 'CeilDollar', 9.5)).toBe(23);
+  });
+
+  test('decorated: negative embCost → null; omitted embCost keeps blank behavior', () => {
+    expect(computeDisplayPrice(3.00, 0.53, 'HalfDollarCeil_Final', -1)).toBeNull();
+    expect(computeDisplayPrice(3.00, 0.53, 'HalfDollarCeil_Final')).toBe(6.00);
+  });
 });
 
 describe('formatDisplayPriceLabel', () => {
-  test('whole dollars render without cents', () => {
-    expect(formatDisplayPriceLabel(24)).toBe('from $24');
+  test('whole dollars render without cents (default "with logo" suffix)', () => {
+    expect(formatDisplayPriceLabel(24)).toBe('from $24 with logo');
   });
 
   test('half dollars render with cents', () => {
-    expect(formatDisplayPriceLabel(24.5)).toBe('from $24.50');
+    expect(formatDisplayPriceLabel(24.5)).toBe('from $24.50 with logo');
+  });
+
+  test('blank suffix renders plain', () => {
+    expect(formatDisplayPriceLabel(24, '')).toBe('from $24');
   });
 
   test('null/invalid price → null label', () => {
     expect(formatDisplayPriceLabel(null)).toBeNull();
     expect(formatDisplayPriceLabel(0)).toBeNull();
     expect(formatDisplayPriceLabel(NaN)).toBeNull();
+  });
+});
+
+describe('getDecoratedDisplayPricingConfig', () => {
+  const EMB_TIERS = [
+    { DecorationMethod: 'EmbroideryShirts', TierLabel: '1-7', MinQuantity: 1, MarginDenominator: 0.55 },
+    { DecorationMethod: 'EmbroideryShirts', TierLabel: '72+', MinQuantity: 72, MarginDenominator: 0.53 },
+    { DecorationMethod: 'EmbroideryCaps', TierLabel: '1-7', MinQuantity: 1, MarginDenominator: 0.55 },
+    { DecorationMethod: 'EmbroideryCaps', TierLabel: '72+', MinQuantity: 72, MarginDenominator: 0.53 }
+  ];
+  const EMB_COSTS = [
+    { ItemType: 'Shirt', TierLabel: '72+', EmbroideryCost: 12 },
+    { ItemType: 'Shirt', TierLabel: '1-7', EmbroideryCost: 18 },
+    { ItemType: 'Cap', TierLabel: '72+', EmbroideryCost: 9.5 }
+  ];
+  const EMB_RULES = [{ RuleName: 'RoundingMethod', RuleValue: 'CeilDollar' }];
+
+  function mockDecorated({ tiers = EMB_TIERS, costs = EMB_COSTS, rules = EMB_RULES } = {}) {
+    fetchAllCaspioPages.mockImplementation((path) => {
+      if (path.includes('Pricing_Tiers')) return Promise.resolve(tiers);
+      if (path.includes('Embroidery_Costs')) return Promise.resolve(costs);
+      if (path.includes('Pricing_Rules')) return Promise.resolve(rules);
+      return Promise.resolve([]);
+    });
+  }
+
+  test('garment + cap sections from the best (72+) tier with live values', async () => {
+    mockDecorated();
+    const config = await getDecoratedDisplayPricingConfig();
+    expect(config.garment).toEqual({ marginDenominator: 0.53, embCost: 12, roundingMethod: 'CeilDollar', tierLabel: '72+' });
+    expect(config.cap).toEqual({ marginDenominator: 0.53, embCost: 9.5, roundingMethod: 'CeilDollar', tierLabel: '72+' });
+  });
+
+  test('missing cap cost row → cap section null, garment still works (no fallback)', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mockDecorated({ costs: EMB_COSTS.filter(c => c.ItemType !== 'Cap') });
+    const config = await getDecoratedDisplayPricingConfig();
+    expect(config.cap).toBeNull();
+    expect(config.garment).not.toBeNull();
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  test('caches — second call makes no further Caspio requests', async () => {
+    mockDecorated();
+    await getDecoratedDisplayPricingConfig();
+    const calls = fetchAllCaspioPages.mock.calls.length; // tiers + costs + rules = 3
+    await getDecoratedDisplayPricingConfig();
+    expect(fetchAllCaspioPages.mock.calls.length).toBe(calls);
+  });
+
+  test('Caspio error → null (visible warn), never substituted values', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    fetchAllCaspioPages.mockRejectedValue(new Error('Caspio down'));
+    expect(await getDecoratedDisplayPricingConfig()).toBeNull();
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
   });
 });
 
