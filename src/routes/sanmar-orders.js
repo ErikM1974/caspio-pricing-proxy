@@ -63,6 +63,45 @@ function extractPONumber(sanmarPO) {
   return match ? match[1] : null;
 }
 
+// ── Inbound vendor-shipment helpers (2026-06-15) ──
+// Build a carrier tracking URL (UPS / FedEx / USPS / Spee-Dee). Returns null
+// for an unknown carrier — the UI then shows the number without a link rather
+// than guessing a wrong URL.
+function buildCarrierTrackingUrl(carrier, trackingNumber) {
+  if (!trackingNumber) return null;
+  const c = String(carrier || '').toLowerCase();
+  const t = encodeURIComponent(String(trackingNumber).trim());
+  if (c.includes('ups')) return `https://www.ups.com/track?tracknum=${t}`;
+  if (c.includes('fedex')) return `https://www.fedex.com/fedextrack/?trknbr=${t}`;
+  if (c.includes('usps')) return `https://tools.usps.com/go/TrackConfirmAction?tLabels=${t}`;
+  if (c.includes('spee') || c.includes('speedee')) return `https://www.speedeedelivery.com/tools/track-shipment/?tracking=${t}`;
+  return null;
+}
+
+// Map a SanMar_Status string (+ any synced shipment rows) to a clean indicator
+// state. Defensive per Erik's #1 rule: never claim "shipped" without backing —
+// a non-empty tracking number can promote a stale Confirmed/unknown to shipped,
+// but a blank status never invents a shipment.
+//   states: shipped | partial | complete | confirmed | canceled | unknown
+function mapSanmarState(statusRaw, shipmentRows) {
+  const s = String(statusRaw || '').trim().toLowerCase();
+  const hasTracking = Array.isArray(shipmentRows)
+    && shipmentRows.some(r => r && String(r.Tracking_Number || '').trim());
+  let state;
+  if (s === 'shipped') state = 'shipped';
+  else if (s === 'partially shipped') state = 'partial';
+  else if (s === 'complete') state = 'complete';
+  else if (s === 'confirmed' || s === 'received') state = 'confirmed';
+  else if (s === 'canceled' || s === 'cancelled') state = 'canceled';
+  else state = 'unknown';
+  if (hasTracking && (state === 'confirmed' || state === 'unknown')) state = 'shipped';
+  const shipped = state === 'shipped' || state === 'partial' || state === 'complete';
+  return { state, shipped };
+}
+
+// Roll-up precedence when one work order maps to multiple SanMar POs.
+const SANMAR_STATE_RANK = { shipped: 5, partial: 4, complete: 3, confirmed: 2, canceled: 1, unknown: 0 };
+
 // ── GET /open — All open SanMar orders ──
 router.get('/open', async (req, res) => {
   const cacheKey = 'sanmar-all-open';
@@ -332,6 +371,97 @@ router.get('/lookup', async (req, res) => {
   } catch (error) {
     console.error('Error in SanMar order lookup:', error.message);
     res.status(500).json({ error: 'Lookup failed', details: error.message });
+  }
+});
+
+// ── GET /batch-status — synced inbound SanMar status for many work orders ──
+// Dashboard use: ONE call for all visible rows. SYNCED Caspio data only (no
+// SOAP/OSN) → at most two Caspio reads. WOs with no linked SanMar PO are
+// OMITTED (the frontend treats absence as a neutral "no inbound PO").
+router.get('/batch-status', async (req, res) => {
+  try {
+    const raw = String(req.query.woIds || '').trim();
+    if (!raw) return res.status(400).json({ error: 'Provide woIds (comma-separated work order numbers)' });
+    const woIds = [...new Set(raw.split(',').map(s => s.trim()).filter(s => /^\d+$/.test(s)))].slice(0, 200);
+    if (woIds.length === 0) return res.json({});
+
+    const cacheKey = `sanmar-batch-${woIds.slice().sort().join(',')}`;
+    if (!req.query.refresh) {
+      const cached = orderCache.get(cacheKey);
+      if (cached) return res.json(cached);
+    }
+
+    // Read 1 — SanMar_Orders for these work orders (OR clause mirrors the
+    // existing pattern in /lookup; id_Order is stored as text).
+    const orderWhere = woIds.map(w => `id_Order='${xmlEscape(w)}'`).join(' OR ');
+    let orderRows = [];
+    try {
+      orderRows = await fetchAllCaspioPages(`/tables/${TABLES.orders}/records`, {
+        'q.where': orderWhere,
+        'q.select': 'id_Order,SanMar_PO,SanMar_Status,SanMar_Sales_Order,Estimated_Delivery,Status_Updated_Date',
+        'q.limit': 1000,
+      });
+    } catch (e) {
+      return res.status(502).json({ error: 'SanMar_Orders read failed', details: e.message });
+    }
+    if (!Array.isArray(orderRows) || orderRows.length === 0) {
+      orderCache.set(cacheKey, {}, 120);
+      return res.json({});
+    }
+
+    // Read 2 — SanMar_Shipments for all POs we found (skip if none).
+    const pos = [...new Set(orderRows.map(r => r.SanMar_PO).filter(Boolean))];
+    const shipByPo = {};
+    if (pos.length > 0) {
+      try {
+        const shipWhere = pos.map(p => `SanMar_PO='${xmlEscape(p)}'`).join(' OR ');
+        const shipRows = await fetchAllCaspioPages(`/tables/${TABLES.shipments}/records`, {
+          'q.where': shipWhere,
+          'q.select': 'SanMar_PO,Tracking_Number,Carrier,Ship_Method,Ship_Date',
+          'q.limit': 1000,
+        });
+        for (const r of (shipRows || [])) {
+          (shipByPo[r.SanMar_PO] = shipByPo[r.SanMar_PO] || []).push(r);
+        }
+      } catch (e) { /* shipments optional — status alone is still useful */ }
+    }
+
+    // Compose per work order (a WO may map to multiple POs → roll up).
+    const out = {};
+    for (const row of orderRows) {
+      const wo = String(row.id_Order);
+      const po = row.SanMar_PO || null;
+      const ships = (po && shipByPo[po]) || [];
+      const { state, shipped } = mapSanmarState(row.SanMar_Status, ships);
+      const firstTrack = ships.find(s => String(s.Tracking_Number || '').trim()) || null;
+      const poEntry = {
+        po,
+        status: row.SanMar_Status || '',
+        state,
+        shipped,
+        salesOrder: row.SanMar_Sales_Order || '',
+        estimatedDelivery: row.Estimated_Delivery || '',
+        trackingNumber: firstTrack ? firstTrack.Tracking_Number : null,
+        carrier: firstTrack ? (firstTrack.Carrier || '') : null,
+        trackingUrl: firstTrack ? buildCarrierTrackingUrl(firstTrack.Carrier, firstTrack.Tracking_Number) : null,
+        shipDate: firstTrack ? (firstTrack.Ship_Date || '') : null,
+      };
+      if (!out[wo]) {
+        out[wo] = { ...poEntry, pos: [poEntry] };
+      } else {
+        const posArr = out[wo].pos;
+        posArr.push(poEntry);
+        if (SANMAR_STATE_RANK[state] > SANMAR_STATE_RANK[out[wo].state]) {
+          out[wo] = { ...poEntry, pos: posArr };
+        }
+      }
+    }
+
+    orderCache.set(cacheKey, out, 120);
+    res.json(out);
+  } catch (error) {
+    console.error('[sanmar batch-status] error:', error.message);
+    res.status(500).json({ error: 'batch-status failed', details: error.message });
   }
 });
 
