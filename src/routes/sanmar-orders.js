@@ -102,6 +102,60 @@ function mapSanmarState(statusRaw, shipmentRows) {
 // Roll-up precedence when one work order maps to multiple SanMar POs.
 const SANMAR_STATE_RANK = { shipped: 5, partial: 4, complete: 3, confirmed: 2, canceled: 1, unknown: 0 };
 
+// Pull SanMar's LIVE shipment feed for ONE po and INSERT any new tracking rows
+// into SanMar_Shipments. Returns the count of rows added. Shared by the daily
+// sync loop AND the /sync-shipments catch-up pass (Erik 2026-06-16). Idempotent:
+// an existing (SanMar_PO, Tracking_Number) row is left untouched. This is the
+// SAME logic the order-loop used inline — extracted so the catch-up can re-run it
+// for orders whose order-status never changed (and so were skipped by the
+// incremental order sync) but whose blanks have actually shipped.
+async function pullAndStoreShipments(po) {
+  let added = 0;
+  const shipSoapBody = buildShipmentRequest(1, { referenceNumber: po });
+  const shipXml = await makeSoapRequest(ENDPOINTS.shipmentNotification, shipSoapBody, {
+    timeout: 30000,
+    namespaces: { ns: NS.shipment, shar: NS.shipmentShared }
+  });
+  const shipError = checkSoapError(shipXml);
+  if (shipError) return 0; // 160 = no shipments; any error → nothing to store
+  const shipData = parseShipmentResponse(shipXml);
+  for (const shipment of shipData) {
+    for (const so of shipment.salesOrders) {
+      for (const loc of so.locations) {
+        for (const pkg of loc.packages) {
+          if (!pkg.trackingNumber) continue;
+          try {
+            const trackWhere = `SanMar_PO='${xmlEscape(po)}' AND Tracking_Number='${xmlEscape(pkg.trackingNumber)}'`;
+            const existingTrack = await makeCaspioRequest('GET',
+              `/tables/${TABLES.shipments}/records`, { 'q.where': trackWhere });
+            if (Array.isArray(existingTrack) && existingTrack.length > 0) continue;
+            await makeCaspioRequest('POST', `/tables/${TABLES.shipments}/records`, {}, {
+              SanMar_PO: po,
+              Tracking_Number: pkg.trackingNumber,
+              Carrier: pkg.carrier || '',
+              Ship_Method: pkg.shipmentMethod || '',
+              Ship_Date: pkg.shipmentDate ? pkg.shipmentDate.split('T')[0] : '',
+              Ship_From_Warehouse: loc.shipFrom.city || '',
+              Ship_From_City: loc.shipFrom.city || '',
+              Ship_From_State: loc.shipFrom.region || '',
+              Ship_From_Zip: loc.shipFrom.postalCode || '',
+              Ship_From_Address: loc.shipFrom.address1 || '',
+              Ship_To_Address: loc.shipTo.address1 || '',
+              Package_Weight: pkg.weight || '',
+              Package_Dimensions: pkg.dimensions || '',
+              Package_Class: pkg.packageClass || ''
+            });
+            added++;
+          } catch (e) {
+            console.error(`Failed to save tracking ${pkg.trackingNumber} for ${po}:`, e.message);
+          }
+        }
+      }
+    }
+  }
+  return added;
+}
+
 // ── GET /open — All open SanMar orders ──
 router.get('/open', async (req, res) => {
   const cacheKey = 'sanmar-all-open';
@@ -674,59 +728,11 @@ router.post('/sync', async (req, res) => {
         }
       }
 
-      // Fetch shipments for open orders
+      // Fetch shipments for open orders (shared helper — same logic the
+      // /sync-shipments catch-up pass re-runs for status-unchanged orders).
       if (!['Complete', 'Canceled'].includes(overallStatus)) {
         try {
-          const shipSoapBody = buildShipmentRequest(1, { referenceNumber: po });
-          const shipXml = await makeSoapRequest(ENDPOINTS.shipmentNotification, shipSoapBody, {
-            timeout: 30000,
-            namespaces: { ns: NS.shipment, shar: NS.shipmentShared }
-          });
-
-          const shipError = checkSoapError(shipXml);
-          if (!shipError) {
-            const shipData = parseShipmentResponse(shipXml);
-            for (const shipment of shipData) {
-              for (const so of shipment.salesOrders) {
-                for (const loc of so.locations) {
-                  for (const pkg of loc.packages) {
-                    if (!pkg.trackingNumber) continue;
-                    try {
-                      const trackWhere = `SanMar_PO='${xmlEscape(po)}' AND Tracking_Number='${xmlEscape(pkg.trackingNumber)}'`;
-                      const existingTrack = await makeCaspioRequest('GET',
-                        `/tables/${TABLES.shipments}/records`,
-                        { 'q.where': trackWhere }
-                      );
-
-                      const trackData = {
-                        SanMar_PO: po,
-                        Tracking_Number: pkg.trackingNumber,
-                        Carrier: pkg.carrier || '',
-                        Ship_Method: pkg.shipmentMethod || '',
-                        Ship_Date: pkg.shipmentDate ? pkg.shipmentDate.split('T')[0] : '',
-                        Ship_From_Warehouse: loc.shipFrom.city || '',
-                        Ship_From_City: loc.shipFrom.city || '',
-                        Ship_From_State: loc.shipFrom.region || '',
-                        Ship_From_Zip: loc.shipFrom.postalCode || '',
-                        Ship_From_Address: loc.shipFrom.address1 || '',
-                        Ship_To_Address: loc.shipTo.address1 || '',
-                        Package_Weight: pkg.weight || '',
-                        Package_Dimensions: pkg.dimensions || '',
-                        Package_Class: pkg.packageClass || ''
-                      };
-
-                      if (!Array.isArray(existingTrack) || existingTrack.length === 0) {
-                        await makeCaspioRequest('POST', `/tables/${TABLES.shipments}/records`, {}, trackData);
-                        shipmentsUpdated++;
-                      }
-                    } catch (e) {
-                      console.error(`Failed to save tracking ${pkg.trackingNumber}:`, e.message);
-                    }
-                  }
-                }
-              }
-            }
-          }
+          shipmentsUpdated += await pullAndStoreShipments(po);
         } catch (e) {
           console.error(`Failed to fetch shipments for ${po}:`, e.message);
         }
@@ -753,6 +759,69 @@ router.post('/sync', async (req, res) => {
   } catch (error) {
     console.error('SanMar sync failed:', error.message);
     res.status(500).json({ error: 'Sync failed', details: error.message });
+  }
+});
+
+// ── POST /sync-shipments — catch-up shipment pull for stuck "confirmed" orders ──
+// Closes the OSS-vs-OSN gap (Erik 2026-06-16): SanMar's order-status feed and its
+// shipment feed are separate services, so an order can SHIP without its status
+// flipping off "Confirmed". The daily incremental order sync only re-touches
+// status-changed orders, so a ship-without-status-change never gets its tracking
+// pulled — the Inbound dot stays "confirmed" until the weekly full sync. This
+// endpoint fills the gap: for a BOUNDED batch of recent open/confirmed orders that
+// have NO tracking row yet (most-recently-updated first), pull the live shipment
+// feed and store any tracking. mapSanmarState() then shows them shipped. Bounded
+// to stay under Heroku's 30s request limit; the daily sync script drains it in
+// rounds. Secret-protected like /sync.
+router.post('/sync-shipments', async (req, res) => {
+  const secret = req.headers['x-api-secret'] || req.query.secret;
+  if (secret !== process.env.CRM_API_SECRET) {
+    return res.status(403).json({ error: 'Unauthorized' });
+  }
+  const cap = Math.min(Math.max(parseInt(req.query.limit) || 8, 1), 15);
+  const log = { started: new Date().toISOString() };
+  try {
+    // Open (non-terminal) orders, most-recently-updated first (likeliest to have
+    // just shipped). EXCLUDE terminal states rather than match specific open ones:
+    // SanMar stores the raw status casing (e.g. lowercase "confirmed"), so an
+    // exclusion is robust to casing AND to any new open-status string. Already-
+    // "shipped"/"complete" orders are skipped (their dot is already correct, and a
+    // status-shipped order doesn't need a tracking-based promotion). No date math
+    // in the q.where (avoids Caspio datetime-format pitfalls) — orderBy + cap focus
+    // on recency.
+    const openOrders = await fetchAllCaspioPages(`/tables/${TABLES.orders}/records`, {
+      'q.where': "SanMar_Status<>'Shipped' AND SanMar_Status<>'Complete' AND SanMar_Status<>'Canceled' AND SanMar_Status<>'Cancelled'",
+      'q.select': 'SanMar_PO,Status_Updated_Date',
+      'q.orderBy': 'Status_Updated_Date DESC',
+      'q.limit': 1000,
+    });
+    const pos = [...new Set((openOrders || []).map(o => o.SanMar_PO).filter(Boolean))]; // preserves recency order
+    // Which already have a tracking row? Skip those.
+    let withTracking = new Set();
+    if (pos.length) {
+      const tw = pos.map(p => `SanMar_PO='${xmlEscape(p)}'`).join(' OR ');
+      const tr = await fetchAllCaspioPages(`/tables/${TABLES.shipments}/records`,
+        { 'q.where': tw, 'q.select': 'SanMar_PO', 'q.limit': 2000 });
+      withTracking = new Set((tr || []).map(r => r.SanMar_PO));
+    }
+    const pending = pos.filter(p => !withTracking.has(p));
+    const batch = pending.slice(0, cap);
+    let added = 0;
+    for (const po of batch) {
+      try { added += await pullAndStoreShipments(po); }
+      catch (e) { console.error(`[sync-shipments] ${po}:`, e.message); }
+    }
+    log.openConfirmed = pos.length;
+    log.pendingNoTracking = pending.length;
+    log.checked = batch.length;
+    log.shipmentsAdded = added;
+    log.remaining = Math.max(0, pending.length - batch.length);
+    log.completed = new Date().toISOString();
+    console.log('[sync-shipments]', JSON.stringify(log));
+    res.json(log);
+  } catch (error) {
+    console.error('[sync-shipments] failed:', error.message);
+    res.status(500).json({ error: 'sync-shipments failed', details: error.message });
   }
 });
 

@@ -51,6 +51,34 @@ async function syncOrders(full = false) {
   return result;
 }
 
+// Catch-up shipment pull (Erik 2026-06-16). The incremental order sync above only
+// re-touches orders whose STATUS changed, so an order that shipped without an
+// order-status change never gets its tracking pulled — its Inbound dot stays
+// "confirmed" until the weekly full sync. This drains the bounded /sync-shipments
+// endpoint in rounds (each < Heroku's 30s limit) so those self-heal daily. Wrapped
+// non-fatal so a hiccup here never fails the main sync.
+async function syncPendingShipments() {
+  console.log(`\n[${new Date().toISOString()}] Catch-up shipment pull (status-unchanged shipped orders)...`);
+  const maxRounds = 6; // up to ~48 POs/run
+  let totalAdded = 0, totalChecked = 0;
+  for (let round = 1; round <= maxRounds; round++) {
+    let r;
+    try {
+      const resp = await axios.post(`${BASE_URL}/api/sanmar-orders/sync-shipments?limit=8`, {},
+        { headers: AUTH_HEADERS, timeout: TIMEOUT });
+      r = resp.data || {};
+    } catch (e) {
+      console.log(`  round ${round} error (non-fatal): ${e.response?.data?.error || e.message}`);
+      break;
+    }
+    totalAdded += r.shipmentsAdded || 0;
+    totalChecked += r.checked || 0;
+    console.log(`  round ${round}: checked ${r.checked || 0}, +${r.shipmentsAdded || 0} tracking, ${r.remaining || 0} remaining`);
+    if (!r.remaining || (r.checked || 0) === 0) break;
+  }
+  console.log(`  Catch-up: +${totalAdded} tracking rows (${totalChecked} POs checked). Status: SUCCESS`);
+}
+
 async function syncInvoices() {
   const url = `${BASE_URL}/api/sanmar-invoices/sync`;
   console.log(`\n[${new Date().toISOString()}] Starting invoice sync...`);
@@ -182,6 +210,7 @@ async function main() {
       // Normal daily sync: orders + invoices + ManageOrders matching
       const full = args.includes('--full');
       await syncOrders(full);
+      await syncPendingShipments();
       await syncInvoices();
       await matchManageOrders();
     }
