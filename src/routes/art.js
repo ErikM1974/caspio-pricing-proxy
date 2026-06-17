@@ -1187,7 +1187,14 @@ router.put('/art-requests/:designId/fields', express.json(), async (req, res) =>
         'Is_On_Hold', 'On_Hold_Note',
         // Item-type intake (sticker/banner extension, 2026-05-06).
         // NULL Item_Type is treated as 'Garment' at render time everywhere.
-        'Item_Type', 'Item_Specs_Notes'
+        'Item_Type', 'Item_Specs_Notes',
+        // Structured garment-form fields (2026-06-17 — garment-submit-form.js).
+        // Let the detail-page edit modal + status flows persist them.
+        'Artwork_Status', 'Approval_Status', 'Color_Mode', 'PMS_Colors',
+        'Thread_Colors', 'Underbase_Required', 'Exact_Text',
+        'Prev_Order_Num', 'Prev_Design_Num', 'Repeat_Keep_Same', 'Repeat_Change',
+        'Uploaded_File_Type', 'AE_Checklist_Confirmed', 'AE_Checklist_Confirmed_By',
+        'Artwork_Locations'
     ];
 
     // Defense-in-depth: even if a future caller forgets the rule and includes
