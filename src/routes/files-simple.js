@@ -302,43 +302,75 @@ router.get('/files/:externalKey/info', async (req, res) => {
 
 /**
  * DELETE /api/files/:externalKey
- * Delete a file from Caspio
+ * Delete a file from Caspio.
+ *
+ * Caspio v3 semantics (verified against the live API 2026-06-18):
+ *   - DELETE /files/{externalKey}  → 204 No Content on success. This path-style
+ *     form is the ONLY supported one; DELETE on the /files collection
+ *     (?externalKey=...) returns 405 Method Not Allowed.
+ *   - A missing file returns 404 FileNotFound.
+ *
+ * This handler is intentionally idempotent: an already-absent file (404) is
+ * the desired end state for orphan cleanup (e.g. re-saving a Shirt Designer
+ * mockup deletes the prior Rep_Mockup file), so we report success rather than
+ * forcing every caller to special-case 404. The catch block also logs the real
+ * Caspio status + body — the old version logged only error.message ("Request
+ * failed with status code NNN"), which made failures impossible to diagnose.
  */
 router.delete('/files/:externalKey', async (req, res) => {
+    const { externalKey } = req.params;
     try {
-        const { externalKey } = req.params;
-
         const token = await getCaspioAccessToken();
         const url = `${caspioV3BaseUrl}/files/${externalKey}`;
 
-        await axios.delete(url, {
+        const response = await axios.delete(url, {
             headers: {
                 'Authorization': `Bearer ${token}`
-            }
+            },
+            timeout: 30000 // fail fast instead of hanging on a stalled Caspio connection
         });
 
-        console.log(`File deleted successfully: ${externalKey}`);
+        console.log(`File deleted successfully: ${externalKey} (Caspio ${response.status})`);
         res.json({
             success: true,
             message: 'File deleted successfully',
             externalKey
         });
     } catch (error) {
-        console.error('Error deleting file:', error.message);
+        const status = error.response?.status;
+        console.error(
+            `Error deleting file ${externalKey}: ${error.message}` +
+            (status ? ` (Caspio ${status}: ${JSON.stringify(error.response?.data)})` : ` (${error.code || 'no response'})`)
+        );
 
-        if (error.response?.status === 404) {
-            res.status(404).json({
-                success: false,
-                error: 'File not found',
-                code: 'FILE_NOT_FOUND'
-            });
-        } else {
-            res.status(500).json({
-                success: false,
-                error: 'Failed to delete file',
-                code: 'DELETE_FAILED'
+        if (status === 404) {
+            // Already gone — treat delete as idempotent so orphan cleanup
+            // doesn't fail when the prior file was already removed.
+            return res.json({
+                success: true,
+                alreadyAbsent: true,
+                message: 'File already absent',
+                externalKey
             });
         }
+
+        if (error.code === 'ECONNABORTED' || error.code === 'ECONNRESET' || /socket hang up|timeout/i.test(error.message || '')) {
+            // Network/timeout reaching Caspio — surface a clear, retryable error
+            // instead of a generic 500 (mirrors the upload route's handling).
+            return res.status(504).json({
+                success: false,
+                error: 'The delete request timed out reaching Caspio. Please try again.',
+                code: 'DELETE_TIMEOUT'
+            });
+        }
+
+        res.status(500).json({
+            success: false,
+            error: 'Failed to delete file',
+            code: 'DELETE_FAILED',
+            status: status || null,
+            details: error.response?.data || null
+        });
     }
 });
 
