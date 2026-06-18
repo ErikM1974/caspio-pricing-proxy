@@ -31,6 +31,7 @@ const { Anthropic, APIError } = require('@anthropic-ai/sdk');
 const { CONTRACT_STICKER_AI_SYSTEM_PROMPT } = require('../../lib/contract-sticker-ai-prompt');
 const { loadGrid, STANDARD_SIZES, STANDARD_QTYS, SETUP_FEE_PART, SETUP_FEE_AMOUNT } = require('./sticker-pricing');
 const { computeBannerQuote } = require('./banner-pricing');
+const { computeDecalQuote } = require('./custom-decal-pricing');
 
 const INTERNAL_API_BASE = process.env.PROXY_PUBLIC_URL ||
     'https://caspio-pricing-proxy-ab30a049961a.herokuapp.com';
@@ -109,6 +110,46 @@ const TOOLS = [
                 rush: { type: 'boolean', description: 'True if customer needs production in under 5 working days. Adds 25% upcharge. Default false.' },
             },
             required: ['widthIn', 'heightIn', 'qty'],
+        },
+    },
+    {
+        name: 'quote_custom_decal',
+        description:
+            "Price CUSTOM / OVERSIZE die-cut decals by the SQUARE FOOT. Use this — NOT " +
+            "quote_sticker_price — whenever a decal is LARGER than 6×6 in any dimension " +
+            "(e.g. 8\", 12\", 18\", 24\"), is an odd/custom size or shape, or is a small custom " +
+            "run that doesn't fit the standard 2×2–6×6 grid. (Standard squares 2×2 through 6×6 " +
+            "at 50+ pieces still use quote_sticker_price.) " +
+            "IMPORTANT: price bands on the COMBINED finished square footage of the WHOLE order, " +
+            "so pass EVERY custom-decal size in ONE call via the items[] array — do NOT call this " +
+            "once per size. Each item is (W\"×H\"÷144)×qty sq ft; the order is summed, the matching " +
+            "$/sq-ft tier applies (≈$12/sqft small → ≈$4.80/sqft high volume) with cliff-protection " +
+            "tier floors and a $90 minimum, then the charge is split back across the lines. " +
+            "Decals are ganged on the 54\" Roland and machine contour-cut, so the rate already " +
+            "includes cutting + a waste allowance — NEVER add a separate weeding/cutting charge. " +
+            "Odd shapes/circles/ovals: use the bounding box (largest W × largest H). " +
+            "Returns totalSqFt, the $/sq-ft tier, the order totalPrice, and a per-line breakdown " +
+            "(lineItems[] with partNumber DECAL-{W}X{H}, totalPrice, pricePerSticker) plus the " +
+            "GRT-50 $50 art-setup note.",
+        input_schema: {
+            type: 'object',
+            properties: {
+                items: {
+                    type: 'array',
+                    description: 'One entry per DISTINCT size in the custom-decal order. Include every size in this single call.',
+                    items: {
+                        type: 'object',
+                        properties: {
+                            width: { type: 'number', description: 'Finished width in inches (largest horizontal dimension / bounding box).' },
+                            height: { type: 'number', description: 'Finished height in inches (largest vertical dimension / bounding box).' },
+                            qty: { type: 'integer', description: 'Quantity of this size.' },
+                        },
+                        required: ['width', 'height', 'qty'],
+                    },
+                },
+                rush: { type: 'boolean', description: 'True if customer needs production in under 5 working days. Adds 25% upcharge. Default false.' },
+            },
+            required: ['items'],
         },
     },
 ];
@@ -216,9 +257,10 @@ async function quoteStickerPrice(input) {
         return {
             offGrid: true,
             reason: 'oversize_dimension',
-            detail: `${widthRaw}"×${heightRaw}" — larger dimension ${maxDim}" exceeds our largest standard size (6×6).`,
+            detail: `${widthRaw}"×${heightRaw}" — larger dimension ${maxDim}" exceeds the standard 6×6 grid.`,
             requested: { width: widthRaw, height: heightRaw, qty: qtyRaw },
-            escalation: 'Collect specs (shape, color count, finish, ship date) and tell the user a custom quote will be returned within 1 business day.',
+            useTool: 'quote_custom_decal',
+            escalation: 'This is an oversize decal — re-quote it with the quote_custom_decal tool (square-foot pricing). Do NOT escalate to a manual quote.',
         };
     }
 
@@ -325,6 +367,18 @@ async function executeTool(name, input) {
             });
         } catch (err) {
             console.error('[contract-sticker-ai] quote_banner_price error:', err.message);
+            return { error: err.message };
+        }
+    }
+    if (name === 'quote_custom_decal') {
+        try {
+            const rawItems = Array.isArray(input?.items) && input.items.length
+                ? input.items
+                : [{ width: input?.width, height: input?.height, qty: input?.qty }]; // tolerate single-size shape
+            const items = rawItems.map(it => ({ widthIn: it?.width, heightIn: it?.height, qty: it?.qty }));
+            return await computeDecalQuote({ items, rush: input?.rush === true });
+        } catch (err) {
+            console.error('[contract-sticker-ai] quote_custom_decal error:', err.message);
             return { error: err.message };
         }
     }

@@ -402,7 +402,13 @@ app.use('/api', stickerPricingRoutes);
 // sticker AI bot's quote_banner_price tool.
 const bannerPricingRoutes = require('./src/routes/banner-pricing');
 app.use('/api', bannerPricingRoutes);
-console.log('✓ Sticker pricing route loaded');
+
+// Custom / oversize decal pricing (2026-06-18) — square-foot rate ladder for
+// decals larger than the 6x6 grid or odd/custom dimensions in small qtys.
+// Backs the AI bot's quote_custom_decal tool + the rate card on the sticker page.
+const customDecalPricingRoutes = require('./src/routes/custom-decal-pricing');
+app.use('/api', customDecalPricingRoutes);
+console.log('✓ Sticker + banner + custom-decal pricing routes loaded');
 
 // Emblem pricing route — backs Order Form emblem method (Caspio Emblem_Pricing + inline fallback)
 const emblemPricingRoutes = require('./src/routes/emblem-pricing');
