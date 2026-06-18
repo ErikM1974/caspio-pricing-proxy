@@ -1194,7 +1194,12 @@ router.put('/art-requests/:designId/fields', express.json(), async (req, res) =>
         'Thread_Colors', 'Underbase_Required', 'Exact_Text',
         'Prev_Order_Num', 'Prev_Design_Num', 'Repeat_Keep_Same', 'Repeat_Change',
         'Uploaded_File_Type', 'AE_Checklist_Confirmed', 'AE_Checklist_Confirmed_By',
-        'Artwork_Locations'
+        'Artwork_Locations',
+        // Rep reference mockup from the Easy Shirt Designer (2026-06-18).
+        // Rep_Mockup = displayable image URL; Rep_Mockup_Meta = JSON
+        // (garment/placement/threads/date). Reference-only — Steve still proofs;
+        // these NEVER touch the Box mockup slots or Approval_Status.
+        'Rep_Mockup', 'Rep_Mockup_Meta'
     ];
 
     // Defense-in-depth: even if a future caller forgets the rule and includes
