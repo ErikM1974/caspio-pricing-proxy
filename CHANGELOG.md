@@ -1,3 +1,7 @@
+## v2026.06.18.1 (2026.06.18)
+
+- fix(files): make DELETE /files/:externalKey idempotent + diagnosable
+
 ## v2026.05.20.1 (2026-05-20)
 
 - Contract Emblem AI: 4-6 week Taiwan turnaround (replace 10-12 day default)
