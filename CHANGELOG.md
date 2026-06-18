@@ -1,3 +1,7 @@
+## v2026.06.18.2 (2026.06.18)
+
+- fix(inventory): /sizes-by-style-color no longer 500s — the dedicated Caspio "Inventory" table now 404s, so derive the real size run (e.g. PC61 → S–6XL) from the live SanMar bulk table as a fallback. Quote builders' getAvailableSizes() now see 5XL/6XL instead of a hardcoded S–4XL list.
+
 ## v2026.06.18.1 (2026.06.18)
 
 - fix(files): make DELETE /files/:externalKey idempotent + diagnosable
