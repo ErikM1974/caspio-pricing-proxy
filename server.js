@@ -36,12 +36,31 @@ app.use(express.json({
 })); // Parse JSON bodies with 10MB limit (for file uploads)
 app.use(express.static('.')); // Serve static files from the current directory
 
-// CORS Middleware - Using config settings
+// CORS — allowlist (see src/utils/cors-allowlist.js). Unknown browser origins
+// get no Access-Control-Allow-Origin header (browser blocks them); server-to-
+// server requests (no Origin) are always allowed. Add one-off origins without a
+// code deploy via the EXTRA_CORS_ORIGINS env var (comma-separated exact origins).
+const { isOriginAllowed: isCorsOriginAllowed } = require('./src/utils/cors-allowlist');
+const EXTRA_CORS_ORIGINS = (process.env.EXTRA_CORS_ORIGINS || '')
+    .split(',').map(s => s.trim()).filter(Boolean);
+
 app.use((req, res, next) => {
-    res.setHeader('Access-Control-Allow-Origin', config.cors.origin);
-    res.setHeader('Access-Control-Allow-Methods', config.cors.methods.join(', '));
-    res.setHeader('Access-Control-Allow-Headers', config.cors.allowedHeaders.join(', '));
-    
+    const origin = req.headers.origin;
+    if (isCorsOriginAllowed(origin, EXTRA_CORS_ORIGINS)) {
+        res.setHeader('Access-Control-Allow-Origin', origin || '*');
+        res.setHeader('Vary', 'Origin');
+    }
+    // else: no ACAO header → browser blocks the cross-origin response.
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, x-crm-api-secret');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+
+    // Baseline security headers. nosniff matters most on GET /api/files/:key,
+    // which streams user-uploaded artwork — stops a crafted "image" from being
+    // MIME-sniffed as HTML/JS.
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+
     if (req.method === 'OPTIONS') {
         return res.sendStatus(200);
     }

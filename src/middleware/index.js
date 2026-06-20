@@ -1,16 +1,20 @@
 // Middleware for the Caspio Pricing Proxy
 
 const express = require('express');
+const { isOriginAllowed } = require('../utils/cors-allowlist');
 
-// CORS Middleware - Allow requests from all origins for testing
+// CORS Middleware — uses the shared allowlist (see src/utils/cors-allowlist.js).
+// NOTE: server.js applies its own inline CORS middleware on the live path; this
+// exported one is kept consistent so it can never re-introduce a wide-open '*'.
 const corsMiddleware = (req, res, next) => {
-  // Allow requests from any origin for testing purposes
-  // In production, this should be restricted to specific domains
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  
+  const origin = req.headers.origin;
+  if (isOriginAllowed(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin || '*');
+    res.setHeader('Vary', 'Origin');
+  }
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, x-crm-api-secret');
+
   if (req.method === 'OPTIONS') {
     return res.sendStatus(200);
   }
