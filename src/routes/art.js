@@ -120,6 +120,12 @@ router.get('/artrequests', async (req, res) => {
                 whereConditions.push(`(Is_On_Hold=0 OR Is_On_Hold IS NULL)`);
             }
 
+            // Saved-mockup library: only requests that have a rep reference mockup
+            // attached by the Shirt Designer (Rep_Mockup populated).
+            if (req.query.repMockup === 'true') {
+                whereConditions.push(`(Rep_Mockup IS NOT NULL AND Rep_Mockup<>'')`);
+            }
+
             // Add the WHERE clause if we have conditions
             if (whereConditions.length > 0) {
                 params['q.where'] = whereConditions.join(' AND ');
