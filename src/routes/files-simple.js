@@ -7,11 +7,26 @@ const FormData = require('form-data');
 const multer = require('multer');
 const config = require('../../config');
 
+// Allowed upload mimetypes — the art formats real callers send (designer PNG,
+// tees/caps logos, vector art). EPS/AI/DST often arrive as octet-stream, so it's
+// included. Anything else is rejected (multer drops the file → handler 400s).
+const ALLOWED_UPLOAD_MIME = [
+    'image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp', 'image/svg+xml',
+    'application/pdf', 'image/vnd.adobe.photoshop', 'application/postscript',
+    'application/octet-stream'
+];
+
+// External file-key validation — see src/utils/where-guards.js.
+const { isValidFileKey } = require('../utils/where-guards');
+
 // Configure multer to store files in memory
 const upload = multer({
     storage: multer.memoryStorage(),
     limits: {
         fileSize: 20 * 1024 * 1024 // 20MB max
+    },
+    fileFilter: (req, file, cb) => {
+        cb(null, ALLOWED_UPLOAD_MIME.includes((file.mimetype || '').toLowerCase()));
     }
 });
 
@@ -211,10 +226,13 @@ router.post('/files/upload', upload.single('file'), async (req, res) => {
 router.get('/files/:externalKey', async (req, res) => {
     try {
         const { externalKey } = req.params;
+        if (!isValidFileKey(externalKey)) {
+            return res.status(400).json({ success: false, error: 'Invalid file key', code: 'BAD_KEY' });
+        }
 
         // Get token
         const token = await getCaspioAccessToken();
-        const url = `${caspioV3BaseUrl}/files/${externalKey}`;
+        const url = `${caspioV3BaseUrl}/files/${encodeURIComponent(externalKey)}`;
 
         const response = await axios({
             method: 'get',
@@ -262,9 +280,12 @@ router.get('/files/:externalKey', async (req, res) => {
 router.get('/files/:externalKey/info', async (req, res) => {
     try {
         const { externalKey } = req.params;
+        if (!isValidFileKey(externalKey)) {
+            return res.status(400).json({ success: false, error: 'Invalid file key', code: 'BAD_KEY' });
+        }
 
         const token = await getCaspioAccessToken();
-        const url = `${caspioV3BaseUrl}/files/${externalKey}/fileInfo`;
+        const url = `${caspioV3BaseUrl}/files/${encodeURIComponent(externalKey)}/fileInfo`;
 
         const response = await axios.get(url, {
             headers: {
@@ -319,9 +340,12 @@ router.get('/files/:externalKey/info', async (req, res) => {
  */
 router.delete('/files/:externalKey', async (req, res) => {
     const { externalKey } = req.params;
+    if (!isValidFileKey(externalKey)) {
+        return res.status(400).json({ success: false, error: 'Invalid file key', code: 'BAD_KEY' });
+    }
     try {
         const token = await getCaspioAccessToken();
-        const url = `${caspioV3BaseUrl}/files/${externalKey}`;
+        const url = `${caspioV3BaseUrl}/files/${encodeURIComponent(externalKey)}`;
 
         const response = await axios.delete(url, {
             headers: {

@@ -16,6 +16,11 @@ const config = require('../../config');
 
 const caspioApiBaseUrl = config.caspio.apiBaseUrl;
 
+// Filter-input guards (Caspio WHERE-clause safety) — see src/utils/where-guards.js.
+// Numeric ids go through reqInt (drops injection payloads like "1 OR 1=1");
+// string filters go through escWhere (single-quote escape).
+const { reqInt, escWhere } = require('../utils/where-guards');
+
 // ── In-Memory Art Notification Queue (dashboard toasts) ──────────────
 // Ephemeral notifications for real-time dashboard updates.
 // Used by: Steve's dashboard (art-hub-steve.js) AND AE dashboard (ae-dashboard.js).
@@ -46,67 +51,74 @@ router.get('/artrequests', async (req, res) => {
         if (Object.keys(req.query).length > 0) {
             const whereConditions = [];
             
-            // Handle common filter fields based on the ArtRequests table structure
-            if (req.query.pk_id) {
-                whereConditions.push(`PK_ID=${req.query.pk_id}`);
+            // Handle common filter fields based on the ArtRequests table structure.
+            // Numeric ids go through reqInt (drops injection payloads); string
+            // filters go through escWhere (single-quote escape).
+            const _pkId = reqInt(req.query.pk_id);
+            if (req.query.pk_id && _pkId !== null) {
+                whereConditions.push(`PK_ID=${_pkId}`);
             }
             if (req.query.status) {
-                whereConditions.push(`Status='${req.query.status}'`);
+                whereConditions.push(`Status='${escWhere(req.query.status)}'`);
             }
-            if (req.query.id_design) {
-                whereConditions.push(`ID_Design=${req.query.id_design}`);
+            const _idDesign = reqInt(req.query.id_design);
+            if (req.query.id_design && _idDesign !== null) {
+                whereConditions.push(`ID_Design=${_idDesign}`);
             }
             if (req.query.companyName) {
-                whereConditions.push(`CompanyName LIKE '%${req.query.companyName}%'`);
+                whereConditions.push(`CompanyName LIKE '%${escWhere(req.query.companyName)}%'`);
             }
             if (req.query.customerServiceRep) {
-                whereConditions.push(`CustomerServiceRep='${req.query.customerServiceRep}'`);
+                whereConditions.push(`CustomerServiceRep='${escWhere(req.query.customerServiceRep)}'`);
             }
             if (req.query.priority) {
-                whereConditions.push(`Priority='${req.query.priority}'`);
+                whereConditions.push(`Priority='${escWhere(req.query.priority)}'`);
             }
-            if (req.query.mockup) {
-                whereConditions.push(`Mockup=${req.query.mockup}`);
+            const _mockup = reqInt(req.query.mockup);
+            if (req.query.mockup && _mockup !== null) {
+                whereConditions.push(`Mockup=${_mockup}`);
             }
             if (req.query.orderType) {
-                whereConditions.push(`Order_Type='${req.query.orderType}'`);
+                whereConditions.push(`Order_Type='${escWhere(req.query.orderType)}'`);
             }
             if (req.query.customerType) {
-                whereConditions.push(`CustomerType='${req.query.customerType}'`);
+                whereConditions.push(`CustomerType='${escWhere(req.query.customerType)}'`);
             }
             if (req.query.happyStatus) {
-                whereConditions.push(`Happy_Status='${req.query.happyStatus}'`);
+                whereConditions.push(`Happy_Status='${escWhere(req.query.happyStatus)}'`);
             }
             if (req.query.salesRep) {
-                whereConditions.push(`Sales_Rep='${req.query.salesRep}'`);
+                whereConditions.push(`Sales_Rep='${escWhere(req.query.salesRep)}'`);
             }
-            if (req.query.id_customer) {
-                whereConditions.push(`id_customer=${req.query.id_customer}`);
+            const _idCustomer = reqInt(req.query.id_customer);
+            if (req.query.id_customer && _idCustomer !== null) {
+                whereConditions.push(`id_customer=${_idCustomer}`);
             }
             // Filter by ShopWorks customer number (for customer portal)
             if (req.query.shopworksCustomerId) {
-                whereConditions.push(`Shopwork_customer_number='${req.query.shopworksCustomerId}'`);
+                whereConditions.push(`Shopwork_customer_number='${escWhere(req.query.shopworksCustomerId)}'`);
             }
             // Filter by company name (for customer portal)
             if (req.query.companyName) {
-                whereConditions.push(`CompanyName='${req.query.companyName.replace(/'/g, "''")}'`);
+                whereConditions.push(`CompanyName='${escWhere(req.query.companyName)}'`);
             }
-            if (req.query.id_contact) {
-                whereConditions.push(`id_contact=${req.query.id_contact}`);
+            const _idContact = reqInt(req.query.id_contact);
+            if (req.query.id_contact && _idContact !== null) {
+                whereConditions.push(`id_contact=${_idContact}`);
             }
-            
+
             // Date range filters
             if (req.query.dateCreatedFrom) {
-                whereConditions.push(`Date_Created>='${req.query.dateCreatedFrom}'`);
+                whereConditions.push(`Date_Created>='${escWhere(req.query.dateCreatedFrom)}'`);
             }
             if (req.query.dateCreatedTo) {
-                whereConditions.push(`Date_Created<='${req.query.dateCreatedTo}'`);
+                whereConditions.push(`Date_Created<='${escWhere(req.query.dateCreatedTo)}'`);
             }
             if (req.query.dueDateFrom) {
-                whereConditions.push(`Due_Date>='${req.query.dueDateFrom}'`);
+                whereConditions.push(`Due_Date>='${escWhere(req.query.dueDateFrom)}'`);
             }
             if (req.query.dueDateTo) {
-                whereConditions.push(`Due_Date<='${req.query.dueDateTo}'`);
+                whereConditions.push(`Due_Date<='${escWhere(req.query.dueDateTo)}'`);
             }
 
             // On-hold flag filter:
@@ -177,10 +189,13 @@ router.get('/artrequests/:id', async (req, res) => {
     if (!id) {
         return res.status(400).json({ error: 'Missing required parameter: id' });
     }
+    if (reqInt(id) === null) {
+        return res.status(400).json({ error: 'Invalid id (must be a positive integer)' });
+    }
     
     try {
         console.log(`Fetching art request with ID: ${id}`);
-        const resource = `/tables/ArtRequests/records?q.where=PK_ID=${id}`;
+        const resource = `/tables/ArtRequests/records?q.where=PK_ID=${reqInt(id)}`;
         
         const result = await makeCaspioRequest('get', resource);
         
@@ -299,10 +314,13 @@ router.put('/artrequests/:id', express.json(), async (req, res) => {
     if (!id) {
         return res.status(400).json({ error: 'Missing required parameter: id' });
     }
+    if (reqInt(id) === null) {
+        return res.status(400).json({ error: 'Invalid id (must be a positive integer)' });
+    }
     
     try {
         console.log(`Updating art request with ID: ${id}`);
-        const resource = `/tables/ArtRequests/records?q.where=PK_ID=${id}`;
+        const resource = `/tables/ArtRequests/records?q.where=PK_ID=${reqInt(id)}`;
         
         // Get token for the request
         const token = await getCaspioAccessToken();
@@ -340,10 +358,13 @@ router.delete('/artrequests/:id', async (req, res) => {
     if (!id) {
         return res.status(400).json({ error: 'Missing required parameter: id' });
     }
+    if (reqInt(id) === null) {
+        return res.status(400).json({ error: 'Invalid id (must be a positive integer)' });
+    }
     
     try {
         console.log(`Deleting art request with ID: ${id}`);
-        const resource = `/tables/ArtRequests/records?q.where=PK_ID=${id}`;
+        const resource = `/tables/ArtRequests/records?q.where=PK_ID=${reqInt(id)}`;
         
         // Get token for the request
         const token = await getCaspioAccessToken();
@@ -443,10 +464,13 @@ router.get('/art-invoices/:id', async (req, res) => {
     if (!id) {
         return res.status(400).json({ error: 'Missing required parameter: id' });
     }
+    if (reqInt(id) === null) {
+        return res.status(400).json({ error: 'Invalid id (must be a positive integer)' });
+    }
     
     try {
         console.log(`Fetching art invoice with ID: ${id}`);
-        const resource = `/tables/Art_Invoices/records?q.where=PK_ID=${id}`;
+        const resource = `/tables/Art_Invoices/records?q.where=PK_ID=${reqInt(id)}`;
         
         const result = await makeCaspioRequest('get', resource);
         
@@ -513,10 +537,13 @@ router.put('/art-invoices/:id', express.json(), async (req, res) => {
     if (!id) {
         return res.status(400).json({ error: 'Missing required parameter: id' });
     }
+    if (reqInt(id) === null) {
+        return res.status(400).json({ error: 'Invalid id (must be a positive integer)' });
+    }
     
     try {
         console.log(`Updating art invoice with ID: ${id}`);
-        const resource = `/tables/Art_Invoices/records?q.where=PK_ID=${id}`;
+        const resource = `/tables/Art_Invoices/records?q.where=PK_ID=${reqInt(id)}`;
         
         // Get token for the request
         const token = await getCaspioAccessToken();
@@ -554,10 +581,13 @@ router.delete('/art-invoices/:id', async (req, res) => {
     if (!id) {
         return res.status(400).json({ error: 'Missing required parameter: id' });
     }
+    if (reqInt(id) === null) {
+        return res.status(400).json({ error: 'Invalid id (must be a positive integer)' });
+    }
     
     try {
         console.log(`Deleting art invoice with ID: ${id}`);
-        const resource = `/tables/Art_Invoices/records?q.where=PK_ID=${id}`;
+        const resource = `/tables/Art_Invoices/records?q.where=PK_ID=${reqInt(id)}`;
         
         // Get token for the request
         const token = await getCaspioAccessToken();
@@ -595,8 +625,9 @@ router.get('/design-notes', async (req, res) => {
         const whereConditions = [];
         
         // Build dynamic filters
-        if (req.query.id_design) {
-            whereConditions.push(`ID_Design=${req.query.id_design}`);
+        const _ndId = reqInt(req.query.id_design);
+        if (req.query.id_design && _ndId !== null) {
+            whereConditions.push(`ID_Design=${_ndId}`);
         }
         
         if (req.query.note_type) {
@@ -1038,6 +1069,9 @@ router.delete('/design-notes/:id', async (req, res) => {
 // PUT /api/art-requests/:designId/status — Quick status update + optional art time
 router.put('/art-requests/:designId/status', express.json(), async (req, res) => {
     const { designId } = req.params;
+    if (reqInt(designId) === null) {
+        return res.status(400).json({ error: 'Invalid designId' });
+    }
     const { status, artMinutes } = req.body;
 
     if (!designId || !status) {
@@ -1172,6 +1206,12 @@ router.put('/art-requests/:designId/fields', express.json(), async (req, res) =>
     if (!designId || !updates || Object.keys(updates).length === 0) {
         return res.status(400).json({ error: 'designId and at least one field are required' });
     }
+    // designId is concatenated into the Caspio WHERE clause below — require a
+    // positive integer so it can't be used for filter injection.
+    const did = reqInt(designId);
+    if (did === null) {
+        return res.status(400).json({ error: 'Invalid designId' });
+    }
 
     // Whitelist of editable Caspio column names
     // Column names must match actual Caspio ArtRequests table schema exactly
@@ -1248,7 +1288,7 @@ router.put('/art-requests/:designId/fields', express.json(), async (req, res) =>
             // Extended select: pull the same fields slack-art-status-notify
             // expects so we can fire the Slack ping below without a second GET.
             const fetchUrl = `${caspioApiBaseUrl}/tables/ArtRequests/records`
-                + `?q.where=ID_Design=${designId}&q.select=Is_On_Hold,On_Hold_Since,CompanyName,Design_Num_SW,Item_Type&q.limit=1`;
+                + `?q.where=ID_Design=${did}&q.select=Is_On_Hold,On_Hold_Since,CompanyName,Design_Num_SW,Item_Type&q.limit=1`;
             const fetchResp = await axios({
                 method: 'get',
                 url: fetchUrl,
@@ -1280,7 +1320,7 @@ router.put('/art-requests/:designId/fields', express.json(), async (req, res) =>
             // else: no actual flip — leave On_Hold_Since untouched (idempotent PUT)
         }
 
-        const url = `${caspioApiBaseUrl}/tables/ArtRequests/records?q.where=ID_Design=${designId}`;
+        const url = `${caspioApiBaseUrl}/tables/ArtRequests/records?q.where=ID_Design=${did}`;
         await axios({
             method: 'put',
             url,
@@ -1378,6 +1418,9 @@ router.post('/art-requests/:designId/note', express.json(), async (req, res) => 
  */
 router.post('/art-requests/:designId/reminder-sent', express.json(), async (req, res) => {
     const { designId } = req.params;
+    if (reqInt(designId) === null) {
+        return res.status(400).json({ error: 'Invalid designId' });
+    }
     if (!designId) {
         return res.status(400).json({ error: 'designId is required' });
     }

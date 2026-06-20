@@ -335,6 +335,21 @@ app.use('/api', transferRoutes);
 console.log('✓ Transfer routes loaded');
 
 // Art Routes (artrequests and art-invoices)
+// Rate-limit the art WRITE paths (create + field/status updates). Defined here
+// (not next to writeLimiter at ~L421) because artRoutes mount on this line and
+// the limiter must be registered first. GET is exempt so the Saved-Mockups
+// library's reads (GET /api/artrequests?repMockup=true) are never throttled.
+const artWriteLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  trustProxy: true,
+  message: { error: 'Too many requests — please slow down and try again shortly.' }
+});
+const artWriteOnly = (req, res, next) => (req.method === 'GET' ? next() : artWriteLimiter(req, res, next));
+app.use('/api/artrequests', artWriteOnly);
+app.use('/api/art-requests', artWriteOnly);
 const artRoutes = require('./src/routes/art');
 app.use('/api', artRoutes);
 console.log('✓ Art routes loaded');
