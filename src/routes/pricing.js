@@ -704,7 +704,7 @@ router.get('/pricing-bundle', async (req, res) => {
     return res.status(400).json({ error: 'Decoration method is required' });
   }
 
-  const validMethods = ['DTG', 'EMB', 'CAP', 'ScreenPrint', 'DTF', 'EMB-AL', 'CAP-AL', 'BLANK', 'PATCH', 'CAP-PUFF'];
+  const validMethods = ['DTG', 'DTG_Store', 'EMB', 'CAP', 'ScreenPrint', 'DTF', 'EMB-AL', 'CAP-AL', 'BLANK', 'PATCH', 'CAP-PUFF'];
   if (!validMethods.includes(method)) {
     return res.status(400).json({ error: `Invalid decoration method. Use one of: ${validMethods.join(', ')}` });
   }
@@ -714,6 +714,7 @@ router.get('/pricing-bundle', async (req, res) => {
     'EMB': 'EmbroideryShirts',
     'CAP': 'EmbroideryCaps',
     'DTG': 'DTG',
+    'DTG_Store': 'DTG_Store',        // Retail storefront: own tiers/margin/LTM, reuses DTG print costs
     'ScreenPrint': 'ScreenPrint',
     'DTF': 'DTF',
     'EMB-AL': 'EmbroideryShirts',  // Additional Logo uses same tiers as regular embroidery
@@ -737,8 +738,12 @@ router.get('/pricing-bundle', async (req, res) => {
     'CAP-PUFF': 'CAP'  // 3D Puff uses same locations as caps
   };
 
+  // DTG_Store reuses DTG's print costs, locations, rounding rules and cost transform —
+  // ONLY its pricing TIERS come from its own Pricing_Tiers rows (DecorationMethod='DTG_Store').
+  // So dbMethod (tiers) stays method-specific while everything else keys off costMethod.
+  const costMethod = (method === 'DTG_Store') ? 'DTG' : method;
   const dbMethod = methodMapping[method];
-  const locationType = locationTypeMapping[method];
+  const locationType = locationTypeMapping[costMethod];
 
   // Check cache (parameter-aware)
   const cacheKey = JSON.stringify({ method, styleNumber });
@@ -765,9 +770,9 @@ router.get('/pricing-bundle', async (req, res) => {
         return [];
       }),
       
-      // Fetch pricing rules
+      // Fetch pricing rules (DTG_Store reuses DTG's rounding rule via costMethod)
       fetchAllCaspioPages('/tables/Pricing_Rules/records', {
-        'q.where': `DecorationMethod='${dbMethod}'`
+        'q.where': `DecorationMethod='${methodMapping[costMethod]}'`
       }).catch(err => {
         console.error('Failed to fetch pricing rules:', err.message);
         return [];
@@ -789,7 +794,7 @@ router.get('/pricing-bundle', async (req, res) => {
 
     // Add method-specific cost table query with error handling
     let costTableQuery;
-    switch (method) {
+    switch (costMethod) {
       case 'DTG':
         costTableQuery = fetchAllCaspioPages('/tables/DTG_Costs/records')
           .catch(err => {
@@ -955,7 +960,7 @@ router.get('/pricing-bundle', async (req, res) => {
     };
 
     // Add method-specific cost field with empty default
-    switch (method) {
+    switch (costMethod) {
       case 'DTG':
         response.allDtgCostsR = [];
         break;
@@ -994,7 +999,7 @@ router.get('/pricing-bundle', async (req, res) => {
     response.locations = locations || [];
 
     // Update costs with actual data
-    switch (method) {
+    switch (costMethod) {
       case 'DTG':
         response.allDtgCostsR = costs || [];
         break;
@@ -1097,7 +1102,7 @@ router.get('/pricing-bundle', async (req, res) => {
       };
       
       // Add method-specific cost field
-      switch (method) {
+      switch (costMethod) {
         case 'DTG':
           requiredStructure.allDtgCostsR = [];
           break;
