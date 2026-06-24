@@ -431,6 +431,46 @@ router.get('/lookup', async (req, res) => {
   }
 });
 
+// ── SanMar issue (backorder / hold) helpers ──
+// Derive a {backorder, hold, label} flag from a stored Issue_Details JSON blob.
+// Pattern-matches across every captured issue field (issueCategory / issueType /
+// issueDescription / issueStatus) so it works whether SanMar populates the
+// PromoStandards category fields or the legacy type/description ones. Returns null
+// when there is no actionable issue (never a false positive).
+function deriveIssueFlags(issueDetailsJson) {
+  if (!issueDetailsJson) return null;
+  let arr;
+  try { arr = JSON.parse(issueDetailsJson); } catch (e) { return null; }
+  if (!Array.isArray(arr) || arr.length === 0) return null;
+  let backorder = false, hold = false, urgent = false;
+  const labels = [];
+  for (const it of arr) {
+    if (!it || typeof it !== 'object') continue;
+    // Skip resolved issues.
+    if (String(it.resolvedDate || '').trim()) continue;
+    const blob = [it.issueCategory, it.issueType, it.issueDescription, it.issueStatus]
+      .filter(Boolean).join(' ').toLowerCase();
+    if (!blob) continue;
+    if (String(it.urgentResponseRequired).toLowerCase() === 'true') urgent = true;
+    if (/back\s*order/.test(blob)) { backorder = true; labels.push(it.issueDescription || it.issueCategory || 'Backorder'); }
+    else if (/hold/.test(blob)) { hold = true; labels.push(it.issueDescription || it.issueCategory || 'Hold'); }
+    else { labels.push(it.issueDescription || it.issueCategory || it.issueType || 'Issue'); }
+  }
+  if (!backorder && !hold && labels.length === 0) return null;
+  return { backorder, hold, urgent, label: [...new Set(labels)].join('; ').slice(0, 240) };
+}
+
+function mergeIssue(a, b) {
+  if (!a) return b || null;
+  if (!b) return a;
+  return {
+    backorder: !!(a.backorder || b.backorder),
+    hold: !!(a.hold || b.hold),
+    urgent: !!(a.urgent || b.urgent),
+    label: [...new Set([a.label, b.label].filter(Boolean))].join('; ').slice(0, 240),
+  };
+}
+
 // ── GET /batch-status — synced inbound SanMar status for many work orders ──
 // Dashboard use: ONE call for all visible rows. SYNCED Caspio data only (no
 // SOAP/OSN) → at most two Caspio reads. WOs with no linked SanMar PO are
@@ -455,7 +495,7 @@ router.get('/batch-status', async (req, res) => {
     try {
       orderRows = await fetchAllCaspioPages(`/tables/${TABLES.orders}/records`, {
         'q.where': orderWhere,
-        'q.select': 'id_Order,SanMar_PO,SanMar_Status,SanMar_Sales_Order,Estimated_Delivery,Status_Updated_Date',
+        'q.select': 'id_Order,SanMar_PO,SanMar_Status,SanMar_Sales_Order,Estimated_Delivery,Status_Updated_Date,Issue_Details',
         'q.limit': 1000,
       });
     } catch (e) {
@@ -485,17 +525,21 @@ router.get('/batch-status', async (req, res) => {
 
     // Compose per work order (a WO may map to multiple POs → roll up).
     const out = {};
+    const woIssue = {}; // wo → merged backorder/hold flag across its POs (survives state-rank replace)
     for (const row of orderRows) {
       const wo = String(row.id_Order);
       const po = row.SanMar_PO || null;
       const ships = (po && shipByPo[po]) || [];
       const { state, shipped } = mapSanmarState(row.SanMar_Status, ships);
       const firstTrack = ships.find(s => String(s.Tracking_Number || '').trim()) || null;
+      const issue = deriveIssueFlags(row.Issue_Details);
+      if (issue) woIssue[wo] = mergeIssue(woIssue[wo], issue);
       const poEntry = {
         po,
         status: row.SanMar_Status || '',
         state,
         shipped,
+        issue,
         salesOrder: row.SanMar_Sales_Order || '',
         estimatedDelivery: row.Estimated_Delivery || '',
         trackingNumber: firstTrack ? firstTrack.Tracking_Number : null,
@@ -513,6 +557,8 @@ router.get('/batch-status', async (req, res) => {
         }
       }
     }
+    // Apply the WO-level issue rollup (a backorder on any PO flags the work order).
+    for (const wo of Object.keys(out)) out[wo].issue = woIssue[wo] || null;
 
     orderCache.set(cacheKey, out, 120);
     res.json(out);
@@ -768,7 +814,7 @@ router.get('/inbound-today', async (req, res) => {
     // 2. Orders (work order #, company, sales order, status) for these POs.
     const orderRows = await fetchAllCaspioPages(`/tables/${TABLES.orders}/records`, {
       'q.where': poWhere,
-      'q.select': 'SanMar_PO,id_Order,ShopWorks_PO,SanMar_Sales_Order,SanMar_Status,Company_Name,Sales_Rep',
+      'q.select': 'SanMar_PO,id_Order,ShopWorks_PO,SanMar_Sales_Order,SanMar_Status,Company_Name,Sales_Rep,Issue_Details',
       'q.limit': 1000,
     }) || [];
     const orderByPo = new Map(orderRows.map(o => [o.SanMar_PO, o]));
@@ -883,6 +929,7 @@ router.get('/inbound-today', async (req, res) => {
       return {
         sanmarPO: po, workOrder: o.id_Order || '', shopworksPO: o.ShopWorks_PO || '',
         company: o.Company_Name || '', salesRep: o.Sales_Rep || '', salesOrder: o.SanMar_Sales_Order || '', status: o.SanMar_Status || '',
+        issue: deriveIssueFlags(o.Issue_Details),
         method, arrival: date, shipDate: sh.shipDate, fromCity: sh.fromCity, fromState: sh.fromState,
         carrier: sh.carrier, tracking: sh.tracking, trackingUrl: buildCarrierTrackingUrl(sh.carrier, sh.tracking),
         boxes: (boxDetailByPo.get(po) || []).length || sh.boxes,

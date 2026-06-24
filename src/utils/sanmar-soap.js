@@ -266,11 +266,17 @@ function parseOrderStatusResponse(xml) {
         });
       }
 
-      // Parse issue details (holds, backlogs, returns)
+      // Parse issue details (holds, backorders). PromoStandards Order Status V2 uses
+      // issueStatus (Open/Pending) + issueCategory (generalHold / backOrderHold) +
+      // urgentResponseRequired; SanMar/older variants also expose issueType/issueDescription.
+      // Capture all so consumers can pattern-match regardless of which fields are populated.
       const issues = [];
       const issueBlocks = extractBlocks(detail, 'IssueDetail');
       for (const issue of issueBlocks) {
         issues.push({
+          issueStatus: extractFirst(issue, 'issueStatus') || '',
+          issueCategory: extractFirst(issue, 'issueCategory') || '',
+          urgentResponseRequired: extractFirst(issue, 'urgentResponseRequired') || '',
           issueType: extractFirst(issue, 'issueType') || extractFirst(issue, 'type') || '',
           issueDescription: extractFirst(issue, 'issueDescription') || extractFirst(issue, 'description') || '',
           issueDate: extractFirst(issue, 'issueDate') || '',
