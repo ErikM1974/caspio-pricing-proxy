@@ -863,17 +863,25 @@ router.get('/inbound-today', async (req, res) => {
     for (const bs of boxesByPo.values()) for (const b of bs) for (const it of b.items) boxPartIds.push(it.partId);
     const colorMap = await resolvePartColors([...itemRows.map(it => it.Part_ID).filter(Boolean), ...boxPartIds]);
 
-    // 5. Decoration method per work order (ManageOrders_Orders.id_OrderType).
+    // 5. Per-work-order ManageOrders fields — method (id_OrderType) + the box-label header
+    //    fields (due date, design#, contact, rep, customer PO). All from the SYNCED
+    //    ManageOrders_Orders table (fast, no live MO call), keyed by id_Order.
     const idOrders = [...new Set(orderRows.map(o => o.id_Order).filter(Boolean).map(String))];
     const typeByIdOrder = new Map();
+    const moByIdOrder = new Map();
     for (let i = 0; i < idOrders.length; i += 75) {
       const chunk = idOrders.slice(i, i + 75);
       try {
         const moRows = await fetchAllCaspioPages(`/tables/${MO_TABLE}/records`, {
-          'q.where': chunk.map(id => `id_Order='${xmlEscape(id)}'`).join(' OR '), 'q.select': 'id_Order,id_OrderType', 'q.limit': 1000,
+          'q.where': chunk.map(id => `id_Order='${xmlEscape(id)}'`).join(' OR '),
+          'q.select': 'id_Order,id_OrderType,CustomerName,date_RequestedToShip,id_Design,DesignName,ContactFirstName,ContactLastName,CustomerServiceRep,CustomerPurchaseOrder,TermsName',
+          'q.limit': 1000,
         }) || [];
-        for (const m of moRows) typeByIdOrder.set(String(m.id_Order), parseInt(m.id_OrderType) || 0);
-      } catch (e) { /* method falls back to 'Other' */ }
+        for (const m of moRows) {
+          typeByIdOrder.set(String(m.id_Order), parseInt(m.id_OrderType) || 0);
+          moByIdOrder.set(String(m.id_Order), m);
+        }
+      } catch (e) { /* method falls back to 'Other'; label fields fall back to SanMar_Orders */ }
     }
 
     // 6. Group line items by PO (color resolved; unresolved → Part_ID only, never dropped).
@@ -925,10 +933,20 @@ router.get('/inbound-today', async (req, res) => {
       const lines = linesByPo.get(po) || [];
       const piecesShipped = lines.reduce((t, l) => t + l.qtyShipped, 0);
       const piecesOrdered = lines.reduce((t, l) => t + l.qtyOrdered, 0);
-      const method = ORDER_TYPE_LABEL[o.id_Order ? typeByIdOrder.get(String(o.id_Order)) : 0] || 'Other';
+      const idOrderStr = o.id_Order ? String(o.id_Order) : '';
+      const method = ORDER_TYPE_LABEL[idOrderStr ? typeByIdOrder.get(idOrderStr) : 0] || 'Other';
+      const mo = idOrderStr ? moByIdOrder.get(idOrderStr) : null;
+      const contactName = mo ? `${(mo.ContactFirstName || '').trim()} ${(mo.ContactLastName || '').trim()}`.trim() : '';
       return {
         sanmarPO: po, workOrder: o.id_Order || '', shopworksPO: o.ShopWorks_PO || '',
-        company: o.Company_Name || '', salesRep: o.Sales_Rep || '', salesOrder: o.SanMar_Sales_Order || '', status: o.SanMar_Status || '',
+        company: (mo && (mo.CustomerName || '').trim()) || o.Company_Name || '',
+        salesRep: (mo && (mo.CustomerServiceRep || '').trim()) || o.Sales_Rep || '',
+        salesOrder: o.SanMar_Sales_Order || '', status: o.SanMar_Status || '',
+        // ManageOrders header fields for the box label (synced; empty if not yet matched/synced)
+        dueDate: mo ? String(mo.date_RequestedToShip || '').slice(0, 10) : '',
+        designNumber: mo && mo.id_Design != null ? String(mo.id_Design) : '',
+        designName: mo ? (mo.DesignName || '').trim() : '',
+        contactName, customerPO: mo ? (mo.CustomerPurchaseOrder || '').trim() : '', terms: mo ? (mo.TermsName || '').trim() : '',
         issue: deriveIssueFlags(o.Issue_Details),
         method, arrival: date, shipDate: sh.shipDate, fromCity: sh.fromCity, fromState: sh.fromState,
         carrier: sh.carrier, tracking: sh.tracking, trackingUrl: buildCarrierTrackingUrl(sh.carrier, sh.tracking),
