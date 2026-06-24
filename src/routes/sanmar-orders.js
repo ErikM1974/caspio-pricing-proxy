@@ -11,6 +11,8 @@
 //   GET  /api/sanmar-orders/lookup          — Search by order#, company, rep, style
 //   GET  /api/sanmar-orders/backfill-status — Check backfill progress
 //   GET  /api/sanmar-orders/status-summary  — Monitoring: table counts, sync health
+//   GET  /api/sanmar-orders/batch-status    — Synced inbound status for many work orders (dashboard)
+//   GET  /api/sanmar-orders/daily-inbound   — Daily arriving-blanks rollup by decoration method (dashboard graph)
 //   POST /api/sanmar-orders/link            — Save ShopWorks↔SanMar PO mapping
 //   POST /api/sanmar-orders/sync            — Daily sync (Heroku Scheduler)
 //   POST /api/sanmar-orders/backfill        — Fire-and-forget backfill with progress
@@ -516,6 +518,177 @@ router.get('/batch-status', async (req, res) => {
   } catch (error) {
     console.error('[sanmar batch-status] error:', error.message);
     res.status(500).json({ error: 'batch-status failed', details: error.message });
+  }
+});
+
+// ── GET /daily-inbound — daily arriving-blanks rollup for the dashboard graph ──
+// Groups SanMar shipments by ESTIMATED ARRIVAL (actual ship date + a per-warehouse
+// ground-transit estimate to NWCA in Milton, WA) and rolls up pieces / boxes /
+// orders per day, broken down by decoration method (DTG/EMB/SCP/DTF/…). Caspio-only
+// (no live SanMar/SOAP) — reads the three synced tables + joins ManageOrders_Orders
+// for id_OrderType. Cached 30 min.
+//
+// WHY ship-date + transit (not a delivery date): SanMar's Order Status / Shipment
+// APIs do NOT return an estimated delivery date (the field is always null), so the
+// only forward-looking signal is the ACTUAL ship date plus a transit estimate.
+const MO_TABLE = 'ManageOrders_Orders';
+
+// id_OrderType → short decoration label (verified OnSite Order-Types, 2026-05-02)
+const ORDER_TYPE_LABEL = {
+  5: 'DTG', 13: 'Screen Print', 21: 'Embroidery', 18: 'DTF',
+  41: 'Sticker', 7: 'Emblem', 6: 'Online Store'
+};
+// Legend/stack order for the graph (stable regardless of which methods appear).
+const METHOD_ORDER = ['Embroidery', 'Screen Print', 'DTG', 'DTF', 'Sticker', 'Emblem', 'Online Store', 'Other'];
+
+// Ground-transit estimate (calendar days) from each SanMar warehouse state to
+// Milton, WA. ESTIMATES ONLY — SanMar provides no delivery ETA. Warehouses:
+// WA Seattle · NV Reno · AZ Phoenix · TX Dallas · MN Minneapolis · OH Cincinnati
+// · NJ Robbinsville · FL Jacksonville · VA Richmond.
+const TRANSIT_DAYS_BY_STATE = {
+  WA: 1, OR: 2, NV: 2, AZ: 2, TX: 3, MN: 3, OH: 4, NJ: 4, FL: 5, VA: 5
+};
+const DEFAULT_TRANSIT_DAYS = 3;
+
+// Shift a 'YYYY-MM-DD' date by N days (UTC), returning 'YYYY-MM-DD' or null.
+function addDaysISO(isoDate, days) {
+  const d = new Date(isoDate + 'T00:00:00Z');
+  if (isNaN(d.getTime())) return null;
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+router.get('/daily-inbound', async (req, res) => {
+  try {
+    const past = Math.min(Math.max(parseInt(req.query.past) || 3, 0), 30);
+    const future = Math.min(Math.max(parseInt(req.query.future) || 21, 1), 90);
+    const today = new Date().toISOString().slice(0, 10);
+    const windowStart = addDaysISO(today, -past);
+    const windowEnd = addDaysISO(today, future);
+
+    const cacheKey = `sanmar-daily-inbound-${windowStart}-${windowEnd}`;
+    if (!req.query.refresh) {
+      const cached = orderCache.get(cacheKey);
+      if (cached) return res.json(cached);
+    }
+
+    // 1. Recent shipments. Ship dates are in the past; arrivals = ship + transit, so
+    //    a lookback of (future + ~10) days covers anything still arriving in-window.
+    const shipLookback = addDaysISO(today, -(future + 10));
+    const shipRows = await fetchAllCaspioPages(`/tables/${TABLES.shipments}/records`, {
+      'q.where': `Ship_Date>='${shipLookback}'`,
+      'q.select': 'SanMar_PO,Ship_Date,Ship_From_State',
+      'q.limit': 1000,
+    }) || [];
+
+    // 2. Roll boxes up to the PO — a PO "arrives" on its earliest box arrival.
+    const poAgg = new Map(); // po -> { boxes, arrival }
+    for (const s of shipRows) {
+      const po = s.SanMar_PO;
+      const shipDate = (s.Ship_Date || '').slice(0, 10);
+      if (!po || !shipDate) continue;
+      const transit = TRANSIT_DAYS_BY_STATE[(s.Ship_From_State || '').toUpperCase()] || DEFAULT_TRANSIT_DAYS;
+      const arrival = addDaysISO(shipDate, transit);
+      if (!arrival) continue;
+      const cur = poAgg.get(po) || { boxes: 0, arrival };
+      cur.boxes += 1;
+      if (arrival < cur.arrival) cur.arrival = arrival;
+      poAgg.set(po, cur);
+    }
+
+    if (poAgg.size === 0) {
+      const empty = {
+        generatedAt: new Date().toISOString(), today, windowStart, windowEnd,
+        methods: [], days: [], totals: { pieces: 0, boxes: 0, orders: 0 },
+        pending: { orders: 0 }, note: 'No SanMar shipments in range.'
+      };
+      orderCache.set(cacheKey, empty, 600);
+      return res.json(empty);
+    }
+
+    // 3. Pieces per PO (sum Qty_Shipped; fall back to Qty_Ordered if nothing shipped).
+    const itemRows = await fetchAllCaspioPages(`/tables/${TABLES.items}/records`, {
+      'q.select': 'SanMar_PO,Qty_Ordered,Qty_Shipped',
+      'q.limit': 1000,
+    }) || [];
+    const piecesByPo = new Map();
+    for (const it of itemRows) {
+      if (!poAgg.has(it.SanMar_PO)) continue;
+      const cur = piecesByPo.get(it.SanMar_PO) || { shipped: 0, ordered: 0 };
+      cur.shipped += parseInt(it.Qty_Shipped) || 0;
+      cur.ordered += parseInt(it.Qty_Ordered) || 0;
+      piecesByPo.set(it.SanMar_PO, cur);
+    }
+
+    // 4. PO → id_Order (SanMar_Orders), then id_Order → id_OrderType (ManageOrders_Orders).
+    const orderRows = await fetchAllCaspioPages(`/tables/${TABLES.orders}/records`, {
+      'q.select': 'SanMar_PO,id_Order',
+      'q.limit': 1000,
+    }) || [];
+    const idOrderByPo = new Map();
+    for (const o of orderRows) {
+      if (poAgg.has(o.SanMar_PO) && o.id_Order) idOrderByPo.set(o.SanMar_PO, String(o.id_Order));
+    }
+    const idOrders = [...new Set([...idOrderByPo.values()])];
+    const typeByIdOrder = new Map();
+    for (let i = 0; i < idOrders.length; i += 75) {
+      const chunk = idOrders.slice(i, i + 75);
+      const where = chunk.map(id => `id_Order='${xmlEscape(id)}'`).join(' OR ');
+      try {
+        const moRows = await fetchAllCaspioPages(`/tables/${MO_TABLE}/records`, {
+          'q.where': where, 'q.select': 'id_Order,id_OrderType', 'q.limit': 1000,
+        }) || [];
+        for (const m of moRows) typeByIdOrder.set(String(m.id_Order), parseInt(m.id_OrderType) || 0);
+      } catch (e) { /* MO join optional — unmatched POs fall to 'Other' */ }
+    }
+
+    // 5. Aggregate per arrival day, broken down by method.
+    const dayMap = new Map(); // date -> { pieces, boxes, orders, byMethod }
+    const methodsSeen = new Set();
+    for (const [po, { boxes, arrival }] of poAgg) {
+      if (arrival < windowStart || arrival > windowEnd) continue;
+      const pc = piecesByPo.get(po) || { shipped: 0, ordered: 0 };
+      const pieces = pc.shipped > 0 ? pc.shipped : pc.ordered;
+      const idOrder = idOrderByPo.get(po);
+      const method = ORDER_TYPE_LABEL[idOrder ? typeByIdOrder.get(idOrder) : 0] || 'Other';
+      methodsSeen.add(method);
+      const d = dayMap.get(arrival) || { pieces: 0, boxes: 0, orders: 0, byMethod: {} };
+      d.pieces += pieces; d.boxes += boxes; d.orders += 1;
+      const bm = d.byMethod[method] || { pieces: 0, boxes: 0, orders: 0 };
+      bm.pieces += pieces; bm.boxes += boxes; bm.orders += 1;
+      d.byMethod[method] = bm;
+      dayMap.set(arrival, d);
+    }
+
+    const days = [...dayMap.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1))
+      .map(([date, v]) => ({ date, ...v }));
+    const totals = days.reduce((t, d) => ({
+      pieces: t.pieces + d.pieces, boxes: t.boxes + d.boxes, orders: t.orders + d.orders
+    }), { pieces: 0, boxes: 0, orders: 0 });
+
+    // 6. Pending = confirmed/received POs with no shipment yet (not on the graph).
+    let pendingOrders = 0;
+    try {
+      const openRows = await fetchAllCaspioPages(`/tables/${TABLES.orders}/records`, {
+        'q.where': "SanMar_Status='Received' OR SanMar_Status='Confirmed'",
+        'q.select': 'SanMar_PO', 'q.limit': 1000,
+      }) || [];
+      pendingOrders = openRows.filter(o => !poAgg.has(o.SanMar_PO)).length;
+    } catch (e) { /* pending is a nicety */ }
+
+    const payload = {
+      generatedAt: new Date().toISOString(),
+      today, windowStart, windowEnd,
+      methods: METHOD_ORDER.filter(m => methodsSeen.has(m)),
+      days, totals,
+      pending: { orders: pendingOrders },
+      note: 'Arrival = actual SanMar ship date + ground-transit estimate to Milton, WA. SanMar provides no delivery ETA.',
+    };
+    orderCache.set(cacheKey, payload, 1800);
+    res.json(payload);
+  } catch (error) {
+    console.error('[sanmar daily-inbound] error:', error.message);
+    res.status(500).json({ error: 'daily-inbound failed', details: error.message });
   }
 });
 
