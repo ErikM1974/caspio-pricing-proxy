@@ -780,8 +780,42 @@ router.get('/inbound-today', async (req, res) => {
       'q.limit': 1000,
     }) || [];
 
-    // 4. Resolve color/size for every Part_ID (one batched product-table lookup).
-    const colorMap = await resolvePartColors(itemRows.map(it => it.Part_ID).filter(Boolean));
+    // 3b. Live per-box contents (OSN) for each arriving PO — concurrency-capped, per-PO
+    //     try/catch so one slow/failed PO degrades only itself (Rule #4: a PO that can't
+    //     resolve its boxes keeps the PO-level line summary rather than showing blank-but-complete).
+    const boxesByPo = new Map();
+    const fetchBoxes = async (po) => {
+      try {
+        const xml = await makeSoapRequest(ENDPOINTS.shipmentNotification, buildShipmentRequest(1, { referenceNumber: po }), {
+          timeout: 20000, namespaces: { ns: NS.shipment, shar: NS.shipmentShared },
+        });
+        if (checkSoapError(xml)) return;
+        const boxes = [];
+        for (const sh of parseShipmentResponse(xml)) {
+          for (const so of (sh.salesOrders || [])) {
+            for (const loc of (so.locations || [])) {
+              for (const pkg of (loc.packages || [])) {
+                if (!pkg.trackingNumber && !(pkg.items && pkg.items.length)) continue;
+                boxes.push({
+                  trackingNumber: pkg.trackingNumber || '', carrier: pkg.carrier || '',
+                  shipmentDate: (pkg.shipmentDate || '').slice(0, 10),
+                  items: (pkg.items || []).map(it => ({ partId: String(it.supplierPartId || ''), style: it.supplierProductId || '', qty: parseInt(it.quantity, 10) || 0 })),
+                });
+              }
+            }
+          }
+        }
+        boxesByPo.set(po, boxes);
+      } catch (e) { /* unset → PO falls back to PO-level lines in the response */ }
+    };
+    for (let i = 0; i < pos.length; i += 5) { // pool of 5 to stay snappy + within SanMar cadence
+      await Promise.all(pos.slice(i, i + 5).map(fetchBoxes));
+    }
+
+    // 4. Resolve color/size for every Part_ID — order-items AND box contents — in one lookup.
+    const boxPartIds = [];
+    for (const bs of boxesByPo.values()) for (const b of bs) for (const it of b.items) boxPartIds.push(it.partId);
+    const colorMap = await resolvePartColors([...itemRows.map(it => it.Part_ID).filter(Boolean), ...boxPartIds]);
 
     // 5. Decoration method per work order (ManageOrders_Orders.id_OrderType).
     const idOrders = [...new Set(orderRows.map(o => o.id_Order).filter(Boolean).map(String))];
@@ -817,6 +851,28 @@ router.get('/inbound-today', async (req, res) => {
       });
     }
 
+    // 6b. Per-box contents with color/size resolved (one box block per package).
+    const boxDetailByPo = new Map();
+    for (const [po, bs] of boxesByPo) {
+      boxDetailByPo.set(po, bs.map((b, i) => ({
+        boxNumber: i + 1,
+        trackingNumber: b.trackingNumber,
+        carrier: b.carrier,
+        trackingUrl: buildCarrierTrackingUrl(b.carrier, b.trackingNumber),
+        shipmentDate: b.shipmentDate,
+        pieces: b.items.reduce((t, it) => t + it.qty, 0),
+        items: b.items.map(it => {
+          const c = colorMap.get(it.partId) || null;
+          return {
+            style: it.style || (c && c.style) || '', partId: it.partId,
+            color: c ? c.colorName : '', catalogColor: c ? c.catalogColor : '',
+            size: c ? c.size : '', title: c ? c.title : '', brand: c ? c.brand : '',
+            qty: it.qty, resolved: !!c,
+          };
+        }),
+      })));
+    }
+
     // 7. Compose per-PO records, sorted by company then PO.
     const orders = pos.map(po => {
       const sh = poShip.get(po); const o = orderByPo.get(po) || {};
@@ -829,7 +885,10 @@ router.get('/inbound-today', async (req, res) => {
         company: o.Company_Name || '', salesRep: o.Sales_Rep || '', salesOrder: o.SanMar_Sales_Order || '', status: o.SanMar_Status || '',
         method, arrival: date, shipDate: sh.shipDate, fromCity: sh.fromCity, fromState: sh.fromState,
         carrier: sh.carrier, tracking: sh.tracking, trackingUrl: buildCarrierTrackingUrl(sh.carrier, sh.tracking),
-        boxes: sh.boxes, piecesShipped, piecesOrdered, lines,
+        boxes: (boxDetailByPo.get(po) || []).length || sh.boxes,
+        boxDetail: boxDetailByPo.get(po) || null,
+        boxDetailAvailable: boxesByPo.has(po),
+        piecesShipped, piecesOrdered, lines,
       };
     }).sort((a, b) => (a.company || '').localeCompare(b.company || '') || a.sanmarPO.localeCompare(b.sanmarPO));
 
@@ -843,7 +902,7 @@ router.get('/inbound-today', async (req, res) => {
       date, today, generatedAt: new Date().toISOString(),
       totals: { pos: totals.pos, workOrders: wos.size, boxes: totals.boxes, piecesShipped: totals.piecesShipped, piecesOrdered: totals.piecesOrdered, lines: totals.lines },
       orders,
-      note: 'Arriving = actual SanMar ship date + ground-transit estimate to Milton, WA. Colors/sizes from the SanMar product table; unresolved SKUs show the Part_ID only.',
+      note: 'Arriving = actual SanMar ship date + ground-transit estimate to Milton, WA. Per-box contents come live from SanMar\'s shipment feed; colors/sizes from the SanMar product table (unresolved SKUs show the Part_ID only).',
     };
     orderCache.set(cacheKey, payload, 600);
     res.json(payload);
