@@ -583,10 +583,10 @@ const MO_TABLE = 'ManageOrders_Orders';
 // id_OrderType → short decoration label (verified OnSite Order-Types, 2026-05-02)
 const ORDER_TYPE_LABEL = {
   5: 'DTG', 13: 'Screen Print', 21: 'Embroidery', 18: 'DTF',
-  41: 'Sticker', 7: 'Emblem', 6: 'Online Store'
+  41: 'Sticker', 7: 'Emblem', 6: 'Online Store', 31: 'Inksoft'
 };
 // Legend/stack order for the graph (stable regardless of which methods appear).
-const METHOD_ORDER = ['Embroidery', 'Screen Print', 'DTG', 'DTF', 'Sticker', 'Emblem', 'Online Store', 'Other'];
+const METHOD_ORDER = ['Embroidery', 'Screen Print', 'DTG', 'DTF', 'Sticker', 'Emblem', 'Online Store', 'Inksoft', 'Other'];
 
 // Ground-transit estimate (calendar days) from each SanMar warehouse state to
 // Milton, WA. ESTIMATES ONLY — SanMar provides no delivery ETA. Warehouses:
