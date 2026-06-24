@@ -874,7 +874,7 @@ router.get('/inbound-today', async (req, res) => {
       try {
         const moRows = await fetchAllCaspioPages(`/tables/${MO_TABLE}/records`, {
           'q.where': chunk.map(id => `id_Order='${xmlEscape(id)}'`).join(' OR '),
-          'q.select': 'id_Order,id_OrderType,CustomerName,date_RequestedToShip,id_Design,DesignName,ContactFirstName,ContactLastName,CustomerServiceRep,CustomerPurchaseOrder,TermsName',
+          'q.select': 'id_Order,id_OrderType,CustomerName,date_RequestedToShip,date_Ordered,id_Design,DesignName,ContactFirstName,ContactLastName,CustomerServiceRep,CustomerPurchaseOrder,TermsName',
           'q.limit': 1000,
         }) || [];
         for (const m of moRows) {
@@ -944,6 +944,7 @@ router.get('/inbound-today', async (req, res) => {
         salesOrder: o.SanMar_Sales_Order || '', status: o.SanMar_Status || '',
         // ManageOrders header fields for the box label (synced; empty if not yet matched/synced)
         dueDate: mo ? String(mo.date_RequestedToShip || '').slice(0, 10) : '',
+        dateOrdered: mo ? String(mo.date_Ordered || '').slice(0, 10) : '',
         designNumber: mo && mo.id_Design != null ? String(mo.id_Design) : '',
         designName: mo ? (mo.DesignName || '').trim() : '',
         contactName, customerPO: mo ? (mo.CustomerPurchaseOrder || '').trim() : '', terms: mo ? (mo.TermsName || '').trim() : '',
