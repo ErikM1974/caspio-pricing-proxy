@@ -13,6 +13,7 @@
 //   GET  /api/sanmar-orders/status-summary  — Monitoring: table counts, sync health
 //   GET  /api/sanmar-orders/batch-status    — Synced inbound status for many work orders (dashboard)
 //   GET  /api/sanmar-orders/daily-inbound   — Daily arriving-blanks rollup by decoration method (dashboard graph)
+//   GET  /api/sanmar-orders/inbound-today   — Detailed POs arriving on a day (line items + color), for the detail view + PDF
 //   POST /api/sanmar-orders/link            — Save ShopWorks↔SanMar PO mapping
 //   POST /api/sanmar-orders/sync            — Daily sync (Heroku Scheduler)
 //   POST /api/sanmar-orders/backfill        — Fire-and-forget backfill with progress
@@ -689,6 +690,166 @@ router.get('/daily-inbound', async (req, res) => {
   } catch (error) {
     console.error('[sanmar daily-inbound] error:', error.message);
     res.status(500).json({ error: 'daily-inbound failed', details: error.message });
+  }
+});
+
+// ── GET /inbound-today — detailed POs ARRIVING on a given day (default today) ──
+// Powers the dashboard "Today's Inbound" detail view + printable PDF report. Per PO:
+// work order #, company, decoration method, carrier/tracking, box count, and full line
+// items WITH color/size resolved from the Sanmar_Bulk product table (Part_ID = UNIQUE_KEY,
+// the same join box-labels-data.js uses in prod). Caspio-only, no SOAP. Cached 10 min.
+const SANMAR_BULK_TABLE = '/tables/Sanmar_Bulk_251816_Feb2024/records';
+
+// Resolve SanMar Part_IDs (uniqueKey) → {style,colorName,catalogColor,size,title,brand}
+// via Sanmar_Bulk.UNIQUE_KEY IN (...). Sanitize to ints (the column is integer + injection
+// guard). Unresolved ids (e.g. discontinued, absent from the snapshot) simply aren't in the map.
+async function resolvePartColors(partIds) {
+  const ids = [...new Set(partIds.map(p => parseInt(p, 10)).filter(n => Number.isInteger(n) && n > 0))];
+  const map = new Map();
+  for (let i = 0; i < ids.length; i += 90) {
+    const chunk = ids.slice(i, i + 90);
+    try {
+      const rows = await fetchAllCaspioPages(SANMAR_BULK_TABLE, {
+        'q.where': `UNIQUE_KEY IN (${chunk.join(',')})`,
+        'q.select': 'UNIQUE_KEY,STYLE,COLOR_NAME,CATALOG_COLOR,SIZE,PRODUCT_TITLE,BRAND_NAME',
+        'q.limit': 1000,
+      }) || [];
+      for (const r of rows) {
+        map.set(String(r.UNIQUE_KEY), {
+          style: r.STYLE || '',
+          colorName: r.COLOR_NAME || '',
+          catalogColor: r.CATALOG_COLOR || '',
+          size: r.SIZE || '',
+          title: (r.PRODUCT_TITLE || '').replace(/\.\s*[A-Za-z0-9]+\s*$/, '').trim(),
+          brand: r.BRAND_NAME || '',
+        });
+      }
+    } catch (e) { /* unresolved ids fall back to Part_ID-only in the caller */ }
+  }
+  return map;
+}
+
+router.get('/inbound-today', async (req, res) => {
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(req.query.date || '') ? req.query.date : today;
+
+    const cacheKey = `sanmar-inbound-today-${date}`;
+    if (!req.query.refresh) { const c = orderCache.get(cacheKey); if (c) return res.json(c); }
+
+    // 1. Shipments whose ESTIMATED ARRIVAL (ship date + transit) == the target day.
+    const lookback = addDaysISO(date, -12);
+    const shipRows = await fetchAllCaspioPages(`/tables/${TABLES.shipments}/records`, {
+      'q.where': `Ship_Date>='${lookback}' AND Ship_Date<='${date}'`,
+      'q.select': 'SanMar_PO,Ship_Date,Ship_From_State,Ship_From_City,Carrier,Ship_Method,Tracking_Number',
+      'q.limit': 1000,
+    }) || [];
+
+    const poShip = new Map(); // po -> { boxes, shipDate, carrier, tracking, fromCity, fromState }
+    for (const s of shipRows) {
+      const po = s.SanMar_PO; const sd = (s.Ship_Date || '').slice(0, 10);
+      if (!po || !sd) continue;
+      const transit = TRANSIT_DAYS_BY_STATE[(s.Ship_From_State || '').toUpperCase()] || DEFAULT_TRANSIT_DAYS;
+      if (addDaysISO(sd, transit) !== date) continue; // arrives a different day
+      const cur = poShip.get(po) || { boxes: 0, shipDate: sd, carrier: s.Carrier || '', tracking: s.Tracking_Number || '', fromCity: s.Ship_From_City || '', fromState: s.Ship_From_State || '' };
+      cur.boxes += 1;
+      if (sd < cur.shipDate) cur.shipDate = sd;
+      if (!cur.tracking && s.Tracking_Number) cur.tracking = s.Tracking_Number;
+      poShip.set(po, cur);
+    }
+
+    if (poShip.size === 0) {
+      const empty = { date, today, generatedAt: new Date().toISOString(), totals: { pos: 0, workOrders: 0, boxes: 0, piecesShipped: 0, piecesOrdered: 0, lines: 0 }, orders: [], note: `No SanMar shipments arriving ${date}.` };
+      orderCache.set(cacheKey, empty, 300); return res.json(empty);
+    }
+    const pos = [...poShip.keys()];
+    const poWhere = pos.map(p => `SanMar_PO='${xmlEscape(p)}'`).join(' OR ');
+
+    // 2. Orders (work order #, company, sales order, status) for these POs.
+    const orderRows = await fetchAllCaspioPages(`/tables/${TABLES.orders}/records`, {
+      'q.where': poWhere,
+      'q.select': 'SanMar_PO,id_Order,ShopWorks_PO,SanMar_Sales_Order,SanMar_Status,Company_Name,Sales_Rep',
+      'q.limit': 1000,
+    }) || [];
+    const orderByPo = new Map(orderRows.map(o => [o.SanMar_PO, o]));
+
+    // 3. Line items for these POs.
+    const itemRows = await fetchAllCaspioPages(`/tables/${TABLES.items}/records`, {
+      'q.where': poWhere,
+      'q.select': 'SanMar_PO,Style,Part_ID,Qty_Ordered,Qty_Shipped,Item_Status',
+      'q.limit': 1000,
+    }) || [];
+
+    // 4. Resolve color/size for every Part_ID (one batched product-table lookup).
+    const colorMap = await resolvePartColors(itemRows.map(it => it.Part_ID).filter(Boolean));
+
+    // 5. Decoration method per work order (ManageOrders_Orders.id_OrderType).
+    const idOrders = [...new Set(orderRows.map(o => o.id_Order).filter(Boolean).map(String))];
+    const typeByIdOrder = new Map();
+    for (let i = 0; i < idOrders.length; i += 75) {
+      const chunk = idOrders.slice(i, i + 75);
+      try {
+        const moRows = await fetchAllCaspioPages(`/tables/${MO_TABLE}/records`, {
+          'q.where': chunk.map(id => `id_Order='${xmlEscape(id)}'`).join(' OR '), 'q.select': 'id_Order,id_OrderType', 'q.limit': 1000,
+        }) || [];
+        for (const m of moRows) typeByIdOrder.set(String(m.id_Order), parseInt(m.id_OrderType) || 0);
+      } catch (e) { /* method falls back to 'Other' */ }
+    }
+
+    // 6. Group line items by PO (color resolved; unresolved → Part_ID only, never dropped).
+    const linesByPo = new Map();
+    for (const it of itemRows) {
+      const c = colorMap.get(String(it.Part_ID)) || null;
+      let arr = linesByPo.get(it.SanMar_PO);
+      if (!arr) { arr = []; linesByPo.set(it.SanMar_PO, arr); }
+      arr.push({
+        style: it.Style || (c && c.style) || '',
+        partId: it.Part_ID || '',
+        color: c ? c.colorName : '',
+        catalogColor: c ? c.catalogColor : '',
+        size: c ? c.size : '',
+        title: c ? c.title : '',
+        brand: c ? c.brand : '',
+        qtyOrdered: parseInt(it.Qty_Ordered, 10) || 0,
+        qtyShipped: parseInt(it.Qty_Shipped, 10) || 0,
+        status: it.Item_Status || '',
+        resolved: !!c,
+      });
+    }
+
+    // 7. Compose per-PO records, sorted by company then PO.
+    const orders = pos.map(po => {
+      const sh = poShip.get(po); const o = orderByPo.get(po) || {};
+      const lines = linesByPo.get(po) || [];
+      const piecesShipped = lines.reduce((t, l) => t + l.qtyShipped, 0);
+      const piecesOrdered = lines.reduce((t, l) => t + l.qtyOrdered, 0);
+      const method = ORDER_TYPE_LABEL[o.id_Order ? typeByIdOrder.get(String(o.id_Order)) : 0] || 'Other';
+      return {
+        sanmarPO: po, workOrder: o.id_Order || '', shopworksPO: o.ShopWorks_PO || '',
+        company: o.Company_Name || '', salesRep: o.Sales_Rep || '', salesOrder: o.SanMar_Sales_Order || '', status: o.SanMar_Status || '',
+        method, arrival: date, shipDate: sh.shipDate, fromCity: sh.fromCity, fromState: sh.fromState,
+        carrier: sh.carrier, tracking: sh.tracking, trackingUrl: buildCarrierTrackingUrl(sh.carrier, sh.tracking),
+        boxes: sh.boxes, piecesShipped, piecesOrdered, lines,
+      };
+    }).sort((a, b) => (a.company || '').localeCompare(b.company || '') || a.sanmarPO.localeCompare(b.sanmarPO));
+
+    const wos = new Set();
+    const totals = orders.reduce((t, o) => {
+      wos.add(o.workOrder || ('po:' + o.sanmarPO));
+      return { pos: t.pos + 1, boxes: t.boxes + o.boxes, piecesShipped: t.piecesShipped + o.piecesShipped, piecesOrdered: t.piecesOrdered + o.piecesOrdered, lines: t.lines + o.lines.length };
+    }, { pos: 0, boxes: 0, piecesShipped: 0, piecesOrdered: 0, lines: 0 });
+
+    const payload = {
+      date, today, generatedAt: new Date().toISOString(),
+      totals: { pos: totals.pos, workOrders: wos.size, boxes: totals.boxes, piecesShipped: totals.piecesShipped, piecesOrdered: totals.piecesOrdered, lines: totals.lines },
+      orders,
+      note: 'Arriving = actual SanMar ship date + ground-transit estimate to Milton, WA. Colors/sizes from the SanMar product table; unresolved SKUs show the Part_ID only.',
+    };
+    orderCache.set(cacheKey, payload, 600);
+    res.json(payload);
+  } catch (error) {
+    console.error('[sanmar inbound-today] error:', error.message);
+    res.status(500).json({ error: 'inbound-today failed', details: error.message });
   }
 });
 
