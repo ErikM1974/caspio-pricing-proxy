@@ -607,11 +607,20 @@ function addDaysISO(isoDate, days) {
 
 router.get('/daily-inbound', async (req, res) => {
   try {
-    const past = Math.min(Math.max(parseInt(req.query.past) || 3, 0), 30);
-    const future = Math.min(Math.max(parseInt(req.query.future) || 21, 1), 90);
     const today = new Date().toISOString().slice(0, 10);
-    const windowStart = addDaysISO(today, -past);
-    const windowEnd = addDaysISO(today, future);
+    // The calendar can request an explicit month range via ?start=&end= (YYYY-MM-DD); otherwise
+    // a rolling window via ?past=&future= (defaults today-3 … today+21). Span capped at 92 days.
+    const isISO = v => /^\d{4}-\d{2}-\d{2}$/.test(v || '');
+    let windowStart, windowEnd;
+    if (isISO(req.query.start) && isISO(req.query.end) && req.query.start <= req.query.end) {
+      windowStart = req.query.start;
+      windowEnd = (addDaysISO(windowStart, 92) < req.query.end) ? addDaysISO(windowStart, 92) : req.query.end;
+    } else {
+      const past = Math.min(Math.max(parseInt(req.query.past) || 3, 0), 180);
+      const future = Math.min(Math.max(parseInt(req.query.future) || 21, 1), 90);
+      windowStart = addDaysISO(today, -past);
+      windowEnd = addDaysISO(today, future);
+    }
 
     const cacheKey = `sanmar-daily-inbound-${windowStart}-${windowEnd}`;
     if (!req.query.refresh) {
@@ -619,9 +628,9 @@ router.get('/daily-inbound', async (req, res) => {
       if (cached) return res.json(cached);
     }
 
-    // 1. Recent shipments. Ship dates are in the past; arrivals = ship + transit, so
-    //    a lookback of (future + ~10) days covers anything still arriving in-window.
-    const shipLookback = addDaysISO(today, -(future + 10));
+    // 1. Recent shipments. Ship dates are in the past; arrivals = ship + transit. Look back
+    //    from the window START (not today) so a past month's arrivals are covered too.
+    const shipLookback = addDaysISO(windowStart, -14);
     const shipRows = await fetchAllCaspioPages(`/tables/${TABLES.shipments}/records`, {
       'q.where': `Ship_Date>='${shipLookback}'`,
       'q.select': 'SanMar_PO,Ship_Date,Ship_From_State',
