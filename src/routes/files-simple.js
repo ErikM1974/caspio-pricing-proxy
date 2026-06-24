@@ -243,10 +243,17 @@ router.get('/files/:externalKey', async (req, res) => {
             responseType: 'stream'
         });
 
-        // Forward headers from Caspio
-        if (response.headers['content-type']) {
-            res.setHeader('Content-Type', response.headers['content-type']);
-        }
+        // Forward headers from Caspio. Caspio often returns Content-Type: text/plain for binary
+        // files, which (with the global nosniff header) makes browsers REFUSE to render images in
+        // an <img>. Derive the real MIME from the filename extension so images display inline.
+        const cd = response.headers['content-disposition'] || '';
+        const fn = /filename\*?=(?:UTF-8'')?["']?([^"';]+)/i.exec(cd);
+        const ext = fn ? (fn[1].split('.').pop() || '').toLowerCase() : '';
+        const EXT_MIME = {
+            jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif',
+            webp: 'image/webp', svg: 'image/svg+xml', bmp: 'image/bmp', pdf: 'application/pdf',
+        };
+        res.setHeader('Content-Type', EXT_MIME[ext] || response.headers['content-type'] || 'application/octet-stream');
         if (response.headers['content-disposition']) {
             res.setHeader('Content-Disposition', response.headers['content-disposition']);
         }
