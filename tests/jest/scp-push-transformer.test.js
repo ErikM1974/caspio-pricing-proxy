@@ -178,6 +178,47 @@ describe('SCP push transformer — notes & tax', () => {
   });
 });
 
+describe('SCP push transformer — sleeves (2026-06-25)', () => {
+  // The SCP builder/service now writes sleeves into Notes: each sleeve is an additional print
+  // location at its OWN ink-color count; a dark garment adds +1 underbase screen per location.
+  const SLEEVE_NOTES = {
+    frontLocation: 'LC', frontColors: 1, backLocation: '', backColors: 0,
+    leftSleeveColors: 2, rightSleeveColors: 4, sleeveColorsList: [2, 4],
+    isDarkGarment: true, hasSafetyStripes: false,
+  };
+
+  test('fallback screen count includes sleeves + per-sleeve dark underbase (older quotes, no setupFeeTotal/totalScreens)', () => {
+    // 1 front + 2 + 4 sleeves = 7 ink screens; dark → +1 front + 2 sleeves underbase = 10 total
+    const order = transformQuoteToOrder(baseSession({ Notes: JSON.stringify(SLEEVE_NOTES) }), [garment()], { isTest: true });
+    expect(lineByPart(order, 'SPSU')[0]).toMatchObject({ Qty: 10, Price: 30 });
+  });
+
+  test('the saved totalScreens (sleeve-inclusive) drives the SPSU line when present', () => {
+    const order = transformQuoteToOrder(
+      baseSession({ Notes: JSON.stringify({ ...SLEEVE_NOTES, totalScreens: 10, setupFeeTotal: 300 }) }),
+      [garment()], { isTest: true });
+    expect(lineByPart(order, 'SPSU')[0]).toMatchObject({ Qty: 10, Price: 30 });
+  });
+
+  test('production note lists each sleeve + the sleeve-inclusive "Screens to burn"', () => {
+    const order = transformQuoteToOrder(baseSession({ Notes: JSON.stringify(SLEEVE_NOTES) }), [garment()], { isTest: true });
+    const prod = order.Notes.find((n) => /PRODUCTION SPECS/.test(n.Note));
+    expect(prod).toBeTruthy();
+    expect(prod.Note).toMatch(/Left Sleeve — 2 colors/);
+    expect(prod.Note).toMatch(/Right Sleeve — 4 colors/);
+    expect(prod.Note).toMatch(/Screens to burn: 10 \(1 front \+ 0 back \+ 6 sleeve \+ 3 white underbase\)/);
+  });
+
+  test('no-sleeve production note is byte-identical to before (no "sleeve" text)', () => {
+    const order = transformQuoteToOrder(
+      baseSession({ Notes: JSON.stringify({ frontLocation: 'FF', frontColors: 2, backColors: 0, isDarkGarment: true }) }),
+      [garment()], { isTest: true });
+    const prod = order.Notes.find((n) => /PRODUCTION SPECS/.test(n.Note));
+    expect(prod.Note).toMatch(/Screens to burn: 3 \(2 front \+ 0 back \+ 1 white underbase\)/);
+    expect(prod.Note).not.toMatch(/sleeve/i);
+  });
+});
+
 describe('SCP push transformer — shipping address', () => {
   test('ship-to populates the OnSite ShipAddress01/ShipCity fields from ShipToAddress columns', () => {
     const session = baseSession({
