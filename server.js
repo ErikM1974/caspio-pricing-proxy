@@ -600,6 +600,11 @@ const sanmarInvoiceRoutes = require('./src/routes/sanmar-invoices');
 app.use('/api/sanmar-invoices', sanmarLimiter, sanmarInvoiceRoutes);
 console.log('✓ SanMar Invoice routes loaded (invoices, unpaid, cost data)');
 
+// UPS Tracking Routes (live delivery dates by tracking number — OAuth client-credentials → Track API)
+const upsTrackingRoutes = require('./src/routes/ups-tracking');
+app.use('/api/ups-tracking', sanmarLimiter, upsTrackingRoutes);
+console.log('✓ UPS Tracking routes loaded (live delivery dates by tracking number)');
+
 // SanMar Shipment Notification Routes (box-level shipment data for Box Labels)
 const sanmarShipmentRoutes = require('./src/routes/sanmar-shipments');
 app.use('/api/sanmar-shipments', sanmarLimiter, sanmarShipmentRoutes);
