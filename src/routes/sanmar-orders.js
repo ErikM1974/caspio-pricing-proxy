@@ -1052,6 +1052,20 @@ router.get('/inbound-today', async (req, res) => {
       };
     }).sort((a, b) => (a.company || '').localeCompare(b.company || '') || a.sanmarPO.localeCompare(b.sanmarPO));
 
+    // UPS live delivery dates — the REAL arrival when UPS knows it (scheduled/rescheduled/delivered),
+    // per arriving PO, pooled + best-effort. Never blocks the response: a UPS hiccup just leaves the
+    // PO on its business-day estimate. Only UPS 1Z numbers; cached in the ups-tracking module.
+    try {
+      const { trackOne } = require('./ups-tracking');
+      const enrichUps = (o) => {
+        if (!(o.tracking && /^1Z/i.test(o.tracking))) return Promise.resolve();
+        return trackOne(o.tracking)
+          .then(r => { if (r && r.deliveryDate) o.upsDelivery = { date: r.deliveryDate, type: r.deliveryType || 'scheduled', status: r.status || '' }; })
+          .catch(() => {});
+      };
+      for (let i = 0; i < orders.length; i += 5) await Promise.all(orders.slice(i, i + 5).map(enrichUps));
+    } catch (e) { /* UPS enrichment is best-effort; estimate stands */ }
+
     const wos = new Set();
     const totals = orders.reduce((t, o) => {
       wos.add(o.workOrder || ('po:' + o.sanmarPO));
