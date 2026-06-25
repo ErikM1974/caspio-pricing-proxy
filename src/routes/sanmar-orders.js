@@ -970,12 +970,16 @@ router.get('/inbound-today', async (req, res) => {
     const orders = pos.map(po => {
       const sh = poShip.get(po); const o = orderByPo.get(po) || {};
       const lines = linesByPo.get(po) || [];
-      const piecesShipped = lines.reduce((t, l) => t + l.qtyShipped, 0);
+      // Pieces AND cost both come from the DISPLAYED contents — live box detail when available
+      // (most accurate for what's physically arriving; the synced Qty_Shipped can lag at 0),
+      // else the PO line summary. Keeps pieces and $ internally consistent.
       const piecesOrdered = lines.reduce((t, l) => t + l.qtyOrdered, 0);
-      // PO blank cost = the displayed contents' cost (per-box when live box detail is available,
-      // else the PO line summary). Wholesale CASE_PRICE × qty; $0 lines = SKU with no priced row.
       const _bd = boxDetailByPo.get(po) || null;
-      const cost = boxesByPo.has(po)
+      const usingBox = boxesByPo.has(po);
+      const piecesShipped = usingBox
+        ? (_bd || []).reduce((t, b) => t + (b.pieces || 0), 0)
+        : lines.reduce((t, l) => t + l.qtyShipped, 0);
+      const cost = usingBox
         ? Math.round((_bd || []).reduce((t, b) => t + (b.cost || 0), 0) * 100) / 100
         : Math.round(lines.reduce((t, l) => t + (l.lineCost || 0), 0) * 100) / 100;
       const idOrderStr = o.id_Order ? String(o.id_Order) : '';
