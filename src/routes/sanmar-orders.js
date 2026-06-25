@@ -597,6 +597,18 @@ const TRANSIT_DAYS_BY_STATE = {
 };
 const DEFAULT_TRANSIT_DAYS = 3;
 
+// Transit in BUSINESS days for a shipment. SanMar's PO guide: expedited UPS services have
+// GUARANTEED commitments — Next Day=1, 2nd Day=2, 3rd Day=3 business days — so use them when the
+// ship method says so. Ground / Will-Call / unknown have no delivery guarantee → per-warehouse
+// zone estimate. (UPS Saturday is rare for restocks → treated as Ground here.)
+function transitDaysFor(shipMethod, fromState) {
+  const m = String(shipMethod || '').toUpperCase().replace(/[-_]/g, ' ');
+  if (/NEXT\s*DAY|1\s*DAY/.test(m)) return 1;
+  if (/2ND\s*DAY|2\s*DAY|SECOND\s*DAY/.test(m)) return 2;
+  if (/3RD\s*DAY|3\s*DAY|THIRD\s*DAY/.test(m)) return 3;
+  return TRANSIT_DAYS_BY_STATE[(fromState || '').toUpperCase()] || DEFAULT_TRANSIT_DAYS;
+}
+
 // Shift a 'YYYY-MM-DD' date by N days (UTC), returning 'YYYY-MM-DD' or null.
 function addDaysISO(isoDate, days) {
   const d = new Date(isoDate + 'T00:00:00Z');
@@ -666,7 +678,7 @@ router.get('/daily-inbound', async (req, res) => {
     const shipLookback = addDaysISO(windowStart, -14);
     const shipRows = await fetchAllCaspioPages(`/tables/${TABLES.shipments}/records`, {
       'q.where': `Ship_Date>='${shipLookback}'`,
-      'q.select': 'SanMar_PO,Ship_Date,Ship_From_State',
+      'q.select': 'SanMar_PO,Ship_Date,Ship_From_State,Ship_Method',
       'q.limit': 1000,
     }) || [];
 
@@ -676,7 +688,7 @@ router.get('/daily-inbound', async (req, res) => {
       const po = s.SanMar_PO;
       const shipDate = (s.Ship_Date || '').slice(0, 10);
       if (!po || !shipDate) continue;
-      const transit = TRANSIT_DAYS_BY_STATE[(s.Ship_From_State || '').toUpperCase()] || DEFAULT_TRANSIT_DAYS;
+      const transit = transitDaysFor(s.Ship_Method, s.Ship_From_State);
       const arrival = addBusinessDays(shipDate, transit);
       if (!arrival) continue;
       const cur = poAgg.get(po) || { boxes: 0, arrival };
@@ -858,7 +870,7 @@ router.get('/inbound-today', async (req, res) => {
     for (const s of shipRows) {
       const po = s.SanMar_PO; const sd = (s.Ship_Date || '').slice(0, 10);
       if (!po || !sd) continue;
-      const transit = TRANSIT_DAYS_BY_STATE[(s.Ship_From_State || '').toUpperCase()] || DEFAULT_TRANSIT_DAYS;
+      const transit = transitDaysFor(s.Ship_Method, s.Ship_From_State);
       if (addBusinessDays(sd, transit) !== date) continue; // arrives a different (business) day
       const cur = poShip.get(po) || { boxes: 0, shipDate: sd, carrier: s.Carrier || '', tracking: s.Tracking_Number || '', fromCity: s.Ship_From_City || '', fromState: s.Ship_From_State || '' };
       cur.boxes += 1;
