@@ -664,16 +664,34 @@ router.get('/daily-inbound', async (req, res) => {
 
     // 3. Pieces per PO (sum Qty_Shipped; fall back to Qty_Ordered if nothing shipped).
     const itemRows = await fetchAllCaspioPages(`/tables/${TABLES.items}/records`, {
-      'q.select': 'SanMar_PO,Qty_Ordered,Qty_Shipped',
+      'q.select': 'SanMar_PO,Part_ID,Qty_Ordered,Qty_Shipped',
       'q.limit': 1000,
     }) || [];
     const piecesByPo = new Map();
+    const costItemsByPo = new Map(); // po -> [{partId, qty}] for the wholesale $ rollup
+    const allPartIds = [];
     for (const it of itemRows) {
       if (!poAgg.has(it.SanMar_PO)) continue;
+      const shipped = parseInt(it.Qty_Shipped) || 0;
+      const ordered = parseInt(it.Qty_Ordered) || 0;
       const cur = piecesByPo.get(it.SanMar_PO) || { shipped: 0, ordered: 0 };
-      cur.shipped += parseInt(it.Qty_Shipped) || 0;
-      cur.ordered += parseInt(it.Qty_Ordered) || 0;
+      cur.shipped += shipped;
+      cur.ordered += ordered;
       piecesByPo.set(it.SanMar_PO, cur);
+      if (it.Part_ID) {
+        allPartIds.push(it.Part_ID);
+        let arr = costItemsByPo.get(it.SanMar_PO);
+        if (!arr) { arr = []; costItemsByPo.set(it.SanMar_PO, arr); }
+        arr.push({ partId: it.Part_ID, qty: shipped > 0 ? shipped : ordered });
+      }
+    }
+    // Wholesale blank cost per PO (CASE_PRICE × qty) — the per-day $ rollup for the calendar.
+    const costMap = await resolvePartColors(allPartIds);
+    const costByPo = new Map();
+    for (const [po, items] of costItemsByPo) {
+      let c = 0;
+      for (const it of items) { const pc = costMap.get(String(it.partId)); if (pc) c += pc.unitCost * it.qty; }
+      costByPo.set(po, c);
     }
 
     // 4. PO → id_Order (SanMar_Orders), then id_Order → id_OrderType (ManageOrders_Orders).
@@ -708,19 +726,20 @@ router.get('/daily-inbound', async (req, res) => {
       const idOrder = idOrderByPo.get(po);
       const method = ORDER_TYPE_LABEL[idOrder ? typeByIdOrder.get(idOrder) : 0] || 'Other';
       methodsSeen.add(method);
-      const d = dayMap.get(arrival) || { pieces: 0, boxes: 0, orders: 0, byMethod: {} };
-      d.pieces += pieces; d.boxes += boxes; d.orders += 1;
-      const bm = d.byMethod[method] || { pieces: 0, boxes: 0, orders: 0 };
-      bm.pieces += pieces; bm.boxes += boxes; bm.orders += 1;
+      const cost = costByPo.get(po) || 0;
+      const d = dayMap.get(arrival) || { pieces: 0, boxes: 0, orders: 0, cost: 0, byMethod: {} };
+      d.pieces += pieces; d.boxes += boxes; d.orders += 1; d.cost += cost;
+      const bm = d.byMethod[method] || { pieces: 0, boxes: 0, orders: 0, cost: 0 };
+      bm.pieces += pieces; bm.boxes += boxes; bm.orders += 1; bm.cost += cost;
       d.byMethod[method] = bm;
       dayMap.set(arrival, d);
     }
 
     const days = [...dayMap.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1))
-      .map(([date, v]) => ({ date, ...v }));
+      .map(([date, v]) => ({ date, ...v, cost: Math.round((v.cost || 0) * 100) / 100 }));
     const totals = days.reduce((t, d) => ({
-      pieces: t.pieces + d.pieces, boxes: t.boxes + d.boxes, orders: t.orders + d.orders
-    }), { pieces: 0, boxes: 0, orders: 0 });
+      pieces: t.pieces + d.pieces, boxes: t.boxes + d.boxes, orders: t.orders + d.orders, cost: Math.round((t.cost + (d.cost || 0)) * 100) / 100
+    }), { pieces: 0, boxes: 0, orders: 0, cost: 0 });
 
     // 6. Pending = confirmed/received POs with no shipment yet (not on the graph).
     let pendingOrders = 0;
@@ -766,7 +785,7 @@ async function resolvePartColors(partIds) {
     try {
       const rows = await fetchAllCaspioPages(SANMAR_BULK_TABLE, {
         'q.where': `UNIQUE_KEY IN (${chunk.join(',')})`,
-        'q.select': 'UNIQUE_KEY,STYLE,COLOR_NAME,CATALOG_COLOR,SIZE,PRODUCT_TITLE,BRAND_NAME',
+        'q.select': 'UNIQUE_KEY,STYLE,COLOR_NAME,CATALOG_COLOR,SIZE,PRODUCT_TITLE,BRAND_NAME,CASE_PRICE',
         'q.limit': 1000,
       }) || [];
       for (const r of rows) {
@@ -777,6 +796,8 @@ async function resolvePartColors(partIds) {
           size: r.SIZE || '',
           title: (r.PRODUCT_TITLE || '').replace(/\.\s*[A-Za-z0-9]+\s*$/, '').trim(),
           brand: r.BRAND_NAME || '',
+          // Per-piece wholesale blank cost (what we pay SanMar). Same field the pricing engine uses.
+          unitCost: parseFloat(r.CASE_PRICE) || 0,
         });
       }
     } catch (e) { /* unresolved ids fall back to Part_ID-only in the caller */ }
@@ -899,6 +920,8 @@ router.get('/inbound-today', async (req, res) => {
       const c = colorMap.get(String(it.Part_ID)) || null;
       let arr = linesByPo.get(it.SanMar_PO);
       if (!arr) { arr = []; linesByPo.set(it.SanMar_PO, arr); }
+      const qShipped = parseInt(it.Qty_Shipped, 10) || 0;
+      const unitCost = c ? c.unitCost : 0;
       arr.push({
         style: it.Style || (c && c.style) || '',
         partId: it.Part_ID || '',
@@ -908,8 +931,10 @@ router.get('/inbound-today', async (req, res) => {
         title: c ? c.title : '',
         brand: c ? c.brand : '',
         qtyOrdered: parseInt(it.Qty_Ordered, 10) || 0,
-        qtyShipped: parseInt(it.Qty_Shipped, 10) || 0,
+        qtyShipped: qShipped,
         status: it.Item_Status || '',
+        unitCost,
+        lineCost: Math.round(unitCost * qShipped * 100) / 100,
         resolved: !!c,
       });
     }
@@ -917,23 +942,28 @@ router.get('/inbound-today', async (req, res) => {
     // 6b. Per-box contents with color/size resolved (one box block per package).
     const boxDetailByPo = new Map();
     for (const [po, bs] of boxesByPo) {
-      boxDetailByPo.set(po, bs.map((b, i) => ({
-        boxNumber: i + 1,
-        trackingNumber: b.trackingNumber,
-        carrier: b.carrier,
-        trackingUrl: buildCarrierTrackingUrl(b.carrier, b.trackingNumber),
-        shipmentDate: b.shipmentDate,
-        pieces: b.items.reduce((t, it) => t + it.qty, 0),
-        items: b.items.map(it => {
+      boxDetailByPo.set(po, bs.map((b, i) => {
+        const items = b.items.map(it => {
           const c = colorMap.get(it.partId) || null;
+          const unitCost = c ? c.unitCost : 0;
           return {
             style: it.style || (c && c.style) || '', partId: it.partId,
             color: c ? c.colorName : '', catalogColor: c ? c.catalogColor : '',
             size: c ? c.size : '', title: c ? c.title : '', brand: c ? c.brand : '',
-            qty: it.qty, resolved: !!c,
+            qty: it.qty, unitCost, lineCost: Math.round(unitCost * it.qty * 100) / 100, resolved: !!c,
           };
-        }),
-      })));
+        });
+        return {
+          boxNumber: i + 1,
+          trackingNumber: b.trackingNumber,
+          carrier: b.carrier,
+          trackingUrl: buildCarrierTrackingUrl(b.carrier, b.trackingNumber),
+          shipmentDate: b.shipmentDate,
+          pieces: items.reduce((t, it) => t + it.qty, 0),
+          cost: Math.round(items.reduce((t, it) => t + it.lineCost, 0) * 100) / 100,
+          items,
+        };
+      }));
     }
 
     // 7. Compose per-PO records, sorted by company then PO.
@@ -942,6 +972,12 @@ router.get('/inbound-today', async (req, res) => {
       const lines = linesByPo.get(po) || [];
       const piecesShipped = lines.reduce((t, l) => t + l.qtyShipped, 0);
       const piecesOrdered = lines.reduce((t, l) => t + l.qtyOrdered, 0);
+      // PO blank cost = the displayed contents' cost (per-box when live box detail is available,
+      // else the PO line summary). Wholesale CASE_PRICE × qty; $0 lines = SKU with no priced row.
+      const _bd = boxDetailByPo.get(po) || null;
+      const cost = boxesByPo.has(po)
+        ? Math.round((_bd || []).reduce((t, b) => t + (b.cost || 0), 0) * 100) / 100
+        : Math.round(lines.reduce((t, l) => t + (l.lineCost || 0), 0) * 100) / 100;
       const idOrderStr = o.id_Order ? String(o.id_Order) : '';
       const method = ORDER_TYPE_LABEL[idOrderStr ? typeByIdOrder.get(idOrderStr) : 0] || 'Other';
       const mo = idOrderStr ? moByIdOrder.get(idOrderStr) : null;
@@ -963,19 +999,19 @@ router.get('/inbound-today', async (req, res) => {
         boxes: (boxDetailByPo.get(po) || []).length || sh.boxes,
         boxDetail: boxDetailByPo.get(po) || null,
         boxDetailAvailable: boxesByPo.has(po),
-        piecesShipped, piecesOrdered, lines,
+        cost, piecesShipped, piecesOrdered, lines,
       };
     }).sort((a, b) => (a.company || '').localeCompare(b.company || '') || a.sanmarPO.localeCompare(b.sanmarPO));
 
     const wos = new Set();
     const totals = orders.reduce((t, o) => {
       wos.add(o.workOrder || ('po:' + o.sanmarPO));
-      return { pos: t.pos + 1, boxes: t.boxes + o.boxes, piecesShipped: t.piecesShipped + o.piecesShipped, piecesOrdered: t.piecesOrdered + o.piecesOrdered, lines: t.lines + o.lines.length };
-    }, { pos: 0, boxes: 0, piecesShipped: 0, piecesOrdered: 0, lines: 0 });
+      return { pos: t.pos + 1, boxes: t.boxes + o.boxes, piecesShipped: t.piecesShipped + o.piecesShipped, piecesOrdered: t.piecesOrdered + o.piecesOrdered, lines: t.lines + o.lines.length, cost: t.cost + (o.cost || 0) };
+    }, { pos: 0, boxes: 0, piecesShipped: 0, piecesOrdered: 0, lines: 0, cost: 0 });
 
     const payload = {
       date, today, generatedAt: new Date().toISOString(),
-      totals: { pos: totals.pos, workOrders: wos.size, boxes: totals.boxes, piecesShipped: totals.piecesShipped, piecesOrdered: totals.piecesOrdered, lines: totals.lines },
+      totals: { pos: totals.pos, workOrders: wos.size, boxes: totals.boxes, piecesShipped: totals.piecesShipped, piecesOrdered: totals.piecesOrdered, lines: totals.lines, cost: Math.round(totals.cost * 100) / 100 },
       orders,
       note: 'Arriving = actual SanMar ship date + ground-transit estimate to Milton, WA. Per-box contents come live from SanMar\'s shipment feed; colors/sizes from the SanMar product table (unresolved SKUs show the Part_ID only).',
     };
