@@ -81,6 +81,58 @@ router.get('/health', async (req, res) => {
   }
 });
 
+// ── Quantum View (inbound visibility) — the data behind UPS My Choice "Inbound": every package
+//    inbound to our account, with shipper (vendor) + scheduled delivery. POST quantumview/v3/events.
+function arr(x) { return x == null ? [] : Array.isArray(x) ? x : [x]; }
+async function getQuantumView({ name, beginDateTime, endDateTime } = {}) {
+  const token = await getToken();
+  const subReq = {};
+  if (name) subReq.Name = name;
+  if (beginDateTime) subReq.DateTimeRange = { BeginDateTime: beginDateTime, EndDateTime: endDateTime || beginDateTime };
+  const body = {
+    QuantumViewRequest: {
+      Request: { RequestAction: 'QVEvents', TransactionReference: { CustomerContext: 'NWCA-Inbound' } },
+      ...(Object.keys(subReq).length ? { SubscriptionRequest: [subReq] } : {}),
+    },
+  };
+  const resp = await axios.post(`${UPS_BASE}/api/quantumview/v3/events`, body, {
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', transId: `nwca-qv-${Date.now()}`, transactionSrc: 'NWCA-Inbound' },
+    timeout: 30000,
+  });
+  return resp.data;
+}
+
+// Diagnostic: list QV subscriptions + summarize inbound packages (shipper, tracking, scheduled date)
+// over the last few days. Read-only summary, no secrets. ?days=N to widen (max 7).
+router.get('/quantum-test', async (req, res) => {
+  try {
+    const days = Math.min(Math.max(parseInt(req.query.days, 10) || 4, 1), 7);
+    const now = new Date();
+    const day = (d) => `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}${String(d.getUTCDate()).padStart(2, '0')}`;
+    const begin = new Date(now.getTime() - days * 86400000);
+    const data = await getQuantumView({ beginDateTime: day(begin) + '000000', endDateTime: day(now) + '235959' });
+    const qvr = data.QuantumViewResponse || {};
+    const ev = qvr.QuantumViewEvents || {};
+    const subs = arr(ev.SubscriptionEvents);
+    const subscriptions = subs.map(s => {
+      const files = arr(s.SubscriptionFile);
+      const manifests = files.flatMap(f => arr(f.Manifest));
+      const origins = files.flatMap(f => arr(f.Origin));
+      const inbound = manifests.flatMap(m => arr(m.Package).map(p => ({
+        shipper: (m.Shipper || {}).Name || '',
+        tracking: '…' + String(arr(p.TrackingNumber)[0] || '').slice(-8),
+        scheduled: ymd(m.ScheduledDeliveryDate || ''),
+        shipTo: (m.ShipTo || {}).CompanyName || '',
+      })));
+      return { name: s.Name, status: (s.SubscriptionStatus || {}).Description, files: files.length, manifests: manifests.length, originScans: origins.length, inboundPackages: inbound.length, sampleInbound: inbound.slice(0, 6) };
+    });
+    res.json({ responseStatus: (qvr.Response || {}).ResponseStatusDescription || '', subscriberID: ev.SubscriberID || '', subscriptionCount: subs.length, subscriptions });
+  } catch (e) {
+    const status = e.response && e.response.status;
+    res.status(status || 502).json({ error: 'Quantum View call failed', status, details: (e.response && e.response.data) || e.message });
+  }
+});
+
 router.get('/:trackingNumber', async (req, res) => {
   try {
     res.json(await trackOne(req.params.trackingNumber, !!req.query.refresh));
@@ -94,3 +146,4 @@ router.get('/:trackingNumber', async (req, res) => {
 module.exports = router;
 module.exports.trackOne = trackOne;
 module.exports.getToken = getToken;
+module.exports.getQuantumView = getQuantumView;
