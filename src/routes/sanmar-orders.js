@@ -588,12 +588,12 @@ const ORDER_TYPE_LABEL = {
 // Legend/stack order for the graph (stable regardless of which methods appear).
 const METHOD_ORDER = ['Embroidery', 'Screen Print', 'DTG', 'DTF', 'Sticker', 'Emblem', 'Online Store', 'Inksoft', 'Other'];
 
-// Ground-transit estimate (calendar days) from each SanMar warehouse state to
-// Milton, WA. ESTIMATES ONLY — SanMar provides no delivery ETA. Warehouses:
-// WA Seattle · NV Reno · AZ Phoenix · TX Dallas · MN Minneapolis · OH Cincinnati
-// · NJ Robbinsville · FL Jacksonville · VA Richmond.
+// Ground-transit estimate in BUSINESS days (weekends + holidays excluded) from each SanMar
+// warehouse state to Milton, WA. ESTIMATES ONLY — SanMar provides no delivery ETA; UPS ground
+// transit is quoted in business days. Warehouses: WA Seattle · NV Reno · AZ Phoenix · TX Dallas
+// · MN Minneapolis · OH Cincinnati · NJ Robbinsville · FL Jacksonville · VA Richmond.
 const TRANSIT_DAYS_BY_STATE = {
-  WA: 1, OR: 2, NV: 2, AZ: 2, TX: 3, MN: 3, OH: 4, NJ: 4, FL: 5, VA: 5
+  WA: 1, OR: 1, NV: 2, AZ: 2, TX: 3, MN: 3, OH: 4, NJ: 5, FL: 5, VA: 5
 };
 const DEFAULT_TRANSIT_DAYS = 3;
 
@@ -603,6 +603,39 @@ function addDaysISO(isoDate, days) {
   if (isNaN(d.getTime())) return null;
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
+}
+
+// ── Business-day arrival math (we receive Mon–Fri only; UPS doesn't deliver weekends/holidays) ──
+// Major US holidays NWCA is closed AND UPS ground doesn't deliver: New Year's, Memorial Day,
+// Independence Day, Labor Day, Thanksgiving, Christmas (observed weekday when on a weekend).
+function _observed(iso) { const dow = new Date(iso + 'T00:00:00Z').getUTCDay(); return dow === 6 ? addDaysISO(iso, -1) : dow === 0 ? addDaysISO(iso, 1) : iso; }
+function _nthWeekday(y, month, weekday, n) { const d = new Date(Date.UTC(y, month - 1, 1)); let c = 0; while (true) { if (d.getUTCDay() === weekday) { if (++c === n) break; } d.setUTCDate(d.getUTCDate() + 1); } return d.toISOString().slice(0, 10); }
+function _lastWeekday(y, month, weekday) { const d = new Date(Date.UTC(y, month, 0)); while (d.getUTCDay() !== weekday) d.setUTCDate(d.getUTCDate() - 1); return d.toISOString().slice(0, 10); }
+const _holidayCache = new Map();
+function holidaysForYear(y) {
+  if (_holidayCache.has(y)) return _holidayCache.get(y);
+  const set = new Set([
+    _observed(`${y}-01-01`),          // New Year's Day
+    _lastWeekday(y, 5, 1),            // Memorial Day — last Monday of May
+    _observed(`${y}-07-04`),          // Independence Day
+    _nthWeekday(y, 9, 1, 1),          // Labor Day — 1st Monday of September
+    _nthWeekday(y, 11, 4, 4),         // Thanksgiving — 4th Thursday of November
+    _observed(`${y}-12-25`),          // Christmas Day
+  ]);
+  _holidayCache.set(y, set);
+  return set;
+}
+function isBusinessDay(iso) {
+  const dow = new Date(iso + 'T00:00:00Z').getUTCDay();
+  if (dow === 0 || dow === 6) return false;
+  return !holidaysForYear(parseInt(iso.slice(0, 4), 10)).has(iso);
+}
+// Advance N *business* days from a ship date → estimated arrival (always a business day).
+function addBusinessDays(isoDate, n) {
+  let cur = isoDate, added = 0;
+  while (added < n) { cur = addDaysISO(cur, 1); if (isBusinessDay(cur)) added++; }
+  while (!isBusinessDay(cur)) cur = addDaysISO(cur, 1); // safety: never land on a weekend/holiday
+  return cur;
 }
 
 router.get('/daily-inbound', async (req, res) => {
@@ -644,7 +677,7 @@ router.get('/daily-inbound', async (req, res) => {
       const shipDate = (s.Ship_Date || '').slice(0, 10);
       if (!po || !shipDate) continue;
       const transit = TRANSIT_DAYS_BY_STATE[(s.Ship_From_State || '').toUpperCase()] || DEFAULT_TRANSIT_DAYS;
-      const arrival = addDaysISO(shipDate, transit);
+      const arrival = addBusinessDays(shipDate, transit);
       if (!arrival) continue;
       const cur = poAgg.get(po) || { boxes: 0, arrival };
       cur.boxes += 1;
@@ -757,7 +790,7 @@ router.get('/daily-inbound', async (req, res) => {
       methods: METHOD_ORDER.filter(m => methodsSeen.has(m)),
       days, totals,
       pending: { orders: pendingOrders },
-      note: 'Arrival = actual SanMar ship date + ground-transit estimate to Milton, WA. SanMar provides no delivery ETA.',
+      note: 'Arrival = actual SanMar ship date + ground-transit estimate (business days; weekends & holidays skipped — we receive Mon–Fri only) to Milton, WA. SanMar provides no delivery ETA.',
     };
     orderCache.set(cacheKey, payload, 1800);
     res.json(payload);
@@ -826,7 +859,7 @@ router.get('/inbound-today', async (req, res) => {
       const po = s.SanMar_PO; const sd = (s.Ship_Date || '').slice(0, 10);
       if (!po || !sd) continue;
       const transit = TRANSIT_DAYS_BY_STATE[(s.Ship_From_State || '').toUpperCase()] || DEFAULT_TRANSIT_DAYS;
-      if (addDaysISO(sd, transit) !== date) continue; // arrives a different day
+      if (addBusinessDays(sd, transit) !== date) continue; // arrives a different (business) day
       const cur = poShip.get(po) || { boxes: 0, shipDate: sd, carrier: s.Carrier || '', tracking: s.Tracking_Number || '', fromCity: s.Ship_From_City || '', fromState: s.Ship_From_State || '' };
       cur.boxes += 1;
       if (sd < cur.shipDate) cur.shipDate = sd;
@@ -1017,7 +1050,7 @@ router.get('/inbound-today', async (req, res) => {
       date, today, generatedAt: new Date().toISOString(),
       totals: { pos: totals.pos, workOrders: wos.size, boxes: totals.boxes, piecesShipped: totals.piecesShipped, piecesOrdered: totals.piecesOrdered, lines: totals.lines, cost: Math.round(totals.cost * 100) / 100 },
       orders,
-      note: 'Arriving = actual SanMar ship date + ground-transit estimate to Milton, WA. Per-box contents come live from SanMar\'s shipment feed; colors/sizes from the SanMar product table (unresolved SKUs show the Part_ID only).',
+      note: 'Arriving = actual SanMar ship date + ground-transit estimate (business days; weekends & holidays skipped — we receive Mon–Fri only) to Milton, WA. Per-box contents come live from SanMar\'s shipment feed; colors/sizes from the SanMar product table (unresolved SKUs show the Part_ID only).',
     };
     orderCache.set(cacheKey, payload, 600);
     res.json(payload);
