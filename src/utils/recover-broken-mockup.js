@@ -146,7 +146,7 @@ async function pickImage({ folder, designNumber, boxToken }) {
 // with `fields` in the broken-mockups handler (box-upload.js:1245). Anything
 // outside this whitelist is rejected to prevent arbitrary field writes via
 // a misconfigured slotField param.
-const VALID_SLOT_FIELDS = ['Box_File_Mockup', 'BoxFileLink', 'Company_Mockup', 'Additional_Art_1', 'Additional_Art_2'];
+const VALID_SLOT_FIELDS = ['Box_File_Mockup', 'BoxFileLink', 'Company_Mockup', 'Mockup_4', 'Mockup_5', 'Mockup_6', 'Additional_Art_1', 'Additional_Art_2'];
 
 /**
  * Update a specific ArtRequests slot field for a given PK_ID. Generalized

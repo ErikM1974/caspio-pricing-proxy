@@ -35,8 +35,9 @@ const ALLOWED_MIME_TYPES = [
 
 // Writable mockup URL fields in Caspio ArtRequests (order of preference)
 // CDN_Link* are Caspio FILE fields (read-only via API) — cannot write to them.
-// Only text URL fields are writable: Box_File_Mockup, BoxFileLink, Company_Mockup.
-const MOCKUP_FIELDS = ['Box_File_Mockup', 'BoxFileLink', 'Company_Mockup'];
+// Only plain Text URL fields are writable. Six slots so Steve can stage up to
+// six mockup variations and send them together (Mockup_4/5/6 added 2026-06-24).
+const MOCKUP_FIELDS = ['Box_File_Mockup', 'BoxFileLink', 'Company_Mockup', 'Mockup_4', 'Mockup_5', 'Mockup_6'];
 
 // Additional art file slots — AE + Steve/Ruth can upload supporting artwork
 const ADDITIONAL_ART_FIELDS = ['Additional_Art_1', 'Additional_Art_2'];
@@ -1102,9 +1103,9 @@ async function findBoxFileReferences(fileId) {
     const pattern = `thumbnail/${fileId}`;
     const refs = [];
 
-    // 1. ArtRequests — 5 URL fields
+    // 1. ArtRequests — 8 URL fields (6 mockup slots + 2 additional-art)
     try {
-        const artFields = ['Box_File_Mockup', 'BoxFileLink', 'Company_Mockup', 'Additional_Art_1', 'Additional_Art_2'];
+        const artFields = ['Box_File_Mockup', 'BoxFileLink', 'Company_Mockup', 'Mockup_4', 'Mockup_5', 'Mockup_6', 'Additional_Art_1', 'Additional_Art_2'];
         const where = artFields.map(f => `${f} LIKE '%${pattern}%'`).join(' OR ');
         const resp = await axios.get(`${config.caspio.apiBaseUrl}/tables/ArtRequests/records`, {
             params: {
@@ -1381,7 +1382,7 @@ router.get('/art-requests/broken-mockups', async (req, res) => {
             : (req.query.status || 'Submitted,In Progress,Awaiting Approval,Revision Requested')
                 .split(',').map(s => s.trim()).filter(Boolean);
         const limit = Math.min(parseInt(req.query.limit, 10) || 500, 1000);
-        const fields = ['Box_File_Mockup', 'BoxFileLink', 'Company_Mockup', 'Additional_Art_1', 'Additional_Art_2'];
+        const fields = ['Box_File_Mockup', 'BoxFileLink', 'Company_Mockup', 'Mockup_4', 'Mockup_5', 'Mockup_6', 'Additional_Art_1', 'Additional_Art_2'];
 
         // 1. Pull candidate ArtRequests from Caspio
         const caspioToken = await getCaspioAccessToken();

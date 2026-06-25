@@ -40,7 +40,7 @@ const SECONDARY_KEY = process.env.BOX_WEBHOOK_SECONDARY_KEY || '';
 const WEBHOOK_ENABLED = process.env.BOX_WEBHOOK_ENABLED !== 'false';
 const MAX_AGE_MS = 10 * 60 * 1000; // 10 min — Box recommendation for replay protection
 const BREAK_TRIGGERS = new Set(['FILE.TRASHED', 'FILE.DELETED', 'ITEM.MOVED']);
-const ART_FIELDS = ['Box_File_Mockup', 'BoxFileLink', 'Company_Mockup', 'Additional_Art_1', 'Additional_Art_2'];
+const ART_FIELDS = ['Box_File_Mockup', 'BoxFileLink', 'Company_Mockup', 'Mockup_4', 'Mockup_5', 'Mockup_6', 'Additional_Art_1', 'Additional_Art_2'];
 const RUTH_FIELDS = ['Box_Mockup_1', 'Box_Mockup_2', 'Box_Mockup_3', 'Box_Mockup_4', 'Box_Mockup_5', 'Box_Mockup_6', 'Box_Reference_File'];
 
 // ── Signature Verification ────────────────────────────────────────────

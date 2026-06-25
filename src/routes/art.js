@@ -1229,6 +1229,7 @@ router.put('/art-requests/:designId/fields', express.json(), async (req, res) =>
         'Prelim_Charges', 'Additional_Services',
         'First_name', 'Last_name', 'Email_Contact', 'Phone',
         'Mockup_1_Note', 'Mockup_2_Note', 'Mockup_3_Note',
+        'Mockup_4_Note', 'Mockup_5_Note', 'Mockup_6_Note',
         'Is_Rush',
         'Is_On_Hold', 'On_Hold_Note',
         // Item-type intake (sticker/banner extension, 2026-05-06).

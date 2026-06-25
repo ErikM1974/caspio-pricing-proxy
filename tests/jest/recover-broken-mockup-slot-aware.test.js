@@ -20,11 +20,14 @@ const {
 } = require('../../src/utils/recover-broken-mockup');
 
 describe('VALID_SLOT_FIELDS', () => {
-    test('exports the canonical 5-field list', () => {
+    test('exports the canonical 8-field list (6 mockup slots + 2 additional-art)', () => {
         expect(VALID_SLOT_FIELDS).toEqual([
             'Box_File_Mockup',
             'BoxFileLink',
             'Company_Mockup',
+            'Mockup_4',
+            'Mockup_5',
+            'Mockup_6',
             'Additional_Art_1',
             'Additional_Art_2'
         ]);

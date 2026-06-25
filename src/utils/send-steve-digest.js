@@ -26,6 +26,9 @@ const SLOT_LABELS = {
     Box_File_Mockup:  'Mockup 1',
     BoxFileLink:      'Mockup 2',
     Company_Mockup:   'Mockup 3',
+    Mockup_4:         'Mockup 4',
+    Mockup_5:         'Mockup 5',
+    Mockup_6:         'Mockup 6',
     Additional_Art_1: 'Additional Art 1',
     Additional_Art_2: 'Additional Art 2'
 };
