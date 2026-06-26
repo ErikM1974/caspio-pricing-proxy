@@ -16,7 +16,8 @@
 //   GET  /api/sanmar-orders/inbound-today   — Detailed POs arriving on a day (line items + color), for the detail view + PDF
 //   POST /api/sanmar-orders/link            — Save ShopWorks↔SanMar PO mapping
 //   POST /api/sanmar-orders/sync            — Daily sync (Heroku Scheduler)
-//   POST /api/sanmar-orders/sync-recent-completed — Catch-up: ingest fast-completing orders missed by allOpen/lastUpdate (invoice-discovered)
+//   POST /api/sanmar-orders/sync-recent-completed — Catch-up (ASYNC 202): ingest fast-completing orders missed by allOpen/lastUpdate (lastUpdate-wide + invoice discovery)
+//   GET  /api/sanmar-orders/sync-recent-completed-status — poll the background catch-up
 //   POST /api/sanmar-orders/backfill        — Fire-and-forget backfill with progress
 //   POST /api/sanmar-orders/match-manageorders — Match SanMar orders to ManageOrders by style+date
 
@@ -1398,43 +1399,56 @@ router.post('/sync-shipments', async (req, res) => {
   }
 });
 
-// ── POST /sync-recent-completed — ingest fast-completing orders the open/lastUpdate
-// passes never saw (Erik 2026-06-26) ──────────────────────────────────────────────
+// ── Recently-completed catch-up (Erik 2026-06-26) ─────────────────────────────────
 // The order sync discovers ONLY via allOpen (which EXCLUDES Complete) + lastUpdate@24h,
-// and /sync-shipments only re-touches orders ALREADY in the table. So an order that
-// races placed→shipped→Complete between sync windows is never ingested at all — no order
-// row, no items, no tracking — and stays invisible to the quote-view "Blank Goods" panel,
-// the Quote-Mgmt inbound dot, and the daily shipments list (real case: PO 113470 / WO
-// 142292, shipped+complete in ~1 day, missed by every pass and unrecoverable since allOpen
-// will never show a Complete order again). Invoices are SanMar's authoritative "this
-// shipped/completed" signal, so this discovers recently-INVOICED POs and fully ingests any
-// not already synced: poSearch (order + items) → pullAndStoreShipments (OSN tracking) →
-// runQuickMatch (link to the ShopWorks WO#). Bounded per call to stay under Heroku's 30s
-// web limit; the daily sync-sanmar.js script drains it in rounds. Secret-protected like /sync.
-router.post('/sync-recent-completed', async (req, res) => {
-  const secret = req.headers['x-api-secret'] || req.query.secret;
-  if (secret !== process.env.CRM_API_SECRET) {
-    return res.status(403).json({ error: 'Unauthorized' });
-  }
-  const daysBack = Math.min(Math.max(parseInt(req.query.days) || 7, 1), 30);
-  const cap = Math.min(Math.max(parseInt(req.query.limit) || 6, 1), 12);
-  const log = { started: new Date().toISOString(), daysBack, cap };
+// and /sync-shipments only re-touches orders ALREADY in the table. So an order that races
+// placed→shipped→Complete between sync windows is never ingested at all — no order row,
+// no items, no tracking — invisible to the quote-view "Blank Goods" panel, the inbound
+// dot, and the daily shipments list (real case: PO 113470 / WO 142292, shipped+complete in
+// ~1 day). This sweep DISCOVERS such orders two ways for robustness — a WIDE OSS lastUpdate
+// window AND recently-INVOICED POs (SanMar's authoritative "shipped" signal) — and fully
+// ingests any not already synced: order + items (poSearch only when the order object isn't
+// already in hand) → pullAndStoreShipments (OSN tracking) → runQuickMatch (link to WO#).
+//
+// Runs ASYNC (202 + background runner + status endpoint) like /backfill: invoice discovery
+// + per-PO SOAP can exceed Heroku's 30s WEB limit, so a synchronous version H12s for BOTH
+// the manual button and the nightly script. Poll GET /sync-recent-completed-status.
+let recentCompletedStatus = {
+  running: false, startedAt: null, lastRun: null, lastResult: null, progress: null,
+};
+
+async function runRecentCompletedBackground(daysBack) {
+  const MAX_INGEST = 50; // backstop so one run can't churn forever
+  recentCompletedStatus = {
+    running: true, startedAt: Date.now(), lastRun: new Date().toISOString(), lastResult: null,
+    progress: { phase: 'discovering', discovered: 0, pending: 0, ingested: 0, shipmentsAdded: 0, errors: 0 },
+  };
   try {
-    const auth = getPromoStandardsAuth();
-    if (!validateAuth(auth)) {
-      return res.status(500).json({ error: 'SanMar credentials not configured' });
-    }
+    // Discovery A: OSS lastUpdate over a WIDE window (one SOAP call). Returns full order
+    // objects, so these need no per-PO poSearch.
+    const byPo = new Map(); // SanMar_PO → order object | null (null = discovered via invoice, needs poSearch)
+    try {
+      const since = new Date(Date.now() - daysBack * 86400000).toISOString().replace('Z', '');
+      const xml = await makeSoapRequest(ENDPOINTS.orderStatus,
+        buildOrderStatusRequest('lastUpdate', { statusTimeStamp: since, returnProductDetail: true }),
+        { timeout: 60000, namespaces: { ns: NS.orderStatus, shar: NS.orderStatusShared } });
+      const err = checkSoapError(xml);
+      const orders = (err && err.code !== 160) ? [] : parseOrderStatusResponse(xml);
+      for (const o of orders) if (o.purchaseOrderNumber) byPo.set(o.purchaseOrderNumber, o);
+    } catch (e) { console.warn('[sync-recent-completed] lastUpdate discovery failed:', e.message); }
 
-    // 1. Recently-invoiced POs = the authoritative shipped/completed signal.
-    const invoicePOs = [...await discoverPOsFromInvoices(daysBack)];
-    log.discovered = invoicePOs.length;
+    // Discovery B: recently-INVOICED POs (catches completed orders OSS lastUpdate omits).
+    try {
+      for (const po of await discoverPOsFromInvoices(daysBack)) if (!byPo.has(po)) byPo.set(po, null);
+    } catch (e) { console.warn('[sync-recent-completed] invoice discovery failed:', e.message); }
 
-    // 2. Skip POs already fully synced (an order row WITH a status AND a tracking row).
-    //    This also makes the round-draining converge: once a PO is ingested it gains a
-    //    status + shipment row and drops out of the pending set on the next round.
+    const candidates = [...byPo.keys()];
+    recentCompletedStatus.progress.discovered = candidates.length;
+
+    // Skip POs already fully synced (order row WITH a status AND a tracking row).
     let fullySynced = new Set();
-    if (invoicePOs.length) {
-      const where = invoicePOs.map(p => `SanMar_PO='${xmlEscape(p)}'`).join(' OR ');
+    if (candidates.length) {
+      const where = candidates.map(p => `SanMar_PO='${xmlEscape(p)}'`).join(' OR ');
       const [orderRows, shipRows] = await Promise.all([
         fetchAllCaspioPages(`/tables/${TABLES.orders}/records`,
           { 'q.where': where, 'q.select': 'SanMar_PO,SanMar_Status', 'q.limit': 2000 }),
@@ -1443,48 +1457,68 @@ router.post('/sync-recent-completed', async (req, res) => {
       ]);
       const haveStatus = new Set((orderRows || []).filter(r => r.SanMar_Status).map(r => r.SanMar_PO));
       const haveShip = new Set((shipRows || []).map(r => r.SanMar_PO));
-      fullySynced = new Set(invoicePOs.filter(p => haveStatus.has(p) && haveShip.has(p)));
+      fullySynced = new Set(candidates.filter(p => haveStatus.has(p) && haveShip.has(p)));
     }
-    const pending = invoicePOs.filter(p => !fullySynced.has(p));
-    const batch = pending.slice(0, cap);
+    const pending = candidates.filter(p => !fullySynced.has(p)).slice(0, MAX_INGEST);
+    recentCompletedStatus.progress.phase = 'ingesting';
+    recentCompletedStatus.progress.pending = pending.length;
 
-    // 3. Fully ingest each missing PO: order + items (poSearch), then tracking (OSN).
     let ingested = 0, shipmentsAdded = 0, errors = 0;
-    const details = [];
-    for (const po of batch) {
+    for (const po of pending) {
       try {
-        await new Promise(r => setTimeout(r, 1000)); // SanMar rate limit (~1 req/s)
-        const order = await fetchOrderByPO(po);
-        if (!order) { details.push({ po, skipped: 'no-order-status' }); continue; }
-        await upsertOrderToCaspio(po, order, 'invoice-catchup');
-        const added = await pullAndStoreShipments(po);
-        ingested++; shipmentsAdded += added;
-        details.push({ po, status: getOverallStatus(order), shipmentsAdded: added });
+        const order = byPo.get(po) || await fetchOrderByPO(po); // poSearch only when needed
+        if (!order) continue;
+        await upsertOrderToCaspio(po, order, 'invoice-catchup'); // PUT preserves id_Order/Company_Name
+        shipmentsAdded += await pullAndStoreShipments(po);
+        ingested++;
+        recentCompletedStatus.progress.ingested = ingested;
+        recentCompletedStatus.progress.shipmentsAdded = shipmentsAdded;
+        await new Promise(r => setTimeout(r, 800)); // SanMar rate limit (background — no 30s pressure)
       } catch (e) {
-        errors++;
+        errors++; recentCompletedStatus.progress.errors = errors;
         console.error(`[sync-recent-completed] ${po}:`, e.message);
       }
     }
 
-    // 4. Link any newly-stored orders to their ShopWorks WO# (style+offset matching).
+    let quickMatch = null;
     if (ingested > 0) {
-      try { log.quickMatch = await runQuickMatch(); }
-      catch (e) { log.quickMatch = { error: e.message }; }
+      try { quickMatch = await runQuickMatch(); } catch (e) { quickMatch = { error: e.message }; }
     }
-
-    log.pendingNotSynced = pending.length;
-    log.ingested = ingested;
-    log.shipmentsAdded = shipmentsAdded;
-    log.errors = errors;
-    log.remaining = Math.max(0, pending.length - batch.length);
-    log.details = details;
-    log.completed = new Date().toISOString();
-    console.log('[sync-recent-completed]', JSON.stringify({ ...log, details: undefined }));
-    res.json(log);
+    recentCompletedStatus.lastResult = {
+      daysBack, discovered: candidates.length, pending: pending.length,
+      ingested, shipmentsAdded, errors, quickMatch, completedAt: new Date().toISOString(),
+    };
+    console.log('[sync-recent-completed]', JSON.stringify(recentCompletedStatus.lastResult));
   } catch (error) {
+    recentCompletedStatus.lastResult = { error: error.message, completedAt: new Date().toISOString() };
     console.error('[sync-recent-completed] failed:', error.message);
-    res.status(500).json({ error: 'sync-recent-completed failed', details: error.message });
+  } finally {
+    recentCompletedStatus.running = false;
   }
+}
+
+router.post('/sync-recent-completed', async (req, res) => {
+  const secret = req.headers['x-api-secret'] || req.query.secret;
+  if (secret !== process.env.CRM_API_SECRET) return res.status(403).json({ error: 'Unauthorized' });
+  const auth = getPromoStandardsAuth();
+  if (!validateAuth(auth)) return res.status(500).json({ error: 'SanMar credentials not configured' });
+
+  // Already running? Auto-reset if stuck >10 min, else report in-progress (202, not an error).
+  if (recentCompletedStatus.running) {
+    if (recentCompletedStatus.startedAt && Date.now() - recentCompletedStatus.startedAt > 10 * 60 * 1000) {
+      recentCompletedStatus.running = false;
+    } else {
+      return res.status(202).json({ running: true, alreadyRunning: true, progress: recentCompletedStatus.progress, checkStatusAt: '/api/sanmar-orders/sync-recent-completed-status' });
+    }
+  }
+  const daysBack = Math.min(Math.max(parseInt(req.query.days) || 7, 1), 30);
+  runRecentCompletedBackground(daysBack); // fire-and-forget — keeps running on the dyno past this response
+  return res.status(202).json({ running: true, started: true, daysBack, checkStatusAt: '/api/sanmar-orders/sync-recent-completed-status' });
+});
+
+// ── GET /sync-recent-completed-status — poll the background catch-up ──
+router.get('/sync-recent-completed-status', (req, res) => {
+  res.json(recentCompletedStatus);
 });
 
 // ── GET /backfill-status — Check progress of running or last backfill ──

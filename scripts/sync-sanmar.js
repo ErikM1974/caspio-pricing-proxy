@@ -86,25 +86,35 @@ async function syncPendingShipments() {
 // the bounded /sync-recent-completed endpoint (invoice-discovered orders, fully ingested)
 // in rounds. Non-fatal so a hiccup never fails the main sync.
 async function syncRecentCompleted() {
-  console.log(`\n[${new Date().toISOString()}] Recently-completed catch-up (invoice-discovered orders missed by open/lastUpdate)...`);
-  const maxRounds = 5; // up to ~30 POs/run at limit=6
-  let totalIngested = 0, totalTracking = 0;
-  for (let round = 1; round <= maxRounds; round++) {
-    let r;
-    try {
-      const resp = await axios.post(`${BASE_URL}/api/sanmar-orders/sync-recent-completed?days=7&limit=6`, {},
-        { headers: AUTH_HEADERS, timeout: TIMEOUT });
-      r = resp.data || {};
-    } catch (e) {
-      console.log(`  round ${round} error (non-fatal): ${e.response?.data?.error || e.message}`);
-      break;
-    }
-    totalIngested += r.ingested || 0;
-    totalTracking += r.shipmentsAdded || 0;
-    console.log(`  round ${round}: discovered ${r.discovered || 0}, ingested ${r.ingested || 0}, +${r.shipmentsAdded || 0} tracking, ${r.remaining || 0} remaining`);
-    if (!r.remaining) break;
+  console.log(`\n[${new Date().toISOString()}] Recently-completed catch-up (async; lastUpdate-wide + invoice discovery)...`);
+  // ASYNC endpoint (Erik 2026-06-26): kick off (returns 202 fast) then poll the status
+  // endpoint. The work runs in the background on the dyno so invoice discovery + per-PO
+  // SOAP never trips Heroku's 30s WEB limit (the old bounded-synchronous version H12'd).
+  try {
+    const kick = await axios.post(`${BASE_URL}/api/sanmar-orders/sync-recent-completed?days=7`, {},
+      { headers: AUTH_HEADERS, timeout: 30000 });
+    if (kick.data && kick.data.alreadyRunning) { console.log('  Already running — skipping.'); return; }
+  } catch (e) {
+    console.log(`  kickoff error (non-fatal): ${e.response?.data?.error || e.message}`);
+    return;
   }
-  console.log(`  Catch-up: ingested ${totalIngested} orders, +${totalTracking} tracking rows. Status: SUCCESS`);
+  for (let i = 0; i < 60; i++) { // up to ~10 min
+    await new Promise(r => setTimeout(r, 10000));
+    let d;
+    try {
+      const s = await axios.get(`${BASE_URL}/api/sanmar-orders/sync-recent-completed-status`, { timeout: 10000 });
+      d = s.data || {};
+    } catch (e) { console.log(`  poll error: ${e.message}`); continue; }
+    if (!d.running) {
+      const r = d.lastResult || {};
+      if (r.error) console.log(`  Catch-up error: ${r.error}`);
+      else console.log(`  Catch-up: ingested ${r.ingested || 0} order(s), +${r.shipmentsAdded || 0} tracking (discovered ${r.discovered || 0}, errors ${r.errors || 0}). Status: SUCCESS`);
+      return;
+    }
+    const p = d.progress || {};
+    console.log(`  …${p.phase || 'working'} — ingested ${p.ingested || 0}/${p.pending || '?'}`);
+  }
+  console.log('  Still running after 10 min — exiting poll (job continues on dyno).');
 }
 
 async function syncInvoices() {
