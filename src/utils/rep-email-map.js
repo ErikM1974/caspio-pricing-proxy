@@ -9,7 +9,10 @@
 const REP_EMAIL_MAP = {
     'Taneisha': 'taneisha@nwcustomapparel.com',
     'Nika':     'nika@nwcustomapparel.com',
-    'Ruthie':   'ruthie@nwcustomapparel.com',
+    // Ruth's real inbox + Slack account is ruth@ (NOT ruthie@, which isn't a
+    // real account). ArtRequests stores her Sales_Rep as "Ruthie"; alias "Ruth".
+    'Ruthie':   'ruth@nwcustomapparel.com',
+    'Ruth':     'ruth@nwcustomapparel.com',
     'Erik':     'erik@nwcustomapparel.com'
 };
 
