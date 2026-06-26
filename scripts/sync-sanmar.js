@@ -79,6 +79,34 @@ async function syncPendingShipments() {
   console.log(`  Catch-up: +${totalAdded} tracking rows (${totalChecked} POs checked). Status: SUCCESS`);
 }
 
+// Recently-completed catch-up (Erik 2026-06-26). allOpen excludes Complete and the
+// daily lastUpdate@24h can miss an order that races placed→shipped→Complete between
+// sync windows — it then never enters the table at all, so no quote-view tracking, no
+// inbound dot, no daily-shipments row (real case: PO 113470 / WO 142292). This drains
+// the bounded /sync-recent-completed endpoint (invoice-discovered orders, fully ingested)
+// in rounds. Non-fatal so a hiccup never fails the main sync.
+async function syncRecentCompleted() {
+  console.log(`\n[${new Date().toISOString()}] Recently-completed catch-up (invoice-discovered orders missed by open/lastUpdate)...`);
+  const maxRounds = 5; // up to ~30 POs/run at limit=6
+  let totalIngested = 0, totalTracking = 0;
+  for (let round = 1; round <= maxRounds; round++) {
+    let r;
+    try {
+      const resp = await axios.post(`${BASE_URL}/api/sanmar-orders/sync-recent-completed?days=7&limit=6`, {},
+        { headers: AUTH_HEADERS, timeout: TIMEOUT });
+      r = resp.data || {};
+    } catch (e) {
+      console.log(`  round ${round} error (non-fatal): ${e.response?.data?.error || e.message}`);
+      break;
+    }
+    totalIngested += r.ingested || 0;
+    totalTracking += r.shipmentsAdded || 0;
+    console.log(`  round ${round}: discovered ${r.discovered || 0}, ingested ${r.ingested || 0}, +${r.shipmentsAdded || 0} tracking, ${r.remaining || 0} remaining`);
+    if (!r.remaining) break;
+  }
+  console.log(`  Catch-up: ingested ${totalIngested} orders, +${totalTracking} tracking rows. Status: SUCCESS`);
+}
+
 async function syncInvoices() {
   const url = `${BASE_URL}/api/sanmar-invoices/sync`;
   console.log(`\n[${new Date().toISOString()}] Starting invoice sync...`);
@@ -211,6 +239,7 @@ async function main() {
       const full = args.includes('--full');
       await syncOrders(full);
       await syncPendingShipments();
+      await syncRecentCompleted();
       await syncInvoices();
       await matchManageOrders();
     }

@@ -16,6 +16,7 @@
 //   GET  /api/sanmar-orders/inbound-today   — Detailed POs arriving on a day (line items + color), for the detail view + PDF
 //   POST /api/sanmar-orders/link            — Save ShopWorks↔SanMar PO mapping
 //   POST /api/sanmar-orders/sync            — Daily sync (Heroku Scheduler)
+//   POST /api/sanmar-orders/sync-recent-completed — Catch-up: ingest fast-completing orders missed by allOpen/lastUpdate (invoice-discovered)
 //   POST /api/sanmar-orders/backfill        — Fire-and-forget backfill with progress
 //   POST /api/sanmar-orders/match-manageorders — Match SanMar orders to ManageOrders by style+date
 
@@ -1123,6 +1124,11 @@ router.post('/link', async (req, res) => {
       {
         SanMar_PO: sanmarPO,
         ShopWorks_PO: shopworksOrderNo,
+        // Accept idOrder on CREATE too — the UPDATE branch above set it but this
+        // insert dropped it, so a brand-new manual link saved a row with a blank
+        // id_Order that the woId lookup (id_Order='…') could never find until a
+        // second /link call hit the UPDATE branch (Erik 2026-06-26).
+        id_Order: req.body.idOrder || '',
         Company_Name: companyName || '',
         Sales_Rep: salesRep || '',
         id_Customer: idCustomer || 0,
@@ -1389,6 +1395,95 @@ router.post('/sync-shipments', async (req, res) => {
   } catch (error) {
     console.error('[sync-shipments] failed:', error.message);
     res.status(500).json({ error: 'sync-shipments failed', details: error.message });
+  }
+});
+
+// ── POST /sync-recent-completed — ingest fast-completing orders the open/lastUpdate
+// passes never saw (Erik 2026-06-26) ──────────────────────────────────────────────
+// The order sync discovers ONLY via allOpen (which EXCLUDES Complete) + lastUpdate@24h,
+// and /sync-shipments only re-touches orders ALREADY in the table. So an order that
+// races placed→shipped→Complete between sync windows is never ingested at all — no order
+// row, no items, no tracking — and stays invisible to the quote-view "Blank Goods" panel,
+// the Quote-Mgmt inbound dot, and the daily shipments list (real case: PO 113470 / WO
+// 142292, shipped+complete in ~1 day, missed by every pass and unrecoverable since allOpen
+// will never show a Complete order again). Invoices are SanMar's authoritative "this
+// shipped/completed" signal, so this discovers recently-INVOICED POs and fully ingests any
+// not already synced: poSearch (order + items) → pullAndStoreShipments (OSN tracking) →
+// runQuickMatch (link to the ShopWorks WO#). Bounded per call to stay under Heroku's 30s
+// web limit; the daily sync-sanmar.js script drains it in rounds. Secret-protected like /sync.
+router.post('/sync-recent-completed', async (req, res) => {
+  const secret = req.headers['x-api-secret'] || req.query.secret;
+  if (secret !== process.env.CRM_API_SECRET) {
+    return res.status(403).json({ error: 'Unauthorized' });
+  }
+  const daysBack = Math.min(Math.max(parseInt(req.query.days) || 7, 1), 30);
+  const cap = Math.min(Math.max(parseInt(req.query.limit) || 6, 1), 12);
+  const log = { started: new Date().toISOString(), daysBack, cap };
+  try {
+    const auth = getPromoStandardsAuth();
+    if (!validateAuth(auth)) {
+      return res.status(500).json({ error: 'SanMar credentials not configured' });
+    }
+
+    // 1. Recently-invoiced POs = the authoritative shipped/completed signal.
+    const invoicePOs = [...await discoverPOsFromInvoices(daysBack)];
+    log.discovered = invoicePOs.length;
+
+    // 2. Skip POs already fully synced (an order row WITH a status AND a tracking row).
+    //    This also makes the round-draining converge: once a PO is ingested it gains a
+    //    status + shipment row and drops out of the pending set on the next round.
+    let fullySynced = new Set();
+    if (invoicePOs.length) {
+      const where = invoicePOs.map(p => `SanMar_PO='${xmlEscape(p)}'`).join(' OR ');
+      const [orderRows, shipRows] = await Promise.all([
+        fetchAllCaspioPages(`/tables/${TABLES.orders}/records`,
+          { 'q.where': where, 'q.select': 'SanMar_PO,SanMar_Status', 'q.limit': 2000 }),
+        fetchAllCaspioPages(`/tables/${TABLES.shipments}/records`,
+          { 'q.where': where, 'q.select': 'SanMar_PO', 'q.limit': 2000 }),
+      ]);
+      const haveStatus = new Set((orderRows || []).filter(r => r.SanMar_Status).map(r => r.SanMar_PO));
+      const haveShip = new Set((shipRows || []).map(r => r.SanMar_PO));
+      fullySynced = new Set(invoicePOs.filter(p => haveStatus.has(p) && haveShip.has(p)));
+    }
+    const pending = invoicePOs.filter(p => !fullySynced.has(p));
+    const batch = pending.slice(0, cap);
+
+    // 3. Fully ingest each missing PO: order + items (poSearch), then tracking (OSN).
+    let ingested = 0, shipmentsAdded = 0, errors = 0;
+    const details = [];
+    for (const po of batch) {
+      try {
+        await new Promise(r => setTimeout(r, 1000)); // SanMar rate limit (~1 req/s)
+        const order = await fetchOrderByPO(po);
+        if (!order) { details.push({ po, skipped: 'no-order-status' }); continue; }
+        await upsertOrderToCaspio(po, order, 'invoice-catchup');
+        const added = await pullAndStoreShipments(po);
+        ingested++; shipmentsAdded += added;
+        details.push({ po, status: getOverallStatus(order), shipmentsAdded: added });
+      } catch (e) {
+        errors++;
+        console.error(`[sync-recent-completed] ${po}:`, e.message);
+      }
+    }
+
+    // 4. Link any newly-stored orders to their ShopWorks WO# (style+offset matching).
+    if (ingested > 0) {
+      try { log.quickMatch = await runQuickMatch(); }
+      catch (e) { log.quickMatch = { error: e.message }; }
+    }
+
+    log.pendingNotSynced = pending.length;
+    log.ingested = ingested;
+    log.shipmentsAdded = shipmentsAdded;
+    log.errors = errors;
+    log.remaining = Math.max(0, pending.length - batch.length);
+    log.details = details;
+    log.completed = new Date().toISOString();
+    console.log('[sync-recent-completed]', JSON.stringify({ ...log, details: undefined }));
+    res.json(log);
+  } catch (error) {
+    console.error('[sync-recent-completed] failed:', error.message);
+    res.status(500).json({ error: 'sync-recent-completed failed', details: error.message });
   }
 });
 
