@@ -12,6 +12,7 @@ const { notifyArtReminder } = require('../utils/slack-art-reminder-notify');
 const { notifyArtNote } = require('../utils/slack-art-note-notify');
 const { sendArtNoteEmail } = require('../utils/send-art-note-email');
 const { resolveAEEmail, resolveAEName, resolveAEEmailLoose } = require('../utils/rep-email-map');
+const { notifyArtCompletionToAE } = require('../utils/notify-art-completion');
 const config = require('../../config');
 
 const caspioApiBaseUrl = config.caspio.apiBaseUrl;
@@ -1097,8 +1098,13 @@ router.put('/art-requests/:designId/status', express.json(), async (req, res) =>
         // but we still want CompanyName + Item_Type for the notify message).
         const isCustomerApproved = cleanStatus === 'Customer Approved';
         const willNotifyStatus = isAwaitingApproval || isCompleted || isCustomerApproved;
+        // Hoisted to function scope: the Slack notify block below reads `current`.
+        // It was previously `const`-declared inside the if, so every status change
+        // threw ReferenceError ('current is not defined') that the notify try/catch
+        // swallowed — silently killing ALL art-status Slack pings since 2026-05-10.
+        let current = {};
         if (isRevision || isAwaitingApproval || isInProgress || isCompleted || isCustomerApproved) {
-            const fetchUrl = `${caspioApiBaseUrl}/tables/ArtRequests/records?q.where=ID_Design=${designId}&q.select=Status,Revision_Count,Art_Minutes,Approval_Sent_Date,CompanyName,Design_Num_SW,Item_Type`;
+            const fetchUrl = `${caspioApiBaseUrl}/tables/ArtRequests/records?q.where=ID_Design=${designId}&q.select=Status,Revision_Count,Art_Minutes,Approval_Sent_Date,CompanyName,Design_Num_SW,Item_Type,Sales_Rep,User_Email`;
             const fetchResp = await axios({
                 method: 'get',
                 url: fetchUrl,
@@ -1106,7 +1112,7 @@ router.put('/art-requests/:designId/status', express.json(), async (req, res) =>
                 timeout: 15000
             });
 
-            const current = fetchResp.data?.Result?.[0] || {};
+            current = fetchResp.data?.Result?.[0] || {};
             const currentRevCount = current.Revision_Count || 0;
             const currentArtMins = current.Art_Minutes || 0;
 
@@ -1184,6 +1190,21 @@ router.put('/art-requests/:designId/status', express.json(), async (req, res) =>
             // the call site self-documenting.
             if (willNotifyStatus) {
                 notifyArtStatusTransition(notifyRecord, cleanStatus);
+            }
+            // On completion, alert the AE-of-record DIRECTLY (email + Slack DM).
+            // The channel ping above only reaches #art-notifications members
+            // (Steve/Ruth) — AEs were never notified. This resolves the AE from
+            // Sales_Rep (full-name tolerant) / User_Email server-side, so it works
+            // identically from the gallery and detail-page complete buttons.
+            if (isCompleted) {
+                notifyArtCompletionToAE({
+                    idDesign: parseInt(designId, 10),
+                    company: (current && current.CompanyName) || '',
+                    designNumSW: (current && current.Design_Num_SW) || '',
+                    salesRep: (current && current.Sales_Rep) || '',
+                    userEmail: (current && current.User_Email) || '',
+                    actor: (req.body && req.body.actor) || ''
+                });
             }
         } catch (notifyErr) {
             console.warn('[SLACK_ART_NOTIFY_SKIP] notify-block error:', notifyErr.message);
