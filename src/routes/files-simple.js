@@ -92,6 +92,90 @@ function appendUniquenessSuffix(filename) {
     return `${filename.substring(0, dot)}_${ts}${filename.substring(dot)}`;
 }
 
+/**
+ * Upload a raw Buffer to the Caspio Artwork folder, with one 409-rename retry.
+ * Shared by POST /files/upload (multipart) and POST /files/import-from-url
+ * (server-side fetch). Returns the Caspio Result[0] object ({ Name, ExternalKey, ... }).
+ *
+ * The Buffer is appended DIRECTLY (not Readable.from()) so form-data sends a real
+ * Content-Length — Caspio resets chunked transfer-encoding (the old "socket hang up").
+ * A Buffer is also reusable, so the 409-rename retry below resends real bytes.
+ */
+async function uploadBufferToArtwork(buffer, originalName, mimeType) {
+    const token = await getCaspioAccessToken();
+    const url = `${caspioV3BaseUrl}/files?externalKey=${artworkFolderKey}`;
+
+    async function attemptUpload(filename) {
+        const fd = new FormData();
+        fd.append('Files', buffer, {
+            filename: filename,
+            contentType: mimeType,
+            knownLength: buffer.length
+        });
+        return axios.post(url, fd, {
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                ...fd.getHeaders()
+            },
+            maxBodyLength: Infinity,
+            maxContentLength: Infinity,
+            timeout: 60000
+        });
+    }
+
+    let response;
+    try {
+        response = await attemptUpload(originalName);
+    } catch (err) {
+        // On 409 FILE_EXISTS the global Artwork folder already has this exact
+        // name (often a different customer's earlier submission). Retry once
+        // with a timestamp suffix so generic names don't break the workflow.
+        if (err.response && err.response.status === 409) {
+            const renamed = appendUniquenessSuffix(originalName);
+            console.log(`[files] 409 collision on "${originalName}", retrying as "${renamed}"`);
+            response = await attemptUpload(renamed);
+        } else {
+            throw err;
+        }
+    }
+
+    if (response.data && response.data.Result && response.data.Result[0]) {
+        return response.data.Result[0];
+    }
+    throw new Error('Unexpected response from Caspio Files API');
+}
+
+// Map a content-type to a file extension so imported art keeps a usable name
+// (Caspio's CDN_Link formula + downstream tooling key off the extension).
+const MIME_TO_EXT = {
+    'image/png': 'png', 'image/jpeg': 'jpg', 'image/jpg': 'jpg', 'image/gif': 'gif',
+    'image/webp': 'webp', 'image/svg+xml': 'svg', 'image/bmp': 'bmp', 'image/avif': 'avif',
+    'application/pdf': 'pdf', 'image/vnd.adobe.photoshop': 'psd', 'application/postscript': 'eps'
+};
+
+/**
+ * SSRF guard for POST /files/import-from-url. Only hosts where NWCA customer
+ * art + mockups actually live may be fetched server-side. Everything else
+ * (internal IPs, metadata endpoints, arbitrary hosts) is rejected. Note this
+ * endpoint is staff-gated upstream and only ever receives URLs that already
+ * live on a quote's own OrderSettingsJSON — the allowlist is defence in depth.
+ */
+function isAllowedArtworkHost(hostname) {
+    const h = String(hostname || '').toLowerCase();
+    if (!h) return false;
+    const ALLOWED_SUFFIXES = [
+        '.herokuapp.com',   // this proxy (/api/files/:key) + sibling NWCA apps
+        '.caspio.com',      // Caspio files / CDN
+        '.box.com',         // Box shared/static links
+        '.boxcloud.com',    // Box CDN
+        '.amazonaws.com',   // S3-hosted uploads
+        '.teamnwca.com'     // NWCA front end
+    ];
+    const ALLOWED_EXACT = ['caspio.com', 'box.com', 'teamnwca.com'];
+    if (ALLOWED_EXACT.includes(h)) return true;
+    return ALLOWED_SUFFIXES.some(s => h.endsWith(s));
+}
+
 // --- API Endpoints ---
 
 /**
@@ -112,71 +196,18 @@ router.post('/files/upload', upload.single('file'), async (req, res) => {
         const file = req.file;
         console.log(`Uploading file: ${file.originalname} (${file.size} bytes, ${file.mimetype})`);
 
-        // Get token
-        const token = await getCaspioAccessToken();
-        const url = `${caspioV3BaseUrl}/files?externalKey=${artworkFolderKey}`;
+        const uploadedFile = await uploadBufferToArtwork(file.buffer, file.originalname, file.mimetype);
+        console.log(`File uploaded successfully: ${uploadedFile.Name} (${uploadedFile.ExternalKey})`);
 
-        // Inner helper — does one upload attempt with a given filename.
-        // We may call this twice: once with the original name, and (on a 409
-        // FILE_EXISTS collision) once more with a timestamp suffix.
-        async function attemptUpload(filename) {
-            const fd = new FormData();
-            // Append the Buffer DIRECTLY (not Readable.from(buffer)): form-data then sends a real
-            // Content-Length so Caspio doesn't receive chunked transfer-encoding (which it resets →
-            // "socket hang up"). A Buffer is also reusable, so the 409-rename retry below no longer
-            // sends an already-consumed (empty) stream. + timeout so a hung connection fails fast.
-            // Mirrors the working sibling thumbnails.js. (audit fix 2026-06-05)
-            fd.append('Files', file.buffer, {
-                filename: filename,
-                contentType: file.mimetype,
-                knownLength: file.buffer.length
-            });
-            return axios.post(url, fd, {
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    ...fd.getHeaders()
-                },
-                maxBodyLength: Infinity,
-                maxContentLength: Infinity,
-                timeout: 60000
-            });
-        }
-
-        let response;
-        try {
-            response = await attemptUpload(file.originalname);
-        } catch (err) {
-            // On 409 FILE_EXISTS the Caspio Artwork folder already has a file
-            // with this exact name (possibly from a different customer's
-            // earlier submission — the folder is global). Retry once with a
-            // timestamp suffix so generic names like
-            // "40091 Braun NW Mock1 WF copy.jpg" don't break the AE workflow.
-            // Only retry on 409 — re-throw everything else.
-            if (err.response && err.response.status === 409) {
-                const renamed = appendUniquenessSuffix(file.originalname);
-                console.log(`[files/upload] 409 collision on "${file.originalname}", retrying as "${renamed}"`);
-                response = await attemptUpload(renamed);
-            } else {
-                throw err;
-            }
-        }
-
-        if (response.data && response.data.Result && response.data.Result[0]) {
-            const uploadedFile = response.data.Result[0];
-            console.log(`File uploaded successfully: ${uploadedFile.Name} (${uploadedFile.ExternalKey})`);
-
-            res.json({
-                success: true,
-                externalKey: uploadedFile.ExternalKey,
-                fileName: uploadedFile.Name,
-                location: 'Artwork folder',
-                originalName: file.originalname,
-                size: file.size,
-                mimeType: file.mimetype
-            });
-        } else {
-            throw new Error('Unexpected response from Caspio Files API');
-        }
+        res.json({
+            success: true,
+            externalKey: uploadedFile.ExternalKey,
+            fileName: uploadedFile.Name,
+            location: 'Artwork folder',
+            originalName: file.originalname,
+            size: file.size,
+            mimeType: file.mimetype
+        });
     } catch (error) {
         console.error('Error uploading file:', error.message);
 
@@ -216,6 +247,120 @@ router.post('/files/upload', upload.single('file'), async (req, res) => {
                 code: 'UPLOAD_FAILED'
             });
         }
+    }
+});
+
+/**
+ * POST /api/files/import-from-url
+ * Server-side "attach by URL": fetch an existing artwork URL (no browser CORS)
+ * and upload its bytes into the Caspio Artwork folder, returning the same shape
+ * as /files/upload. Powers "Send to Steve" — carrying a quote's customer art +
+ * approved mockups into Steve's art request as real reference files.
+ *
+ * Body: { url (required), fileName (optional preferred name) }
+ * Guards: host allowlist (SSRF), 20MB cap, art-type only (rejects HTML/error pages).
+ * Never returns success without bytes actually stored (Erik's #1 rule).
+ */
+router.post('/files/import-from-url', express.json({ limit: '1mb' }), async (req, res) => {
+    try {
+        const { url, fileName } = req.body || {};
+        if (!url || typeof url !== 'string') {
+            return res.status(400).json({ success: false, error: 'No url provided', code: 'NO_URL' });
+        }
+
+        let parsed;
+        try { parsed = new URL(url); } catch (_) {
+            return res.status(400).json({ success: false, error: 'Invalid url', code: 'BAD_URL' });
+        }
+        if (!/^https?:$/.test(parsed.protocol) || !isAllowedArtworkHost(parsed.hostname)) {
+            return res.status(400).json({
+                success: false,
+                error: `Refusing to fetch from an unapproved host: ${parsed.hostname}`,
+                code: 'HOST_NOT_ALLOWED'
+            });
+        }
+
+        // Fetch the bytes server-side.
+        let dl;
+        try {
+            dl = await axios.get(url, {
+                responseType: 'arraybuffer',
+                timeout: 30000,
+                maxContentLength: 20 * 1024 * 1024,
+                maxBodyLength: 20 * 1024 * 1024
+            });
+        } catch (err) {
+            const status = err.response && err.response.status;
+            console.warn('[files/import-from-url] fetch failed:', status, err.message);
+            return res.status(502).json({
+                success: false,
+                error: 'Could not fetch the source artwork URL' + (status ? ` (HTTP ${status})` : ''),
+                code: 'FETCH_FAILED'
+            });
+        }
+
+        const buffer = Buffer.from(dl.data);
+        if (!buffer.length) {
+            return res.status(502).json({ success: false, error: 'Source URL returned no data', code: 'EMPTY_SOURCE' });
+        }
+        if (buffer.length > 20 * 1024 * 1024) {
+            return res.status(413).json({ success: false, error: 'Source file too large (20MB max)', code: 'FILE_TOO_LARGE' });
+        }
+
+        // Resolve a usable mimetype. The proxy's own /api/files/:key derives the
+        // real image type, but some sources return text/plain or octet-stream —
+        // fall back to the extension of the preferred fileName. Reject obvious
+        // non-art (an HTML error page) so we never store a broken "image".
+        let mimeType = String((dl.headers['content-type'] || '')).split(';')[0].trim().toLowerCase();
+        const nameExt = (String(fileName || '').split('.').pop() || '').toLowerCase();
+        const EXT_TO_MIME = Object.fromEntries(Object.entries(MIME_TO_EXT).map(([m, e]) => [e, m]));
+        if ((!mimeType || mimeType === 'application/octet-stream' || mimeType === 'text/plain' || mimeType === 'binary/octet-stream') && EXT_TO_MIME[nameExt]) {
+            mimeType = EXT_TO_MIME[nameExt];
+        }
+        if (mimeType === 'text/html') {
+            return res.status(422).json({ success: false, error: 'Source URL returned a web page, not an image', code: 'NOT_ARTWORK' });
+        }
+        if (!ALLOWED_UPLOAD_MIME.includes(mimeType)) {
+            // Unknown but plausibly fine (e.g. octet-stream EPS/AI) — let Caspio
+            // store it; default the mimetype so form-data still sends one.
+            mimeType = mimeType || 'application/octet-stream';
+        }
+
+        // Build a filename: prefer the caller's, else the URL path tail, else a
+        // generic name. Ensure it carries an extension matching the mimetype.
+        let baseName = String(fileName || '').trim();
+        if (!baseName) {
+            const tail = decodeURIComponent((parsed.pathname.split('/').pop() || '')).trim();
+            baseName = tail || 'quote-artwork';
+        }
+        if (!/\.[a-z0-9]{2,5}$/i.test(baseName)) {
+            const ext = MIME_TO_EXT[mimeType] || 'png';
+            baseName = `${baseName}.${ext}`;
+        }
+        // Strip path separators / odd chars that would break the Caspio path.
+        baseName = baseName.replace(/[\\/]+/g, '_').replace(/[^\w.\- ]+/g, '_');
+
+        const uploadedFile = await uploadBufferToArtwork(buffer, baseName, mimeType);
+        console.log(`[files/import-from-url] stored "${uploadedFile.Name}" from ${parsed.hostname}`);
+
+        return res.json({
+            success: true,
+            externalKey: uploadedFile.ExternalKey,
+            fileName: uploadedFile.Name,
+            location: 'Artwork folder',
+            sourceUrl: url,
+            size: buffer.length,
+            mimeType
+        });
+    } catch (error) {
+        console.error('[files/import-from-url] error:', error.message);
+        if (error.response && error.response.status === 409) {
+            return res.status(409).json({ success: false, error: 'A file with this name already exists in the Artwork folder', code: 'FILE_EXISTS' });
+        }
+        if (error.code === 'ECONNABORTED' || error.code === 'ECONNRESET' || /socket hang up|timeout/i.test(error.message || '')) {
+            return res.status(504).json({ success: false, error: 'The artwork upload timed out reaching Caspio. Please try again.', code: 'UPLOAD_TIMEOUT' });
+        }
+        return res.status(500).json({ success: false, error: error.message || 'Failed to import artwork', code: 'IMPORT_FAILED' });
     }
 });
 
