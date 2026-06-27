@@ -68,6 +68,10 @@ const KNOWN_FEE_PNS = new Set([
   'AS-Garm', 'CDP', 'AS-CAP', 'LTM', 'CTR-Garmt', 'CTR-Cap',
   'AL-CAP', 'DECG-FB', '3D-EMB', 'GRT-50', 'GRT-75',
   'SPRESET', 'SPSU',
+  // Screen-print setup parts from Erik's official list (2026-06-27). Vellum =
+  // vellum/film positive output ($10); 'Color Chg' = press-run color change ($15).
+  // ShopWorks part numbers verbatim (note the space in 'Color Chg').
+  'Vellum', 'Color Chg',
   'Laser Patch', 'SECC',
   'CB', 'CS',  // Cap Back / Cap Side embroidery (legacy/imported; new builder uses AL-CAP) — 2026-06-04
   // WEIGHT — per-person weight embroidery (wrestling singlets). Real SW part: the ShopWorks

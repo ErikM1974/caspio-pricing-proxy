@@ -130,6 +130,58 @@ describe('SCP push transformer — order total integrity', () => {
   });
 });
 
+describe('SCP push transformer — Erik official setup parts (2026-06-27)', () => {
+  test('new-order setup bills SPSU with the standard "Screen Print Set Up Charge" description', () => {
+    const order = transformQuoteToOrder(baseSession(), [garment()], { isTest: true });
+    const spsu = lineByPart(order, 'SPSU');
+    expect(spsu).toHaveLength(1);
+    expect(spsu[0]).toMatchObject({ Qty: 3, Price: 30 });
+    expect(spsu[0].Description).toMatch(/^Screen Print Set Up Charge/);
+    expect(spsu[0].Description).not.toMatch(/New Screen/);
+    expect(lineByPart(order, 'SPRESET')).toHaveLength(0);
+  });
+
+  test('Vellum print is itemized (qty × $10) and adds to the order total', () => {
+    const session = baseSession({
+      Notes: JSON.stringify({
+        frontLocation: 'FF', frontColors: 2, isDarkGarment: true,
+        setupFeeTotal: 90, totalScreens: 3, vellumQty: 2, vellumTotal: 20,
+      }),
+    });
+    const order = transformQuoteToOrder(session, [garment()], { isTest: true });
+    const v = lineByPart(order, 'Vellum');
+    expect(v).toHaveLength(1);
+    expect(v[0]).toMatchObject({ Qty: 2, Price: 10, Description: 'Vellum Print' });
+    expect(orderPreTaxTotal(order)).toBe(710); // 600 + 90 + 20
+  });
+
+  test('Color change is itemized under PartNumber "Color Chg" (qty × $15)', () => {
+    const session = baseSession({
+      Notes: JSON.stringify({
+        frontLocation: 'FF', frontColors: 2, isDarkGarment: true,
+        setupFeeTotal: 90, totalScreens: 3, colorChangeQty: 3, colorChangeTotal: 45,
+      }),
+    });
+    const order = transformQuoteToOrder(session, [garment()], { isTest: true });
+    const cc = lineByPart(order, 'Color Chg');
+    expect(cc).toHaveLength(1);
+    expect(cc[0]).toMatchObject({ Qty: 3, Price: 15, Description: 'Color Change' });
+    expect(orderPreTaxTotal(order)).toBe(735); // 600 + 90 + 45
+  });
+
+  test('per-screen setup price follows the quoted total (Caspio SPSU price change flows through)', () => {
+    // setupFeeTotal 96 over 3 screens → $32/screen (a Caspio SPSU bump), not hardcoded $30
+    const session = baseSession({
+      Notes: JSON.stringify({
+        frontLocation: 'FF', frontColors: 2, isDarkGarment: true,
+        setupFeeTotal: 96, totalScreens: 3,
+      }),
+    });
+    const order = transformQuoteToOrder(session, [garment()], { isTest: true });
+    expect(lineByPart(order, 'SPSU')[0]).toMatchObject({ Qty: 3, Price: 32 });
+  });
+});
+
 describe('SCP push transformer — notes & tax', () => {
   test('order-level notes use the API-recognized `Notes` key, not `NotesOnOrders`', () => {
     // ManageOrders /onsite/order-push reads order notes under `Notes` (see
