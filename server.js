@@ -398,6 +398,14 @@ const embTopSellersRoutes = require('./src/routes/emb-top-sellers');
 app.use('/api', embTopSellersRoutes);
 console.log('✓ EMB Top Sellers routes loaded');
 
+// Safety-Stripe Top Sellers — backed by Caspio table Safety_Stripe_Top_Sellers_2026
+// (Erik curates from 13 years of hi-vis sales). Curated garments that sell best
+// WITH screen-printed safety stripes; surfaced as recommendation cards across the
+// quote builders, Quick Quote, and the customer catalog. 2026-06-28.
+const safetyStripeTopSellersRoutes = require('./src/routes/safety-stripe-top-sellers');
+app.use('/api', safetyStripeTopSellersRoutes);
+console.log('✓ Safety-Stripe Top Sellers routes loaded');
+
 // Industry Lookalikes — backed by Caspio table Industry_Lookalikes_2026
 // (pre-aggregated quarterly from MO order history + industry inference +
 // Tavily web classification, SanMar-only). Used by the EMB chat assistant's
