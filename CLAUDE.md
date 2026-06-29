@@ -41,6 +41,28 @@ This ensures documentation stays current and nothing is forgotten.
 
 ---
 
+## Caspio Platform REST API - Capability Reference
+
+For the **underlying Caspio REST API** this proxy calls (the Swagger surface — tables, views, files, **Outgoing Webhooks**, **Directories / end-user logins**, Data Import/Export Tasks, Bridge Apps), see the master file in the Pricing Index project:
+
+**`../Pricing Index File 2025/memory/CASPIO_REST_API_REFERENCE.md`**
+
+Single source of truth covering:
+- 70 operations / 7 capability groups, with paths + key schemas
+- OAuth token model (`/oauth/token`, 24h access token, `caspio.js` cache)
+- Record query semantics (`q.where/select/orderby/groupBy`, `q.pageSize` not `q.limit`)
+- **What NWCA uses today vs. what's untapped** (webhooks, directories, tasks = unused)
+- **Plan-gating to verify** with a read/test call before building each feature
+- The verified gotcha that **Caspio Outgoing Webhooks FIRE on REST-originated writes** (unlike Triggered Actions — `EventSources` defaults to all incl `RESTAPIs`), plus the proven `box-webhooks.js` HMAC receiver pattern to clone
+
+Distinct from `memory/CASPIO_API_CORE.md`, which documents **this proxy's own** API. A dated raw spec snapshot lives beside the master; re-fetch the live spec any time at `https://c3eku948.caspio.com/integrations/rest/v3/swagger/documentation`.
+
+**Before committing**, if you discovered Caspio platform-API patterns (new endpoints, plan entitlements, webhook/directory behavior):
+1. Add capability/endpoint detail → `CASPIO_REST_API_REFERENCE.md`
+2. Add bugs/gotchas → `LESSONS_LEARNED.md` (both projects)
+
+---
+
 ## Memory Files
 
 Detailed documentation organized by topic:
