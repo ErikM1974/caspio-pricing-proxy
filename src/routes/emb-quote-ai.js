@@ -40,6 +40,13 @@ const embPricingCache = require('../../lib/emb-pricing-cache');
 const INTERNAL_API_BASE = process.env.PROXY_PUBLIC_URL ||
     'https://caspio-pricing-proxy-ab30a049961a.herokuapp.com';
 
+// Loopback calls to now-gated internal endpoints (customer-profile, industry-lookalikes)
+// must carry the CRM secret — INTERNAL_API_BASE is the PUBLIC proxy URL, so these
+// requests pass back through requireCrmApiSecret. Same-process, so the env var is present.
+const INTERNAL_AUTH_HEADERS = process.env.CRM_API_SECRET
+    ? { 'x-crm-api-secret': process.env.CRM_API_SECRET }
+    : {};
+
 const TOOLS = [
     {
         name: 'lookup_customer',
@@ -1282,7 +1289,7 @@ async function lookupLookalikeCustomers(input) {
         : 10;
     try {
         const url = `${INTERNAL_API_BASE}/api/industry-lookalikes/${encodeURIComponent(industry)}?limit=${limit}`;
-        const r = await fetch(url);
+        const r = await fetch(url, { headers: INTERNAL_AUTH_HEADERS });
         if (!r.ok) {
             return { error: 'http_' + r.status, message: 'industry-lookalikes endpoint failed' };
         }
@@ -1390,7 +1397,7 @@ async function lookupCustomerMasterProfile(input) {
         const url = Number.isInteger(id) && id > 0
             ? `${INTERNAL_API_BASE}/api/customer-profile/${id}`
             : `${INTERNAL_API_BASE}/api/customer-profile/by-company/${encodeURIComponent(name)}`;
-        const r = await fetch(url);
+        const r = await fetch(url, { headers: INTERNAL_AUTH_HEADERS });
         if (!r.ok) return { error: 'http_' + r.status, message: 'customer-profile endpoint failed' };
         const data = await r.json();
         if (!data.found) {

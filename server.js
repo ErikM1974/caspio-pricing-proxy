@@ -414,8 +414,11 @@ console.log('✓ Safety-Stripe Top Sellers routes loaded');
 // 2026-05-25 (EMB Smart E1): rebuilt from 10yr SanMar history keyed on Erik's
 // manual Customer_Type (15 categories, not regex-inferred 18). Same endpoint.
 const industryLookalikesRoutes = require('./src/routes/industry-lookalikes');
-app.use('/api/industry-lookalikes', industryLookalikesRoutes);
-console.log('✓ Industry Lookalikes routes loaded (15 Customer_Types, 10yr SanMar data)');
+// #9 side-door gate (2026-06-29): exposes NWCA revenue by industry + named
+// customers. Only caller is the emb-quote-ai loopback (now sends x-crm-api-secret);
+// no public/browser caller. requireCrmApiSecret → 401 for anonymous internet hits.
+app.use('/api/industry-lookalikes', requireCrmApiSecret, industryLookalikesRoutes);
+console.log('✓ Industry Lookalikes routes loaded (15 Customer_Types, 10yr SanMar data) [CRM-gated]');
 
 // Customer Profile 10yr — backed by Caspio table Customer_Profile_10yr_2026
 // (one row per active SanMar-buying customer, pre-aggregated quarterly from
@@ -423,8 +426,11 @@ console.log('✓ Industry Lookalikes routes loaded (15 Customer_Types, 10yr SanM
 // tool — replaces the old lookup_customer_history which only had 1yr of MO data.
 // 2026-05-25 (EMB Smart E2).
 const customerProfileRoutes = require('./src/routes/customer-profile');
-app.use('/api/customer-profile', customerProfileRoutes);
-console.log('✓ Customer Profile 10yr routes loaded (1,642 SanMar-buyer profiles)');
+// #9 side-door gate (2026-06-29): exposes per-customer 10yr revenue, margin %,
+// YTD + contact PII. Only caller is the emb-quote-ai loopback (now sends the
+// secret); no public/browser caller. requireCrmApiSecret → 401 for anonymous hits.
+app.use('/api/customer-profile', requireCrmApiSecret, customerProfileRoutes);
+console.log('✓ Customer Profile 10yr routes loaded (1,642 SanMar-buyer profiles) [CRM-gated]');
 
 // SanMar Style Performance 10yr — backed by Caspio table
 // Sanmar_Style_Performance_10yr_26 (one row per SanMar STYLE with 10yr units,
