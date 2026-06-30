@@ -971,6 +971,12 @@ const staffAppRolesRoutes = require('./src/routes/staff-app-roles');
 app.use('/api/staff-app-role', requireCrmApiSecret, staffAppRolesRoutes);
 console.log('✓ Staff app-role lookup loaded [CRM-gated]');
 
+// Staff PAGE-access rules (Staff_Page_Access table) — front-end caches this to gate
+// /dashboards/*.html by role/email. requireCrmApiSecret-gated (server-to-server only).
+const staffPageAccessRoutes = require('./src/routes/staff-page-access');
+app.use('/api/staff-page-access', requireCrmApiSecret, staffPageAccessRoutes);
+console.log('✓ Staff page-access lookup loaded [CRM-gated]');
+
 // DTG Print-Area Calibration (Custom T-Shirts storefront, 2026-06-10)
 // Staff-laid print-envelope placements per style/view/color → Caspio
 // DTG_Calibration; the storefront designer anchors to these (no-deploy edits).
