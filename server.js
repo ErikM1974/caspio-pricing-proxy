@@ -655,9 +655,16 @@ app.use('/api', designsRoutes);
 console.log('✓ Designs routes loaded');
 
 // Daily Sales By Rep Archive Routes (master truth for YTD displays)
+// #9 side-door gate (2026-06-29): an anonymous DELETE /bulk could WIPE the master
+// YTD sales archive, and POSTs could inject/overwrite it. Gate every WRITE method;
+// leave GET reads public (browser-staff dashboards — Pattern B later). Mounted BEFORE
+// the route mount so it runs first. Callers = proxy CLI/cron scripts (now send the secret).
+const gateSalesArchiveWrites = (req, res, next) =>
+  req.method === 'GET' ? next() : requireCrmApiSecret(req, res, next);
+app.use('/api/caspio/daily-sales-by-rep', gateSalesArchiveWrites);
 const dailySalesByRepRoutes = require('./src/routes/daily-sales-by-rep');
 app.use('/api', dailySalesByRepRoutes);
-console.log('✓ Daily Sales By Rep routes loaded');
+console.log('✓ Daily Sales By Rep routes loaded [writes CRM-gated]');
 
 // Thread Colors Routes
 const threadColorsRoutes = require('./src/routes/thread-colors');

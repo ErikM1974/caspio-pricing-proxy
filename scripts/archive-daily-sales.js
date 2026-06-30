@@ -37,6 +37,11 @@ const axios = require('axios');
 const BASE_URL = process.env.BASE_URL || 'https://caspio-pricing-proxy-ab30a049961a.herokuapp.com';
 const TIMEOUT = 300000; // 5 minutes for archiving operations
 
+// #9: the archive WRITE endpoints are now CRM-gated. This script runs on the proxy
+// dyno (Heroku Scheduler) where CRM_API_SECRET is in env, so the secret is present.
+const CRM_API_SECRET = process.env.CRM_API_SECRET;
+const CRM_HEADERS = CRM_API_SECRET ? { 'x-crm-api-secret': CRM_API_SECRET } : {};
+
 /**
  * Get yesterday's date in YYYY-MM-DD format
  */
@@ -57,7 +62,7 @@ async function archiveDate(date) {
       `${BASE_URL}/api/caspio/daily-sales-by-rep/archive-date`,
       { date },
       {
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...CRM_HEADERS },
         timeout: TIMEOUT
       }
     );
@@ -91,7 +96,7 @@ async function archiveRange(start, end) {
       `${BASE_URL}/api/caspio/daily-sales-by-rep/archive-range`,
       { start, end },
       {
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...CRM_HEADERS },
         timeout: TIMEOUT
       }
     );

@@ -201,7 +201,7 @@ async function applyRebuild(start, end, dailyRows) {
     `${BASE_URL}/api/caspio/daily-sales-by-rep/bulk`,
     {
       data: { where: `SalesDate>='${start}' AND SalesDate<='${end}'` },
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...CRM_HEADERS },
       timeout: TIMEOUT
     }
   );
@@ -217,7 +217,7 @@ async function applyRebuild(start, end, dailyRows) {
     const resp = await axios.post(
       `${BASE_URL}/api/caspio/daily-sales-by-rep/import`,
       { data: batch },
-      { headers: { 'Content-Type': 'application/json' }, timeout: TIMEOUT }
+      { headers: { 'Content-Type': 'application/json', ...CRM_HEADERS }, timeout: TIMEOUT }
     );
     const r = resp.data || {};
     totalCreated += r.created || 0;

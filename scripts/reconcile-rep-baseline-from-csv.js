@@ -31,6 +31,11 @@ const axios = require('axios');
 
 const BASE_URL = process.env.BASE_URL || 'https://caspio-pricing-proxy-ab30a049961a.herokuapp.com';
 
+// #9: the archive WRITE endpoints (/bulk DELETE, /import) are now CRM-gated. Run this
+// from a context (local .env or proxy dyno) where CRM_API_SECRET is set, or it 401s.
+const CRM_API_SECRET = process.env.CRM_API_SECRET;
+const CRM_HEADERS = CRM_API_SECRET ? { 'x-crm-api-secret': CRM_API_SECRET } : {};
+
 // The cutoff between the locked window and the rolling window. Anything <= this
 // date is the one-time-correction zone; > this date is auto-managed by the cron.
 const CUTOFF_DATE = '2026-02-25';
@@ -239,7 +244,7 @@ async function main() {
     `${BASE_URL}/api/caspio/daily-sales-by-rep/bulk`,
     {
       data: { where: `SalesDate <= '${CUTOFF_DATE}'` },
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...CRM_HEADERS },
       timeout: TIMEOUT
     }
   );
@@ -250,7 +255,7 @@ async function main() {
     `${BASE_URL}/api/caspio/daily-sales-by-rep/import`,
     { data: baselines },
     {
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...CRM_HEADERS },
       timeout: TIMEOUT
     }
   );
