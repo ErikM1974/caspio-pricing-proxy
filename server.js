@@ -401,7 +401,10 @@ app.use('/api', artRoutes);
 console.log('✓ Art routes loaded');
 
 // Production Schedules Routes
+// SECURITY (2026-06-30): no live browser caller (the staff dashboard loads pre-baked static
+// JS, not this API). Gate the read server-to-server. Path-specific so other /api unaffected.
 const productionSchedulesRoutes = require('./src/routes/production-schedules');
+app.use('/api/production-schedules', requireCrmApiSecret);
 app.use('/api', productionSchedulesRoutes);
 console.log('✓ Production Schedules routes loaded');
 
@@ -549,6 +552,9 @@ console.log('✓ Supacolor Jobs routes loaded');
 // path only (gateWritesOnly) so the GET lookups stay reachable. Reads = later round.
 const creditCardLookupRoutes = require('./src/routes/creditcard-lookups');
 app.use('/api/creditcard-atmos', gateWritesOnly);
+// SECURITY (2026-06-30): vendor master / PO $ history / supacolor PO index are financial
+// reads whose sole caller is the InkSoft atmos formatter (server-side, now sends the secret).
+app.use(['/api/vendors', '/api/purchase-orders', '/api/supacolor-po-index'], requireCrmApiSecret);
 app.use('/api', creditCardLookupRoutes);
 console.log('✓ Credit-Card Lookup routes loaded (creditcard-atmos writes gated)');
 
@@ -765,12 +771,20 @@ app.use('/api', garmentTrackerRoutes);
 console.log('✓ Garment Tracker routes loaded');
 
 // Online Store Commission Routes (InkSoft webstore commission tracking)
+// SECURITY (2026-06-30): no live HTTP caller (the quarterly-report route reuses this logic
+// in-process via require(), not over HTTP). Gate the rep-revenue reads. Path-specific.
 const onlineStoreCommissionRoutes = require('./src/routes/online-store-commissions');
+app.use('/api/online-store-commissions', requireCrmApiSecret);
 app.use('/api', onlineStoreCommissionRoutes);
 console.log('✓ Online Store Commission routes loaded');
 
 // Commission Payouts Routes (unified commission tracking + payment history)
+// SECURITY (2026-06-30): gate ONLY the no-caller routes now — POST /save (anonymous payout
+// write) + the win-back/history rep-revenue reads. quarterly/annual-report (browser+cron) and
+// approve/mark-paid (browser Bonus Dashboard) have LIVE callers → routed through Flask + fully
+// gated in Wave 2 (gating them now would 401 the live approve/mark-paid buttons).
 const commissionPayoutRoutes = require('./src/routes/commission-payouts');
+app.use(['/api/commissions/save', '/api/commissions/win-back', '/api/commissions/history'], requireCrmApiSecret);
 app.use('/api', commissionPayoutRoutes);
 console.log('✓ Commission Payouts routes loaded');
 
@@ -945,7 +959,10 @@ app.use('/api/policy-comments', requireCrmApiSecret, policyCommentsAdmin);
 console.log('✓ Policy Comments routes loaded (public reads/posts + admin moderation)');
 
 // Assignment History Routes (audit trail for account assignments)
+// SECURITY (2026-06-30): reads have no live caller; the only FE ref POSTs to a same-origin
+// /api/crm-proxy route that 404s today (repaired + gated in Wave 3). Gate the whole router.
 const assignmentHistoryRoutes = require('./src/routes/assignment-history');
+app.use('/api/assignment-history', requireCrmApiSecret);
 app.use('/api', assignmentHistoryRoutes);
 console.log('✓ Assignment History routes loaded');
 
