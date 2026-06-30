@@ -32,6 +32,14 @@ const ALL_FIELDS = [
     'Is_Active', 'Date_Updated'
 ].join(',');
 
+// #9 data-minimization: the PUBLIC /digitized-designs/lookup endpoint backs the
+// no-login /design/:n share page (design-view.js). It must NOT leak internal
+// CRM/ops fields. PUBLIC_FIELDS = ALL_FIELDS minus rep/customer/order internals.
+// The staff search/by-customer handlers keep ALL_FIELDS. (design-view.js does not
+// render any of these — verified 2026-06-29.)
+const INTERNAL_ONLY_FIELDS = ['Last_Order_Date', 'Order_Count', 'Art_Notes', 'Sales_Rep', 'Customer_Type'];
+const PUBLIC_FIELDS = ALL_FIELDS.split(',').filter(f => !INTERNAL_ONLY_FIELDS.includes(f)).join(',');
+
 // Cache (15 min TTL)
 const designsCache = new Map();
 const CACHE_TTL = 15 * 60 * 1000;
@@ -367,7 +375,7 @@ router.get('/digitized-designs/lookup', async (req, res) => {
         const inList = designNumbers.map(n => `'${n}'`).join(',');
         const records = await fetchAllCaspioPages(RESOURCE_PATH, {
             'q.where': `Design_Number IN (${inList}) AND ${ACTIVE_FILTER}`,
-            'q.select': ALL_FIELDS
+            'q.select': PUBLIC_FIELDS // #9: public share page — no internal CRM/ops fields
         });
 
         console.log(`[Designs] Lookup found ${records.length} records for ${designNumbers.length} design numbers`);
