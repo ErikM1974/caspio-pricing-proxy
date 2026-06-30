@@ -586,6 +586,12 @@ console.log('✓ ManageOrders PUSH routes loaded');
 // router is mounted at /api/webhooks so the URL stays canonical regardless
 // of internal reorg.
 const shipstationRoutes = require('./src/routes/shipstation');
+// #9 side-door gate (2026-06-29): gate WRITES — anon POST /create-order injects a
+// live warehouse order, DELETE /orders/:id deletes one. GET reads (orders, shipments,
+// test-auth) stay public — the FE shipment-sync calls GET /shipments without a secret.
+// The front-end's server-side write callers now send x-crm-api-secret (deployed first).
+// The /api/webhooks mount (ShipStation inbound) is separate + stays public (host-validated).
+app.use('/api/shipstation', gateWritesOnly);
 app.use('/api/shipstation', shipstationRoutes.router);
 app.use('/api/webhooks',    shipstationRoutes.webhookRouter);
 console.log('✓ ShipStation routes loaded');
