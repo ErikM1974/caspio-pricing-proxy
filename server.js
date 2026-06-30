@@ -957,6 +957,13 @@ const serviceCodesRoutes = require('./src/routes/service-codes');
 app.use('/api', serviceCodesRoutes);
 console.log('✓ Service Codes routes loaded');
 
+// On-demand Caspio scheduled-task triggers (#5) — list/status/run the 6 Data
+// Import/Export Tasks via the Caspio v3 management API. Privileged staff action
+// (triggering an import), so the WHOLE mount is requireCrmApiSecret-gated.
+const caspioTasksRoutes = require('./src/routes/caspio-tasks');
+app.use('/api/caspio-tasks', requireCrmApiSecret, caspioTasksRoutes);
+console.log('✓ Caspio on-demand task routes loaded [CRM-gated]');
+
 // DTG Print-Area Calibration (Custom T-Shirts storefront, 2026-06-10)
 // Staff-laid print-envelope placements per style/view/color → Caspio
 // DTG_Calibration; the storefront designer anchors to these (no-deploy edits).
