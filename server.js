@@ -462,6 +462,13 @@ const customerProfileRoutes = require('./src/routes/customer-profile');
 app.use('/api/customer-profile', requireCrmApiSecret, customerProfileRoutes);
 console.log('✓ Customer Profile 10yr routes loaded (1,642 SanMar-buyer profiles) [CRM-gated]');
 
+// Customer Portal Access — magic-link invite registry (Customer_Portal_Access table:
+// Email → id_Customer + Enabled). The front-end calls this SERVER-SIDE during the customer
+// magic-link request/verify (with the CRM secret). requireCrmApiSecret-gated; no browser caller.
+const customerPortalAccessRoutes = require('./src/routes/customer-portal-access');
+app.use('/api/customer-portal-access', requireCrmApiSecret, customerPortalAccessRoutes);
+console.log('✓ Customer Portal Access routes loaded (magic-link invite registry) [CRM-gated]');
+
 // SanMar Style Performance 10yr — backed by Caspio table
 // Sanmar_Style_Performance_10yr_26 (one row per SanMar STYLE with 10yr units,
 // revenue, margin, top colors, customer types, paired-with). Powers the bot's
