@@ -1,3 +1,7 @@
+## v2026.06.30.2 (2026.06.30)
+
+- feat(portal-p4): catalog request-to-rep + recommendations route + Phase-4 table-creation script
+
 ## v2026.06.30.1 (2026.06.30)
 
 - fix(inventory): /sizes-by-style-color falls back to SanMar bulk size run
