@@ -360,9 +360,15 @@ app.use('/api', quoteChangeLogRoutes);
 console.log('✓ Quote Change Log routes loaded');
 
 // Gift Certificates Routes
+// SECURITY (2026-06-30): gift certs expose redeemable codes + balances + customer PII,
+// and the router has a destructive DELETE /clear + POST /bulk. The ONLY consumer is the
+// Python InkSoft Flask app, which calls server-side and now sends X-CRM-API-Secret. Gate
+// the whole /api/gift-certificates path server-to-server (path-specific so other /api
+// routes are unaffected). Anonymous internet hits → 401.
 const giftCertificatesRoutes = require('./src/routes/gift-certificates');
+app.use('/api/gift-certificates', requireCrmApiSecret);
 app.use('/api', giftCertificatesRoutes);
-console.log('✓ Gift Certificates routes loaded');
+console.log('✓ Gift Certificates routes loaded (requireCrmApiSecret-gated)');
 
 // Pricing Matrix Routes
 const pricingMatrixRoutes = require('./src/routes/pricing-matrix');
