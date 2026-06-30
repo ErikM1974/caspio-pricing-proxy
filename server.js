@@ -469,6 +469,11 @@ const customerPortalAccessRoutes = require('./src/routes/customer-portal-access'
 app.use('/api/customer-portal-access', requireCrmApiSecret, customerPortalAccessRoutes);
 console.log('✓ Customer Portal Access routes loaded (magic-link invite registry) [CRM-gated]');
 
+// Customer Portal Phase 4 — catalog request-to-rep re-order + curated recommendations.
+const portalReorderRoutes = require('./src/routes/portal-reorder');
+app.use('/api/portal-reorder', requireCrmApiSecret, portalReorderRoutes);
+console.log('✓ Portal Reorder routes loaded (catalog request-to-rep + recommendations) [CRM-gated]');
+
 // SanMar Style Performance 10yr — backed by Caspio table
 // Sanmar_Style_Performance_10yr_26 (one row per SanMar STYLE with 10yr units,
 // revenue, margin, top colors, customer types, paired-with). Powers the bot's
