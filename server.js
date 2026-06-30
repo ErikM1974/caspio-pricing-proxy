@@ -977,6 +977,13 @@ const staffPageAccessRoutes = require('./src/routes/staff-page-access');
 app.use('/api/staff-page-access', requireCrmApiSecret, staffPageAccessRoutes);
 console.log('✓ Staff page-access lookup loaded [CRM-gated]');
 
+// RBAC admin CRUD (Staff_App_Roles + Staff_Page_Access) — powers the Erik-only
+// Access-Admin UI. requireCrmApiSecret-gated here; the front-end only exposes it via
+// an admin-role-gated crm-proxy route (so needs the secret AND an admin session).
+const adminRbacRoutes = require('./src/routes/admin-rbac');
+app.use('/api/admin-rbac', requireCrmApiSecret, adminRbacRoutes);
+console.log('✓ RBAC admin CRUD loaded [CRM-gated]');
+
 // DTG Print-Area Calibration (Custom T-Shirts storefront, 2026-06-10)
 // Staff-laid print-envelope placements per style/view/color → Caspio
 // DTG_Calibration; the storefront designer anchors to these (no-deploy edits).
