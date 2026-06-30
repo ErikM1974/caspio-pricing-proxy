@@ -543,9 +543,14 @@ app.use('/api', supacolorJobsRoutes);
 console.log('✓ Supacolor Jobs routes loaded');
 
 // Credit-Card Reconciliation Lookups (Atmos card formatter: vendors, POs, supacolor PO index)
+// SECURITY (2026-06-30): the WRITE path POST /api/creditcard-atmos/upsert mutates the
+// BofA reconciliation table (amounts/ref-IDs/PO#s). Sole caller is the Python InkSoft
+// atmos formatter (server-side), which now sends X-CRM-API-Secret. Gate writes on that
+// path only (gateWritesOnly) so the GET lookups stay reachable. Reads = later round.
 const creditCardLookupRoutes = require('./src/routes/creditcard-lookups');
+app.use('/api/creditcard-atmos', gateWritesOnly);
 app.use('/api', creditCardLookupRoutes);
-console.log('✓ Credit-Card Lookup routes loaded');
+console.log('✓ Credit-Card Lookup routes loaded (creditcard-atmos writes gated)');
 
 // EMB Design Files Routes (parsed EMB metadata + colorways)
 const embDesignRoutes = require('./src/routes/emb-design-routes');
