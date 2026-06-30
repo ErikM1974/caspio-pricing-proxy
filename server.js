@@ -280,6 +280,11 @@ async function fetchAllCaspioPages(resourcePath, initialParams = {}, options = {
 // All endpoints are now organized into logical route modules
 
 // Orders Routes (contains order-dashboard endpoint)
+// #9 side-door gate (2026-06-29): DEAD endpoint (the front-end serves its OWN /api/orders;
+// no proxy caller found in code, Erik confirmed no external consumers) that leaked order
+// financials + InternalNotes and allowed anon DELETE. Full-gate. A 401 surge in proxy logs
+// would reveal a hidden reader → reverse to gateWritesOnly if so.
+app.use('/api/orders', requireCrmApiSecret);
 const orderRoutes = require('./src/routes/orders');
 app.use('/api', orderRoutes);
 console.log('✓ Orders routes loaded');
@@ -311,6 +316,10 @@ app.use('/api', shippingRoutes);
 console.log('✓ Shipping routes loaded');
 
 // Products Routes
+// #9 side-door gate (2026-06-29): /api/admin/products/* are destructive product-master
+// mutations (mark-as-new/topseller, add-field, clear-*) with no live caller. Gate the
+// whole admin path; the public catalog GETs (stylesearch, product-details, etc.) are unaffected.
+app.use('/api/admin/products', requireCrmApiSecret);
 const productRoutes = require('./src/routes/products');
 app.use('/api', productRoutes);
 console.log('✓ Product routes loaded');
@@ -648,6 +657,11 @@ app.use('/api/box-labels', boxLabelsDataRoutes);
 console.log('✓ Box Labels Data routes loaded (order lookup, partId resolution)');
 
 // Thumbnail Lookup Routes
+// #9 side-door gate (2026-06-29): gate WRITES (upload-with-stub, reconcile-files,
+// backfill-fileurls, external-key PUT, delete-by-year) — anon could mass-delete a year
+// of design files. GET reads stay public (by-design backs the public /quote/:id page).
+// No HTTP write caller (box-sync scripts write Caspio directly).
+app.use('/api/thumbnails', gateWritesOnly);
 const thumbnailsRoutes = require('./src/routes/thumbnails');
 app.use('/api', thumbnailsRoutes);
 console.log('✓ Thumbnail routes loaded');
