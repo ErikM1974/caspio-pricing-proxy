@@ -964,6 +964,13 @@ const caspioTasksRoutes = require('./src/routes/caspio-tasks');
 app.use('/api/caspio-tasks', requireCrmApiSecret, caspioTasksRoutes);
 console.log('✓ Caspio on-demand task routes loaded [CRM-gated]');
 
+// Staff app-RBAC role lookup (Staff_App_Roles table) — the front-end calls this
+// server-side at login to derive permissions from Caspio (replaces the hardcoded map).
+// requireCrmApiSecret-gated (server-to-server only).
+const staffAppRolesRoutes = require('./src/routes/staff-app-roles');
+app.use('/api/staff-app-role', requireCrmApiSecret, staffAppRolesRoutes);
+console.log('✓ Staff app-role lookup loaded [CRM-gated]');
+
 // DTG Print-Area Calibration (Custom T-Shirts storefront, 2026-06-10)
 // Staff-laid print-envelope placements per style/view/color → Caspio
 // DTG_Calibration; the storefront designer anchors to these (no-deploy edits).
