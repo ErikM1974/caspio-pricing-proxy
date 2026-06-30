@@ -1,3 +1,66 @@
+## v2026.06.30.1 (2026.06.30)
+
+- fix(inventory): /sizes-by-style-color falls back to SanMar bulk size run
+- feat(pricing): custom & oversize decal square-foot pricing
+- fix(dtg): reconcile empty-tiers fallback margin 0.57->0.53 to match the client copy (pricing-engine audit DTG-4)
+- feat(art): add ?repMockup=true filter to /artrequests (saved-mockup library)
+- security(art/files): integer-guard ids + escape WHERE filters + file-key/mime validation + art-write rate limit
+- security(cors): origin allowlist (caspio/heroku/teamnwca/localhost, server-to-server allowed, EXTRA_CORS_ORIGINS env) + nosniff/referrer headers
+- feat(pricing): add DTG_Store method to /api/pricing-bundle
+- feat(sanmar-orders): GET /daily-inbound — daily arriving-blanks rollup for dashboard
+- feat(sanmar-orders): GET /inbound-today — detailed per-PO arrivals for the dashboard detail view + PDF
+- feat(sanmar-orders): inbound-today — live per-box contents (Option A)
+- feat(sanmar-orders): backorder/hold alerts — surface SanMar issue flags
+- feat(sanmar-orders): inbound-today — add ManageOrders box-label header fields
+- feat(sanmar-orders): inbound-today — add date_Ordered to box-label fields
+- feat(sanmar-orders): map id_OrderType 31 → Inksoft (was falling through to "Other")
+- fix(files): serve correct image MIME from filename (Caspio returns text/plain)
+- feat(sanmar-orders): daily-inbound accepts ?start=&end= month range (for the inbound calendar)
+- feat(sanmar-orders): inbound $ — line/PO/day blank cost (wholesale CASE_PRICE)
+- fix(sanmar-orders): inbound-today pieces from box detail when available (match cost source)
+- feat(sanmar-orders): business-day arrival estimate (skip weekends + holidays)
+- feat(scp-push): sleeves in production note + screen count
+- @ Multi-mockup send: wire 6 ArtRequests mockup slots (Mockup_4/5/6)
+- feat(sanmar-orders): method-aware transit — expedited UPS = guaranteed business days
+- feat(sanmar-orders): method-aware transit — expedited UPS = guaranteed business days
+- feat(ups-tracking): live delivery dates by tracking number (UPS Track API, OAuth)
+- feat(ups-tracking): live delivery dates by tracking number (UPS Track API, OAuth)
+- feat(sanmar-orders): inbound-today — attach UPS live delivery date per PO
+- feat(sanmar-orders): inbound-today — attach UPS live delivery date per PO
+- feat(ups-tracking): Quantum View client + /quantum-test diagnostic
+- feat(ups-tracking): Quantum View client + /quantum-test diagnostic
+- feat(files): import-from-url endpoint for "Send to Steve" art carry-over
+- fix(sanmar-orders): catch-up sync for fast-completing orders + /link id_Order on create
+- refactor(sanmar-orders): make /sync-recent-completed ASYNC (background + status)
+- fix(art): notify AE on completion (email + Slack DM); restore dead status pings
+- fix(rep-map): Ruthie/Ruth resolve to ruth@ (real inbox + Slack), not ruthie@
+- feat(scp-push): itemize Vellum + Color Chg; fix SPSU description
+- feat(safety-stripes): top-sellers route + Caspio table for hi-vis recommendations
+- docs: point CLAUDE.md to the Caspio platform REST API capability reference
+- feat(scripts): add read-only Caspio entitlement probe
+- security(#9): gate customer-profile + industry-lookalikes (side-door)
+- security(#9): gate daily-sales archive WRITES (anon could wipe YTD)
+- security(#9): gate pricing-engine writes + service-code writes + files DELETE
+- security(#9): gate admin/products + dead proxy orders + thumbnails writes
+- security(#9): gate shipstation writes (anon could inject/delete warehouse orders)
+- feat(#5): on-demand Caspio task triggers (list/status/run, gated)
+- fix(#5): use src/config v3 base for dataImportExportTasks (was hitting /rest/v2 404)
+- security(#9): trim internal CRM fields from PUBLIC digitized-designs/lookup
+- tools(rbac): read-only Caspio Staff directory inspector + dry-run-first set-staff-roles
+- feat(rbac): create + populate Staff_App_Roles Caspio table (app-readable role source)
+- feat(rbac): GET /api/staff-app-role — read role from Staff_App_Roles (gated)
+- chore(rbac): add jim@ as 'staff' (normal user) to Staff_App_Roles
+- feat(rbac): Staff_Page_Access table + GET /api/staff-page-access (table-driven page gating)
+- feat(rbac): admin CRUD endpoints for Staff_App_Roles + Staff_Page_Access (for Access-Admin UI)
+- Merge PR #2: admin-rbac CRUD endpoints (Access-Admin UI backend)
+- Merge remote-tracking branch 'origin/main' into deploy/send-to-steve
+- security(side-door): gate /api/gift-certificates (requireCrmApiSecret)
+- security(side-door): gate writes on /api/creditcard-atmos (gateWritesOnly)
+- security(side-door Wave 1): gate no-caller + server-only endpoints
+- feat(portal): Customer_Portal_Access invite registry + gated lookup endpoint (Phase 0)
+- chore(portal): load dotenv in create-table script so standalone runs get Caspio creds
+- feat(portal): customer-portal-access CRUD (list/create/update/delete) + Sales_Reps_2026 rep enrichment for the Customer Portals admin console
+
 ## v2026.06.18.2 (2026.06.18)
 
 - fix(inventory): /sizes-by-style-color no longer 500s — the dedicated Caspio "Inventory" table now 404s, so derive the real size run (e.g. PC61 → S–6XL) from the live SanMar bulk table as a fallback. Quote builders' getAvailableSizes() now see 5XL/6XL instead of a hardcoded S–4XL list.
