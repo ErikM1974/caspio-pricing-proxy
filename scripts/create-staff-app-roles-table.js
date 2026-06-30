@@ -23,6 +23,7 @@ const APPLY = process.argv.includes('--apply');
 
 const ROWS = [
   { Email: 'erik@nwcustomapparel.com',           Role: 'admin' },
+  { Email: 'jim@nwcustomapparel.com',            Role: 'staff' },      // normal user (basic access)
   { Email: 'bradley@nwcustomapparel.com',        Role: 'accountant' },
   { Email: 'taneisha@nwcustomapparel.com',       Role: 'sales' },
   { Email: 'nika@nwcustomapparel.com',           Role: 'sales' },
