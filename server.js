@@ -6,6 +6,12 @@ const rateLimit = require('express-rate-limit');
 const config = require('./config'); // Use unified configuration
 const { requireCrmApiSecret } = require('./src/middleware');
 
+// #9 side-door: gate WRITE methods (POST/PUT/DELETE) on a path prefix while leaving
+// GET reads public — for endpoints that mix a public read (pricing/catalog, Rule 9)
+// with staff/CLI-only writes. Mount BEFORE the route so it runs first.
+const gateWritesOnly = (req, res, next) =>
+  req.method === 'GET' ? next() : requireCrmApiSecret(req, res, next);
+
 const app = express();
 
 // Heroku places the real client IP in X-Forwarded-For. Tell Express to trust
@@ -284,6 +290,12 @@ app.use('/api', miscRoutes);
 console.log('✓ Misc routes loaded');
 
 // Pricing Routes (rate limiter is inside the router — NOT global to /api)
+// #9 side-door gate (2026-06-29): the pricing-engine WRITES (pricing-tiers,
+// embroidery-costs POST/PUT/DELETE) were public — anonymous price tampering is
+// Erik's #1 risk (wrong price). Gate writes; GET reads stay public (catalog/Quick
+// Quote/builders depend on them). No runtime write caller — admin via CLI/curl.
+app.use('/api/pricing-tiers', gateWritesOnly);
+app.use('/api/embroidery-costs', gateWritesOnly);
 const pricingRoutes = require('./src/routes/pricing');
 app.use('/api', pricingRoutes);
 console.log('✓ Pricing routes loaded (rate limited: 100 req/min)');
@@ -476,6 +488,12 @@ const writeLimiter = rateLimit({
 });
 app.use('/api/embroidery-push', writeLimiter);
 app.use('/api/files', writeLimiter);
+
+// #9 side-door gate (2026-06-29): DELETE /api/files/:externalKey could delete ANY
+// corporate art file by key. Gate DELETE only — GET (public <img src> on quote/
+// invoice pages) and POST upload (public customer stores/art intake) stay open.
+app.use('/api/files', (req, res, next) =>
+  req.method === 'DELETE' ? requireCrmApiSecret(req, res, next) : next());
 
 // File Upload Routes (Caspio Files API v3)
 const filesRoutes = require('./src/routes/files-simple');
@@ -911,6 +929,10 @@ app.use('/api', companyContacts2026Routes);
 console.log('✓ Company Contacts 2026 routes loaded');
 
 // Service Codes Routes (embroidery service codes, pricing tiers, fee structures)
+// #9 side-door gate (2026-06-29): gate WRITES (seed/update-fb/POST/PUT/DELETE) —
+// anonymous edits would change live fees (wrong price). GET reads stay public
+// (PDP/Quick Quote/cheat-sheet depend on them).
+app.use('/api/service-codes', gateWritesOnly);
 const serviceCodesRoutes = require('./src/routes/service-codes');
 app.use('/api', serviceCodesRoutes);
 console.log('✓ Service Codes routes loaded');
