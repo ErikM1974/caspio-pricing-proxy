@@ -13,6 +13,7 @@
  * invites (Email + id_Customer + Company_Name + Enabled='Yes').
  */
 'use strict';
+require('dotenv').config(); // load .env so standalone runs get Caspio creds (server.js does this at boot; scripts must too)
 const axios = require('axios');
 const config = require('../src/config');
 const { getCaspioAccessToken } = require('../src/utils/caspio');
