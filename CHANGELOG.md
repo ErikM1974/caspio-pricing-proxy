@@ -1,3 +1,8 @@
+## v2026.06.30.3 (2026.06.30)
+
+- chore(portal-p4): seed script for starter Portal_Recommendations (6 rows inserted)
+- feat(portal-p5): reward-dollars ledger route (balance/entry/ledger, append-only, overdraw-guarded) + table script
+
 ## v2026.06.30.2 (2026.06.30)
 
 - feat(portal-p4): catalog request-to-rep + recommendations route + Phase-4 table-creation script
