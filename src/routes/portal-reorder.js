@@ -132,17 +132,25 @@ router.delete('/requests/:pk', async (req, res) => {
   }
 });
 
-// GET /api/portal-reorder/recommendations — the active curated strip, sorted.
+// GET /api/portal-reorder/recommendations — the active candidate POOL (Erik-editable).
+// Returns the full active pool + margin/premium/reward metadata; the FE
+// (server.js buildRecommendations(cid)) filters out styles the customer already buys and
+// ranks per customer (4 premium / 2 popular). Blank Reward_Text = no "earn $X" pill.
 router.get('/recommendations', async (req, res) => {
   try {
     const rows = await fetchAllCaspioPages('/tables/Portal_Recommendations/records', {
       'q.where': "Active='Yes'",
-      'q.select': 'Featured_Style,Color,Title,Blurb,Category,Sort',
+      'q.select': 'Featured_Style,Color,Title,Blurb,Category,Sort,Brand,GP_Pct,Sell_Anchor,Is_Premium,Priority,Reward_Text',
       'q.pageSize': 100,
     });
     const recs = (rows || [])
       .sort((a, b) => (Number(a.Sort) || 999) - (Number(b.Sort) || 999))
-      .map(r => ({ style: r.Featured_Style, color: r.Color || '', title: r.Title || '', blurb: r.Blurb || '', category: r.Category || '' }));
+      .map(r => ({
+        style: r.Featured_Style, color: r.Color || '', title: r.Title || '', blurb: r.Blurb || '', category: r.Category || '',
+        brand: r.Brand || '', gpPct: Number(r.GP_Pct) || 0, sellAnchor: Number(r.Sell_Anchor) || 0,
+        isPremium: String(r.Is_Premium || '').toLowerCase() === 'yes', priority: Number(r.Priority) || 999,
+        rewardText: r.Reward_Text || '',
+      }));
     res.json({ recommendations: recs });
   } catch (e) {
     console.error('[portal-reorder] recommendations failed:', e.message);
