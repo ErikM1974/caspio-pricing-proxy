@@ -1,3 +1,7 @@
+## v2026.07.01.1 (2026-07-01)
+
+- feat(portal-recs): candidate-pool columns on GET /recommendations for per-customer ranking
+
 ## v2026.06.30.3 (2026.06.30)
 
 - chore(portal-p4): seed script for starter Portal_Recommendations (6 rows inserted)
