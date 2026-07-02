@@ -57,8 +57,8 @@ const ROWS = [
 
 ROWS.forEach((r) => { if (!r.Image_URL) r.Image_URL = EMB_IMG; });  // default embroidery-pitch image on every row
 
-const enc = (s) => encodeURIComponent(String(s).replace(/'/g, "''"));
-const whereFor = (r) => enc(`Category='${r.Category}' AND Upgrade_Style='${r.Upgrade_Style}'`);
+const escVal = (s) => String(s == null ? '' : s).replace(/'/g, "''");  // escape quotes INSIDE a value only
+const whereFor = (r) => encodeURIComponent(`Category='${escVal(r.Category)}' AND Upgrade_Style='${escVal(r.Upgrade_Style)}'`);
 
 async function main() {
   const token = await getCaspioAccessToken();
