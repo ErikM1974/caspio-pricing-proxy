@@ -479,6 +479,11 @@ const customerRewardsRoutes = require('./src/routes/customer-rewards');
 app.use('/api/customer-rewards', requireCrmApiSecret, customerRewardsRoutes);
 console.log('✓ Customer Rewards ledger routes loaded (reward dollars) [CRM-gated]');
 
+// Customer Portal Phase C — Erik-editable good/better/best upgrade ladder by category.
+const productUpgradesRoutes = require('./src/routes/product-upgrades');
+app.use('/api/product-upgrades', requireCrmApiSecret, productUpgradesRoutes);
+console.log('✓ Product Upgrades routes loaded (curated upgrade ladder by category) [CRM-gated]');
+
 // SanMar Style Performance 10yr — backed by Caspio table
 // Sanmar_Style_Performance_10yr_26 (one row per SanMar STYLE with 10yr units,
 // revenue, margin, top colors, customer types, paired-with). Powers the bot's
