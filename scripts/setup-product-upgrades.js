@@ -36,9 +36,14 @@ const COLUMNS = [
   { Name: 'Sell_Anchor', Type: 'STRING' },       // INTERNAL margin $ rank (never shown)
   { Name: 'GP_Pct', Type: 'STRING' },            // INTERNAL gross-profit % rank (never shown)
   { Name: 'Blurb', Type: 'STRING' },
+  { Name: 'Image_URL', Type: 'STRING' },         // "upgrade to embroidery" pitch image (Erik-editable)
   { Name: 'Active', Type: 'STRING' },            // Yes | No
   { Name: 'Sort', Type: 'STRING' },
 ];
+
+// Default "get them thinking about embroidery" image — real embroidered caps at the machine
+// (Erik-supplied, 2026-07-01). Erik can swap it per row in Caspio (e.g. a polo/tee embroidery shot).
+const EMB_IMG = 'https://c3eku948.caspio.com/dp/a0e150004df4984fb1ef4d30b01a/files/9444312';
 
 // Starter ladder — categories verified against live product-details CATEGORY_NAME (2026-07-01).
 const ROWS = [
@@ -49,6 +54,8 @@ const ROWS = [
   { Category: 'Sweatshirts/Fleece', From_Style: '', Tier: 'Best', Upgrade_Style: 'CTK121', Upgrade_Title: 'Carhartt Midweight Hoodie', Default_Stitch: '8000', Default_Location: 'Left Chest', Sell_Anchor: '69', GP_Pct: '50', Blurb: 'The Carhartt name plus your embroidered logo — a hoodie crews are proud to wear.', Active: 'Yes', Sort: '2' },
   { Category: 'Outerwear', From_Style: '', Tier: 'Best', Upgrade_Style: 'CT104670', Upgrade_Title: 'Carhartt Storm Defender Jacket', Default_Stitch: '8000', Default_Location: 'Left Chest', Sell_Anchor: '160', GP_Pct: '45', Blurb: 'Waterproof, rugged, and premium — the jacket that makes your brand look serious.', Active: 'Yes', Sort: '1' },
 ];
+
+ROWS.forEach((r) => { if (!r.Image_URL) r.Image_URL = EMB_IMG; });  // default embroidery-pitch image on every row
 
 const enc = (s) => encodeURIComponent(String(s).replace(/'/g, "''"));
 const whereFor = (r) => enc(`Category='${r.Category}' AND Upgrade_Style='${r.Upgrade_Style}'`);

@@ -16,7 +16,7 @@ const axios = require('axios');
 
 const BASE = config.caspio.apiBaseUrl;
 const TABLE = 'Product_Upgrades';
-const FIELDS = ['Category', 'From_Style', 'Tier', 'Upgrade_Style', 'Upgrade_Title', 'Default_Stitch', 'Default_Location', 'Sell_Anchor', 'GP_Pct', 'Blurb', 'Active', 'Sort'];
+const FIELDS = ['Category', 'From_Style', 'Tier', 'Upgrade_Style', 'Upgrade_Title', 'Default_Stitch', 'Default_Location', 'Sell_Anchor', 'GP_Pct', 'Blurb', 'Image_URL', 'Active', 'Sort'];
 
 function sanitizePk(v) { const s = String(v == null ? '' : v).trim(); return /^\d+$/.test(s) ? s : null; }
 async function authHeaders() { const t = await getCaspioAccessToken(); return { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' }; }
@@ -28,7 +28,7 @@ function project(r) {
   return {
     pk: r.PK_ID, category: r.Category, fromStyle: r.From_Style || '', tier: r.Tier || '',
     style: r.Upgrade_Style, title: r.Upgrade_Title || '', stitch: Number(r.Default_Stitch) || 8000,
-    location: r.Default_Location || 'Left Chest', blurb: r.Blurb || '', sort: Number(r.Sort) || 0,
+    location: r.Default_Location || 'Left Chest', blurb: r.Blurb || '', image: r.Image_URL || '', sort: Number(r.Sort) || 0,
     active: isYes(r.Active),
   };
 }
