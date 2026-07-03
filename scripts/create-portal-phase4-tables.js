@@ -49,6 +49,7 @@ const TABLES = [
       { Name: 'Design_Name',    Type: 'STRING' },
       { Name: 'Qty',            Type: 'STRING' }, // requested quantity
       { Name: 'Size_Breakdown', Type: 'STRING' }, // e.g. "S:2, M:4, L:6"
+      { Name: 'Method',         Type: 'STRING' }, // decoration method (Embroidery/Screen Print/DTG/DTF), defaulted from ORDER_ODBC.ORDER_TYPE
       { Name: 'Note',           Type: 'STRING' }, // customer note ("same as last time")
       { Name: 'Rep',            Type: 'STRING' }, // assigned CustomerServiceRep (from Sales_Reps_2026)
       { Name: 'Source',         Type: 'STRING' }, // 'reorder' | 'recommendation'

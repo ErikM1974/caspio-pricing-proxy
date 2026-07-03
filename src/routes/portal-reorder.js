@@ -59,6 +59,7 @@ router.post('/request', express.json(), async (req, res) => {
     Design_Name: clean(b.design_name),
     Qty: clean(b.qty, 30),
     Size_Breakdown: clean(b.size_breakdown),
+    Method: clean(b.method, 30),   // decoration method (Embroidery/Screen Print/DTG/DTF), defaulted from ORDER_ODBC history
     Note: clean(b.note),
     Rep: clean(rep, 80),
     Source: source,
@@ -72,7 +73,7 @@ router.post('/request', express.json(), async (req, res) => {
     const hook = process.env.SLACK_PORTAL_REQUESTS_WEBHOOK_URL || process.env.SLACK_SALES_WEBHOOK_URL;
     if (hook) {
       const txt = `🛒 *Portal re-order request* — ${row.Company_Name} (#${idCustomer})\n`
-        + `*${row.Style}* ${row.Color}${row.Design_Number ? ` · Design #${row.Design_Number}` : ''} · qty ${row.Qty || '?'}\n`
+        + `*${row.Style}* ${row.Color}${row.Method ? ` · ${row.Method}` : ''}${row.Design_Number ? ` · Design #${row.Design_Number}` : ''} · qty ${row.Qty || '?'}\n`
         + `Rep: ${row.Rep || '(unassigned)'} · ${row.Email}${row.Note ? `\nNote: ${row.Note}` : ''}`;
       axios.post(hook, { text: txt }).catch(() => {});
     }
