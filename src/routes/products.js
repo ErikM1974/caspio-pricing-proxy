@@ -64,7 +64,7 @@ router.get('/product-details', async (req, res) => {
     // consumers ignore unknown fields, so no regression risk.
     const selectFields = [
       'STYLE', 'PRODUCT_TITLE', 'PRODUCT_DESCRIPTION', 'COLOR_NAME', 'CATALOG_COLOR',
-      'BRAND_NAME', 'FRONT_MODEL', 'BACK_MODEL', 'FRONT_FLAT', 'BACK_FLAT',
+      'BRAND_NAME', 'FRONT_MODEL', 'BACK_MODEL', 'SIDE_MODEL', 'FRONT_FLAT', 'BACK_FLAT',
       'PIECE_PRICE', 'DOZEN_PRICE', 'CASE_PRICE',
       'CATEGORY_NAME', 'SUBCATEGORY_NAME', 'PRODUCT_STATUS',
       'PRODUCT_IMAGE', 'COLOR_SQUARE_IMAGE',
