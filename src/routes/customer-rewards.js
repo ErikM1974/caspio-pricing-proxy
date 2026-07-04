@@ -65,6 +65,12 @@ router.post('/entry', express.json(), async (req, res) => {
   if (type === 'redeem') amt = -Math.abs(amt);
   try {
     if (amt < 0) {
+      // Overdraw guard. NOTE (accepted TOCTOU): read-balance-then-insert is not
+      // atomic — two concurrent redeems could both pass. This is intentionally left
+      // as a low-risk race because reward writes are STAFF-only via the admin console
+      // (low concurrency, one operator per customer) and Caspio offers no transaction.
+      // If reward writes ever become customer-facing/high-concurrency, serialize per
+      // id_Customer (e.g. a short-lived lock) before removing this note.
       const bal = balanceOf(await ledgerFor(cid));
       if (bal + amt < -0.001) return res.status(400).json({ error: `That exceeds the balance ($${bal.toFixed(2)} available).` });
     }

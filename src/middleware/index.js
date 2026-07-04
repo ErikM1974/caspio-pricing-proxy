@@ -1,8 +1,19 @@
 // Middleware for the Caspio Pricing Proxy
 
 const express = require('express');
+const crypto = require('crypto');
 const { isOriginAllowed } = require('../utils/cors-allowlist');
 const { URL } = require('url');
+
+// Constant-time secret comparison — avoids the timing side-channel of `a !== b`.
+// Length guard first (timingSafeEqual throws on unequal lengths).
+function secretsMatch(provided, expected) {
+  if (!provided || !expected) return false;
+  const a = Buffer.from(String(provided));
+  const b = Buffer.from(String(expected));
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
 
 // CORS Middleware — uses the shared allowlist (see src/utils/cors-allowlist.js).
 // NOTE: server.js applies its own inline CORS middleware on the live path; this
@@ -39,7 +50,7 @@ const requireCrmApiSecret = (req, res, next) => {
     return res.status(500).json({ error: 'Server configuration error' });
   }
 
-  if (!providedSecret || providedSecret !== expectedSecret) {
+  if (!secretsMatch(providedSecret, expectedSecret)) {
     console.warn('[CRM Auth] Unauthorized access attempt to CRM endpoint:', req.originalUrl);
     return res.status(401).json({ error: 'Unauthorized' });
   }
