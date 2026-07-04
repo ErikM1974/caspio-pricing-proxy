@@ -84,6 +84,58 @@ router.post('/request', express.json(), async (req, res) => {
   }
 });
 
+// POST /api/portal-reorder/batch — a multi-item "Re-order List". Each item becomes its own
+// Portal_Reorder_Requests row sharing ONE Batch_Num (RB-YYYYMMDD-HHMMSS) so the rep sees them
+// grouped. Same customer-safe fields as /request (NO price/payment). One Slack ping per batch.
+router.post('/batch', express.json(), async (req, res) => {
+  const b = req.body || {};
+  const idCustomer = digits(b.id_Customer);
+  if (!idCustomer) return res.status(400).json({ error: 'numeric id_Customer required' });
+  const items = (Array.isArray(b.items) ? b.items : []).filter(it => it && String(it.style || '').trim());
+  if (!items.length) return res.status(400).json({ error: 'at least one item with a style required' });
+  if (items.length > 30) return res.status(400).json({ error: 'too many items (max 30)' });
+  const rep = await repForCustomer(idCustomer);
+  const stamp = nowStamp();
+  const batchNum = stamp.requestNum.replace(/^RR-/, 'RB-');
+  const note = clean(b.note);
+  const rows = items.map((it, i) => ({
+    Request_Num: `${batchNum}-${i + 1}`,
+    Batch_Num: batchNum,
+    id_Customer: idCustomer,
+    Company_Name: clean(b.company_name),
+    Email: clean(b.email),
+    Style: clean(it.style, 50),
+    Color: clean(it.color, 80),
+    Product_Title: clean(it.product_title),
+    Design_Number: clean(it.design_number, 50),
+    Design_Name: clean(it.design_name),
+    Qty: clean(it.qty, 30),
+    Size_Breakdown: clean(it.size_breakdown),
+    Method: clean(it.method, 30),
+    Note: note,
+    Rep: clean(rep, 80),
+    Source: 'reorder-list',
+    Status: 'New',
+    Created: stamp.iso,
+  }));
+  try {
+    const headers = await authHeaders();
+    // Caspio inserts one record per POST — fan out in parallel; any failure fails the batch.
+    await Promise.all(rows.map(row => axios.post(`${BASE}/tables/Portal_Reorder_Requests/records`, row, { headers })));
+    const hook = process.env.SLACK_PORTAL_REQUESTS_WEBHOOK_URL || process.env.SLACK_SALES_WEBHOOK_URL;
+    if (hook) {
+      const lines = rows.map(r => `• *${r.Style}* ${r.Color}${r.Method ? ` · ${r.Method}` : ''} · qty ${r.Qty || '?'}`).join('\n');
+      const txt = `🧾 *Portal re-order LIST* (${rows.length} item${rows.length === 1 ? '' : 's'}) — ${rows[0].Company_Name} (#${idCustomer}) · Batch ${batchNum}\n`
+        + `${lines}\nRep: ${rows[0].Rep || '(unassigned)'} · ${rows[0].Email}${note ? `\nNote: ${note}` : ''}`;
+      axios.post(hook, { text: txt }).catch(() => {});
+    }
+    res.json({ success: true, batchNum, count: rows.length, rep });
+  } catch (e) {
+    console.error('[portal-reorder] batch create failed:', e.response ? JSON.stringify(e.response.data) : e.message);
+    res.status(502).json({ error: 'batch create failed', detail: e.response ? e.response.data : e.message });
+  }
+});
+
 // GET /api/portal-reorder/requests?rep=&status=&id_Customer= — list (rep queue / customer's own).
 router.get('/requests', async (req, res) => {
   const where = [];
