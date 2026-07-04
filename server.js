@@ -621,16 +621,21 @@ const manageOrdersLimiter = rateLimit({
   skip: (req) => !req.path.startsWith('/manageorders/')
 });
 // SECURITY (2026-07-04): the order/lineitem READ paths return customer PII
-// (contact, PO#, totals, balances) keyed by small sequential integer ids.
-// TIGHTENED to SECRET-ONLY (was secret-or-origin) now that all browser staff
-// callers route through the main app's SAML-authed /api/mo/* forwarder (which
-// sends the secret). This removes the origin-spoof residual: only a
-// secret-bearing server-to-server caller can read orders/lineitems. Browser
-// pages that hit these paths directly (fallback / session-less views) now get
-// 401 — which is the intended behavior (order PII requires auth). Writes
-// (/orders/create) and push routes are untouched — the gate is GET-only.
-app.use('/api/manageorders/orders', guardReadsOnly(requireCrmApiSecret));
-app.use('/api/manageorders/lineitems', guardReadsOnly(requireCrmApiSecret));
+// (contact, PO#, totals, balances) keyed by small sequential integer ids, so
+// anonymous enumeration was possible. Gate GET reads behind secret-or-browser-
+// origin: the portal (server-to-server) sends the secret, browser staff pages
+// carry an allowlisted Origin, bare curl is blocked. Writes (/orders/create) and
+// the push routes are untouched — the gate is GET-only.
+//
+// NOTE (2026-07-04): a secret-ONLY tightening was briefly deployed (v878) to close
+// the origin-spoof residual, but REVERTED after a live browser test found direct
+// callers that were never repointed through the /api/mo/* forwarder (staff sales
+// dashboard via dashboard-endpoints.js, monogram-form-service, work-order-picker,
+// staff-dashboard-service). Secret-only requires EVERY manageorders browser caller
+// to first route through /api/mo/* AND be browser-verified — a supervised effort,
+// not a headless flip. Until then this stays secret-OR-origin (anon still blocked).
+app.use('/api/manageorders/orders', guardReadsOnly(requireCrmSecretOrBrowserOrigin));
+app.use('/api/manageorders/lineitems', guardReadsOnly(requireCrmSecretOrBrowserOrigin));
 const manageOrdersRoutes = require('./src/routes/manageorders');
 app.use('/api', manageOrdersLimiter, manageOrdersRoutes);
 console.log('✓ ManageOrders routes loaded (rate limited: 30 req/min, PII reads gated)');
