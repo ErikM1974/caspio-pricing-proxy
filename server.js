@@ -4,7 +4,7 @@ const express = require('express');
 const axios = require('axios');
 const rateLimit = require('express-rate-limit');
 const config = require('./config'); // Use unified configuration
-const { requireCrmApiSecret } = require('./src/middleware');
+const { requireCrmApiSecret, requireCrmSecretOrBrowserOrigin, guardReadsOnly } = require('./src/middleware');
 
 // #9 side-door: gate WRITE methods (POST/PUT/DELETE) on a path prefix while leaving
 // GET reads public — for endpoints that mix a public read (pricing/catalog, Rule 9)
@@ -394,8 +394,13 @@ const artWriteLimiter = rateLimit({
   message: { error: 'Too many requests — please slow down and try again shortly.' }
 });
 const artWriteOnly = (req, res, next) => (req.method === 'GET' ? next() : artWriteLimiter(req, res, next));
-app.use('/api/artrequests', artWriteOnly);
-app.use('/api/art-requests', artWriteOnly);
+// SECURITY (2026-07-04): raw art rows carry internal fields (Art_Minutes,
+// Amount_Art_Billed, AE/Artist notes, Box_Folder_ID). The portal strips these
+// on its own path, but a direct GET returned them unfiltered. Gate GET reads
+// behind secret-or-browser-origin (portal sends the secret via portalProxyGet;
+// browser staff/customer pages carry an allowlisted Origin; bare curl blocked).
+app.use('/api/artrequests', guardReadsOnly(requireCrmSecretOrBrowserOrigin), artWriteOnly);
+app.use('/api/art-requests', guardReadsOnly(requireCrmSecretOrBrowserOrigin), artWriteOnly);
 const artRoutes = require('./src/routes/art');
 app.use('/api', artRoutes);
 console.log('✓ Art routes loaded');
@@ -535,6 +540,12 @@ app.use('/api/files', writeLimiter);
 app.use('/api/files', (req, res, next) =>
   req.method === 'DELETE' ? requireCrmApiSecret(req, res, next) : next());
 
+// SECURITY (2026-07-04): import-from-url fetches arbitrary URLs server-side (SSRF
+// surface — redirect hops are now re-validated in files-simple.js). It was
+// anonymous; gate it behind secret-or-browser-origin so only the garment/Send-to-
+// Steve flows (which carry an allowlisted Origin) or server callers can invoke it.
+app.use('/api/files/import-from-url', requireCrmSecretOrBrowserOrigin);
+
 // File Upload Routes (Caspio Files API v3)
 const filesRoutes = require('./src/routes/files-simple');
 app.use('/api', filesRoutes);
@@ -546,7 +557,10 @@ app.use('/api', boxUploadRoutes);
 console.log('✓ Box upload routes loaded');
 
 // Digitizing Mockup Routes (Ruth's mockup workflow)
+// SECURITY (2026-07-04): mockup GET reads carry the same internal fields as art
+// rows; gate reads behind secret-or-browser-origin (writes untouched).
 const mockupRoutes = require('./src/routes/mockup-routes');
+app.use('/api/mockups', guardReadsOnly(requireCrmSecretOrBrowserOrigin));
 app.use('/api', mockupRoutes);
 console.log('✓ Digitizing Mockup routes loaded');
 
@@ -606,9 +620,17 @@ const manageOrdersLimiter = rateLimit({
   // Only count actual /manageorders/* requests, not all /api/* traffic
   skip: (req) => !req.path.startsWith('/manageorders/')
 });
+// SECURITY (2026-07-04): the order/lineitem READ paths return customer PII
+// (contact, PO#, totals, balances) keyed by small sequential integer ids, so
+// anonymous enumeration was possible. Gate GET reads behind secret-or-browser-
+// origin: the portal (server-to-server) sends the secret, browser staff pages
+// carry an allowlisted Origin, bare curl is blocked. Writes (/orders/create) and
+// the push routes are untouched — the gate is GET-only.
+app.use('/api/manageorders/orders', guardReadsOnly(requireCrmSecretOrBrowserOrigin));
+app.use('/api/manageorders/lineitems', guardReadsOnly(requireCrmSecretOrBrowserOrigin));
 const manageOrdersRoutes = require('./src/routes/manageorders');
 app.use('/api', manageOrdersLimiter, manageOrdersRoutes);
-console.log('✓ ManageOrders routes loaded (rate limited: 30 req/min)');
+console.log('✓ ManageOrders routes loaded (rate limited: 30 req/min, PII reads gated)');
 
 // PC54 Optimized Inventory routes (aggregated multi-SKU queries)
 const pc54InventoryRoutes = require('./src/routes/pc54-inventory');
@@ -687,8 +709,10 @@ app.use('/api/sanmar-invoices', sanmarLimiter, sanmarInvoiceRoutes);
 console.log('✓ SanMar Invoice routes loaded (invoices, unpaid, cost data)');
 
 // UPS Tracking Routes (live delivery dates by tracking number — OAuth client-credentials → Track API)
+// SECURITY (2026-07-04): tracking reads spend the UPS OAuth quota and expose
+// inbound-shipment summaries; gate reads behind secret-or-browser-origin.
 const upsTrackingRoutes = require('./src/routes/ups-tracking');
-app.use('/api/ups-tracking', sanmarLimiter, upsTrackingRoutes);
+app.use('/api/ups-tracking', sanmarLimiter, guardReadsOnly(requireCrmSecretOrBrowserOrigin), upsTrackingRoutes);
 console.log('✓ UPS Tracking routes loaded (live delivery dates by tracking number)');
 
 // SanMar Shipment Notification Routes (box-level shipment data for Box Labels)

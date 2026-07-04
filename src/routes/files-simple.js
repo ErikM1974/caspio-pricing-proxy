@@ -287,7 +287,20 @@ router.post('/files/import-from-url', express.json({ limit: '1mb' }), async (req
                 responseType: 'arraybuffer',
                 timeout: 30000,
                 maxContentLength: 20 * 1024 * 1024,
-                maxBodyLength: 20 * 1024 * 1024
+                maxBodyLength: 20 * 1024 * 1024,
+                maxRedirects: 5,
+                // SSRF: the allowlist check above only covers the INITIAL url. An
+                // approved host could still 302 us onto an internal/metadata
+                // address, so re-validate every redirect hop and abort if it
+                // leaves the artwork allowlist. (Non-breaking for legit Box/Caspio
+                // signed-URL redirects, which stay within approved hosts.)
+                beforeRedirect: (options) => {
+                    if (!/^https?:$/.test(options.protocol) || !isAllowedArtworkHost(options.hostname)) {
+                        const e = new Error(`Refusing to follow redirect to unapproved host: ${options.hostname}`);
+                        e.code = 'REDIRECT_BLOCKED';
+                        throw e;
+                    }
+                }
             });
         } catch (err) {
             const status = err.response && err.response.status;
