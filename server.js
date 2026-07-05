@@ -484,6 +484,13 @@ const customerRewardsRoutes = require('./src/routes/customer-rewards');
 app.use('/api/customer-rewards', requireCrmApiSecret, customerRewardsRoutes);
 console.log('✓ Customer Rewards ledger routes loaded (reward dollars) [CRM-gated]');
 
+// Storefront Checkout Phase 1 (2026-07-05) — Order_Payments append-only ledger
+// (online quote deposit/balance payments; written by the main app's Stripe
+// webhook, mirrored from quote_sessions Notes JSON).
+const orderPaymentsRoutes = require('./src/routes/order-payments');
+app.use('/api/order-payments', requireCrmApiSecret, orderPaymentsRoutes);
+console.log('✓ Order Payments ledger routes loaded (quote deposits/balances) [CRM-gated]');
+
 // Customer Portal Phase C — Erik-editable good/better/best upgrade ladder by category.
 const productUpgradesRoutes = require('./src/routes/product-upgrades');
 app.use('/api/product-upgrades', requireCrmApiSecret, productUpgradesRoutes);
