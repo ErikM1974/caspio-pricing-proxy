@@ -631,11 +631,18 @@ const manageOrdersLimiter = rateLimit({
 // the origin-spoof residual, but REVERTED after a live browser test found direct
 // callers that were never repointed through the /api/mo/* forwarder (staff sales
 // dashboard via dashboard-endpoints.js, monogram-form-service, work-order-picker,
-// staff-dashboard-service). Secret-only requires EVERY manageorders browser caller
-// to first route through /api/mo/* AND be browser-verified — a supervised effort,
-// not a headless flip. Until then this stays secret-OR-origin (anon still blocked).
-app.use('/api/manageorders/orders', guardReadsOnly(requireCrmSecretOrBrowserOrigin));
-app.use('/api/manageorders/lineitems', guardReadsOnly(requireCrmSecretOrBrowserOrigin));
+// staff-dashboard-service).
+//
+// 2026-07-05: secret-ONLY re-applied after a full caller audit confirmed EVERY
+// browser caller now routes through the main app's SAML-authed /api/mo/* forwarder
+// FIRST (which sends X-CRM-API-Secret): staff-dashboard-service.js (orders :215,
+// lineitems :1010), dashboard-endpoints.js + shopworks-service.js (v3), and
+// work-order-picker.js + monogram-form-service.js (/api/mo first, proxy fallback).
+// Server-to-server portal calls send the secret. This closes the Origin-spoof
+// residual — a spoofed Origin header no longer grants PII. Writes (/orders/create)
+// and push routes stay untouched: guardReadsOnly only gates GET/HEAD.
+app.use('/api/manageorders/orders', guardReadsOnly(requireCrmApiSecret));
+app.use('/api/manageorders/lineitems', guardReadsOnly(requireCrmApiSecret));
 const manageOrdersRoutes = require('./src/routes/manageorders');
 app.use('/api', manageOrdersLimiter, manageOrdersRoutes);
 console.log('✓ ManageOrders routes loaded (rate limited: 30 req/min, PII reads gated)');
