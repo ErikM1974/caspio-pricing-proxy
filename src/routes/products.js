@@ -501,9 +501,10 @@ router.get('/products/search', async (req, res) => {
       whereConditions.push(`PIECE_PRICE <= ${parseFloat(maxPrice)}`);
     }
 
-    // Top seller filter
+    // Top seller filter — Caspio rejects `IsTopSeller=true` (400); the
+    // Yes/No field filters as =1, same as the /products/top-sellers endpoint
     if (isTopSeller === 'true') {
-      whereConditions.push(`IsTopSeller=true`);
+      whereConditions.push(`IsTopSeller=1`);
     }
 
     // Build final WHERE clause
