@@ -7,7 +7,7 @@
 //   2. Check in-memory cache (keyed by ZIP, 24h TTL)
 //   3. Call WA DOR API → parse rate
 //   4. Match rate to Caspio tax account
-//   5. Fallback to default WA account 2200 (10.1%) if DOR fails
+//   5. Fallback to default WA account 2200 (10.2% as of 2026-07) if DOR fails
 
 const express = require('express');
 const router = express.Router();
@@ -194,7 +194,7 @@ async function callDorApi(addr, city, zip) {
         // positive rate regardless of ResultCode.
         // Bug fix 2026-06-03: ResultCode 2 was wrongly treated as an error and the
         // correct rate discarded — e.g. Bellevue 98004 returned Rate=.103 ResultCode=2
-        // but the endpoint fell back to the default 10.1% (the WRONG rate).
+        // but the endpoint fell back to the default 10.2% (the WRONG rate for that address).
         if (!(rate > 0)) {
             console.warn(`[Tax Rates] DOR returned no usable rate (rate=${rate}, resultCode=${resultCode})`);
             return null;
@@ -555,8 +555,8 @@ router.post('/tax-rates/lookup', async (req, res) => {
         }
     }
 
-    // Step 4b: DOR failed → fallback to default WA rate
-    console.warn('[Tax Rates] DOR API failed, using default WA rate 10.1%');
+    // Step 4b: DOR failed → fallback to default WA rate (Milton 10.2% — DOR-verified 2026-07-06; update BOTH objects below when Milton changes)
+    console.warn('[Tax Rates] DOR API failed, using default WA rate 10.2%');
 
     try {
         const accounts = await fetchTaxAccounts();
@@ -564,8 +564,8 @@ router.post('/tax-rates/lookup', async (req, res) => {
 
         return res.json({
             success: true,
-            rate: 0.101,
-            taxRate: 10.1,
+            rate: 0.102,
+            taxRate: 10.2,
             account: '2200',
             accountName: defaultAccount ? defaultAccount.Account_Name : 'WA Sales Tax',
             fallback: true,
@@ -576,8 +576,8 @@ router.post('/tax-rates/lookup', async (req, res) => {
         // Everything is down — return hardcoded default
         return res.json({
             success: true,
-            rate: 0.101,
-            taxRate: 10.1,
+            rate: 0.102,
+            taxRate: 10.2,
             account: '2200',
             accountName: 'WA Sales Tax',
             fallback: true,
