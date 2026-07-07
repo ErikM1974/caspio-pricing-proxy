@@ -899,10 +899,21 @@ router.get('/products/search', async (req, res) => {
       if (!skipNonSanmar) {
         const nsRows = await getNonSanmarCatalogRows();
         const matched = nsRows.filter((r) => nonSanmarMatches(r, { q, category, brand }));
-        nonSanmarCount = matched.length;
-        if (pageNum === 1 && matched.length) {
-          products = products.concat(matched.map((r) => nonSanmarToProduct(r, decoratedPricingConfig)));
-          console.log(`[products/search] merged ${matched.length} non-SanMar product(s) onto page 1`);
+        // BROWSE CAP (Erik 2026-07-06): ~30 Richardson caps flooded the Caps
+        // category page 1 — category/bare browses append at most 8 non-SanMar
+        // items. An explicit hunt (search text or a brand filter) shows ALL
+        // matches. Totals count only what's shown (pagination stays honest);
+        // the capped-out remainder is logged, never silently vanished.
+        const NS_BROWSE_CAP = 8;
+        const explicitHunt = !!(q || asArrayParam(brand).length);
+        const visible = explicitHunt ? matched : matched.slice(0, NS_BROWSE_CAP);
+        if (matched.length > visible.length) {
+          console.log(`[products/search] non-SanMar browse cap: showing ${visible.length}/${matched.length} (search or brand filter shows all)`);
+        }
+        nonSanmarCount = visible.length;
+        if (pageNum === 1 && visible.length) {
+          products = products.concat(visible.map((r) => nonSanmarToProduct(r, decoratedPricingConfig)));
+          console.log(`[products/search] merged ${visible.length} non-SanMar product(s) onto page 1`);
         }
       }
     } catch (nsErr) {
