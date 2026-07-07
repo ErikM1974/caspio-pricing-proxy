@@ -28,7 +28,7 @@ const axios = require('axios');
 
 const BASE = config.caspio.apiBaseUrl;
 const TABLE = 'Order_Payments';
-const TYPES = ['deposit', 'balance', 'refund'];
+const TYPES = ['deposit', 'balance', 'refund', 'order', 'samples-order']; // order/samples-order: storefront + paid-sample webhook mirrors (2026-07-06)
 
 function num(v) { const n = Number(v); return isFinite(n) ? n : null; }
 function clean(v, n) { return String(v == null ? '' : v).slice(0, n || 255); }

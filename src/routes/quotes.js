@@ -428,6 +428,19 @@ router.get('/quote_sessions', async (req, res) => {
       whereConditions.push(`Status='${sanitizedStatus}'`);
     }
 
+    // createdAfter=YYYY-MM-DD — recent-activity window for the staff-dashboard
+    // Orders Inbox (2026-07-06). Strict date shape only; anything else 400s.
+    if (req.query.createdAfter) {
+      const createdAfter = String(req.query.createdAfter).trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(createdAfter)) {
+        return res.status(400).json({
+          error: 'Invalid createdAfter parameter',
+          hint: 'Expected YYYY-MM-DD'
+        });
+      }
+      whereConditions.push(`CreatedAt>'${createdAfter}'`);
+    }
+
     // Warn if no filters
     if (whereConditions.length === 0) {
       console.warn('WARNING: No filters provided to /api/quote_sessions - returning all records');

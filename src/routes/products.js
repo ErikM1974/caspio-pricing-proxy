@@ -87,6 +87,41 @@ router.get('/product-details', async (req, res) => {
     }
 
     if (records.length === 0) {
+      // Non-SanMar fallback (2026-07-06): styles reps added via the Product
+      // Manager live in Non_SanMar_Products — synthesize SanMar-shaped rows
+      // (one per color) so the PDP renders name/brand/image/colors. Decoration
+      // pricing bundles won't resolve for these styles; the PDP already fails
+      // that visibly ("pricing unavailable — call us"), which is the honest v1.
+      try {
+        const nsRows = await fetchAllCaspioPages('/tables/Non_SanMar_Products/records', {
+          'q.where': `StyleNumber='${String(styleNumber).replace(/'/g, '')}' AND IsActive=1`
+        });
+        const ns = nsRows && nsRows[0];
+        if (ns) {
+          const colorsList = String(ns.DefaultColors || '').split(',').map((c) => c.trim()).filter(Boolean);
+          const synth = (colorsList.length ? colorsList : ['As shown']).map((colorName) => ({
+            STYLE: ns.StyleNumber,
+            PRODUCT_TITLE: ns.ProductName || ns.StyleNumber,
+            PRODUCT_DESCRIPTION: ns.Notes || '',
+            COLOR_NAME: colorName,
+            CATALOG_COLOR: colorName,
+            BRAND_NAME: ns.Brand || '',
+            FRONT_MODEL: ns.ImageURL || '',
+            BACK_MODEL: '', SIDE_MODEL: '', FRONT_FLAT: '', BACK_FLAT: '',
+            PIECE_PRICE: parseFloat(ns.DefaultCost) || null,
+            DOZEN_PRICE: null, CASE_PRICE: parseFloat(ns.DefaultCost) || null,
+            CATEGORY_NAME: ns.Category || '', SUBCATEGORY_NAME: '',
+            PRODUCT_STATUS: 'Active',
+            PRODUCT_IMAGE: ns.ImageURL || '',
+            COLOR_SQUARE_IMAGE: '',
+            COMPANION_STYLES: '', PMS_COLOR: '', KEYWORDS: ''
+          }));
+          console.log(`Product details for ${styleNumber}: served from Non_SanMar_Products (${synth.length} synthesized row(s))`);
+          return res.json(synth);
+        }
+      } catch (nsErr) {
+        console.warn(`Non-SanMar product-details fallback failed for ${styleNumber}:`, nsErr.message);
+      }
       return res.status(404).json({ error: 'Product not found' });
     }
 
@@ -404,6 +439,90 @@ router.get('/featured-products', async (req, res) => {
 });
 
 // GET /api/products/search - Enhanced catalog search endpoint
+// ── Non-SanMar catalog merge (2026-07-06, Erik) ────────────────────────────
+// Products reps add via the Non_SanMar_Products table (staff Product Manager
+// dashboard) surface in /catalog alongside SanMar goods. The table is small
+// (tens of rows) → one 5-min-cached full fetch, filtered in JS per request,
+// appended to PAGE 1 after the SanMar relevance results (totals include them
+// on every page so pagination stays stable). Conservative exclusions: any
+// color/size/price filter or isTopSeller=true skips non-SanMar rows entirely
+// (those attributes aren't faithfully filterable on this table).
+let _nonSanmarCatalogCache = { at: 0, rows: null };
+async function getNonSanmarCatalogRows() {
+  if (_nonSanmarCatalogCache.rows && Date.now() - _nonSanmarCatalogCache.at < 5 * 60 * 1000) {
+    return _nonSanmarCatalogCache.rows;
+  }
+  const rows = await fetchAllCaspioPages('/tables/Non_SanMar_Products/records', {
+    'q.where': 'IsActive=1'   // Yes/No fields filter as =1, never =true (2026-07-06 lesson)
+  });
+  _nonSanmarCatalogCache = { at: Date.now(), rows: rows || [] };
+  return _nonSanmarCatalogCache.rows;
+}
+
+function asArrayParam(v) {
+  return v == null ? [] : (Array.isArray(v) ? v : [v]);
+}
+
+function nonSanmarMatches(row, { q, category, brand }) {
+  const cats = asArrayParam(category).map((c) => String(c).toLowerCase());
+  const brands = asArrayParam(brand).map((b) => String(b).toLowerCase());
+  if (cats.length && !cats.includes(String(row.Category || '').toLowerCase())) return false;
+  if (brands.length && !brands.includes(String(row.Brand || '').toLowerCase())) return false;
+  if (q) {
+    const needle = String(q).toLowerCase();
+    const hay = `${row.StyleNumber || ''} ${row.ProductName || ''} ${row.Brand || ''}`.toLowerCase();
+    if (!hay.includes(needle)) return false;
+  }
+  return true;
+}
+
+function nonSanmarToProduct(row, decoratedPricingConfig) {
+  const image = row.ImageURL || '';
+  const colors = String(row.DefaultColors || '').split(',')
+    .map((c) => c.trim()).filter(Boolean)
+    .map((name) => ({
+      name,
+      catalogColor: name,
+      swatchUrl: null,
+      productImageUrl: image,
+      productImageThumbnail: image
+    }));
+  const sizes = String(row.AvailableSizes || '').split(',').map((s) => s.trim()).filter(Boolean);
+  const cost = parseFloat(row.DefaultCost) || 0;
+  const sell = parseFloat(row.DefaultSellPrice) || 0;
+
+  // Pricing parity with SanMar cards: decorated margin math on COST via the
+  // same computeDisplayPrice; a fixed-price row uses its curated sell price.
+  let displayPrice = null;
+  if (sell > 0 && String(row.PricingMethod || '').toLowerCase().includes('fix')) {
+    displayPrice = sell;
+  } else if (cost > 0 && decoratedPricingConfig) {
+    const methodConfig = String(row.Category || '') === 'Caps'
+      ? decoratedPricingConfig.cap : decoratedPricingConfig.garment;
+    if (methodConfig) {
+      displayPrice = computeDisplayPrice(cost, methodConfig.marginDenominator, methodConfig.roundingMethod, methodConfig.embCost);
+    }
+  }
+  // missing cost/config ⇒ null ⇒ card renders "See pricing" (never a guess)
+
+  return {
+    styleNumber: row.StyleNumber,
+    productName: row.ProductName || row.StyleNumber,
+    brand: row.Brand || '',
+    category: row.Category || '',
+    subcategory: '',
+    description: row.Notes || '',
+    status: 'Active',
+    pricing: { current: sell || cost || 0, piece: cost || 0, dozen: null, case: cost || 0, minPrice: cost || 0, maxPrice: cost || 0 },
+    colors,
+    sizes,
+    images: { display: image, main: image, thumbnail: image },
+    features: { isTopSeller: false, isNonSanmar: true },
+    displayPrice,
+    displayPriceLabel: formatDisplayPriceLabel(displayPrice)
+  };
+}
+
 router.get('/products/search', async (req, res) => {
   console.log('GET /api/products/search requested with query:', req.query);
 
@@ -557,7 +676,7 @@ router.get('/products/search', async (req, res) => {
     console.log(`Found ${stylesQuery.length} unique styles matching filters`);
 
     // Calculate total count for pagination
-    const totalProducts = stylesQuery.length;
+    let totalProducts = stylesQuery.length; // let: non-SanMar merge adds to it below
 
     // Apply pagination to get only the styles we need for this page
     const paginatedStyles = stylesQuery.slice(skip, skip + pageSize);
@@ -771,8 +890,25 @@ router.get('/products/search', async (req, res) => {
       }
     });
 
-    // Note: totalProducts was already calculated from stylesQuery.length earlier (line ~481)
-    // No need to recalculate here since pagination was already applied to styles
+    // ── Non-SanMar merge (2026-07-06) — appended to page 1 after SanMar
+    // relevance results; counted into totals on every page. Fail-soft: a
+    // table error logs and skips (SanMar results are never blocked).
+    let nonSanmarCount = 0;
+    try {
+      const skipNonSanmar = isTopSeller === 'true' || color || size || minPrice || maxPrice;
+      if (!skipNonSanmar) {
+        const nsRows = await getNonSanmarCatalogRows();
+        const matched = nsRows.filter((r) => nonSanmarMatches(r, { q, category, brand }));
+        nonSanmarCount = matched.length;
+        if (pageNum === 1 && matched.length) {
+          products = products.concat(matched.map((r) => nonSanmarToProduct(r, decoratedPricingConfig)));
+          console.log(`[products/search] merged ${matched.length} non-SanMar product(s) onto page 1`);
+        }
+      }
+    } catch (nsErr) {
+      console.warn('[products/search] non-SanMar merge unavailable (skipping, SanMar results unaffected):', nsErr.message);
+    }
+    totalProducts += nonSanmarCount;
 
     // paginatedProducts are already created from the specific styles we fetched
     const paginatedProducts = products;
