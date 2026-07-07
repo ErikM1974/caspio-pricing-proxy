@@ -27,8 +27,10 @@
  *     paged twice for the same broken record between manual + scheduled runs.
  *
  * Exit codes:
- *   0 — script completed (regardless of how many records failed recovery)
- *   1 — script crashed (unhandled error)
+ *   0 — sweep RAN (regardless of how many records failed recovery)
+ *   1 — script crashed (unhandled error) OR the sweep was BLIND (a broken-list
+ *       fetch failed, e.g. 401 from the gated endpoint) — in the blind case a
+ *       Slack alert also fires to #mockup-alerts (alertSweepBlind).
  *
  * NEVER use exit codes to signal "broken records exist" — that would noise
  * Heroku Scheduler's failure log every morning.
@@ -43,10 +45,38 @@ const APP_URL = process.env.PUBLIC_BASE_URL
     || (process.env.HEROKU_APP_NAME ? `https://${process.env.HEROKU_APP_NAME}.herokuapp.com` : null)
     || 'https://caspio-pricing-proxy-ab30a049961a.herokuapp.com';
 
+// 2026-07-07: the broken-mockups GETs are gated by requireCrmSecretOrBrowserOrigin
+// (PII side-door sealing wave). A one-off dyno sends neither a browser Origin nor
+// the secret, so WITHOUT this header every fetch 401s and the sweep silently
+// no-ops ("0/0 recovered", exit 0) — exactly how the nightly cron died unnoticed
+// between the gating deploy and 2026-07-07. Server-to-server callers authenticate
+// with the shared secret, per the gate's own contract (src/middleware/index.js).
+const AUTH_HEADERS = process.env.CRM_API_SECRET
+    ? { 'X-CRM-API-Secret': process.env.CRM_API_SECRET }
+    : {};
+
 // Heroku request timeout is 30s. Each (record, slot) recovery is 1-3 Box API
 // calls (~3-5s avg). 5 entries per batch ≈ 15-25s total per call → safe margin.
 const BATCH_SIZE = 5;
 const PACING_MS = 500;
+
+// A sweep that cannot even SEE the broken list is a dead watchdog — page a human
+// (same #mockup-alerts webhook the per-record failures use) and exit non-zero so
+// Heroku Scheduler's log shows red. Fire-and-forget; never throws.
+async function alertSweepBlind(failures) {
+    const hook = process.env.SLACK_BROKEN_MOCKUP_WEBHOOK_URL || '';
+    const text = ':rotating_light: *Mockup recovery sweep is BLIND* — '
+        + failures.map(f => `${f.table} broken-list fetch failed (${f.error})`).join('; ')
+        + '. The nightly self-heal did NOT run. Check auth headers / gating on '
+        + '/api/art-requests/broken-mockups (scripts/auto-recover-all-broken-mockups.js).';
+    console.error(text);
+    if (!hook) return;
+    try {
+        await axios.post(hook, { text }, { timeout: 10_000 });
+    } catch (err) {
+        console.error(`Slack blind-sweep alert failed too: ${err.message}`);
+    }
+}
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
@@ -55,7 +85,7 @@ async function fetchBrokenList(table) {
         ? '/api/art-requests/broken-mockups'
         : '/api/mockups/broken-mockups';
     const url = `${APP_URL}${path}?status=all&refresh=true`;
-    const resp = await axios.get(url, { timeout: 60_000 });
+    const resp = await axios.get(url, { timeout: 60_000, headers: AUTH_HEADERS });
     return resp.data;
 }
 
@@ -99,7 +129,7 @@ async function bulkRecoverSteve(entries) {
         try {
             const resp = await axios.post(url, { records: batch }, {
                 timeout: 60_000,
-                headers: { 'Content-Type': 'application/json' }
+                headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS }
             });
             const data = resp.data || {};
             totalRecovered += (data.recovered || 0);
@@ -127,7 +157,7 @@ async function bulkRecoverRuth(entries) {
         try {
             const resp = await axios.post(url, { entries: batch }, {
                 timeout: 60_000,
-                headers: { 'Content-Type': 'application/json' }
+                headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS }
             });
             const data = resp.data || {};
             totalRecovered += (data.recovered || 0);
@@ -164,6 +194,11 @@ async function main() {
     console.log(`APP_URL: ${APP_URL}`);
     console.log('');
 
+    // A failed broken-list fetch means the sweep is flying blind for that table —
+    // collected here and escalated (Slack + exit 1) at the end instead of being
+    // silently treated as "nothing to recover" (the 2026-07 401 incident).
+    const fetchFailures = [];
+
     // Steve / ArtRequests
     console.log('--- Steve (ArtRequests) ---');
     let steveBroken;
@@ -172,6 +207,7 @@ async function main() {
         console.log(`Found ${steveBroken.broken} broken records (${steveBroken.checked} scanned)`);
     } catch (err) {
         console.error(`Steve broken-mockups fetch failed: ${err.message}`);
+        fetchFailures.push({ table: 'Steve/ArtRequests', error: err.response?.status ? `HTTP ${err.response.status}` : err.message });
         steveBroken = { results: [] };
     }
     const steveEntries = flattenSteveEntries(steveBroken);
@@ -188,6 +224,7 @@ async function main() {
         console.log(`Found ${ruthBroken.broken} broken records (${ruthBroken.checked} scanned)`);
     } catch (err) {
         console.error(`Ruth broken-mockups fetch failed: ${err.message}`);
+        fetchFailures.push({ table: 'Ruth/Digitizing_Mockups', error: err.response?.status ? `HTTP ${err.response.status}` : err.message });
         ruthBroken = { results: [] };
     }
     const ruthEntries = flattenRuthEntries(ruthBroken);
@@ -199,9 +236,14 @@ async function main() {
     const totalRecovered = steveResult.recovered + ruthResult.recovered;
     const totalAttempted = steveResult.total + ruthResult.total;
     console.log(`=== DONE: ${totalRecovered}/${totalAttempted} slot recoveries succeeded ===`);
-    // Always exit 0 — the existence of unrecoverable records is a normal
-    // operational state, not a script failure. Real failures (uncaught
-    // exceptions) will exit non-zero via the unhandledRejection handler.
+
+    // Exit 0 when the sweep RAN — unrecoverable records are a normal operational
+    // state, not a script failure. But a sweep that couldn't fetch its work list
+    // never ran at all: page a human and go red in the Scheduler log.
+    if (fetchFailures.length > 0) {
+        await alertSweepBlind(fetchFailures);
+        process.exit(1);
+    }
 }
 
 process.on('unhandledRejection', (err) => {
