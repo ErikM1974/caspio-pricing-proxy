@@ -3,6 +3,12 @@
 const express = require('express');
 const router = express.Router();
 const { makeCaspioRequest, fetchAllCaspioPages } = require('../utils/caspio');
+// Write-boundary validation (pricing-app roadmap 1.5): field whitelist +
+// length caps + numeric checks BEFORE anything reaches Caspio.
+const { quoteWriteGuard } = require('../utils/quote-write-guard');
+// 256kb cap for quote writes (the global parser allows 10mb for file routes;
+// a quote body should never be near that — a 1MB Notes field is an attack).
+const quoteBodyJson = express.json({ limit: '256kb' });
 
 // Input validation helpers
 function sanitizeQuoteID(quoteID) {
@@ -255,7 +261,7 @@ router.get('/quote_items/:id', async (req, res) => {
 });
 
 // POST /api/quote_items - ENHANCED WITH DEBUGGING
-router.post('/quote_items', express.json(), async (req, res) => {
+router.post('/quote_items', quoteBodyJson, quoteWriteGuard('quote_items'), async (req, res) => {
   console.log('POST /api/quote_items requested with body:', JSON.stringify(req.body, null, 2));
 
   try {
@@ -301,7 +307,7 @@ router.post('/quote_items', express.json(), async (req, res) => {
 });
 
 // PUT /api/quote_items/:id
-router.put('/quote_items/:id', express.json(), async (req, res) => {
+router.put('/quote_items/:id', quoteBodyJson, quoteWriteGuard('quote_items'), async (req, res) => {
   const { id } = req.params;
   const pk = parsePkId(id);
   if (pk === null) return res.status(400).json({ error: 'Invalid id' });
@@ -520,7 +526,7 @@ router.get('/quote_sessions/:id', async (req, res) => {
 });
 
 // POST /api/quote_sessions
-router.post('/quote_sessions', express.json(), async (req, res) => {
+router.post('/quote_sessions', quoteBodyJson, quoteWriteGuard('quote_sessions'), async (req, res) => {
   console.log('POST /api/quote_sessions requested with body:', req.body);
 
   try {
@@ -545,7 +551,7 @@ router.post('/quote_sessions', express.json(), async (req, res) => {
 });
 
 // PUT /api/quote_sessions/:id
-router.put('/quote_sessions/:id', express.json(), async (req, res) => {
+router.put('/quote_sessions/:id', quoteBodyJson, quoteWriteGuard('quote_sessions'), async (req, res) => {
   const { id } = req.params;
   const pk = parsePkId(id);
   if (pk === null) return res.status(400).json({ error: 'Invalid id' });

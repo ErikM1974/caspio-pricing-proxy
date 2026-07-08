@@ -349,6 +349,30 @@ const cartRoutes = require('./src/routes/cart');
 app.use('/api', cartRoutes);
 console.log('✓ Cart routes loaded');
 
+// [1.6] (pricing-app roadmap, 2026-07-08): rate-limit the QUOTE write paths +
+// the sequence mint — the endpoints an internet-exposed instance gets hammered
+// on. METHOD-AWARE on sessions/items: GETs power staff dashboards + quote-view
+// polling and must never be throttled; writes share writeLimiter's generous
+// 120/15min-per-IP budget (a busy rep saves ~a dozen quotes an hour).
+const quoteWriteOnly = (req, res, next) =>
+  (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS')
+    ? next()
+    : writeLimiter(req, res, next);
+app.use('/api/quote_sessions', quoteWriteOnly);
+app.use('/api/quote_items', quoteWriteOnly);
+app.use('/api/quote_analytics', quoteWriteOnly);
+// Sequence mint is a GET but IS a write (increments the counter) — its own
+// limiter, still roomy for a full office of reps.
+const sequenceLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  trustProxy: true,
+  message: { error: 'Too many quote-ID requests — please slow down and try again shortly.' }
+});
+app.use('/api/quote-sequence', sequenceLimiter);
+
 // Quotes Routes
 const quotesRoutes = require('./src/routes/quotes');
 app.use('/api', quotesRoutes);
