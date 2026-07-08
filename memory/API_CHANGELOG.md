@@ -5,6 +5,16 @@ All notable changes to the Caspio Pricing Proxy API will be documented in this f
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-07-08
+
+### Changed - Honest DELETE responses for quote endpoints
+
+- `DELETE /api/quote_sessions/:id`, `DELETE /api/quote_items/:id`, `DELETE /api/quote_analytics/:id`
+  - **Now return 404** (`{ error, recordsAffected: 0 }`) when the PK matches no row. Previously these returned 200 "deleted successfully" with `recordsAffected: 0` for **every** delete — hits and misses alike — because the Caspio response body (`RecordsAffected`) was discarded in `makeCaspioRequest`.
+  - On success, `recordsAffected` now carries Caspio's real count (was always 0).
+  - A successful session delete now invalidates the 5-minute quote_sessions read cache.
+- All other delete endpoints that report `recordsAffected` (orders, pricing, pricing-matrix, daily-sales bulk) now report the **true** count instead of 0; their status-code semantics are unchanged.
+
 ## [1.4.0] - 2025-10-28
 
 ### Added - New Products Management API

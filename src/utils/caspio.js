@@ -93,8 +93,12 @@ async function makeCaspioRequest(method, resourcePath, params = {}, data = null)
         PK_ID: response.headers.location ? response.headers.location.split('/').pop() : null
       };
     } else if (method.toLowerCase() === 'delete' && (response.status === 200 || response.status === 204)) {
-      // DELETE operations 
-      return { success: true, status: response.status };
+      // DELETE — Caspio answers 200 {"RecordsAffected": N} even when q.where
+      // matched nothing (N=0). Pass the body through so callers can tell a real
+      // delete from a no-op; discarding it here used to make every delete
+      // handler report recordsAffected: 0 regardless of outcome (2026-07-08).
+      const body = (response.data && typeof response.data === 'object') ? response.data : {};
+      return { ...body, success: true, status: response.status };
     } else if (response.data) {
       // GET and PUT operations with data
       return response.data.Result || response.data;

@@ -124,10 +124,21 @@ describe('PUT /api/quote_items/:id', () => {
 // ── DELETE ──────────────────────────────────────────────────────────
 
 describe('DELETE /api/quote_items/:id', () => {
-  test('returns 200 for delete', async () => {
+  test('returns 200 with recordsAffected 1 for a real delete', async () => {
     if (!itemPkId) return;
     const res = await api.delete(`/api/quote_items/${itemPkId}`);
     expect(res.status).toBe(200);
     expect(res.data.message).toMatch(/deleted/i);
+    // Locks the 2026-07-08 fix: the proxy used to discard Caspio's
+    // RecordsAffected and report 0 on every delete, hit or miss.
+    expect(res.data.recordsAffected).toBe(1);
+  });
+
+  test('deleting the same id again returns 404, not a fake success', async () => {
+    if (!itemPkId) return;
+    const res = await api.delete(`/api/quote_items/${itemPkId}`);
+    expect(res.status).toBe(404);
+    expect(res.data.recordsAffected).toBe(0);
+    expect(res.data.error).toMatch(/not found/i);
   });
 });

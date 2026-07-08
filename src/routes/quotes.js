@@ -6,6 +6,9 @@ const { makeCaspioRequest, fetchAllCaspioPages } = require('../utils/caspio');
 // Write-boundary validation (pricing-app roadmap 1.5): field whitelist +
 // length caps + numeric checks BEFORE anything reaches Caspio.
 const { quoteWriteGuard } = require('../utils/quote-write-guard');
+// Honest delete responses: Caspio 200s a DELETE whose q.where matched nothing,
+// so 0 RecordsAffected maps to 404 instead of a fake "deleted". (2026-07-08)
+const { deleteResponseFor } = require('../utils/quote-delete-response');
 // 256kb cap for quote writes (the global parser allows 10mb for file routes;
 // a quote body should never be near that — a 1MB Notes field is an attack).
 const quoteBodyJson = express.json({ limit: '256kb' });
@@ -179,12 +182,13 @@ router.delete('/quote_analytics/:id', async (req, res) => {
   console.log(`DELETE /api/quote_analytics/${id} requested`);
 
   try {
-    const result = await makeCaspioRequest('delete', '/tables/Quote_Analytics/records', 
+    const result = await makeCaspioRequest('delete', '/tables/Quote_Analytics/records',
       { 'q.where': `PK_ID=${pk}` }
     );
-    
-    console.log('Quote analytics deleted successfully');
-    res.json({ message: 'Quote analytics deleted successfully', recordsAffected: result.RecordsAffected || 0 });
+
+    const { httpStatus, body } = deleteResponseFor('Quote analytics', result);
+    console.log(httpStatus === 200 ? 'Quote analytics deleted successfully' : `Quote analytics delete matched no row (PK_ID=${pk})`);
+    res.status(httpStatus).json(body);
   } catch (error) {
     console.error('Error deleting quote analytics:', error.message);
     res.status(500).json({ error: 'Failed to delete quote analytics', details: error.message });
@@ -343,12 +347,13 @@ router.delete('/quote_items/:id', async (req, res) => {
   console.log(`DELETE /api/quote_items/${id} requested`);
 
   try {
-    const result = await makeCaspioRequest('delete', '/tables/Quote_Items/records', 
+    const result = await makeCaspioRequest('delete', '/tables/Quote_Items/records',
       { 'q.where': `PK_ID=${pk}` }
     );
-    
-    console.log('Quote item deleted successfully');
-    res.json({ message: 'Quote item deleted successfully', recordsAffected: result.RecordsAffected || 0 });
+
+    const { httpStatus, body } = deleteResponseFor('Quote item', result);
+    console.log(httpStatus === 200 ? 'Quote item deleted successfully' : `Quote item delete matched no row (PK_ID=${pk})`);
+    res.status(httpStatus).json(body);
   } catch (error) {
     console.error('Error deleting quote item:', error.message);
     res.status(500).json({ error: 'Failed to delete quote item', details: error.message });
@@ -587,12 +592,20 @@ router.delete('/quote_sessions/:id', async (req, res) => {
   console.log(`DELETE /api/quote_sessions/${id} requested`);
 
   try {
-    const result = await makeCaspioRequest('delete', '/tables/Quote_Sessions/records', 
+    const result = await makeCaspioRequest('delete', '/tables/Quote_Sessions/records',
       { 'q.where': `PK_ID=${pk}` }
     );
-    
-    console.log('Quote session deleted successfully');
-    res.json({ message: 'Quote session deleted successfully', recordsAffected: result.RecordsAffected || 0 });
+
+    const { httpStatus, body } = deleteResponseFor('Quote session', result);
+    if (httpStatus === 200) {
+      // Drop cached list reads so a deleted session can't be served as a
+      // ghost for up to 5 more minutes (builder loadQuote reads are cached).
+      quoteSessionsCache.clear();
+      console.log('Quote session deleted successfully');
+    } else {
+      console.log(`Quote session delete matched no row (PK_ID=${pk})`);
+    }
+    res.status(httpStatus).json(body);
   } catch (error) {
     console.error('Error deleting quote session:', error.message);
     res.status(500).json({ error: 'Failed to delete quote session', details: error.message });

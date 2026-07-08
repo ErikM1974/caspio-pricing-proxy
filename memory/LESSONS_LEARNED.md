@@ -4,6 +4,15 @@ A running log of problems solved and gotchas discovered. Add new entries at the 
 
 ---
 
+## Problem: Every quote DELETE reported recordsAffected: 0 — even successful ones
+**Date:** 2026-07-08
+**Symptoms:** `DELETE /api/quote_sessions/:id` → 200 `recordsAffected: 0` for a row that a direct table GET confirmed existed (and that a delete-by-QuoteID removed fine). Suspected PK aliasing or numeric-vs-string `q.where` — both disproven by a live create→delete-by-PK→verify round trip: `q.where=PK_ID=<n>` deletes fine, quoted or unquoted (PK_ID works in `q.where` even though `/tables/{t}/fields` metadata omits the autonumber PK).
+**Root cause:** `makeCaspioRequest` returned `{success, status}` for DELETEs, discarding Caspio's `{"RecordsAffected": N}` body — every handler's `result.RecordsAffected || 0` fabricated 0, hit or miss. Caspio also answers 200 `{"RecordsAffected": 0}` (not an error) when the where matches nothing, so a miss looked identical to a success.
+**Solution:** `src/utils/caspio.js` now passes the DELETE body through; `src/utils/quote-delete-response.js` (pure, jest-locked) maps 0-affected → 404 for quote_sessions/items/analytics; a real sessions delete clears the 5-min `quoteSessionsCache`. Tests: `tests/jest/quote-delete-response.test.js` + hardened DELETE round trips in `quote-sessions.test.js`/`quote-items.test.js`. The main app's forwarders handle the new 404 (ownership gate → idempotent `{success, alreadyGone}`).
+**Prevention:** Read `RecordsAffected` on every Caspio write-with-where — 0 on a by-PK delete = 404, never fake success. Full entry: Pricing Index `memory/LESSONS_LEARNED.md` → "Caspio API Gotchas". NOTE: `orders.js`, `pricing.js`, `pricing-matrix.js` delete handlers still 200-on-0 (their `recordsAffected` is now at least accurate); align them if those endpoints ever get real consumers.
+
+---
+
 ## Problem: Caspio multi-select List columns are unwritable via REST API
 **Date:** 2026-05-09
 **Symptoms:** POST `/tables/ArtRequests/records` with `Order_Type: 'Roland Stickers'` returns `InvalidInputValue: Cannot perform operation because the value doesn't match the data type of the following field(s): Order_Type` (500). Same for an array `["Roland Stickers"]`. Caspio's visual Triggered Action builder also hides multi-select fields from the assignment-target dropdown — even server-side triggers can't write them.
