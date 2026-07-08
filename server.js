@@ -20,6 +20,25 @@ const app = express();
 // (router IP), causing widespread 429s when a single dashboard is chatty.
 app.set('trust proxy', 1);
 
+// [1.12] (pricing-app roadmap, 2026-07-08): structured JSON request logs with
+// correlation ids. Honors an inbound X-Request-Id (the pricing app / any
+// caller propagates one) so ONE id greps a failure across both apps; mints a
+// UUID otherwise and echoes it back. Asset/health noise is not auto-logged.
+const pinoHttp = require('pino-http');
+const nodeCrypto = require('crypto');
+app.use(pinoHttp({
+  genReqId: (req, res) => {
+    const id = req.headers['x-request-id'] || nodeCrypto.randomUUID();
+    res.setHeader('X-Request-Id', id);
+    return id;
+  },
+  customProps: () => ({ app: 'caspio-pricing-proxy' }),
+  autoLogging: {
+    ignore: (req) => req.url === '/api/health' || /\.(css|js|png|jpg|svg|ico|map)(\?|$)/.test(req.url),
+  },
+  redact: ['req.headers.authorization', 'req.headers.cookie', "req.headers['x-crm-api-secret']"],
+}));
+
 // Extract configuration values
 const PORT = config.server.port;
 const caspioDomain = config.caspio.domain;
