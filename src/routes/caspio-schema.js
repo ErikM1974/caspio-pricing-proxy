@@ -136,4 +136,33 @@ router.get('/caspio-schema/full', wrap(async () => {
   };
 }));
 
+// Live per-table USAGE map (Caspio-internal wiring + current field count) — powers the
+// table-audit page's Refresh: catches new/deleted tables, field changes, and view/
+// relationship/webhook wiring live. Does NOT include the code-grep signal (repo-side only).
+router.get('/caspio-schema/usage', wrap(async () => {
+  const [schemas, views, webhooks] = await Promise.all([
+    cached('full', () => v4Get('/schemas/tables?pageSize=1000')),
+    cached('views-schemas', () => v4Get('/schemas/views?pageSize=1000')),
+    cached('webhooks', () => v4Get('/schemas/outgoingWebhooks?pageSize=1000')),
+  ]);
+  const viewT = new Set();
+  (views.data || []).forEach(function (v) { (v.fields || []).forEach(function (f) {
+    var tfn = f.tableFieldName || ''; var d = tfn.indexOf('.'); if (d > 0) viewT.add(tfn.slice(0, d));
+  }); });
+  const relT = new Set();
+  (schemas.data || []).forEach(function (t) { (t.relationships || []).forEach(function (r) {
+    if (r.parentTable) relT.add(r.parentTable); if (r.childTable) relT.add(r.childTable);
+  }); });
+  const whT = new Set();
+  (webhooks.data || []).forEach(function (w) { (w.events || []).forEach(function (e) { if (e.objectName) whT.add(e.objectName); }); });
+  return {
+    success: true,
+    generatedAt: new Date().toISOString(),
+    count: (schemas.data || []).length,
+    tables: (schemas.data || []).map(function (t) {
+      return { name: t.name, fieldCount: t.fieldCount, view: viewT.has(t.name), rel: relT.has(t.name), webhook: whT.has(t.name) };
+    }),
+  };
+}));
+
 module.exports = router;
