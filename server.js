@@ -313,6 +313,14 @@ const miscRoutes = require('./src/routes/misc');
 app.use('/api', miscRoutes);
 console.log('✓ Misc routes loaded');
 
+// Caspio SCHEMA introspection (OPEN, read-only) — enumerate tables/views/apps/webhooks
+// + any table's fields WITHOUT a per-session bearer token, via the proxy's standing
+// OAuth credential. Schema STRUCTURE only (names/types), never row data (Erik 2026-07-09).
+// See src/routes/caspio-schema.js.
+const caspioSchemaRoutes = require('./src/routes/caspio-schema');
+app.use('/api', caspioSchemaRoutes);
+console.log('✓ Caspio schema-introspection routes loaded');
+
 // Pricing Routes (rate limiter is inside the router — NOT global to /api)
 // #9 side-door gate (2026-06-29): the pricing-engine WRITES (pricing-tiers,
 // embroidery-costs POST/PUT/DELETE) were public — anonymous price tampering is
