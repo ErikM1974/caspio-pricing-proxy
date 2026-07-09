@@ -32,3 +32,4 @@ curl -s "$BASE/full" | jq '.tables[]|select(.name=="Service_Codes").fields[].nam
 - Adding a table/field in Caspio is reflected within the 15-min cache TTL (or restart the dyno).
 - Full Caspio v4 platform capability map + the live account inventory snapshot live in the Pricing Index repo: `../Pricing Index File 2025/memory/CASPIO_REST_API_V4_REFERENCE.md` + `../Pricing Index File 2025/memory/caspio-v4-live-inventory-2026-07-09.md`.
 - Shipped: proxy release **v890**, commit `e5e13a4`.
+- **This endpoint is READ-ONLY** (it never writes). To CREATE Caspio tables/fields/records, write a script like `scripts/create-*-table.js` (uses `getCaspioAccessToken()` + `POST /tables`; 7 exist). Full CAN/CAN'T-create + recipe (types, PK auto-added, `--apply`) → `../Pricing Index File 2025/memory/CASPIO_REST_API_V4_REFERENCE.md` "Creating Caspio objects". DataPages/Flex/Bridge apps + new Directories are Caspio-UI-only.
