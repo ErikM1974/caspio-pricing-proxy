@@ -57,6 +57,9 @@ Single source of truth covering:
 
 Distinct from `memory/CASPIO_API_CORE.md`, which documents **this proxy's own** API. A dated raw spec snapshot lives beside the master; re-fetch the live spec any time at `https://c3eku948.caspio.com/integrations/rest/v3/swagger/documentation`.
 
+**REST API v4 (opt-in superset, 2026-07):** newer API version — bulk ops (resp `Result[]`), T-SQL `where/select`, single-call schema discovery, webhook CRUD w/ HMAC-SHA256 signatures, AI manifest. **This proxy still runs v3**; adopt v4 per-endpoint only where a specific power pays off (migrate = drop `q.`, list resp `data[]`). v4 delta + the live account inventory (163 tables/19 views/14 bridge apps/24 webhooks): `../Pricing Index File 2025/memory/CASPIO_REST_API_V4_REFERENCE.md` + `.../caspio-v4-live-inventory-2026-07-09.md`. ⚠️ Caspio 73.0 now enforces granular perms → **403 on v2/v3 missing object-perm** (this proxy VERIFIED healthy 2026-07-09).
+**Schema introspection is now exposed BY this proxy** (no bearer token needed): `GET /api/caspio-schema/*` → `memory/CASPIO_SCHEMA_INTROSPECTION_API.md`.
+
 **Before committing**, if you discovered Caspio platform-API patterns (new endpoints, plan entitlements, webhook/directory behavior):
 1. Add capability/endpoint detail → `CASPIO_REST_API_REFERENCE.md`
 2. Add bugs/gotchas → `LESSONS_LEARNED.md` (both projects)
@@ -95,6 +98,7 @@ Detailed documentation organized by topic:
 - **[Sales Reps 2026 API](memory/SALES_REPS_2026_API.md)** - Master customer-to-sales-rep assignments (v1.0.0 - 2026-01-23)
 - **[MCP Servers for Claude Desktop](memory/MCP_SERVERS.md)** - Setup guide and tools for chatting with account data (v1.1.0 - 2026-01-22)
 - **[Non-SanMar Products API](memory/NON_SANMAR_PRODUCTS_API.md)** - CRUD for Brooks Brothers, Carhartt direct, specialty items (v1.0.0 - 2026-02-03)
+- **[Caspio Schema Introspection API](memory/CASPIO_SCHEMA_INTROSPECTION_API.md)** - OPEN no-token read-only schema endpoints: enumerate tables/views/apps/webhooks + any table's fields via `/api/caspio-schema/*` (v1.0.0 - 2026-07-10)
 
 ## Quick Reference
 
