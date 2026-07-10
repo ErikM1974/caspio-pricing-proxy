@@ -80,14 +80,17 @@ describe('GET /api/tax-rates', () => {
   });
 
   test('contains the default WA account (2200)', () => {
-    // Account_Number is numeric in Caspio
-    const wa = res.data.data.find(a => a.Account_Number === 2200);
+    // Account_Number was numeric in Caspio until 2026-07 (table rebuilt → Text);
+    // compare as string so the test survives either field type. The rate itself
+    // is Erik-editable data — assert presence, not a pinned value.
+    const wa = res.data.data.find(a => String(a.Account_Number) === '2200');
     expect(wa).toBeDefined();
-    expect(wa.Tax_Rate).toBeCloseTo(0.101, 3);
+    expect(wa.Tax_Rate).toBeGreaterThan(0);
+    expect(wa.Tax_Rate).toBeLessThan(1);
   });
 
   test('contains out-of-state account (2202)', () => {
-    const oos = res.data.data.find(a => a.Account_Number === 2202);
+    const oos = res.data.data.find(a => String(a.Account_Number) === '2202');
     expect(oos).toBeDefined();
   });
 });

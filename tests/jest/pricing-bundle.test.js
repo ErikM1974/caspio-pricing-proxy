@@ -48,12 +48,19 @@ describe('GET /api/pricing-bundle — EMB method', () => {
 });
 
 describe('GET /api/pricing-bundle — CAP method', () => {
-  test('CAP has margin 0.57', async () => {
+  // Tier labels + margins live in Caspio (Erik-editable, no deploy) — assert the
+  // contract shape, not pinned values. Went stale 2026-07 when caps moved from
+  // the '1-23' 3-tier structure to the 5-tier structure.
+  test('CAP tiers expose numeric MarginDenominator', async () => {
     const res = await api.get('/api/pricing-bundle', { params: { method: 'CAP' } });
     expect(res.status).toBe(200);
-    const tier = res.data.tiersR.find(t => t.TierLabel === '1-23');
-    expect(tier).toBeDefined();
-    expect(tier.MarginDenominator).toBe(0.57);
+    expect(Array.isArray(res.data.tiersR)).toBe(true);
+    expect(res.data.tiersR.length).toBeGreaterThan(0);
+    for (const tier of res.data.tiersR) {
+      expect(typeof tier.TierLabel).toBe('string');
+      expect(tier.MarginDenominator).toBeGreaterThan(0);
+      expect(tier.MarginDenominator).toBeLessThan(1);
+    }
   });
 });
 

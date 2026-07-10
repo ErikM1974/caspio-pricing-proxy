@@ -378,6 +378,44 @@ router.post('/files/import-from-url', express.json({ limit: '1mb' }), async (req
 });
 
 /**
+ * GET /api/files/:externalKey/sw.jpg — ShopWorks-ingestible variant (P2, 2026-07-10).
+ * OnSite silently drops images >2MB and can't type extension-less URLs, so this
+ * serves the stored file as a bounded JPEG (≤1400px, quality-stepped under 1.9MB)
+ * with a real extension. Files are immutable by key → cache hard.
+ */
+router.get('/files/:externalKey/sw.jpg', async (req, res) => {
+    try {
+        const { externalKey } = req.params;
+        if (!isValidFileKey(externalKey)) {
+            return res.status(400).json({ success: false, error: 'Invalid file key', code: 'BAD_KEY' });
+        }
+        const sharp = require('sharp');
+        const token = await getCaspioAccessToken();
+        const url = `${caspioV3BaseUrl}/files/${encodeURIComponent(externalKey)}`;
+        const response = await axios({ method: 'get', url, headers: { 'Authorization': `Bearer ${token}` }, responseType: 'arraybuffer' });
+        const src = Buffer.from(response.data);
+        let out = await sharp(src).rotate().flatten({ background: '#ffffff' })
+            .resize({ width: 1400, height: 1400, fit: 'inside', withoutEnlargement: true })
+            .jpeg({ quality: 80 }).toBuffer();
+        if (out.length > 1900000) {
+            out = await sharp(src).rotate().flatten({ background: '#ffffff' })
+                .resize({ width: 1000, height: 1000, fit: 'inside', withoutEnlargement: true })
+                .jpeg({ quality: 70 }).toBuffer();
+        }
+        res.setHeader('Content-Type', 'image/jpeg');
+        res.setHeader('Content-Disposition', `inline; filename="${externalKey}-sw.jpg"`);
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        return res.send(out);
+    } catch (error) {
+        console.error('Error building sw.jpg variant:', error.message);
+        if (error.response && error.response.status === 404) {
+            return res.status(404).json({ success: false, error: 'File not found', code: 'FILE_NOT_FOUND' });
+        }
+        return res.status(500).json({ success: false, error: 'Failed to build image variant', code: 'SW_VARIANT_FAILED' });
+    }
+});
+
+/**
  * GET /api/files/:externalKey
  * Retrieve a file from Caspio by its ExternalKey
  */
