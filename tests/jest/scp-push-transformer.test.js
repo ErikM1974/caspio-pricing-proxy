@@ -333,3 +333,41 @@ describe('SCP push transformer — design attachment', () => {
     expect(garmentLine.ExtDesignIDBlock).toBe(d.ExtDesignID); // line → design link
   });
 });
+
+describe('SCP push transformer — Swagger field enrichment (2026-07-10)', () => {
+  test('per-location TotalColors (front/back matched), dark-garment flash + underbase note, ForProductColor', () => {
+    const session = baseSession({
+      Notes: JSON.stringify({
+        frontLocation: 'Full Front', frontColors: 3, backLocation: 'Full Back', backColors: 2,
+        isDarkGarment: true, setupFeeTotal: 150,
+        newDesignName: 'Crew Art',
+        referenceArtwork: [
+          { hostedUrl: 'https://example.com/front.png', placement: 'Full Front', fileName: 'front.png' },
+          { hostedUrl: 'https://example.com/back.png', placement: 'Full Back', fileName: 'back.png' },
+        ],
+      }),
+    });
+    const order = transformQuoteToOrder(session, [garment()], { isTest: true });
+    const [front, back] = order.Designs[0].Locations;
+    expect(front.TotalColors).toBe('3');           // front colors only — not the 5 sum
+    expect(back.TotalColors).toBe('2');
+    expect(front.TotalFlashes).toBe('1');          // white underbase flash on dark garments
+    expect(front.Notes).toBe('front.png · Underbase (dark garment)');
+    expect(order.Designs[0].ForProductColor).toBe('Navy'); // CATALOG_COLOR code (doc contract)
+  });
+
+  test('light garment → no flash, plain filename note; multi-color order lists all codes', () => {
+    const session = baseSession({
+      Notes: JSON.stringify({
+        frontLocation: 'FF', frontColors: 2, backColors: 0, isDarkGarment: false, setupFeeTotal: 60,
+        newDesignName: 'X',
+        referenceArtwork: [{ hostedUrl: 'https://example.com/a.png', placement: 'Front', fileName: 'a.png' }],
+      }),
+    });
+    const order = transformQuoteToOrder(session, [garment(), garment({ Color: 'Red', ColorCode: 'Red' })], { isTest: true });
+    const loc = order.Designs[0].Locations[0];
+    expect(loc.TotalFlashes).toBe('');
+    expect(loc.Notes).toBe('a.png');
+    expect(order.Designs[0].ForProductColor).toBe('Navy, Red'); // ALL distinct CATALOG_COLOR codes
+  });
+});

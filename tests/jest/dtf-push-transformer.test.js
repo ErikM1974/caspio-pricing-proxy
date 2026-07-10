@@ -124,3 +124,29 @@ describe('DTF push transformer — garment lines', () => {
     expect(order.id_OrderType).toBe(18);
   });
 });
+
+describe('DTF push transformer — Swagger field enrichment (2026-07-10)', () => {
+  test('location Notes carry the priced transfer size from Notes.transferBreakdown', () => {
+    const session = baseSession({
+      Notes: JSON.stringify({
+        newDesignName: 'Team Art',
+        transferBreakdown: [
+          { location: 'full-front', locationName: 'Full Front', size: 'large', sizeName: 'Large (12" x 16.5")' },
+          { location: 'left-chest', locationName: 'Left Chest', size: 'small', sizeName: 'Small (5" x 5")' },
+        ],
+        referenceArtwork: [
+          { hostedUrl: 'https://example.com/big.png', placement: 'Full Front', fileName: 'big.png' },
+          { hostedUrl: 'https://example.com/odd.png', placement: 'Sleeve', fileName: 'odd.png' },
+        ],
+      }),
+    });
+    const order = transformQuoteToOrder(session, [garment()], { isTest: true });
+    const [big, odd] = order.Designs[0].Locations;
+    expect(big.Notes).toBe('big.png · Large (12" x 16.5") transfer');
+    expect(odd.Notes).toBe('odd.png'); // no breakdown match → filename only, as before
+    // ForProductColor follows the SAME CATALOG_COLOR contract as LinesOE.Color
+    // (MANAGEORDERS_COMPLETE_REFERENCE §Designs, proven on OF-0025).
+    expect(order.Designs[0].ForProductColor).toBe('BrillOrng');
+    expect(order.LinesOE[0].Color).toBe('BrillOrng');
+  });
+});

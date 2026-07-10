@@ -46,3 +46,20 @@ describe('buildDesigns — dedup (P2-10) + branch mutual-exclusion (P1-9)', () =
     expect(names(d)).toEqual(['Fresh Logo']);
   });
 });
+
+describe('buildDesigns — Swagger field enrichment (2026-07-10)', () => {
+  const items1 = [{ Color: 'Navy', ColorCode: 'Navy' }, { Color: 'Navy', ColorCode: 'Navy' }];
+  const itemsMixed = [{ Color: 'Navy' }, { Color: 'Black' }];
+
+  test('ForProductColor = CATALOG_COLOR codes (documented contract)', () => {
+    const s = { ...base, StitchCount: 8000, ImportNotes: notes('Fresh Logo', [{ hostedUrl: 'http://x/f.png', placement: 'Left Chest', fileName: 'f.png' }]) };
+    const d = T.buildDesigns(s, items1);
+    expect(d[0].ForProductColor).toBe('Navy');
+    expect(d[0].Locations[0].TotalStitches).toBe('8000');
+  });
+
+  test('ForProductColor lists ALL distinct colors, comma-separated', () => {
+    const s = { ...base, ImportNotes: notes('Fresh Logo', [{ hostedUrl: 'http://x/f.png', placement: 'Left Chest', fileName: 'f.png' }]) };
+    expect(T.buildDesigns(s, itemsMixed)[0].ForProductColor).toBe('Navy, Black');
+  });
+});
