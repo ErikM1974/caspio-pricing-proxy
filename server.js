@@ -614,6 +614,25 @@ const boxUploadRoutes = require('./src/routes/box-upload');
 app.use('/api', boxUploadRoutes);
 console.log('✓ Box upload routes loaded');
 
+// Image Uploads Routes (Image_Uploads_Data_Base library: file → Caspio Files
+// + metadata record in one call). Open like /api/files/upload; POST shares the
+// upload abuse budget via its own write limiter (GET reads never throttled).
+const imageUploadLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  trustProxy: true,
+  message: { error: 'Too many image uploads — please slow down and try again shortly.' }
+});
+app.use('/api/image-uploads', (req, res, next) =>
+  (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS')
+    ? next()
+    : imageUploadLimiter(req, res, next));
+const imageUploadsRoutes = require('./src/routes/image-uploads');
+app.use('/api', imageUploadsRoutes);
+console.log('✓ Image Uploads routes loaded');
+
 // Digitizing Mockup Routes (Ruth's mockup workflow)
 // SECURITY (2026-07-04): mockup GET reads carry the same internal fields as art
 // rows; gate reads behind secret-or-browser-origin (writes untouched).

@@ -99,6 +99,7 @@ Detailed documentation organized by topic:
 - **[MCP Servers for Claude Desktop](memory/MCP_SERVERS.md)** - Setup guide and tools for chatting with account data (v1.1.0 - 2026-01-22)
 - **[Non-SanMar Products API](memory/NON_SANMAR_PRODUCTS_API.md)** - CRUD for Brooks Brothers, Carhartt direct, specialty items (v1.0.0 - 2026-02-03)
 - **[Caspio Schema Introspection API](memory/CASPIO_SCHEMA_INTROSPECTION_API.md)** - OPEN no-token read-only schema endpoints: enumerate tables/views/apps/webhooks + any table's fields via `/api/caspio-schema/*` (v1.0.0 - 2026-07-10)
+- **[Image Uploads API](memory/IMAGE_UPLOADS_API.md)** - Image library: one POST = Caspio Files upload + `Image_Uploads_Data_Base` record with servable URL; list/get with filters (v1.0.0 - 2026-07-10)
 
 ## Quick Reference
 
