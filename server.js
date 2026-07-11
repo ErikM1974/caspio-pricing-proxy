@@ -1123,6 +1123,13 @@ const serviceCodesRoutes = require('./src/routes/service-codes');
 app.use('/api', serviceCodesRoutes);
 console.log('✓ Service Codes routes loaded');
 
+// Forms Library (Forms_Library table) — Erik-editable registry of printable/fillable
+// company forms shown on /dashboards/forms-library.html. Public GET (staff page
+// fetches client-side, same model as service-codes); writes gated.
+const formsLibraryRoutes = require('./src/routes/forms-library');
+app.use('/api/forms-library', gateWritesOnly, formsLibraryRoutes);
+console.log('✓ Forms Library routes loaded');
+
 // On-demand Caspio scheduled-task triggers (#5) — list/status/run the 6 Data
 // Import/Export Tasks via the Caspio v3 management API. Privileged staff action
 // (triggering an import), so the WHOLE mount is requireCrmApiSecret-gated.
