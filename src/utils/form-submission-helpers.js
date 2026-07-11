@@ -9,6 +9,7 @@ const FORM_PREFIX = {
   'artwork-request': 'ART',
   'name-personalization': 'NAM',
   'sample-checkout': 'SMP',
+  'ae-order-intake': 'AEO',
 };
 
 const DEFAULT_STATUS = {
@@ -16,6 +17,7 @@ const DEFAULT_STATUS = {
   'artwork-request': 'New',
   'name-personalization': 'New',
   'sample-checkout': 'Checked Out',
+  'ae-order-intake': 'New',
 };
 
 // Any payload key that smells like card data is dropped for sample-checkout.

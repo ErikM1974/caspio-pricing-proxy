@@ -89,7 +89,7 @@ const SEED = [
     Description: 'AE order sheet to complete before entering the order into ShopWorks. Fill online (customer + SanMar style lookup) or type into the PDF.',
     Category: 'Customer Intake',
     PDF_URL: '/forms/ae-customer-order-intake-form.pdf',
-    Fill_Online_URL: '',
+    Fill_Online_URL: '/pages/forms/ae-order-intake-form.html',
     Sort_Order: '5',
     Is_Active: 'Yes',
   },
