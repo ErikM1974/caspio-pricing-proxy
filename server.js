@@ -1130,6 +1130,16 @@ const formsLibraryRoutes = require('./src/routes/forms-library');
 app.use('/api/forms-library', gateWritesOnly, formsLibraryRoutes);
 console.log('✓ Forms Library routes loaded');
 
+// Form Submissions (Form_Submissions + Sample_Checkout_Items) — saved fillable-form
+// twins → staff Forms Inbox. POST stays public (front-counter saves, rate-limited,
+// card fields stripped server-side); GET/PUT hold customer PII so they're
+// secret-only — staff reach them via the session-gated /api/crm-proxy forwarder.
+const formSubmissionsRoutes = require('./src/routes/form-submissions');
+const gateAllButPost = (req, res, next) =>
+  req.method === 'POST' ? next() : requireCrmApiSecret(req, res, next);
+app.use('/api/form-submissions', gateAllButPost, formSubmissionsRoutes);
+console.log('✓ Form Submissions routes loaded [reads CRM-gated]');
+
 // On-demand Caspio scheduled-task triggers (#5) — list/status/run the 6 Data
 // Import/Export Tasks via the Caspio v3 management API. Privileged staff action
 // (triggering an import), so the WHOLE mount is requireCrmApiSecret-gated.

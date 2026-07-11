@@ -302,8 +302,29 @@ async function fetchAllCaspioPages(resourcePath, initialParams = {}, options = {
   }
 }
 
+/**
+ * Caspio PUT that PRESERVES RecordsAffected. makeCaspioRequest returns
+ * `data.Result || data` — when Caspio answers {"RecordsAffected":N,"Result":[]}
+ * the empty-but-truthy [] wins and callers can't tell a real update from a
+ * no-match (found 2026-07-11 on Sample_Checkout_Items; same latent bug in any
+ * PUT that checks RecordsAffected). Returns the raw response body.
+ */
+async function putWithRecordsAffected(resourcePath, where, data) {
+  const token = await getCaspioAccessToken();
+  const response = await axios({
+    method: 'put',
+    url: `${config.caspio.apiBaseUrl}${resourcePath}`,
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    params: { 'q.where': where },
+    data,
+    timeout: config.timeouts.perRequest
+  });
+  return response.data || {};
+}
+
 module.exports = {
   getCaspioAccessToken,
   makeCaspioRequest,
-  fetchAllCaspioPages
+  fetchAllCaspioPages,
+  putWithRecordsAffected
 };

@@ -6,7 +6,7 @@
 'use strict';
 const express = require('express');
 const router = express.Router();
-const { fetchAllCaspioPages, makeCaspioRequest } = require('../utils/caspio');
+const { fetchAllCaspioPages, makeCaspioRequest, putWithRecordsAffected } = require('../utils/caspio');
 
 const TABLE_PATH = '/tables/Forms_Library/records';
 const FIELDS = 'PK_ID,Form_ID,Form_Name,Description,Category,PDF_URL,Fill_Online_URL,Sort_Order,Is_Active';
@@ -84,8 +84,9 @@ router.put('/:formId', async (req, res) => {
   for (const k of ALLOWED) if (req.body && req.body[k] !== undefined) updates[k] = String(req.body[k]);
   if (!Object.keys(updates).length) return res.status(400).json({ error: 'No updatable fields supplied' });
   try {
-    const result = await makeCaspioRequest('put', TABLE_PATH, { 'q.where': `Form_ID='${formId}'` }, updates);
-    if (!result || !result.RecordsAffected) return res.status(404).json({ error: `Form '${formId}' not found` });
+    // putWithRecordsAffected: makeCaspioRequest can return Result:[] and lose RecordsAffected (2026-07-11)
+    const result = await putWithRecordsAffected(TABLE_PATH, `Form_ID='${formId}'`, updates);
+    if (!result.RecordsAffected) return res.status(404).json({ error: `Form '${formId}' not found` });
     clearCache();
     res.json({ updated: formId, fields: updates });
   } catch (e) {

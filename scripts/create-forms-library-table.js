@@ -133,6 +133,16 @@ const SEED = [
     Is_Active: 'Yes',
   },
   {
+    Form_ID: 'box-label',
+    Form_Name: 'Box Label (8.5×11)',
+    Description: 'Big-print label taped to the front of a finished box — order type, work order, due + drop-dead dates, customer, design, size grid. Fill online (with customer lookup) or type into the PDF.',
+    Category: 'Supplies & Production',
+    PDF_URL: '/forms/box-label.pdf',
+    Fill_Online_URL: '/pages/forms/box-label-form.html',
+    Sort_Order: '55',
+    Is_Active: 'Yes',
+  },
+  {
     Form_ID: 'lg540-ink-order',
     Form_Name: 'Roland LG-540 Ink Order Form',
     Description: 'Ink / supplies order sheet for the Roland LG-540 printer.',

@@ -1,0 +1,89 @@
+#!/usr/bin/env node
+/**
+ * Create the `Form_Submissions` + `Sample_Checkout_Items` Caspio tables — storage for
+ * the fillable form twins' "Save to NWCA" feature (Pricing Index /pages/forms/*) and
+ * the staff Forms Inbox dashboard (/dashboards/form-submissions.html).
+ *
+ *   node scripts/create-form-submissions-tables.js          # dry-run
+ *   node scripts/create-form-submissions-tables.js --apply  # create (no seed rows)
+ *
+ * Design (all STRING per house convention):
+ *   Form_Submissions        — one row per saved form (any of the 4 saving twins).
+ *                             Payload_JSON holds the full field set; the promoted
+ *                             columns exist for Inbox filtering/queues.
+ *   Sample_Checkout_Items   — one row per checked-out sample item (sample-checkout
+ *                             submissions only) so items can be returned piecemeal
+ *                             and the Inbox can show what's still out / overdue.
+ *
+ * ⚠️ sample-checkout payloads NEVER include card fields (cardholder/last4/exp/type)
+ * — stripped client-side AND server-side (src/routes/form-submissions.js, jest-locked).
+ */
+'use strict';
+const axios = require('axios');
+const config = require('../src/config');
+const { getCaspioAccessToken } = require('../src/utils/caspio');
+
+const BASE = config.caspio.apiBaseUrl;
+const APPLY = process.argv.includes('--apply');
+
+const TABLES = [
+  {
+    Name: 'Form_Submissions',
+    Fields: [
+      { Name: 'Submission_ID', Type: 'STRING', Unique: true }, // e.g. SMP0711-4821
+      { Name: 'Form_ID', Type: 'STRING' },        // garment-drop-off | artwork-request | name-personalization | sample-checkout
+      { Name: 'Company', Type: 'STRING' },
+      { Name: 'Contact_Name', Type: 'STRING' },
+      { Name: 'Phone', Type: 'STRING' },
+      { Name: 'Email', Type: 'STRING' },
+      { Name: 'Customer_Number', Type: 'STRING' },
+      { Name: 'Sales_Rep', Type: 'STRING' },
+      { Name: 'Due_Date', Type: 'STRING' },       // ISO yyyy-mm-dd when parseable, else ''
+      { Name: 'Status', Type: 'STRING' },         // New / In Progress / Completed / Archived · samples: Checked Out / Partially Returned / Returned / Charged
+      { Name: 'Summary', Type: 'STRING' },        // one-line list-view string built at save time
+      { Name: 'Payload_JSON', Type: 'TEXT' },     // full form fields as JSON
+      { Name: 'Submitted_At', Type: 'STRING' },   // ISO datetime (STRING avoids Caspio tz pitfalls)
+      { Name: 'Updated_At', Type: 'STRING' },
+      { Name: 'Updated_By', Type: 'STRING' },
+      { Name: 'Art_Request_ID', Type: 'STRING' }, // set when an artwork-request row is pushed to Art Hub
+    ],
+  },
+  {
+    Name: 'Sample_Checkout_Items',
+    Fields: [
+      { Name: 'Submission_ID', Type: 'STRING' },  // FK → Form_Submissions.Submission_ID
+      { Name: 'Line_Number', Type: 'STRING' },
+      { Name: 'Source', Type: 'STRING' },
+      { Name: 'Brand', Type: 'STRING' },
+      { Name: 'Style', Type: 'STRING' },
+      { Name: 'Description', Type: 'STRING' },
+      { Name: 'Color', Type: 'STRING' },
+      { Name: 'Size', Type: 'STRING' },
+      { Name: 'Qty', Type: 'STRING' },
+      { Name: 'Retail_Value', Type: 'STRING' },
+      { Name: 'Charge_Value', Type: 'STRING' },
+      { Name: 'Item_Status', Type: 'STRING' },    // Out / Returned / Charged
+      { Name: 'Date_Returned', Type: 'STRING' },
+      { Name: 'Condition', Type: 'STRING' },
+      { Name: 'Checked_In_By', Type: 'STRING' },
+    ],
+  },
+];
+
+async function main() {
+  const token = await getCaspioAccessToken();
+  const H = { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } };
+  console.log(`Mode: ${APPLY ? 'APPLY (writing)' : 'DRY-RUN (no writes)'}\n`);
+
+  for (const def of TABLES) {
+    let exists = false;
+    try { await axios.get(`${BASE}/tables/${def.Name}/fields`, { headers: { Authorization: `Bearer ${token}` } }); exists = true; } catch (_) {}
+    console.log(`Table ${def.Name}: ${exists ? 'already exists' : 'does NOT exist'}`);
+    if (!exists) {
+      console.log(`  ${APPLY ? 'creating' : 'would create'}: ${def.Fields.map(f => f.Name).join(', ')}`);
+      if (APPLY) { await axios.post(`${BASE}/tables`, def, H); console.log('  ✓ table created'); }
+    }
+  }
+  console.log(`\n${APPLY ? 'Done.' : 'Dry-run only. Re-run with --apply.'}`);
+}
+main().catch(e => { console.error('FATAL:', e.response ? JSON.stringify(e.response.data) : e.message); process.exit(1); });
