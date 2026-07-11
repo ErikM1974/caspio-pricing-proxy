@@ -171,6 +171,18 @@ function buildAeoOrderData(submission, payload, options) {
     'Payment notes: ' + (F['Deposit / Payment Notes'] || ''),
   ];
 
+  // ── pricing provenance (Quick Quote round-trip, 2026-07-11) ──
+  // lines[].pricedVia records WHICH engine config produced the row's unit
+  // price (method, stitches/colors/locations, qty, tier). Ride it into the
+  // order notes so the number stays auditable inside ShopWorks.
+  var provLines = (payload.lines || []).filter(function (l) { return l && l.pricedVia; });
+  if (provLines.length) {
+    noteLines.push('— PRICING PROVENANCE —');
+    provLines.forEach(function (l) {
+      noteLines.push((l.style || 'Row') + ': ' + String(l.pricedVia).slice(0, 300));
+    });
+  }
+
   if (skippedRows.length) {
     noteLines.push('— ROWS NOT PUSHED (finish by hand; color not SanMar-verified or incomplete) —');
     skippedRows.forEach(function (r) {

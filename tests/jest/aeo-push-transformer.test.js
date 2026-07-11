@@ -126,6 +126,23 @@ describe('buildAeoOrderData', () => {
     expect(orderData.notes[0].text).toContain('No design linked');
   });
 
+  test('lines[].pricedVia (Quick Quote round-trip) rides into the order notes as pricing provenance', () => {
+    const p = payload();
+    p.lines = [{
+      style: 'PC61', colorName: 'Navy', catalogColor: 'Navy', description: 'Essential Tee',
+      basePrice: '21.00', sizes: [{ size: 'M', qty: 34, upcharge: 0 }], otherSizes: '',
+      pricedVia: 'Quick Quote: Screen print — 2-col front, dark garment · 34 pcs (48 tier) → $21.00/pc',
+    }];
+    const { orderData } = buildAeoOrderData(SUBMISSION, p);
+    expect(orderData.notes[0].text).toContain('— PRICING PROVENANCE —');
+    expect(orderData.notes[0].text).toContain('PC61: Quick Quote: Screen print — 2-col front, dark garment');
+  });
+
+  test('no pricedVia on any line → no provenance section in the notes', () => {
+    const { orderData } = buildAeoOrderData(SUBMISSION, payload());
+    expect(orderData.notes[0].text).not.toContain('PRICING PROVENANCE');
+  });
+
   test('all rows unverifiable → zero lineItems (endpoint 400s instead of pushing garbage)', () => {
     const p = payload();
     p.tables[0].rows = [['', 'Navy', '', 'Mystery tee', '', '', '', '', '', '', '', '5', '', '']];
