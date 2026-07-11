@@ -52,53 +52,101 @@ function buildAeoOrderData(submission, payload, options) {
   var checks = payload.checks || [];
   var warnings = [];
 
-  // ── line rows: [Style, Color, Catalog Color, Description, S,M,L,XL,2XL,3XL, Other, Qty, Unit Price, Line Total]
-  var table = (payload.tables || []).filter(function (t) { return t && t.title === 'Order Lines'; })[0]
-           || (payload.tables || [])[0] || { rows: [] };
-
   var lineItems = [];
   var verifiedLines = [];
   var skippedRows = [];
 
-  (table.rows || []).forEach(function (row, idx) {
-    var style = String(row[0] || '').trim();
-    var colorName = String(row[1] || '').trim();
-    var catalogColor = String(row[2] || '').trim();
-    var description = String(row[3] || '').trim();
-    var sizes = row.slice(4, 10).map(function (v) { return parseInt(v, 10) || 0; });
-    var otherSizes = String(row[10] || '').trim();
-    var unitPrice = num(row[12]);
-    var sizedQty = sizes.reduce(function (a, b) { return a + b; }, 0);
+  if (Array.isArray(payload.lines) && payload.lines.length) {
+    // ── machine block (2026-07-11 form v2): per-row {style, colorName,
+    //    catalogColor, description, basePrice, sizes:[{size,qty,upcharge}],
+    //    otherSizes} — dynamic size runs incl. 4XL/5XL/talls. Per-size price
+    //    is recomputed HERE (base + Caspio upcharge) — never trusted from
+    //    the client.
+    payload.lines.forEach(function (line, idx) {
+      var style = String(line.style || '').trim().toUpperCase();
+      var catalogColor = String(line.catalogColor || '').trim();
+      var basePrice = num(line.basePrice);
+      var sizes = Array.isArray(line.sizes) ? line.sizes.filter(function (s) { return s && parseInt(s.qty, 10) > 0; }) : [];
+      var otherSizes = String(line.otherSizes || '').trim();
 
-    var reasons = [];
-    if (!style) reasons.push('no style #');
-    if (!catalogColor) reasons.push('color not picked from the SanMar list (no catalog color)');
-    if (sizedQty <= 0) reasons.push('no S–3XL size quantities');
-    if (unitPrice === null) reasons.push('no unit price');
+      var reasons = [];
+      if (!style) reasons.push('no style #');
+      if (!catalogColor) reasons.push('color not picked from the SanMar list (no catalog color)');
+      if (!sizes.length) reasons.push('no size quantities');
+      if (basePrice === null) reasons.push('no base price');
 
-    if (reasons.length) {
-      skippedRows.push({ rowNumber: idx + 1, style: style, color: colorName, otherSizes: otherSizes, reasons: reasons, raw: row });
-      return;
-    }
+      var raw = [line.style || '', line.colorName || '', line.description || '',
+        sizes.map(function (s) { return s.size + 'x' + s.qty; }).join(' '), line.qty || '', line.basePrice || ''];
 
-    sizes.forEach(function (qty, s) {
-      if (qty <= 0) return;
-      lineItems.push({
-        partNumber: style,
-        description: description || style,
-        catalogColor: catalogColor,
-        color: colorName,
-        size: SIZE_LABELS[s],
-        quantity: qty,
-        price: unitPrice,
+      if (reasons.length) {
+        skippedRows.push({ rowNumber: idx + 1, style: style, color: line.colorName || '', otherSizes: otherSizes, reasons: reasons, raw: raw });
+        return;
+      }
+
+      var rowQty = 0;
+      sizes.forEach(function (s) {
+        var qty = parseInt(s.qty, 10);
+        var upcharge = parseFloat(s.upcharge) || 0;
+        rowQty += qty;
+        lineItems.push({
+          partNumber: style,
+          description: String(line.description || '').trim() || style,
+          catalogColor: catalogColor,
+          color: String(line.colorName || '').trim(),
+          size: String(s.size || '').trim(),
+          quantity: qty,
+          price: Math.round((basePrice + upcharge) * 100) / 100,
+        });
       });
+      verifiedLines.push({ rowNumber: idx + 1, style: style, color: line.colorName || '', catalogColor: catalogColor, qty: rowQty, unitPrice: basePrice });
+      if (otherSizes) warnings.push('Row ' + (idx + 1) + ' (' + style + '): "Other" sizes not pushed — add by hand: ' + otherSizes);
     });
-    verifiedLines.push({ rowNumber: idx + 1, style: style, color: colorName, catalogColor: catalogColor, qty: sizedQty, unitPrice: unitPrice });
+  } else {
+    // ── legacy table rows (form v1 submissions):
+    //    [Style, Color, Catalog Color, Description, S,M,L,XL,2XL,3XL, Other, Qty, Unit Price, Line Total]
+    var table = (payload.tables || []).filter(function (t) { return t && t.title === 'Order Lines'; })[0]
+             || (payload.tables || [])[0] || { rows: [] };
 
-    if (otherSizes) {
-      warnings.push('Row ' + (idx + 1) + ' (' + style + '): "Other" sizes not pushed — add by hand: ' + otherSizes);
-    }
-  });
+    (table.rows || []).forEach(function (row, idx) {
+      var style = String(row[0] || '').trim();
+      var colorName = String(row[1] || '').trim();
+      var catalogColor = String(row[2] || '').trim();
+      var description = String(row[3] || '').trim();
+      var sizes = row.slice(4, 10).map(function (v) { return parseInt(v, 10) || 0; });
+      var otherSizes = String(row[10] || '').trim();
+      var unitPrice = num(row[12]);
+      var sizedQty = sizes.reduce(function (a, b) { return a + b; }, 0);
+
+      var reasons = [];
+      if (!style) reasons.push('no style #');
+      if (!catalogColor) reasons.push('color not picked from the SanMar list (no catalog color)');
+      if (sizedQty <= 0) reasons.push('no S–3XL size quantities');
+      if (unitPrice === null) reasons.push('no unit price');
+
+      if (reasons.length) {
+        skippedRows.push({ rowNumber: idx + 1, style: style, color: colorName, otherSizes: otherSizes, reasons: reasons, raw: row });
+        return;
+      }
+
+      sizes.forEach(function (qty, s) {
+        if (qty <= 0) return;
+        lineItems.push({
+          partNumber: style,
+          description: description || style,
+          catalogColor: catalogColor,
+          color: colorName,
+          size: SIZE_LABELS[s],
+          quantity: qty,
+          price: unitPrice,
+        });
+      });
+      verifiedLines.push({ rowNumber: idx + 1, style: style, color: colorName, catalogColor: catalogColor, qty: sizedQty, unitPrice: unitPrice });
+
+      if (otherSizes) {
+        warnings.push('Row ' + (idx + 1) + ' (' + style + '): "Other" sizes not pushed — add by hand: ' + otherSizes);
+      }
+    });
+  }
 
   // ── notes ──
   var methodChecks = checks.filter(function (c) {
@@ -132,7 +180,27 @@ function buildAeoOrderData(submission, payload, options) {
     });
   }
   warnings.forEach(function (w) { noteLines.push('NOTE: ' + w); });
-  noteLines.push('No design linked by this push — attach/link the design in ShopWorks.');
+
+  // ── design link (form v2 captures the digitized design # on pick) ──
+  var DESIGN_TYPE_BY_METHOD = { 'Embroidery': 2, 'Screen Printing': 1, 'Transfers': 8, 'DTG': 45 };
+  var designNumber = parseInt(payload.designNumber, 10);
+  var designs;
+  if (designNumber && designNumber > 0) {
+    var firstMethod = methodChecks[0] || '';
+    var productColors = [];
+    lineItems.forEach(function (li) {
+      if (li.catalogColor && productColors.indexOf(li.catalogColor) === -1) productColors.push(li.catalogColor);
+    });
+    designs = [{
+      id_Design: designNumber,
+      name: String(payload.designName || ('Design #' + designNumber)),
+      designTypeId: DESIGN_TYPE_BY_METHOD[firstMethod] || undefined,
+      productColor: productColors.join(', '),
+    }];
+    noteLines.push('Design #' + designNumber + ' linked by this push (' + (payload.designName || '') + ').');
+  } else {
+    noteLines.push('No design linked by this push — attach/link the design in ShopWorks.');
+  }
 
   var notes = [{ type: 'Notes On Order', text: noteLines.filter(Boolean).join('\n') }];
   var prodNotes = ((payload.notes || []).filter(function (p) { return p[0] === 'Production Notes'; })[0] || [])[1];
@@ -163,6 +231,7 @@ function buildAeoOrderData(submission, payload, options) {
     isTest: !!options.isTest,
     // taxTotal deliberately ABSENT — never push tax (rep applies SW dropdown)
   };
+  if (designs) orderData.designs = designs;
   if (customerNumber) orderData.idCustomer = customerNumber;
   if (!customerNumber) warnings.push('No numeric Customer # — order lands on the catch-all customer; rep re-assigns in ShopWorks.');
 

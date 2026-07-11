@@ -90,6 +90,42 @@ describe('buildAeoOrderData', () => {
     expect(warnings.join(' ')).toMatch(/catch-all/);
   });
 
+  test('v2 machine lines: dynamic sizes with upcharges — per-size price = base + Caspio upcharge, recomputed server-side', () => {
+    const p = payload();
+    p.lines = [{
+      style: 'pc61', colorName: 'Dark Green', catalogColor: 'Dark Green', description: 'Essential Tee',
+      basePrice: '10.00',
+      sizes: [
+        { size: 'M', qty: 2, upcharge: 0 },
+        { size: '5XL', qty: 1, upcharge: 8 },   // extended size, different price
+      ],
+      otherSizes: '',
+    }];
+    const { orderData, verifiedLines } = buildAeoOrderData(SUBMISSION, p);
+    expect(orderData.lineItems).toEqual([
+      expect.objectContaining({ partNumber: 'PC61', size: 'M', quantity: 2, price: 10 }),
+      expect.objectContaining({ partNumber: 'PC61', size: '5XL', quantity: 1, price: 18 }),
+    ]);
+    expect(verifiedLines[0].qty).toBe(3);
+  });
+
+  test('v2 design link: payload.designNumber → orderData.designs with id_Design + method design type', () => {
+    const p = payload();
+    p.designNumber = '39719';
+    p.designName = 'Stella Jones signature logo';
+    const { orderData } = buildAeoOrderData(SUBMISSION, p);
+    expect(orderData.designs).toEqual([
+      expect.objectContaining({ id_Design: 39719, name: 'Stella Jones signature logo', designTypeId: 2, productColor: 'Navy' }),
+    ]);
+    expect(orderData.notes[0].text).toContain('Design #39719 linked');
+  });
+
+  test('no designNumber → no designs key + the attach-by-hand note (legacy behavior)', () => {
+    const { orderData } = buildAeoOrderData(SUBMISSION, payload());
+    expect(orderData.designs).toBeUndefined();
+    expect(orderData.notes[0].text).toContain('No design linked');
+  });
+
   test('all rows unverifiable → zero lineItems (endpoint 400s instead of pushing garbage)', () => {
     const p = payload();
     p.tables[0].rows = [['', 'Navy', '', 'Mystery tee', '', '', '', '', '', '', '', '5', '', '']];
