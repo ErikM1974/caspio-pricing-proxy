@@ -1135,10 +1135,13 @@ console.log('✓ Forms Library routes loaded');
 // card fields stripped server-side); GET/PUT hold customer PII so they're
 // secret-only — staff reach them via the session-gated /api/crm-proxy forwarder.
 const formSubmissionsRoutes = require('./src/routes/form-submissions');
-const gateAllButPost = (req, res, next) =>
-  req.method === 'POST' ? next() : requireCrmApiSecret(req, res, next);
-app.use('/api/form-submissions', gateAllButPost, formSubmissionsRoutes);
-console.log('✓ Form Submissions routes loaded [reads CRM-gated]');
+// ONLY the bare save POST (path '/') is public — every other verb AND the
+// nested POSTs (e.g. /:id/push-to-shopworks, which creates real SW orders)
+// require the CRM secret.
+const gatePublicSaveOnly = (req, res, next) =>
+  (req.method === 'POST' && (req.path === '/' || req.path === '')) ? next() : requireCrmApiSecret(req, res, next);
+app.use('/api/form-submissions', gatePublicSaveOnly, formSubmissionsRoutes);
+console.log('✓ Form Submissions routes loaded [reads + push CRM-gated]');
 
 // On-demand Caspio scheduled-task triggers (#5) — list/status/run the 6 Data
 // Import/Export Tasks via the Caspio v3 management API. Privileged staff action

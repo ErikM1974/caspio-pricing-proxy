@@ -217,4 +217,71 @@ router.put('/:submissionId', async (req, res) => {
   }
 });
 
+// POST /api/form-submissions/:submissionId/push-to-shopworks — secret-gated at the
+// mount (only the bare save POST is public). AE Order Intake only. Verified rows
+// (SanMar catalog color captured) become ShopWorks line items via the generic
+// manageorders-push-client; everything else rides in Notes On Order. Dup-guarded.
+router.post('/:submissionId/push-to-shopworks', async (req, res) => {
+  const id = sanitizeId(req.params.submissionId);
+  if (!id) return res.status(400).json({ error: 'Invalid submission id' });
+  const force = !!(req.body && req.body.force);
+  const isTest = !!(req.body && req.body.isTest);
+  const staff = S(req.body && req.body.staffEmail, 120);
+
+  try {
+    const rows = await fetchAllCaspioPages(SUBMISSIONS_PATH, { 'q.where': `Submission_ID='${id}'`, 'q.pageSize': 25 }, { maxPages: 1 });
+    if (!rows || !rows.length) return res.status(404).json({ error: `Submission '${id}' not found` });
+    const submission = rows[0];
+
+    if (submission.Form_ID !== 'ae-order-intake') {
+      return res.status(400).json({ error: 'Only AE Order Intake submissions can push to ShopWorks' });
+    }
+    if (submission.Pushed_To_ShopWorks === 'Yes' && !force) {
+      return res.status(409).json({
+        error: `Already pushed (${submission.ShopWorks_Order_ID || 'order id unknown'}) — refusing duplicate`,
+        shopworksOrderId: submission.ShopWorks_Order_ID || '',
+      });
+    }
+
+    let payload = {};
+    try { payload = JSON.parse(submission.Payload_JSON || '{}'); } catch (_) { /* handled below */ }
+
+    const { buildAeoOrderData } = require('../utils/aeo-push-transformer');
+    const built = buildAeoOrderData(submission, payload, { isTest });
+
+    if (!built.orderData.lineItems.length) {
+      return res.status(400).json({
+        error: 'No pushable line items — every row is missing a SanMar-verified color, sizes or a price. Fix the rows or enter the order by hand.',
+        skippedRows: built.skippedRows,
+        warnings: built.warnings,
+      });
+    }
+
+    const { pushOrder } = require('../../lib/manageorders-push-client');
+    const result = await pushOrder(built.orderData);
+    const extOrderId = (result && (result.extOrderID || result.ExtOrderID)) || ('NWCA-' + built.orderData.orderNumber);
+
+    await caspioPut(SUBMISSIONS_PATH, `Submission_ID='${id}'`, {
+      Pushed_To_ShopWorks: 'Yes',
+      ShopWorks_Order_ID: extOrderId,
+      Status: 'Entered in ShopWorks',
+      Updated_At: nowIso(),
+      Updated_By: staff,
+    });
+
+    console.log(`[form-submissions] pushed ${id} → ShopWorks as ${extOrderId} (${built.orderData.lineItems.length} lines, ${built.skippedRows.length} skipped)`);
+    res.json({
+      pushed: true,
+      extOrderId,
+      lineCount: built.orderData.lineItems.length,
+      verifiedLines: built.verifiedLines,
+      skippedRows: built.skippedRows,
+      warnings: built.warnings,
+    });
+  } catch (e) {
+    console.error('[form-submissions] shopworks push failed:', e.message);
+    res.status(502).json({ error: 'ShopWorks push FAILED — nothing was marked pushed. ' + e.message });
+  }
+});
+
 module.exports = router;

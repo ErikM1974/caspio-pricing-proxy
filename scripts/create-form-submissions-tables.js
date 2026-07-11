@@ -46,6 +46,8 @@ const TABLES = [
       { Name: 'Updated_At', Type: 'STRING' },
       { Name: 'Updated_By', Type: 'STRING' },
       { Name: 'Art_Request_ID', Type: 'STRING' }, // set when an artwork-request row is pushed to Art Hub
+      { Name: 'Pushed_To_ShopWorks', Type: 'STRING' }, // 'Yes' after the AEO→SW push (dup guard)
+      { Name: 'ShopWorks_Order_ID', Type: 'STRING' },  // ExtOrderID written back by the push
     ],
   },
   {
@@ -76,12 +78,22 @@ async function main() {
   console.log(`Mode: ${APPLY ? 'APPLY (writing)' : 'DRY-RUN (no writes)'}\n`);
 
   for (const def of TABLES) {
-    let exists = false;
-    try { await axios.get(`${BASE}/tables/${def.Name}/fields`, { headers: { Authorization: `Bearer ${token}` } }); exists = true; } catch (_) {}
-    console.log(`Table ${def.Name}: ${exists ? 'already exists' : 'does NOT exist'}`);
-    if (!exists) {
+    let existing = null;
+    try {
+      const r = await axios.get(`${BASE}/tables/${def.Name}/fields`, { headers: { Authorization: `Bearer ${token}` } });
+      existing = (r.data.Result || []).map(f => f.Name);
+    } catch (_) {}
+    console.log(`Table ${def.Name}: ${existing ? 'already exists' : 'does NOT exist'}`);
+    if (!existing) {
       console.log(`  ${APPLY ? 'creating' : 'would create'}: ${def.Fields.map(f => f.Name).join(', ')}`);
       if (APPLY) { await axios.post(`${BASE}/tables`, def, H); console.log('  ✓ table created'); }
+    } else {
+      // field-sync: add any columns the script knows that the live table lacks
+      for (const field of def.Fields) {
+        if (existing.includes(field.Name)) continue;
+        console.log(`  ${APPLY ? 'adding' : 'would add'} missing field: ${field.Name}`);
+        if (APPLY) { await axios.post(`${BASE}/tables/${def.Name}/fields`, field, H); console.log(`  ✓ added ${field.Name}`); }
+      }
     }
   }
   console.log(`\n${APPLY ? 'Done.' : 'Dry-run only. Re-run with --apply.'}`);

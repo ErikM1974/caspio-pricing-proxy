@@ -10,6 +10,9 @@ const FORM_PREFIX = {
   'name-personalization': 'NAM',
   'sample-checkout': 'SMP',
   'ae-order-intake': 'AEO',
+  'final-qc-checklist': 'QCC',
+  'spoilage-report': 'SPL',
+  'maintenance-log': 'MNT', // one formId for all 6 equipment types (type in payload)
 };
 
 const DEFAULT_STATUS = {
@@ -18,6 +21,9 @@ const DEFAULT_STATUS = {
   'name-personalization': 'New',
   'sample-checkout': 'Checked Out',
   'ae-order-intake': 'New',
+  'final-qc-checklist': 'New',
+  'spoilage-report': 'New',
+  'maintenance-log': 'Logged',
 };
 
 // Any payload key that smells like card data is dropped for sample-checkout.
