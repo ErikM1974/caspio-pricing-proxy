@@ -83,16 +83,19 @@ const SEED = [
     Is_Active: 'Yes',
   },
   {
+    // Erik 2026-07-11: moved to TOP of Customer Intake (was Sales / Order Entry)
     Form_ID: 'ae-order-intake',
     Form_Name: 'AE Customer Order Intake Form',
-    Description: 'Fillable PDF — type directly into it in your browser, then print or save. AE order sheet to complete before entering the order into ShopWorks.',
-    Category: 'Sales / Order Entry',
+    Description: 'AE order sheet to complete before entering the order into ShopWorks. Fill online (customer + SanMar style lookup) or type into the PDF.',
+    Category: 'Customer Intake',
     PDF_URL: '/forms/ae-customer-order-intake-form.pdf',
     Fill_Online_URL: '',
-    Sort_Order: '10',
+    Sort_Order: '5',
     Is_Active: 'Yes',
   },
   {
+    // Erik 2026-07-11: REMOVED from the library (Is_Active No, row kept for
+    // history) — the drop-off form already carries the same waiver text.
     Form_ID: 'customer-supplied-acknowledgment',
     Form_Name: 'Customer-Supplied Garments Acknowledgment',
     Description: 'Waiver the customer signs acknowledging NWCA is not liable for replacement of customer-supplied items.',
@@ -100,7 +103,7 @@ const SEED = [
     PDF_URL: '/forms/Customer-Supplied-Garments-Acknowledgment.pdf',
     Fill_Online_URL: '',
     Sort_Order: '20',
-    Is_Active: 'Yes',
+    Is_Active: 'No',
   },
   {
     Form_ID: 'credit-card-authorization',
