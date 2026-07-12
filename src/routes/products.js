@@ -51,10 +51,13 @@ let productCopyCache = { at: 0, map: null };
 async function getProductCopyMap() {
   if (productCopyCache.map && Date.now() - productCopyCache.at < 10 * 60 * 1000) return productCopyCache.map;
   try {
+    // q.orderBy: unordered multi-page Caspio queries silently skip rows
+    // (2026-07-12 lesson) — harmless at <1000 rows, load-bearing beyond.
     const rows = await fetchAllCaspioPages('/tables/Product_Copy/records', {
       'q.select': 'Style, Custom_Description',
+      'q.orderBy': 'Style',
       'q.pageSize': 1000,
-    }, { maxPages: 2 });
+    }, { maxPages: 4 });
     const map = {};
     for (const r of rows) {
       const s = String(r.Style || '').trim().toUpperCase();
