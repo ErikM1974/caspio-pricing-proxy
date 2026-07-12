@@ -90,7 +90,25 @@ describe('buildSubmissionId — per-form prefixes', () => {
     ['artwork-request', 'ART'],
     ['name-personalization', 'NAM'],
     ['sample-checkout', 'SMP'],
+    ['customer-onboarding', 'ONB'],
+    ['team-roster', 'RST'],
+    ['webstore-request', 'WSR'],
+    ['credit-application', 'CRD'],
+    ['tax-exempt-cert', 'TAX'],
+    ['pto-request', 'PTO'],
+    ['injury-report', 'INJ'],
   ])('%s → %s prefix + MMDD-rand4', (formId, prefix) => {
     expect(buildSubmissionId(formId)).toMatch(new RegExp(`^${prefix}\\d{4}-\\d{4}$`));
+  });
+
+  test('batch-2 formIds validate and carry their default status', () => {
+    const { DEFAULT_STATUS } = require('../../src/utils/form-submission-helpers');
+    ['customer-onboarding', 'team-roster', 'webstore-request', 'credit-application',
+     'tax-exempt-cert', 'pto-request', 'injury-report'].forEach((formId) => {
+      expect(validateSubmission({ formId, company: 'X', payload: {} })).toEqual([]);
+      expect(DEFAULT_STATUS[formId]).toBeTruthy();
+    });
+    expect(DEFAULT_STATUS['pto-request']).toBe('Pending');
+    expect(DEFAULT_STATUS['injury-report']).toBe('Open');
   });
 });

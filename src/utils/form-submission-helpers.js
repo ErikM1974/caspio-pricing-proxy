@@ -13,6 +13,14 @@ const FORM_PREFIX = {
   'final-qc-checklist': 'QCC',
   'spoilage-report': 'SPL',
   'maintenance-log': 'MNT', // one formId for all 6 equipment types (type in payload)
+  // 2026-07-11 batch 2 (Erik-approved 7)
+  'customer-onboarding': 'ONB',
+  'team-roster': 'RST',
+  'webstore-request': 'WSR',   // WEB is a quote prefix — WSR avoids the collision
+  'credit-application': 'CRD',
+  'tax-exempt-cert': 'TAX',    // Due_Date = cert expiration → "Due in 7 days" widget
+  'pto-request': 'PTO',        // Due_Date = first day of leave
+  'injury-report': 'INJ',
 };
 
 const DEFAULT_STATUS = {
@@ -24,6 +32,13 @@ const DEFAULT_STATUS = {
   'final-qc-checklist': 'New',
   'spoilage-report': 'New',
   'maintenance-log': 'Logged',
+  'customer-onboarding': 'New',
+  'team-roster': 'New',
+  'webstore-request': 'New',
+  'credit-application': 'Under Review',
+  'tax-exempt-cert': 'New',
+  'pto-request': 'Pending',
+  'injury-report': 'Open',
 };
 
 // Any payload key that smells like card data is dropped for sample-checkout.
