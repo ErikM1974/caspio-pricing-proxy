@@ -26,6 +26,7 @@ router.get('/stylesearch', async (req, res) => {
       'q.where': whereClause,
       'q.select': 'STYLE,PRODUCT_TITLE',
       'q.groupBy': 'STYLE,PRODUCT_TITLE',
+      'q.orderBy': 'STYLE', // stable pagination — unordered multi-page reads drop rows
       'q.limit': 20
     });
 
@@ -323,7 +324,8 @@ router.get('/products-by-brand', async (req, res) => {
     const records = await fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
       'q.where': `BRAND_NAME LIKE '%${brand}%' AND PRODUCT_STATUS<>'Discontinued'`,
       'q.select': selectFields.join(', '),
-      'q.groupBy': 'STYLE, PRODUCT_TITLE, PRODUCT_DESCRIPTION, BRAND_NAME, FRONT_MODEL, CATEGORY_NAME, SUBCATEGORY_NAME, PRODUCT_STATUS, PIECE_PRICE, DOZEN_PRICE, CASE_PRICE'
+      'q.groupBy': 'STYLE, PRODUCT_TITLE, PRODUCT_DESCRIPTION, BRAND_NAME, FRONT_MODEL, CATEGORY_NAME, SUBCATEGORY_NAME, PRODUCT_STATUS, PIECE_PRICE, DOZEN_PRICE, CASE_PRICE',
+      'q.orderBy': 'STYLE' // stable pagination — unordered multi-page reads drop rows
     });
 
     console.log(`Products by brand "${brand}": ${records.length} product(s) found`);
@@ -352,7 +354,8 @@ router.get('/products-by-category', async (req, res) => {
     const records = await fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
       'q.where': `CATEGORY_NAME='${category}' AND PRODUCT_STATUS<>'Discontinued'`,
       'q.select': selectFields.join(', '),
-      'q.groupBy': 'STYLE, PRODUCT_TITLE, PRODUCT_DESCRIPTION, BRAND_NAME, FRONT_MODEL, CATEGORY_NAME, SUBCATEGORY_NAME, PRODUCT_STATUS'
+      'q.groupBy': 'STYLE, PRODUCT_TITLE, PRODUCT_DESCRIPTION, BRAND_NAME, FRONT_MODEL, CATEGORY_NAME, SUBCATEGORY_NAME, PRODUCT_STATUS',
+      'q.orderBy': 'STYLE' // stable pagination — unordered multi-page reads drop rows
     });
 
     console.log(`Products by category "${category}": ${records.length} product(s) found`);
@@ -381,7 +384,8 @@ router.get('/products-by-subcategory', async (req, res) => {
     const records = await fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
       'q.where': `SUBCATEGORY_NAME='${subcategory}' AND PRODUCT_STATUS<>'Discontinued'`,
       'q.select': selectFields.join(', '),
-      'q.groupBy': 'STYLE, PRODUCT_TITLE, PRODUCT_DESCRIPTION, BRAND_NAME, FRONT_MODEL, CATEGORY_NAME, SUBCATEGORY_NAME, PRODUCT_STATUS'
+      'q.groupBy': 'STYLE, PRODUCT_TITLE, PRODUCT_DESCRIPTION, BRAND_NAME, FRONT_MODEL, CATEGORY_NAME, SUBCATEGORY_NAME, PRODUCT_STATUS',
+      'q.orderBy': 'STYLE' // stable pagination — unordered multi-page reads drop rows
     });
 
     console.log(`Products by subcategory "${subcategory}": ${records.length} product(s) found`);
@@ -400,7 +404,8 @@ router.get('/all-brands', async (req, res) => {
   try {
     const records = await fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
       'q.select': 'BRAND_NAME, BRAND_LOGO_IMAGE, STYLE',
-      'q.groupBy': 'BRAND_NAME, BRAND_LOGO_IMAGE, STYLE'
+      'q.groupBy': 'BRAND_NAME, BRAND_LOGO_IMAGE, STYLE',
+      'q.orderBy': 'STYLE' // stable pagination — ~4,300 groups = 5 pages; unordered reads drop rows
     });
 
     const brandMap = new Map();
@@ -495,6 +500,7 @@ router.get('/search', async (req, res) => {
       'q.where': whereClause,
       'q.select': selectFields.join(', '),
       'q.groupBy': selectFields.join(', '),
+      'q.orderBy': 'STYLE', // stable pagination — unordered multi-page reads drop rows
       'q.limit': 50
     });
 
@@ -520,6 +526,7 @@ router.get('/featured-products', async (req, res) => {
       'q.where': "PRODUCT_STATUS='New'",
       'q.select': selectFields.join(', '),
       'q.groupBy': selectFields.join(', '),
+      'q.orderBy': 'STYLE', // stable pagination — unordered multi-page reads drop rows
       'q.limit': 20
     });
 
@@ -1400,7 +1407,8 @@ router.post('/admin/products/mark-as-new', async (req, res) => {
       '/tables/Sanmar_Bulk_251816_Feb2024/records',
       {
         'q.where': whereClause,
-        'q.select': 'STYLE'
+        'q.select': 'STYLE',
+        'q.orderBy': 'UNIQUE_KEY' // stable pagination — unordered multi-page reads drop rows
       }
     );
 
@@ -1601,7 +1609,8 @@ router.post('/admin/products/mark-as-topseller', async (req, res) => {
       '/tables/Sanmar_Bulk_251816_Feb2024/records',
       {
         'q.where': whereClause,
-        'q.select': 'STYLE'
+        'q.select': 'STYLE',
+        'q.orderBy': 'UNIQUE_KEY' // stable pagination — unordered multi-page reads drop rows
       }
     );
 

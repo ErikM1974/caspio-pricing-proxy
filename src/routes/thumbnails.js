@@ -575,7 +575,8 @@ router.post('/thumbnails/backfill-fileurls', async (req, res) => {
       '/tables/Shopworks_Thumbnail_Report/records',
       {
         'q.where': "ExternalKey IS NOT NULL AND ExternalKey != '' AND (FileUrl IS NULL OR FileUrl = '')",
-        'q.select': 'ID_Serial,ExternalKey'
+        'q.select': 'ID_Serial,ExternalKey',
+        'q.orderBy': 'PK_ID' // stable pagination — unordered multi-page reads drop rows
       }
     );
 
@@ -637,7 +638,8 @@ router.get('/thumbnails/uploaded-ids', async (req, res) => {
       '/tables/Shopworks_Thumbnail_Report/records',
       {
         'q.where': "ExternalKey IS NOT NULL AND ExternalKey != ''",
-        'q.select': 'ID_Serial,FileSizeNumber,timestamp_Uploaded'
+        'q.select': 'ID_Serial,FileSizeNumber,timestamp_Uploaded',
+        'q.orderBy': 'PK_ID' // stable pagination — sync scripts diff against this list; dropped rows = re-uploads
       }
     );
 
@@ -849,7 +851,8 @@ router.get('/thumbnails/stats-by-year', async (req, res) => {
     const records = await fetchAllCaspioPages(
       '/tables/Shopworks_Thumbnail_Report/records',
       {
-        'q.select': 'timestamp_Added,ExternalKey'
+        'q.select': 'timestamp_Added,ExternalKey',
+        'q.orderBy': 'PK_ID' // stable pagination — 12k+ rows = 13 pages; unordered reads drop rows
       },
       { maxPages: 100 }  // 100 pages × 1000 = 100,000 records max
     );
@@ -927,7 +930,7 @@ router.get('/thumbnails/all-ids', async (req, res) => {
 
     const records = await fetchAllCaspioPages(
       '/tables/Shopworks_Thumbnail_Report/records',
-      { 'q.select': 'ID_Serial' },
+      { 'q.select': 'ID_Serial', 'q.orderBy': 'PK_ID' }, // orderBy: stable pagination — 12k+ rows; unordered reads drop rows
       { maxPages: 100 }  // 100 pages × 1000 = 100,000 records max
     );
 

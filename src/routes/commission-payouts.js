@@ -357,6 +357,7 @@ async function getOrdersByCustomerSet(table, dateStart, dateEnd, customerIds, re
     const records = await fetchAllCaspioPages(`/tables/${table}/records`, {
         'q.where': `date_${table === ORDER_ODBC_TABLE ? 'OrderInvoiced' : 'Invoiced'}>='${dateStart}' AND date_${table === ORDER_ODBC_TABLE ? 'OrderInvoiced' : 'Invoiced'}<='${dateEnd}' AND sts_Invoiced=1`,
         'q.select': `id_Customer,${companyField},${revenueField}`,
+        'q.orderBy': 'PK_ID', // stable pagination — a full-year window spans multiple pages; unordered reads drop rows (= wrong bonus revenue)
         'q.limit': 1000,
     }, { totalTimeout: 120000 });
 
@@ -513,6 +514,7 @@ async function calcNewBusinessBonus(year, rep) {
     const historicalRecords = await fetchAllCaspioPages(`/tables/${ORDER_ODBC_TABLE}/records`, {
         'q.where': `date_OrderInvoiced>='${cutoffDate}' AND date_OrderInvoiced<='${endPrevPeriod}' AND sts_Invoiced=1`,
         'q.select': 'id_Customer',
+        'q.orderBy': 'PK_ID', // stable pagination — 18mo of orders = several pages; a dropped row makes a customer falsely "new" (bonus overpay)
         'q.limit': 1000,
     }, { totalTimeout: 120000 });
 

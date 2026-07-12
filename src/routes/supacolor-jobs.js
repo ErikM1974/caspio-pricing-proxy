@@ -65,6 +65,7 @@ async function getSupacolorPoEnrichmentMap() {
     const rows = await fetchAllCaspioPages('/tables/PurchaseOrders/records', {
         'q.where': `id_Vendor=${SUPACOLOR_VENDOR_ID}`,
         'q.select': 'ID_PO,date_Received,id_Order',
+        'q.orderBy': 'PK_ID', // stable pagination — unordered multi-page reads drop rows
         'q.pageSize': 1000
     });
     const map = {};
@@ -393,6 +394,7 @@ router.get('/supacolor-jobs/stats', async (req, res) => {
         const resource = `/tables/${TABLE_JOBS}/records`;
         const records = await fetchAllCaspioPages(resource, {
             'q.select': 'Status',
+            'q.orderBy': 'PK_ID', // stable pagination — table crossed 1,000 rows; unordered reads drop rows
             'q.pageSize': 1000
         });
         // Active = anything that isn't Closed or Cancelled (covers Open, Ganged,
@@ -435,6 +437,7 @@ async function computeSupacolorHealth() {
     // Last_Updated_At — see lastSyncAtMs note above for why.)
     const records = await fetchAllCaspioPages(`/tables/${TABLE_JOBS}/records`, {
         'q.select': 'Status,Date_Entered,Backfill_Source',
+        'q.orderBy': 'PK_ID', // stable pagination — table crossed 1,000 rows; unordered reads drop rows
         'q.pageSize': 1000
     });
 
@@ -1432,6 +1435,7 @@ router.post('/supacolor-jobs/sync/all', async (req, res) => {
 
         // 2. Pull all existing Supacolor_Jobs from Caspio in one paginated scan
         const existingRows = await fetchAllCaspioPages(`/tables/${TABLE_JOBS}/records`, {
+            'q.orderBy': 'PK_ID', // stable pagination — a dropped row makes the sync treat an existing job as new
             'q.pageSize': 1000
         });
         const existingByJobNumber = new Map();

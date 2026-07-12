@@ -53,7 +53,8 @@ router.get('/categories', async (req, res) => {
     const rows = await fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
       'q.where': "PRODUCT_STATUS='Active'",
       'q.select': 'STYLE, CATEGORY_NAME',
-      'q.groupBy': 'STYLE, CATEGORY_NAME'
+      'q.groupBy': 'STYLE, CATEGORY_NAME',
+      'q.orderBy': 'STYLE' // stable pagination — ~3k+ groups = multi-page; unordered reads drop rows
     });
 
     const categories = buildCategoryCounts(rows);

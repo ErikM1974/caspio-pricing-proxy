@@ -72,6 +72,7 @@ router.get('/purchase-orders', async (req, res) => {
             const rows = await fetchAllCaspioPages(`/tables/${TABLE_POS}/records`, {
                 'q.where': where,
                 'q.select': 'ID_PO,id_Vendor,VendorName,TotalInvoice,Subtotal,date_POIssued,date_Received',
+                'q.orderBy': 'PK_ID', // stable pagination — unordered multi-page reads drop rows
                 'q.limit': 1000
             });
             all.push(...rows);
@@ -95,6 +96,7 @@ router.get('/supacolor-po-index', async (req, res) => {
         const since = safeIsoDate(req.query.sinceDate);
         const params = {
             'q.select': 'PO_Number,Subtotal,Tax_Total,Total,Date_Entered,Date_Shipped',
+            'q.orderBy': 'PK_ID', // stable pagination — table crossed 1,000 rows; unordered reads drop rows
             'q.limit': 1000
         };
         if (since) params['q.where'] = `Date_Entered>='${since}'`;
@@ -179,6 +181,7 @@ router.post('/creditcard-atmos/upsert', async (req, res) => {
         const existingRows = await fetchAllCaspioPages(`/tables/${TABLE_CC}/records`, {
             'q.where': "Reference_ID IS NOT NULL AND Reference_ID<>''",
             'q.select': 'Reference_ID',
+            'q.orderBy': 'PK_ID', // stable pagination — a dropped row here defeats the dup-guard (duplicate CC rows inserted)
             'q.pageSize': 1000
         });
         const existingRefs = new Set(existingRows.map(r => String(r.Reference_ID)));

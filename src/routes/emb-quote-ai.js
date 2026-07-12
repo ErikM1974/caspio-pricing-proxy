@@ -890,6 +890,7 @@ async function findStylesByColor(input) {
             {
                 'q.where': whereConditions.join(' AND '),
                 'q.select': 'STYLE, PRODUCT_TITLE, BRAND_NAME, CATEGORY_NAME, SUBCATEGORY_NAME, COLOR_NAME, CATALOG_COLOR, PMS_COLOR, PRODUCT_IMAGE, COLOR_SQUARE_IMAGE',
+                'q.orderBy': 'UNIQUE_KEY', // stable pagination — category-wide raw scans span many pages; unordered reads drop rows
             }
         );
 
@@ -997,6 +998,7 @@ async function rankStylesByPrice(input) {
                 // CASE_PRICE is used internally for ranking + DROPPED before
                 // returning. The model literally never sees the number.
                 'q.select': 'STYLE, PRODUCT_TITLE, BRAND_NAME, CATEGORY_NAME, SUBCATEGORY_NAME, CASE_PRICE, PRODUCT_IMAGE',
+                'q.orderBy': 'UNIQUE_KEY', // stable pagination — category-wide raw scans span many pages; unordered reads drop rows
             }
         );
 

@@ -712,6 +712,7 @@ router.get('/daily-inbound', async (req, res) => {
     // 3. Pieces per PO (sum Qty_Shipped; fall back to Qty_Ordered if nothing shipped).
     const itemRows = await fetchAllCaspioPages(`/tables/${TABLES.items}/records`, {
       'q.select': 'SanMar_PO,Part_ID,Qty_Ordered,Qty_Shipped',
+      'q.orderBy': 'PK_ID', // stable pagination — 4k+ rows = 5 pages; unordered reads drop rows
       'q.limit': 1000,
     }) || [];
     const piecesByPo = new Map();
@@ -744,6 +745,7 @@ router.get('/daily-inbound', async (req, res) => {
     // 4. PO → id_Order (SanMar_Orders), then id_Order → id_OrderType (ManageOrders_Orders).
     const orderRows = await fetchAllCaspioPages(`/tables/${TABLES.orders}/records`, {
       'q.select': 'SanMar_PO,id_Order',
+      'q.orderBy': 'PK_ID', // stable pagination — table crossed 1,000 rows; unordered reads drop rows
       'q.limit': 1000,
     }) || [];
     const idOrderByPo = new Map();
@@ -2036,7 +2038,7 @@ async function runQuickMatch() {
 
   // 2. Get all SanMar order items (styles per PO)
   const allItems = await fetchAllCaspioPages(`/tables/${TABLES.items}/records`, {
-    'q.limit': 1000, 'q.select': 'SanMar_PO,Style'
+    'q.limit': 1000, 'q.select': 'SanMar_PO,Style', 'q.orderBy': 'PK_ID' // orderBy: stable pagination — unordered multi-page reads drop rows
   });
   const itemsList = Array.isArray(allItems) ? allItems : [];
 
@@ -2107,6 +2109,7 @@ async function runQuickMatch() {
   // Get all recent ManageOrders
   const moOrders = await fetchAllCaspioPages('/tables/ManageOrders_Orders/records', {
     'q.select': 'id_Order,id_Customer,CustomerName,CustomerServiceRep,date_Ordered',
+    'q.orderBy': 'PK_ID', // stable pagination — 2.8k rows = 3 pages; unordered reads drop rows
     'q.limit': 1000
   });
   const orderMap = new Map(); // id_Order → order object
@@ -2118,6 +2121,7 @@ async function runQuickMatch() {
   // NOTE: q.limit must be ≤1000 (Caspio max page size) for pagination to work correctly
   const moLineItems = await fetchAllCaspioPages('/tables/ManageOrders_LineItems/records', {
     'q.select': 'id_Order,PartNumber',
+    'q.orderBy': 'PK_ID', // stable pagination — 6.6k rows = 7 pages; unordered reads drop rows
     'q.limit': 1000
   });
 
@@ -2388,6 +2392,7 @@ async function runManageOrdersMatch() {
     // 2. Get SanMar order items (styles) for matching — paginate to get ALL items
     moMatchStatus.progress.phase = 'fetching SanMar order items';
     const itemsList = await fetchAllCaspioPages(`/tables/${TABLES.items}/records`, {
+      'q.orderBy': 'PK_ID', // stable pagination — 4k+ rows = 5 pages; unordered reads drop rows
       'q.limit': 1000
     }) || [];
 

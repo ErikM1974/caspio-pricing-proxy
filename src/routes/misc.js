@@ -172,6 +172,7 @@ router.get('/related-products', async (req, res) => {
       'q.where': whereClause,
       'q.select': selectFields.join(', '),
       'q.groupBy': selectFields.join(', '),
+      'q.orderBy': 'STYLE', // stable pagination — unordered multi-page reads drop rows
       'q.limit': 20
     });
 
@@ -237,6 +238,7 @@ router.get('/filter-products', async (req, res) => {
     const records = await fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
       'q.where': whereConditions.join(' AND '),
       'q.select': selectFields.join(', '),
+      'q.orderBy': 'UNIQUE_KEY', // stable pagination — unordered multi-page reads drop rows
       'q.limit': 100
     });
 
@@ -399,6 +401,7 @@ router.get('/recommendations', async (req, res) => {
       'q.where': whereClause,
       'q.select': selectFields.join(', '),
       'q.groupBy': selectFields.join(', '),
+      'q.orderBy': 'STYLE', // stable pagination — unordered multi-page reads drop rows
       'q.limit': 50
     });
 

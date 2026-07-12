@@ -152,6 +152,28 @@ const records = await fetchAllCaspioPages(resourcePath, params);
 const response = await makeCaspioRequest('get', resourcePath, params);
 ```
 
+### ALWAYS Pass q.orderBy When The Result Can Span >1 Page
+
+Caspio v3 paginates **unordered** results in arbitrary per-request order — multi-page reads
+silently skip/duplicate ~5-10% of rows, different rows each run (proven 2026-07-12).
+Order on a stable unique-ish column: `PK_ID` (most tables), `UNIQUE_KEY` (Sanmar_Bulk raw
+rows), or a grouped column (e.g. `STYLE`) when using `q.groupBy`.
+
+```javascript
+// ✅ CORRECT - deterministic pages
+const records = await fetchAllCaspioPages('/tables/MyTable/records', {
+  'q.where': "status='Active'",
+  'q.orderBy': 'PK_ID',   // REQUIRED whenever >1000 rows can match
+  'q.limit': 1000
+});
+
+// ❌ WRONG on a big table - unordered multi-page read drops rows randomly
+const records = await fetchAllCaspioPages('/tables/MyTable/records', {
+  'q.where': "status='Active'",
+  'q.limit': 1000
+});
+```
+
 ### Why This Matters
 
 **Real Example**: We had brands like "OGIO" on the second page that weren't being returned when using `makeCaspioRequest`. This caused incomplete data and bugs.

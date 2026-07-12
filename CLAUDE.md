@@ -217,6 +217,8 @@ See memory files for complete endpoint documentation.
 
 Example: OGIO brand was missing because it was on page 2 when using `makeCaspioRequest`.
 
+**CRITICAL #2 — `q.orderBy` is REQUIRED on any query that can span >1 page** (result set > `q.limit`/`q.pageSize`, incl. `q.groupBy` output). Caspio v3 paginates unordered results in arbitrary per-request order, so `q.pageNumber` pages silently skip/duplicate ~5-10% of rows — different rows each run (proven 2026-07-12; /all-styles returned 2,824 vs 2,649 on identical unordered runs, 3,197 reproducibly once ordered). Order on a stable unique-ish column: `PK_ID` (most tables), `UNIQUE_KEY` (Sanmar_Bulk raw rows), or the grouped column (e.g. `STYLE`) for groupBy queries. Param name is case-insensitive (`q.orderby` works). Sweep 2026-07-12 fixed 36 call sites / 10 routes; single-page queries (small tables, style-scoped Sanmar_Bulk reads — max 741 rows/style) don't need it.
+
 ### Caching Strategy
 Current caching (see [API Usage Tracking](memory/API_USAGE_TRACKING.md) for details):
 - **Pricing bundle**: 15 minutes (high impact - saves 7-9 calls per request)

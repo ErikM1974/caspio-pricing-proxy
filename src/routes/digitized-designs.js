@@ -569,6 +569,7 @@ router.get('/digitized-designs/search-all', async (req, res) => {
         const records = await fetchAllCaspioPages(RESOURCE_PATH, {
             'q.where': whereClause,
             'q.select': ALL_FIELDS,
+            'q.orderBy': 'PK_ID', // stable pagination — broad searches on the 155k-row table span pages; unordered reads drop rows
             'q.limit': '500'
         });
 
@@ -657,6 +658,7 @@ router.get('/digitized-designs/by-customer', async (req, res) => {
         const records = await fetchAllCaspioPages(RESOURCE_PATH, {
             'q.where': `Customer_ID='${customerId}' AND ${ACTIVE_FILTER}`,
             'q.select': ALL_FIELDS,
+            'q.orderBy': 'PK_ID', // stable pagination — big customers exceed one 500-row page; unordered reads drop rows
             'q.limit': '500'
         });
 
