@@ -79,26 +79,40 @@ async function applyProductCopy(records) {
 
 // GET /api/all-styles — one row per unique STYLE (style, title, brand, image).
 // Feeds the main site's /sitemap-products.xml + any "browse everything" list.
-// Caspio q.distinct collapses the 251k-row bulk table to ~one row per style;
-// cached 24h in-memory (the catalog changes via the daily SanMar sync).
+// MUST use q.groupBy: Caspio v3 silently IGNORES q.distinct on tables/records
+// (returns raw rows), so a distinct query walks the 251k-row table and hits the
+// pagination safety cap after ~20k rows — the old version reported "569 styles"
+// when the live catalog has ~2,500+ (missing PC54 itself; caught 2026-07-12).
+// Styles whose every row is Discontinued are excluded (dead products don't
+// belong in the sitemap). Cached 24h (catalog changes via the daily SanMar sync).
 let allStylesCache = { at: 0, rows: null };
 router.get('/all-styles', async (req, res) => {
   try {
     if (!allStylesCache.rows || Date.now() - allStylesCache.at > 24 * 60 * 60 * 1000) {
       const records = await fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
-        'q.select': 'STYLE, PRODUCT_TITLE, BRAND_NAME',
-        'q.distinct': 'true',
+        'q.select': 'STYLE, PRODUCT_TITLE, BRAND_NAME, PRODUCT_STATUS',
+        'q.groupBy': 'STYLE, PRODUCT_TITLE, BRAND_NAME, PRODUCT_STATUS',
         'q.pageSize': 1000,
       });
       const seen = new Map();
       for (const r of records) {
         const style = String(r.STYLE || '').trim();
-        if (style && !seen.has(style)) {
-          seen.set(style, { style, title: r.PRODUCT_TITLE || '', brand: r.BRAND_NAME || '' });
+        if (!style) continue;
+        const live = !/discontinued/i.test(String(r.PRODUCT_STATUS || ''));
+        const cur = seen.get(style);
+        if (!cur) {
+          seen.set(style, { style, title: r.PRODUCT_TITLE || '', brand: r.BRAND_NAME || '', live });
+        } else if (live && !cur.live) {
+          // Prefer the live row's title/brand when a style has mixed statuses
+          seen.set(style, { style, title: r.PRODUCT_TITLE || cur.title, brand: r.BRAND_NAME || cur.brand, live: true });
         }
       }
-      allStylesCache = { at: Date.now(), rows: [...seen.values()].sort((a, b) => a.style.localeCompare(b.style)) };
-      console.log(`[all-styles] cache refreshed: ${allStylesCache.rows.length} unique styles`);
+      const rows = [...seen.values()]
+        .filter((r) => r.live)
+        .map(({ style, title, brand }) => ({ style, title, brand }))
+        .sort((a, b) => a.style.localeCompare(b.style));
+      allStylesCache = { at: Date.now(), rows };
+      console.log(`[all-styles] cache refreshed: ${rows.length} live styles (${seen.size} total incl. discontinued)`);
     }
     res.set('Cache-Control', 'public, max-age=3600');
     res.json({ count: allStylesCache.rows.length, styles: allStylesCache.rows });
