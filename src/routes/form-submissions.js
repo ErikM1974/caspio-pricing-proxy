@@ -21,7 +21,7 @@ const { fetchAllCaspioPages, makeCaspioRequest, putWithRecordsAffected: caspioPu
 // Pure helpers live in utils/form-submission-helpers.js (no caspio-utils import)
 // so the jest suite can test them without inheriting api-tracker's open timer.
 const {
-  FORM_PREFIX, DEFAULT_STATUS, stripCardFields, sanitizeId, sanitizeLike,
+  FORM_PREFIX, DEFAULT_STATUS, CARD_STRIPPED_FORMS, stripCardFields, sanitizeId, sanitizeLike,
   isoDay, nowIso, S, buildSubmissionId, validateSubmission,
 } = require('../utils/form-submission-helpers');
 
@@ -45,7 +45,7 @@ router.post('/', submitLimiter, async (req, res) => {
 
   const formId = body.formId;
   let payload = body.payload;
-  if (formId === 'sample-checkout') payload = stripCardFields(payload);
+  if (CARD_STRIPPED_FORMS.has(formId)) payload = stripCardFields(payload);
 
   const record = {
     Submission_ID: buildSubmissionId(formId),

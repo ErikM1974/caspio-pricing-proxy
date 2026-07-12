@@ -97,8 +97,28 @@ describe('buildSubmissionId — per-form prefixes', () => {
     ['tax-exempt-cert', 'TAX'],
     ['pto-request', 'PTO'],
     ['injury-report', 'INJ'],
+    ['credit-card-auth', 'CCA'],
   ])('%s → %s prefix + MMDD-rand4', (formId, prefix) => {
     expect(buildSubmissionId(formId)).toMatch(new RegExp(`^${prefix}\\d{4}-\\d{4}$`));
+  });
+
+  test('credit-card-auth is card-stripped: identity labels survive, PAN/CVV labels die', () => {
+    const { CARD_STRIPPED_FORMS, stripCardFields } = require('../../src/utils/form-submission-helpers');
+    expect(CARD_STRIPPED_FORMS.has('credit-card-auth')).toBe(true);
+    expect(CARD_STRIPPED_FORMS.has('sample-checkout')).toBe(true);
+    const payload = {
+      fields: [
+        ['Ending in', '1234'],            // last4 — PCI-storable, must survive
+        ['Good through (MM/YY)', '12/27'], // expiry sans PAN — must survive
+        ['Issuing bank', 'BoA'],
+        ['Credit Card #', '4111111111111111'], // must die
+        ['CVV Code', '123'],                    // must die
+        ['Expiration', '12/27'],                // exact-set key — must die
+      ],
+    };
+    const clean = stripCardFields(payload);
+    const labels = clean.fields.map((f) => f[0]);
+    expect(labels).toEqual(['Ending in', 'Good through (MM/YY)', 'Issuing bank']);
   });
 
   test('batch-2 formIds validate and carry their default status', () => {

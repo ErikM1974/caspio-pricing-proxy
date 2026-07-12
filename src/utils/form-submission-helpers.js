@@ -21,6 +21,7 @@ const FORM_PREFIX = {
   'tax-exempt-cert': 'TAX',    // Due_Date = cert expiration → "Due in 7 days" widget
   'pto-request': 'PTO',        // Due_Date = first day of leave
   'injury-report': 'INJ',
+  'credit-card-auth': 'CCA',   // stores IDENTITY only (last4/expiry) — PAN/CVV never; strip enforced
 };
 
 const DEFAULT_STATUS = {
@@ -39,7 +40,14 @@ const DEFAULT_STATUS = {
   'tax-exempt-cert': 'New',
   'pto-request': 'Pending',
   'injury-report': 'Open',
+  'credit-card-auth': 'New',
 };
+
+// Forms whose payloads must NEVER carry card data — stripCardFields() runs
+// server-side on these regardless of what the client sends. credit-card-auth
+// deliberately stores only card IDENTITY under non-card-ish labels ("Ending
+// in", "Good through") — PCI allows last4+expiry; PAN/CVV labels get eaten.
+const CARD_STRIPPED_FORMS = new Set(['sample-checkout', 'credit-card-auth']);
 
 // Any payload key that smells like card data is dropped for sample-checkout.
 // Substring matches are chosen to avoid innocent collisions: 'exp' is exact-only
@@ -94,6 +102,7 @@ function validateSubmission(body) {
 module.exports = {
   FORM_PREFIX,
   DEFAULT_STATUS,
+  CARD_STRIPPED_FORMS,
   stripCardFields,
   sanitizeId,
   sanitizeLike,

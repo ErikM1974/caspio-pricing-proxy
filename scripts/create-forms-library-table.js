@@ -106,12 +106,15 @@ const SEED = [
     Is_Active: 'No',
   },
   {
+    // 2026-07-12: 2015 PDF RETIRED from the library (it had full-PAN + CVV
+    // blanks — storing CVV post-auth violates PCI DSS 3.2). The twin captures
+    // identity only (last 4 / expiry); the number goes by phone / secure link.
     Form_ID: 'credit-card-authorization',
     Form_Name: 'Credit Card Authorization Form',
-    Description: 'Card authorization for phone / manual payments.',
+    Description: 'Card-on-file authorization — cardholder identity, last 4 + expiration only (never the full number or CVV), authorized users & ship-tos. Card number is taken by phone, secure payment link, or in person.',
     Category: 'Payments',
-    PDF_URL: '/forms/policies/credit-card-authorization.pdf',
-    Fill_Online_URL: '',
+    PDF_URL: '',
+    Fill_Online_URL: '/pages/forms/credit-card-auth-form.html',
     Sort_Order: '30',
     Is_Active: 'Yes',
   },
