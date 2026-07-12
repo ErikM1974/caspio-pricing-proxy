@@ -42,6 +42,37 @@ router.get('/stylesearch', async (req, res) => {
 });
 
 // GET /api/product-details
+// GET /api/all-styles — one row per unique STYLE (style, title, brand, image).
+// Feeds the main site's /sitemap-products.xml + any "browse everything" list.
+// Caspio q.distinct collapses the 251k-row bulk table to ~one row per style;
+// cached 24h in-memory (the catalog changes via the daily SanMar sync).
+let allStylesCache = { at: 0, rows: null };
+router.get('/all-styles', async (req, res) => {
+  try {
+    if (!allStylesCache.rows || Date.now() - allStylesCache.at > 24 * 60 * 60 * 1000) {
+      const records = await fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
+        'q.select': 'STYLE, PRODUCT_TITLE, BRAND_NAME',
+        'q.distinct': 'true',
+        'q.pageSize': 1000,
+      });
+      const seen = new Map();
+      for (const r of records) {
+        const style = String(r.STYLE || '').trim();
+        if (style && !seen.has(style)) {
+          seen.set(style, { style, title: r.PRODUCT_TITLE || '', brand: r.BRAND_NAME || '' });
+        }
+      }
+      allStylesCache = { at: Date.now(), rows: [...seen.values()].sort((a, b) => a.style.localeCompare(b.style)) };
+      console.log(`[all-styles] cache refreshed: ${allStylesCache.rows.length} unique styles`);
+    }
+    res.set('Cache-Control', 'public, max-age=3600');
+    res.json({ count: allStylesCache.rows.length, styles: allStylesCache.rows });
+  } catch (error) {
+    console.error('Error fetching all styles:', error.message);
+    res.status(502).json({ error: 'Failed to fetch style list' });
+  }
+});
+
 router.get('/product-details', async (req, res) => {
   const { styleNumber, color } = req.query;
   console.log(`GET /api/product-details requested with styleNumber=${styleNumber}, color=${color}`);
