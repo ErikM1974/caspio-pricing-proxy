@@ -42,6 +42,41 @@ router.get('/stylesearch', async (req, res) => {
 });
 
 // GET /api/product-details
+// ── NWCA custom product copy (Product_Copy table, 2026-07-12) ──────────────
+// SanMar's PRODUCT_DESCRIPTION is identical on every dealer site — zero SEO
+// value. Erik-editable Product_Copy rows override it at read time here, so
+// the visible PDP, the SSR meta description, and the Product schema all get
+// the unique copy, and a SanMar bulk reload can never clobber it.
+let productCopyCache = { at: 0, map: null };
+async function getProductCopyMap() {
+  if (productCopyCache.map && Date.now() - productCopyCache.at < 10 * 60 * 1000) return productCopyCache.map;
+  try {
+    const rows = await fetchAllCaspioPages('/tables/Product_Copy/records', {
+      'q.select': 'Style, Custom_Description',
+      'q.pageSize': 1000,
+    }, { maxPages: 2 });
+    const map = {};
+    for (const r of rows) {
+      const s = String(r.Style || '').trim().toUpperCase();
+      const d = String(r.Custom_Description || '').trim();
+      if (s && d) map[s] = d;
+    }
+    productCopyCache = { at: Date.now(), map };
+  } catch (e) {
+    console.error('[product-copy] overlay load failed (serving SanMar copy):', e.message);
+    if (!productCopyCache.map) productCopyCache = { at: Date.now() - 9 * 60 * 1000, map: {} };
+  }
+  return productCopyCache.map;
+}
+async function applyProductCopy(records) {
+  const map = await getProductCopyMap();
+  for (const r of records) {
+    const custom = map[String(r.STYLE || '').trim().toUpperCase()];
+    if (custom) r.PRODUCT_DESCRIPTION = custom;
+  }
+  return records;
+}
+
 // GET /api/all-styles — one row per unique STYLE (style, title, brand, image).
 // Feeds the main site's /sitemap-products.xml + any "browse everything" list.
 // Caspio q.distinct collapses the 251k-row bulk table to ~one row per style;
@@ -148,7 +183,7 @@ router.get('/product-details', async (req, res) => {
             COMPANION_STYLES: '', PMS_COLOR: '', KEYWORDS: ''
           }));
           console.log(`Product details for ${styleNumber}: served from Non_SanMar_Products (${synth.length} synthesized row(s))`);
-          return res.json(synth);
+          return res.json(await applyProductCopy(synth)); // custom copy works for non-SanMar styles too
         }
       } catch (nsErr) {
         console.warn(`Non-SanMar product-details fallback failed for ${styleNumber}:`, nsErr.message);
@@ -183,6 +218,7 @@ router.get('/product-details', async (req, res) => {
 
     // Return the records with the original field names as expected by existing apps
     console.log(`Product details for ${styleNumber}: ${records.length} record(s)`);
+    await applyProductCopy(records); // NWCA copy overrides SanMar boilerplate
     // Product data changes via the daily SanMar sync — let browsers keep it
     // 10 min (the ETag Express already sends turns repeat views into 304s).
     res.set('Cache-Control', 'public, max-age=600');
