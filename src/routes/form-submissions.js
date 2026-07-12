@@ -21,9 +21,10 @@ const { fetchAllCaspioPages, makeCaspioRequest, putWithRecordsAffected: caspioPu
 // Pure helpers live in utils/form-submission-helpers.js (no caspio-utils import)
 // so the jest suite can test them without inheriting api-tracker's open timer.
 const {
-  FORM_PREFIX, DEFAULT_STATUS, CARD_STRIPPED_FORMS, stripCardFields, sanitizeId, sanitizeLike,
+  FORM_PREFIX, DEFAULT_STATUS, CARD_STRIPPED_FORMS, LEAD_NOTIFY_FORMS, stripCardFields, sanitizeId, sanitizeLike,
   isoDay, nowIso, S, buildSubmissionId, validateSubmission,
 } = require('../utils/form-submission-helpers');
+const { notifyFormLead } = require('../utils/slack-form-lead-notify');
 
 const SUBMISSIONS_PATH = '/tables/Form_Submissions/records';
 const ITEMS_PATH = '/tables/Sample_Checkout_Items/records';
@@ -42,6 +43,13 @@ router.post('/', submitLimiter, async (req, res) => {
   const body = req.body || {};
   const errors = validateSubmission(body);
   if (errors.length) return res.status(400).json({ error: errors.join('; ') });
+
+  // Honeypot: public forms include a hidden "website" input humans never see.
+  // A filled honeypot = bot → pretend success (a fake id) and store NOTHING,
+  // so the bot learns nothing and retries nowhere.
+  if (S(body.hp)) {
+    return res.status(201).json({ submissionId: buildSubmissionId(body.formId) });
+  }
 
   const formId = body.formId;
   let payload = body.payload;
@@ -100,6 +108,21 @@ router.post('/', submitLimiter, async (req, res) => {
     }
 
     console.log(`[form-submissions] saved ${record.Submission_ID} (${formId}) for "${record.Company}"`);
+
+    // Public lead forms get a Slack push — fire-and-forget AFTER the save
+    // (a Slack hiccup must never fail a customer's submission)
+    if (LEAD_NOTIFY_FORMS.has(formId)) {
+      notifyFormLead({
+        formId,
+        submissionId: record.Submission_ID,
+        company: record.Company,
+        contactName: record.Contact_Name,
+        phone: record.Phone,
+        email: record.Email,
+        summary: record.Summary,
+      });
+    }
+
     res.status(201).json({ submissionId: record.Submission_ID });
   } catch (e) {
     console.error('[form-submissions] save failed:', e.message);

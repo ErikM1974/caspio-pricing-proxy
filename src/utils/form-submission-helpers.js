@@ -22,6 +22,7 @@ const FORM_PREFIX = {
   'pto-request': 'PTO',        // Due_Date = first day of leave
   'injury-report': 'INJ',
   'credit-card-auth': 'CCA',   // stores IDENTITY only (last4/expiry) — PAN/CVV never; strip enforced
+  'quote-request': 'QRQ',      // PUBLIC customer lead form — Slack-notified on arrival
 };
 
 const DEFAULT_STATUS = {
@@ -41,7 +42,13 @@ const DEFAULT_STATUS = {
   'pto-request': 'Pending',
   'injury-report': 'Open',
   'credit-card-auth': 'New',
+  'quote-request': 'New',
 };
+
+// PUBLIC lead forms → Slack ping on arrival (the Inbox is pull; a quote lead
+// sitting unseen for a day is a lost sale). webstore-request doubles as the
+// staff twin AND the public inquiry — both are worth a ping.
+const LEAD_NOTIFY_FORMS = new Set(['quote-request', 'webstore-request']);
 
 // Forms whose payloads must NEVER carry card data — stripCardFields() runs
 // server-side on these regardless of what the client sends. credit-card-auth
@@ -103,6 +110,7 @@ module.exports = {
   FORM_PREFIX,
   DEFAULT_STATUS,
   CARD_STRIPPED_FORMS,
+  LEAD_NOTIFY_FORMS,
   stripCardFields,
   sanitizeId,
   sanitizeLike,

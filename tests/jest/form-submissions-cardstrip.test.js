@@ -98,8 +98,16 @@ describe('buildSubmissionId — per-form prefixes', () => {
     ['pto-request', 'PTO'],
     ['injury-report', 'INJ'],
     ['credit-card-auth', 'CCA'],
+    ['quote-request', 'QRQ'],
   ])('%s → %s prefix + MMDD-rand4', (formId, prefix) => {
     expect(buildSubmissionId(formId)).toMatch(new RegExp(`^${prefix}\\d{4}-\\d{4}$`));
+  });
+
+  test('public lead forms are Slack-notified; staff-only forms are not', () => {
+    const { LEAD_NOTIFY_FORMS } = require('../../src/utils/form-submission-helpers');
+    expect(LEAD_NOTIFY_FORMS.has('quote-request')).toBe(true);
+    expect(LEAD_NOTIFY_FORMS.has('webstore-request')).toBe(true);
+    expect(LEAD_NOTIFY_FORMS.has('ae-order-intake')).toBe(false);
   });
 
   test('credit-card-auth is card-stripped: identity labels survive, PAN/CVV labels die', () => {

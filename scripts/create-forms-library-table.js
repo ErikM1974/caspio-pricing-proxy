@@ -292,6 +292,16 @@ const SEED = [
     Is_Active: 'Yes',
   },
   {
+    Form_ID: 'quote-request',
+    Form_Name: 'Request a Quote (public customer form)',
+    Description: 'The CUSTOMER-facing lead form linked from the main site nav/footer — contact info, project, method, qty, date, style lookup, logo upload. Lands here as QRQ + Slack lead ping.',
+    Category: 'Customer Intake',
+    PDF_URL: '',
+    Fill_Online_URL: '/pages/request-a-quote.html',
+    Sort_Order: '9',
+    Is_Active: 'Yes',
+  },
+  {
     Form_ID: 'box-label',
     Form_Name: 'Box Label (8.5×11)',
     Description: 'Big-print label taped to the front of a finished box — order type, work order, due + drop-dead dates, customer, design, size grid. Fill online (with customer lookup) or type into the PDF.',
