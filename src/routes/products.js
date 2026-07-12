@@ -89,9 +89,15 @@ let allStylesCache = { at: 0, rows: null };
 router.get('/all-styles', async (req, res) => {
   try {
     if (!allStylesCache.rows || Date.now() - allStylesCache.at > 24 * 60 * 60 * 1000) {
+      // q.orderBy is REQUIRED: without a stable sort, Caspio paginates grouped
+      // rows in arbitrary per-request order, so q.pageNumber pages silently skip
+      // ~5-10% of groups (two identical queries returned different style sets;
+      // verified 2026-07-12: unordered runs gave 2,824/2,649 — ordered gives a
+      // reproducible 3,197 live styles).
       const records = await fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
         'q.select': 'STYLE, PRODUCT_TITLE, BRAND_NAME, PRODUCT_STATUS',
         'q.groupBy': 'STYLE, PRODUCT_TITLE, BRAND_NAME, PRODUCT_STATUS',
+        'q.orderBy': 'STYLE',
         'q.pageSize': 1000,
       });
       const seen = new Map();
