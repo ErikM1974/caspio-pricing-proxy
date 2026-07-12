@@ -1143,6 +1143,13 @@ const gatePublicSaveOnly = (req, res, next) =>
 app.use('/api/form-submissions', gatePublicSaveOnly, formSubmissionsRoutes);
 console.log('✓ Form Submissions routes loaded [reads + push CRM-gated]');
 
+// Blog Posts (Blog_Posts table) — the main site's /blog SSR + homepage teaser
+// read Published posts publicly; drafts and all writes need the CRM secret
+// (staff Blog Editor via the main app's /api/crm-proxy/blog-posts forwarder).
+const blogPostsRoutes = require('./src/routes/blog-posts');
+app.use('/api/blog-posts', gateWritesOnly, blogPostsRoutes);
+console.log('✓ Blog Posts routes loaded [writes CRM-gated]');
+
 // On-demand Caspio scheduled-task triggers (#5) — list/status/run the 6 Data
 // Import/Export Tasks via the Caspio v3 management API. Privileged staff action
 // (triggering an import), so the WHOLE mount is requireCrmApiSecret-gated.
