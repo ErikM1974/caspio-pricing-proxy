@@ -20,6 +20,19 @@ const app = express();
 // (router IP), causing widespread 429s when a single dashboard is chatty.
 app.set('trust proxy', 1);
 
+// gzip every JSON/text response (2026-07-12) — /api/product-details alone was
+// 1,033,228 bytes UNCOMPRESSED per product view (~0.45s of pure transfer);
+// gzip cuts JSON ~10×. Server-Sent Events are excluded: compression buffers
+// chunks, which would freeze the Policies-Hub AI stream mid-token.
+const compression = require('compression');
+app.use(compression({
+  filter: (req, res) => {
+    if (String(res.getHeader('Content-Type') || '').includes('text/event-stream')) return false;
+    if (req.path.startsWith('/api/policies-ai-assist')) return false;
+    return compression.filter(req, res);
+  },
+}));
+
 // [1.12] (pricing-app roadmap, 2026-07-08): structured JSON request logs with
 // correlation ids. Honors an inbound X-Request-Id (the pricing app / any
 // caller propagates one) so ONE id greps a failure across both apps; mints a

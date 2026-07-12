@@ -152,6 +152,9 @@ router.get('/product-details', async (req, res) => {
 
     // Return the records with the original field names as expected by existing apps
     console.log(`Product details for ${styleNumber}: ${records.length} record(s)`);
+    // Product data changes via the daily SanMar sync — let browsers keep it
+    // 10 min (the ETag Express already sends turns repeat views into 304s).
+    res.set('Cache-Control', 'public, max-age=600');
     res.json(records);
   } catch (error) {
     console.error('Error fetching product details:', error.message);
