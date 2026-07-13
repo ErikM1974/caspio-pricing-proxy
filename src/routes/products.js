@@ -398,59 +398,67 @@ router.get('/products-by-subcategory', async (req, res) => {
 
 // Additional product routes...
 // GET /api/all-brands
+// Feeds the masthead Brands mega dropdown. Each call ran a 5-page Caspio
+// groupBy over the 251k-row bulk table (~1-3.7s) for a ~6KB result that only
+// changes on the daily SanMar sync — so the dropdown took seconds to populate
+// on a fresh page (2026-07-13). Now cached 24h in-memory + a 6h browser/CDN
+// Cache-Control, so it's instant after the first request per window.
+let allBrandsCache = { at: 0, data: null };
 router.get('/all-brands', async (req, res) => {
-  console.log('GET /api/all-brands requested');
-
   try {
-    const records = await fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
-      'q.select': 'BRAND_NAME, BRAND_LOGO_IMAGE, STYLE',
-      'q.groupBy': 'BRAND_NAME, BRAND_LOGO_IMAGE, STYLE',
-      'q.orderBy': 'STYLE' // stable pagination — ~4,300 groups = 5 pages; unordered reads drop rows
-    });
+    if (!allBrandsCache.data || Date.now() - allBrandsCache.at > 24 * 60 * 60 * 1000) {
+      const records = await fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
+        'q.select': 'BRAND_NAME, BRAND_LOGO_IMAGE, STYLE',
+        'q.groupBy': 'BRAND_NAME, BRAND_LOGO_IMAGE, STYLE',
+        'q.orderBy': 'STYLE' // stable pagination — ~4,300 groups = 5 pages; unordered reads drop rows
+      });
 
-    const brandMap = new Map();
-    records.forEach(record => {
-      if (record.BRAND_NAME && record.STYLE) {
-        if (!brandMap.has(record.BRAND_NAME)) {
-          brandMap.set(record.BRAND_NAME, {
-            logo: record.BRAND_LOGO_IMAGE || '',
-            styles: []
-          });
+      const brandMap = new Map();
+      records.forEach(record => {
+        if (record.BRAND_NAME && record.STYLE) {
+          if (!brandMap.has(record.BRAND_NAME)) {
+            brandMap.set(record.BRAND_NAME, { logo: record.BRAND_LOGO_IMAGE || '', styles: [] });
+          }
+          brandMap.get(record.BRAND_NAME).styles.push(record.STYLE);
         }
-        brandMap.get(record.BRAND_NAME).styles.push(record.STYLE);
-      }
-    });
+      });
 
-    const brands = Array.from(brandMap.entries()).map(([brand, data]) => ({
-      brand: brand,
-      logo: data.logo,
-      sampleStyles: data.styles.slice(0, 3)
-    }));
+      const brands = Array.from(brandMap.entries()).map(([brand, data]) => ({
+        brand: brand,
+        logo: data.logo,
+        sampleStyles: data.styles.slice(0, 3)
+      }));
 
-    console.log(`All brands: ${brands.length} brand(s) found`);
-    res.json(brands);
+      allBrandsCache = { at: Date.now(), data: brands };
+      console.log(`[all-brands] cache refreshed: ${brands.length} brand(s)`);
+    }
+    res.set('Cache-Control', 'public, max-age=21600'); // 6h
+    res.json(allBrandsCache.data);
   } catch (error) {
     console.error('Error fetching all brands:', error.message);
     res.status(500).json({ error: 'Failed to fetch brands', details: error.message });
   }
 });
 
-// GET /api/all-categories
+// GET /api/all-categories — feeds the Products mega dropdown. Same cache
+// treatment as /all-brands (2026-07-13): a groupBy over the bulk table for a
+// tiny, rarely-changing list; cached 24h in-memory + 6h browser Cache-Control.
+let allCategoriesCache = { at: 0, data: null };
 router.get('/all-categories', async (req, res) => {
-  console.log('GET /api/all-categories requested');
-
   try {
-    const records = await fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
-      'q.select': 'CATEGORY_NAME',
-      'q.groupBy': 'CATEGORY_NAME'
-    });
-
-    const categories = records
-      .map(r => r.CATEGORY_NAME)
-      .filter(cat => cat && cat.trim() !== '');
-
-    console.log(`All categories: ${categories.length} categories found`);
-    res.json(categories);
+    if (!allCategoriesCache.data || Date.now() - allCategoriesCache.at > 24 * 60 * 60 * 1000) {
+      const records = await fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
+        'q.select': 'CATEGORY_NAME',
+        'q.groupBy': 'CATEGORY_NAME'
+      });
+      const categories = records
+        .map(r => r.CATEGORY_NAME)
+        .filter(cat => cat && cat.trim() !== '');
+      allCategoriesCache = { at: Date.now(), data: categories };
+      console.log(`[all-categories] cache refreshed: ${categories.length} categories`);
+    }
+    res.set('Cache-Control', 'public, max-age=21600'); // 6h
+    res.json(allCategoriesCache.data);
   } catch (error) {
     console.error('Error fetching categories:', error.message);
     res.status(500).json({ error: 'Failed to fetch categories', details: error.message });
