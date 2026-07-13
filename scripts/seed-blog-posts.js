@@ -22,6 +22,7 @@ const BASE = config.caspio.apiBaseUrl;
 const TABLE = 'Blog_Posts';
 const [, , jsonPath, batchLabel] = process.argv;
 const APPLY = process.argv.includes('--apply');
+const UPDATE = process.argv.includes('--update'); // update Body_Markdown/etc of EXISTING drafts (e.g. link fixes)
 
 if (!jsonPath || !batchLabel) {
   console.error('Usage: node scripts/seed-blog-posts.js <posts.json> "<batch label>" [--apply]');
@@ -42,11 +43,22 @@ if (!Array.isArray(POSTS)) { console.error('JSON must be an array of posts'); pr
     const metaLen = (p.metaDescription || '').length;
     if (metaLen > 160) { console.log(`  !! rejected ${p.slug}: meta ${metaLen} chars (>160)`); rejected++; continue; }
 
-    if (!APPLY) { console.log(`  would add DRAFT ${p.slug}  (${(p.bodyMarkdown || '').length} md chars, meta ${metaLen})`); continue; }
+    if (!APPLY) { console.log(`  would ${UPDATE ? 'UPSERT' : 'add DRAFT'} ${p.slug}  (${(p.bodyMarkdown || '').length} md chars, meta ${metaLen})`); continue; }
 
-    // insert-only: skip if slug already exists
     const q = await axios.get(`${BASE}/tables/${TABLE}/records?q.where=${encodeURIComponent(`Post_ID='${p.slug}'`)}&q.select=Post_ID`, H);
-    if ((q.data.Result || []).length) { console.log(`  = exists, skipped: ${p.slug}`); skipped++; continue; }
+    if ((q.data.Result || []).length) {
+      if (!UPDATE) { console.log(`  = exists, skipped: ${p.slug}`); skipped++; continue; }
+      // --update: refresh content fields (title/meta/hero/category/body) but NEVER touch
+      // Status or Published_At — so an already-published post stays published and a draft stays draft.
+      const upd = toRecord(p);
+      delete upd.Status; delete upd.Featured; delete upd.Published_At;
+      upd.Updated_At = nowIso();
+      const r = await axios.put(`${BASE}/tables/${TABLE}/records?q.where=${encodeURIComponent(`Post_ID='${p.slug}'`)}`, upd, H);
+      console.log(`  ~ updated: ${p.slug} (RecordsAffected=${r.data.RecordsAffected})`);
+      added++;
+      continue;
+    }
+    if (UPDATE) { console.log(`  ?? --update but slug not found, skipped: ${p.slug}`); skipped++; continue; }
 
     const rec = toRecord(p);
     rec.Status = 'Draft';
