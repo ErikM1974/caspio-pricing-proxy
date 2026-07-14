@@ -35,7 +35,7 @@ const INTERNAL_API_BASE = process.env.PROXY_PUBLIC_URL ||
 const WEBSTORE_SETUP_FEE = 300.00;
 const LOGO_DIGIT_FEE = 100.00;
 const SURCHARGE_OPEN_CLOSE = 2.00;
-const SURCHARGE_ON_DEMAND = 10.00;
+const SURCHARGE_ON_DEMAND = 6.00;
 const ANNUAL_MINIMUM = 2000.00;
 
 // Fundraiser pricing defaults — match webstores-fundraiser.js line 71-74
@@ -74,7 +74,7 @@ const TOOLS = [
             "digitization fee, identifies the per-item surcharge based on store type, " +
             "and returns the total + annual minimum context. " +
             "Pricing: $300 setup (flat) + $100 per logo (0-10 typical). " +
-            "Surcharge: Open/Close stores = $2/item sold, On-Demand stores = $10/item. " +
+            "Surcharge: Open/Close stores = $2/item sold, On-Demand stores = $6/item. " +
             "Annual minimum: $2,000 in store sales/year. " +
             "Returns a structured payload designed for the PRICE_QUOTE block and frontend " +
             "store-quote card.",
@@ -84,7 +84,7 @@ const TOOLS = [
                 storeType: {
                     type: 'string',
                     enum: ['Open/Close', 'On-Demand'],
-                    description: 'Open/Close = seasonal/campaign-driven ($2/item). On-Demand = year-round ($10/item).',
+                    description: 'Open/Close = seasonal/campaign-driven ($2/item). On-Demand = year-round ($6/item).',
                 },
                 logoCount: {
                     type: 'integer',
