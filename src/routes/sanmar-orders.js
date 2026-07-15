@@ -21,6 +21,8 @@
 //   POST /api/sanmar-orders/backfill        — Fire-and-forget backfill with progress
 //   POST /api/sanmar-orders/match-manageorders — Match SanMar orders to ManageOrders by style+date
 //   POST /api/sanmar-orders/po-match         — AUTHORITATIVE PO→WO link from Caspio PurchaseOrders (ID_PO→id_Order); backfill/relink
+//   POST /api/sanmar-orders/sync-delivery-dates — persist UPS real delivery/received date onto SanMar_Shipments (async 202)
+//   GET  /api/sanmar-orders/sync-delivery-dates-status — poll the delivery-date backfill
 
 const express = require('express');
 const router = express.Router();
@@ -2161,6 +2163,64 @@ router.post('/po-match', async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 });
+
+// ── Persist UPS's REAL delivery/received date onto SanMar_Shipments ──────────
+// Fills the (previously unused) Delivery_Status + Estimated_Delivery fields from UPS Track:
+//   • Delivered  → Estimated_Delivery = the ACTUAL delivered date (= the received date), status 'Delivered'
+//   • In transit → Estimated_Delivery = UPS's scheduled date, status 'In Transit' / 'Rescheduled'
+// Best-effort, pooled + cached (trackOne). Only 1Z (UPS) tracking; only recent shipments (UPS keeps
+// tracking history ~120 days). Skips rows already 'Delivered' (their date won't change) unless force.
+let deliveryDatesStatus = { running: false, lastRun: null, lastResult: null, progress: null };
+
+async function syncDeliveryDates({ sinceDate, force } = {}) {
+  const { trackOne } = require('./ups-tracking');
+  const today = new Date().toISOString().slice(0, 10);
+  const since = /^\d{4}-\d{2}-\d{2}$/.test(sinceDate || '') ? sinceDate : addDaysISO(today, -45);
+  const rows = await fetchAllCaspioPages(`/tables/${TABLES.shipments}/records`, {
+    'q.where': `Ship_Date>='${since}' AND Tracking_Number LIKE '1Z%'`,
+    'q.select': 'PK_ID,Tracking_Number,Delivery_Status,Estimated_Delivery',
+    'q.orderBy': 'PK_ID', 'q.limit': 1000,
+  }) || [];
+  const todo = rows.filter(r => force || String(r.Delivery_Status || '').toLowerCase() !== 'delivered');
+  const STATUS = { delivered: 'Delivered', rescheduled: 'Rescheduled', scheduled: 'In Transit' };
+  let updated = 0, delivered = 0, errors = 0, done = 0;
+  const work = async (r) => {
+    try {
+      const u = await trackOne(r.Tracking_Number);
+      if (u && u.deliveryDate) {
+        const status = STATUS[u.deliveryType] || (u.status || '').slice(0, 60) || 'In Transit';
+        const already = String(r.Estimated_Delivery || '').slice(0, 10) === u.deliveryDate && String(r.Delivery_Status || '') === status;
+        if (!already) {
+          await makeCaspioRequest('PUT', `/tables/${TABLES.shipments}/records`,
+            { 'q.where': `Tracking_Number='${xmlEscape(r.Tracking_Number)}'` },
+            { Estimated_Delivery: u.deliveryDate, Delivery_Status: status });
+          updated++;
+          if (u.deliveryType === 'delivered') delivered++;
+        }
+      }
+    } catch (e) { errors++; }
+    finally { done++; deliveryDatesStatus.progress = { done, total: todo.length, updated, delivered, errors }; }
+  };
+  for (let i = 0; i < todo.length; i += 5) await Promise.all(todo.slice(i, i + 5).map(work));
+  return { scanned: rows.length, considered: todo.length, updated, delivered, errors, since };
+}
+
+// ── POST /sync-delivery-dates — backfill/refresh UPS delivery+received dates on SanMar_Shipments ──
+// ASYNC (202): UPS tracking is rate-limited and a wide window can exceed Heroku's 30s request cap.
+// Query: ?since=YYYY-MM-DD (default today-45), ?force=true (re-check already-Delivered rows).
+router.post('/sync-delivery-dates', async (req, res) => {
+  const secret = req.headers['x-api-secret'] || req.query.secret;
+  if (secret !== process.env.CRM_API_SECRET) return res.status(403).json({ error: 'Unauthorized' });
+  if (deliveryDatesStatus.running) return res.status(409).json({ error: 'Already running', progress: deliveryDatesStatus.progress });
+  res.status(202).json({ message: 'Delivery-date sync started', checkProgressAt: '/api/sanmar-orders/sync-delivery-dates-status' });
+  deliveryDatesStatus = { running: true, lastRun: new Date().toISOString(), lastResult: null, progress: { done: 0 } };
+  syncDeliveryDates({ sinceDate: req.query.since, force: req.query.force === 'true' })
+    .then(r => { deliveryDatesStatus.lastResult = { success: true, ...r }; })
+    .catch(e => { deliveryDatesStatus.lastResult = { success: false, error: e.message }; })
+    .finally(() => { deliveryDatesStatus.running = false; });
+});
+
+router.get('/sync-delivery-dates-status', (req, res) => res.json(deliveryDatesStatus));
 
 async function runQuickMatch() {
   console.log('[QuickMatch] Starting Caspio-only matching...');
