@@ -1150,19 +1150,17 @@ router.put('/mockups/:id/status', async (req, res) => {
             const aeEmail = resolveAEEmailLoose(current.Sales_Rep) || resolveAEEmailLoose(current.Submitted_By);
             if (aeEmail) {
                 const meta = AE_EMAIL_STATUS[status];
-                const company = current.Company_Name || '';
-                const designNo = current.Design_Number || id;
-                const detailText = company
-                    ? `${meta.noteText} — ${company} (Design ${designNo})`
-                    : meta.noteText;
+                // noteText is just the clean status message — the email header
+                // already shows "Design #<design_id> — <company_name>", so we
+                // don't repeat the company/design in the body callout.
                 sendArtNoteEmail({
                     toEmail: aeEmail,
                     toName: resolveAEName(current.Sales_Rep || current.Submitted_By),
                     fromName: 'Ruth (Digitizing)',
-                    idDesign: designNo,
-                    company: company,
+                    idDesign: current.Design_Number || id,
+                    company: current.Company_Name || '',
                     noteType: meta.noteType,
-                    noteText: detailText,
+                    noteText: meta.noteText,
                     recipientIsRep: true,
                     detailPath: '/mockup/',
                     linkId: id
