@@ -1009,8 +1009,10 @@ router.put('/mockups/:id/status', async (req, res) => {
 
         const token = await getCaspioAccessToken();
 
-        // 1. Fetch current record to get Revision_Count + fields needed for Slack notify
-        const getUrl = `${caspioApiBaseUrl}/tables/${MOCKUPS_TABLE}/records?q.where=ID=${id}&q.select=ID,Status,Revision_Count,Company_Name,Design_Number,Design_Name,Box_Mockup_1`;
+        // 1. Fetch current record to get Revision_Count + fields needed for
+        //    Slack notify AND the submitting-AE email fan-out (Sales_Rep /
+        //    Submitted_By — see the AE-email block below).
+        const getUrl = `${caspioApiBaseUrl}/tables/${MOCKUPS_TABLE}/records?q.where=ID=${id}&q.select=ID,Status,Revision_Count,Company_Name,Design_Number,Design_Name,Box_Mockup_1,Submitted_By,Sales_Rep`;
         const getResp = await axios.get(getUrl, {
             headers: { 'Authorization': `Bearer ${token}` },
             timeout: 15000
@@ -1023,6 +1025,17 @@ router.put('/mockups/:id/status', async (req, res) => {
 
         const current = records[0];
         const updateData = { Status: status };
+
+        // Transitions on which we email the submitting AE (per Erik 2026-07-15).
+        // Defined here so both the flag-stamp (below) and the email fan-out
+        // (after the PUT) share one source of truth. NOT 'Approved' — the AE is
+        // the actor there; Ruth is notified separately.
+        const AE_EMAIL_STATUS = {
+            'In Progress':        { noteType: 'In Progress',        noteText: 'Ruth has started your digitizing mockup.' },
+            'Awaiting Approval':  { noteType: 'Ready for Review',    noteText: 'Your mockup is ready to review and approve.' },
+            'Completed':          { noteType: 'Completed',          noteText: 'Mockup completed — ready for production.' },
+            'Revision Requested': { noteType: 'Revision Requested', noteText: 'A revision was requested on this mockup.' }
+        };
 
         // Increment revision count for revision requests (AE action only)
         if (status === 'Revision Requested') {
@@ -1037,6 +1050,16 @@ router.put('/mockups/:id/status', async (req, res) => {
         // Track when approval was sent to AE
         if (status === 'Awaiting Approval') {
             updateData.Approval_Sent_Date = new Date().toISOString();
+        }
+
+        // Mark this transition as backend-notified (written atomically with the
+        // status). The Caspio scheduled-Task backstop emails only rows where
+        // Last_Notified_Status <> Status, so stamping here means the Task fires
+        // ONLY for changes that bypassed this chokepoint (e.g. a raw Caspio
+        // datasheet edit, or a proxy/Heroku outage) — no double-emailing.
+        if (AE_EMAIL_STATUS[status]) {
+            updateData.Last_Notified_Status = status;
+            updateData.Notified_At = new Date().toISOString();
         }
 
         // 2. Update the mockup status
@@ -1102,6 +1125,59 @@ router.put('/mockups/:id/status', async (req, res) => {
                 }, status);
             } catch (notifyErr) {
                 console.warn('[SLACK_MOCKUP_STATUS_SKIP] notify-block error:', notifyErr.message);
+            }
+        }
+
+        // Email the submitting AE on every Ruth-driven status change, so they
+        // NEVER miss it regardless of which screen Ruth used (dashboard quick
+        // action or the mockup detail page). This backend chokepoint is the
+        // single reliable AE-notification path: the front-end EmailJS sends
+        // are screen-dependent (the dashboard "Send for Approval" sent nothing;
+        // "Start Working" was broken by a Mockup_ID-vs-ID lookup) and can route
+        // to a placeholder inbox.
+        //
+        // Recipient resolves Sales_Rep FIRST, then Submitted_By — and via
+        // resolveAEEmailLoose for BOTH, because real data shows Sales_Rep holds
+        // FULL names ("Taneisha Clark") that the bare-first-name REP_EMAIL_MAP
+        // misses, and recent rows carry the "ae@" placeholder in Submitted_By
+        // while Sales_Rep still names the real AE. Loose maps "Taneisha Clark"
+        // -> taneisha@. resolveAEEmailLoose enforces the @nwcustomapparel.com
+        // guard (no customer leak); an unresolvable row logs a VISIBLE warning
+        // instead of a silent black-hole send. sendArtNoteEmail RESOLVES-NEVER-
+        // THROWS + logs [ART_NOTE_EMAIL_*], so a mail failure never blocks the
+        // status write.
+        if (AE_EMAIL_STATUS[status]) {
+            const aeEmail = resolveAEEmailLoose(current.Sales_Rep) || resolveAEEmailLoose(current.Submitted_By);
+            if (aeEmail) {
+                const meta = AE_EMAIL_STATUS[status];
+                const company = current.Company_Name || '';
+                const designNo = current.Design_Number || id;
+                const detailText = company
+                    ? `${meta.noteText} — ${company} (Design ${designNo})`
+                    : meta.noteText;
+                sendArtNoteEmail({
+                    toEmail: aeEmail,
+                    toName: resolveAEName(current.Sales_Rep || current.Submitted_By),
+                    fromName: 'Ruth (Digitizing)',
+                    idDesign: designNo,
+                    company: company,
+                    noteType: meta.noteType,
+                    noteText: detailText,
+                    recipientIsRep: true,
+                    detailPath: '/mockup/',
+                    linkId: id
+                }).then(function (r) {
+                    if (!r || !r.sent) {
+                        console.warn('[MOCKUP_AE_EMAIL_SKIP] mockup=' + id + ' status=' + status,
+                            (r && (r.skipped || r.error)) || 'unknown');
+                    }
+                });
+            } else {
+                // Visible failure (Erik's #1 rule) — nobody was emailed because
+                // neither Sales_Rep nor Submitted_By resolved to an internal
+                // address. Surfaces in proxy logs for cleanup of the row.
+                console.warn('[MOCKUP_AE_EMAIL_NO_RECIPIENT] mockup=' + id + ' status=' + status
+                    + ' Sales_Rep=' + (current.Sales_Rep || '') + ' Submitted_By=' + (current.Submitted_By || ''));
             }
         }
 
