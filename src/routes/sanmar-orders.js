@@ -2029,21 +2029,25 @@ async function calculateDynamicOffset() {
 
 // ── Authoritative PO→WO link via the Caspio PurchaseOrders table ─────────────
 // PurchaseOrders is the ShopWorks PO mirror: ID_PO = the numeric PO NWCA sends the
-// vendor, id_Order = the ShopWorks work-order #, id_Vendor 1002 = SanMar. It is
-// populated at PO-ISSUE time, so it carries the WO days BEFORE the blanks arrive —
-// unlike the ManageOrders line-item mirror the style-overlap matcher depends on.
-// This DIRECT lookup is deterministic (exact PO#) and is the PRIMARY matcher; the
-// style-overlap heuristic stays only as a fallback for POs absent from this table.
+// vendor, id_Order = the ShopWorks work-order #. It is populated at PO-ISSUE time,
+// so it carries the WO days BEFORE the blanks arrive — unlike the ManageOrders
+// line-item mirror the style-overlap matcher depends on. This DIRECT lookup is
+// deterministic (exact PO#) and is the PRIMARY matcher; style overlap stays only as
+// a fallback for POs absent from this table.
+//   NOTE: match on ID_PO ALONE — no id_Vendor filter. SanMar orders arrive under
+//   MULTIPLE vendor accounts (1002 "SANMAR" AND e.g. 2425 "6920-0001-Marketing
+//   (Sanmar)"), so a vendor=1002 filter wrongly drops the marketing/promo POs
+//   (caught 2026-07-15: PO 113539→WO 142272 was under vendor 2425). ID_PO is
+//   globally unique (one PO → one WO), so vendor is redundant AND harmful here.
 const PO_TABLE = 'PurchaseOrders';
-const SANMAR_VENDOR_ID = 1002;
 
-// numericPO[] → Map(numericPO(String) → id_Order(String)). Chunked; SanMar vendor only.
+// numericPO[] → Map(numericPO(String) → id_Order(String)). Chunked; matched by ID_PO alone.
 async function fetchPoToOrderMap(numericPOs) {
   const map = new Map();
   const ids = [...new Set((numericPOs || []).map(p => parseInt(p, 10)).filter(n => Number.isInteger(n) && n > 0))];
   for (let i = 0; i < ids.length; i += 100) {
     const chunk = ids.slice(i, i + 100);
-    const where = `id_Vendor=${SANMAR_VENDOR_ID} AND (${chunk.map(n => `ID_PO=${n}`).join(' OR ')})`;
+    const where = `${chunk.map(n => `ID_PO=${n}`).join(' OR ')}`;
     try {
       const rows = await fetchAllCaspioPages(`/tables/${PO_TABLE}/records`, {
         'q.where': where, 'q.select': 'ID_PO,id_Order', 'q.orderBy': 'ID_PO', 'q.limit': 1000,
