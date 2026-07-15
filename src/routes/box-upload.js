@@ -622,7 +622,7 @@ router.post('/art-requests/:designId/upload-mockup', upload.single('file'), asyn
  */
 router.post('/art-requests/:designId/upload-additional-art', upload.single('file'), async (req, res) => {
     const { designId } = req.params;
-    const { pkId, customerId, companyName } = req.body;
+    const { pkId, customerId, companyName, targetSlotField } = req.body;
 
     if (!req.file) {
         return res.status(400).json({ success: false, error: 'No file provided', code: 'NO_FILE' });
@@ -636,13 +636,23 @@ router.post('/art-requests/:designId/upload-additional-art', upload.single('file
     console.log(`Additional art upload: Design #${designId}, file "${file.originalname}" (${(file.size / 1024).toFixed(1)} KB)`);
 
     try {
-        const slotField = await findEmptyAdditionalArtSlot(pkId);
-        if (!slotField) {
-            return res.status(409).json({
-                success: false,
-                error: 'All additional art slots are full (2/2)',
-                code: 'SLOTS_FULL'
-            });
+        // Slot pick mirrors upload-mockup (2026-07-07): caller may name the slot
+        // to overwrite in place (broken-link re-upload), validated against the
+        // two Additional_Art fields; default stays first-empty.
+        let slotField;
+        const ADDITIONAL_ART_FIELDS = ['Additional_Art_1', 'Additional_Art_2'];
+        if (targetSlotField && ADDITIONAL_ART_FIELDS.indexOf(targetSlotField) !== -1) {
+            slotField = targetSlotField;
+            console.log(`Additional art upload: targetSlotField override → writing to ${slotField}`);
+        } else {
+            slotField = await findEmptyAdditionalArtSlot(pkId);
+            if (!slotField) {
+                return res.status(409).json({
+                    success: false,
+                    error: 'All additional art slots are full (2/2)',
+                    code: 'SLOTS_FULL'
+                });
+            }
         }
 
         let folder = await findArtFolder(designId, companyName);

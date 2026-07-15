@@ -13,6 +13,8 @@ const { notifyArtNote } = require('../utils/slack-art-note-notify');
 const { sendArtNoteEmail } = require('../utils/send-art-note-email');
 const { resolveAEEmail, resolveAEName, resolveAEEmailLoose } = require('../utils/rep-email-map');
 const { notifyArtCompletionToAE } = require('../utils/notify-art-completion');
+const { resolveToProxyUrl } = require('../utils/box-client');
+const { VALID_SLOT_FIELDS } = require('../utils/recover-broken-mockup');
 const config = require('../../config');
 
 const caspioApiBaseUrl = config.caspio.apiBaseUrl;
@@ -322,11 +324,32 @@ router.put('/artrequests/:id', express.json(), async (req, res) => {
     try {
         console.log(`Updating art request with ID: ${id}`);
         const resource = `/tables/ArtRequests/records?q.where=PK_ID=${reqInt(id)}`;
-        
+
         // Get token for the request
         const token = await getCaspioAccessToken();
         const url = `${caspioApiBaseUrl}${resource}`;
-        
+
+        // Convert any incoming Box mockup-slot URLs from legacy Box formats
+        // (`box.com/shared/static/`, `box.com/s/`, `box.com/file/`) into our
+        // stable proxy format (`/api/box/thumbnail/{fileId}`). Mirrors the
+        // chokepoint added to PUT /api/mockups/:id (mockup-routes.js) on
+        // 2026-05-06 — this route was MISSED then, so the art-request detail
+        // page's Box picker kept saving raw shared links into ArtRequests
+        // slots (the exact fragile-URL class box-url-rules.md exists to stop;
+        // found via the 2026-07-07 broken-mockups audit). Soft-fails per
+        // field — a URL that can't be resolved is saved as submitted.
+        const data = { ...req.body };
+        const origin = config.app?.publicUrl || `${req.protocol}://${req.get('host')}`;
+        for (const slotField of VALID_SLOT_FIELDS) {
+            if (typeof data[slotField] === 'string' && data[slotField]) {
+                const upgraded = await resolveToProxyUrl(data[slotField], origin);
+                if (upgraded !== data[slotField]) {
+                    console.log(`[PUT /artrequests/${id}] Upgraded ${slotField} legacy URL → proxy URL`);
+                    data[slotField] = upgraded;
+                }
+            }
+        }
+
         // Prepare the request
         const requestConfig = {
             method: 'put',
@@ -335,7 +358,7 @@ router.put('/artrequests/:id', express.json(), async (req, res) => {
                 'Authorization': `Bearer ${token}`,
                 'Content-Type': 'application/json'
             },
-            data: req.body,
+            data: data,
             timeout: 15000
         };
         
