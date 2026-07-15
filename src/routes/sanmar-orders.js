@@ -20,6 +20,7 @@
 //   GET  /api/sanmar-orders/sync-recent-completed-status — poll the background catch-up
 //   POST /api/sanmar-orders/backfill        — Fire-and-forget backfill with progress
 //   POST /api/sanmar-orders/match-manageorders — Match SanMar orders to ManageOrders by style+date
+//   POST /api/sanmar-orders/po-match         — AUTHORITATIVE PO→WO link from Caspio PurchaseOrders (ID_PO→id_Order); backfill/relink
 
 const express = require('express');
 const router = express.Router();
@@ -898,6 +899,15 @@ router.get('/inbound-today', async (req, res) => {
     }) || [];
     const orderByPo = new Map(orderRows.map(o => [o.SanMar_PO, o]));
 
+    // Instant PO→WO fallback: for any arriving PO whose SanMar_Orders row has no id_Order yet,
+    // resolve the work order straight from the authoritative PurchaseOrders table (ID_PO→id_Order),
+    // so the dashboard is correct even before the nightly matcher writes id_Order back.
+    const needWo = pos.filter(po => !String((orderByPo.get(po) || {}).id_Order || '').trim());
+    const poWoFallback = needWo.length
+      ? await fetchPoToOrderMap(needWo.map(extractPONumber).filter(Boolean))
+      : new Map();
+    const woFor = (po) => String((orderByPo.get(po) || {}).id_Order || poWoFallback.get(extractPONumber(po)) || '');
+
     // 3. Line items for these POs.
     const itemRows = await fetchAllCaspioPages(`/tables/${TABLES.items}/records`, {
       'q.where': poWhere,
@@ -945,7 +955,7 @@ router.get('/inbound-today', async (req, res) => {
     // 5. Per-work-order ManageOrders fields — method (id_OrderType) + the box-label header
     //    fields (due date, design#, contact, rep, customer PO). All from the SYNCED
     //    ManageOrders_Orders table (fast, no live MO call), keyed by id_Order.
-    const idOrders = [...new Set(orderRows.map(o => o.id_Order).filter(Boolean).map(String))];
+    const idOrders = [...new Set([...orderRows.map(o => o.id_Order).filter(Boolean).map(String), ...poWoFallback.values()])];
     const typeByIdOrder = new Map();
     const moByIdOrder = new Map();
     for (let i = 0; i < idOrders.length; i += 75) {
@@ -1031,12 +1041,12 @@ router.get('/inbound-today', async (req, res) => {
       const cost = usingBox
         ? Math.round((_bd || []).reduce((t, b) => t + (b.cost || 0), 0) * 100) / 100
         : Math.round(lines.reduce((t, l) => t + (l.lineCost || 0), 0) * 100) / 100;
-      const idOrderStr = o.id_Order ? String(o.id_Order) : '';
+      const idOrderStr = woFor(po); // effective WO: SanMar_Orders.id_Order, else PurchaseOrders fallback
       const method = ORDER_TYPE_LABEL[idOrderStr ? typeByIdOrder.get(idOrderStr) : 0] || 'Other';
       const mo = idOrderStr ? moByIdOrder.get(idOrderStr) : null;
       const contactName = mo ? `${(mo.ContactFirstName || '').trim()} ${(mo.ContactLastName || '').trim()}`.trim() : '';
       return {
-        sanmarPO: po, workOrder: o.id_Order || '', shopworksPO: o.ShopWorks_PO || '',
+        sanmarPO: po, workOrder: idOrderStr || '', shopworksPO: o.ShopWorks_PO || '',
         company: (mo && (mo.CustomerName || '').trim()) || o.Company_Name || '',
         salesRep: (mo && (mo.CustomerServiceRep || '').trim()) || o.Sales_Rep || '',
         salesOrder: o.SanMar_Sales_Order || '', status: o.SanMar_Status || '',
@@ -2017,6 +2027,118 @@ async function calculateDynamicOffset() {
   }
 }
 
+// ── Authoritative PO→WO link via the Caspio PurchaseOrders table ─────────────
+// PurchaseOrders is the ShopWorks PO mirror: ID_PO = the numeric PO NWCA sends the
+// vendor, id_Order = the ShopWorks work-order #, id_Vendor 1002 = SanMar. It is
+// populated at PO-ISSUE time, so it carries the WO days BEFORE the blanks arrive —
+// unlike the ManageOrders line-item mirror the style-overlap matcher depends on.
+// This DIRECT lookup is deterministic (exact PO#) and is the PRIMARY matcher; the
+// style-overlap heuristic stays only as a fallback for POs absent from this table.
+const PO_TABLE = 'PurchaseOrders';
+const SANMAR_VENDOR_ID = 1002;
+
+// numericPO[] → Map(numericPO(String) → id_Order(String)). Chunked; SanMar vendor only.
+async function fetchPoToOrderMap(numericPOs) {
+  const map = new Map();
+  const ids = [...new Set((numericPOs || []).map(p => parseInt(p, 10)).filter(n => Number.isInteger(n) && n > 0))];
+  for (let i = 0; i < ids.length; i += 100) {
+    const chunk = ids.slice(i, i + 100);
+    const where = `id_Vendor=${SANMAR_VENDOR_ID} AND (${chunk.map(n => `ID_PO=${n}`).join(' OR ')})`;
+    try {
+      const rows = await fetchAllCaspioPages(`/tables/${PO_TABLE}/records`, {
+        'q.where': where, 'q.select': 'ID_PO,id_Order', 'q.orderBy': 'ID_PO', 'q.limit': 1000,
+      }) || [];
+      for (const r of rows) {
+        if (r.ID_PO != null && String(r.id_Order || '').trim()) map.set(String(r.ID_PO), String(r.id_Order));
+      }
+    } catch (e) { console.error('[PO-Match] PurchaseOrders read failed:', e.message); }
+  }
+  return map;
+}
+
+// id_Order[] → Map(id_Order(String) → {CustomerName, CustomerServiceRep, id_Customer}). Best-effort.
+async function fetchMoOrdersByIdOrder(idOrders) {
+  const map = new Map();
+  const ids = [...new Set((idOrders || []).map(String).filter(Boolean))];
+  for (let i = 0; i < ids.length; i += 75) {
+    const chunk = ids.slice(i, i + 75);
+    try {
+      const rows = await fetchAllCaspioPages(`/tables/${MO_TABLE}/records`, {
+        'q.where': chunk.map(id => `id_Order='${xmlEscape(id)}'`).join(' OR '),
+        'q.select': 'id_Order,CustomerName,CustomerServiceRep,id_Customer', 'q.limit': 1000,
+      }) || [];
+      for (const m of rows) map.set(String(m.id_Order), m);
+    } catch (e) { /* company/rep is best-effort; id_Order alone still links */ }
+  }
+  return map;
+}
+
+// Direct PO→WO match: fill SanMar_Orders.id_Order (+ company/rep) from PurchaseOrders for every
+// still-unlinked row. Accepts a pre-fetched unlinked list (reused by the matchers) or fetches its
+// own (standalone /po-match + backfill). NEVER overrides an existing id_Order. company/rep are
+// best-effort (the display re-derives them from id_Order→ManageOrders at query time regardless).
+// Returns { matched, checked, linkedPOs:Set<SanMar_PO> }.
+async function runPurchaseOrderMatch(unlinkedRows) {
+  let rows = unlinkedRows;
+  if (!rows) {
+    rows = await fetchAllCaspioPages(`/tables/${TABLES.orders}/records`, {
+      'q.where': "(id_Order='' OR id_Order IS NULL) AND SanMar_PO IS NOT NULL",
+      'q.select': 'SanMar_PO,id_Order', 'q.orderBy': 'PK_ID', 'q.limit': 1000,
+    }) || [];
+  }
+  const linkedPOs = new Set();
+  const numericToSanmar = new Map(); // numericPO → [SanMar_PO,...]
+  for (const r of (rows || [])) {
+    if (String(r.id_Order || '').trim()) continue;         // already has a WO — never override
+    const n = extractPONumber(r.SanMar_PO);
+    if (!n) continue;
+    if (!numericToSanmar.has(n)) numericToSanmar.set(n, []);
+    numericToSanmar.get(n).push(r.SanMar_PO);
+  }
+  if (!numericToSanmar.size) return { matched: 0, checked: (rows || []).length, linkedPOs };
+
+  const poMap = await fetchPoToOrderMap([...numericToSanmar.keys()]); // numericPO → id_Order
+  if (!poMap.size) return { matched: 0, checked: rows.length, linkedPOs };
+  const moMap = await fetchMoOrdersByIdOrder([...new Set([...poMap.values()])]);
+
+  let matched = 0;
+  for (const [numeric, sanmarPOs] of numericToSanmar) {
+    const idOrder = poMap.get(numeric);
+    if (!idOrder) continue;
+    const mo = moMap.get(String(idOrder)) || {};
+    for (const sp of sanmarPOs) {
+      try {
+        await makeCaspioRequest('PUT', `/tables/${TABLES.orders}/records`,
+          { 'q.where': `SanMar_PO='${xmlEscape(sp)}'` },
+          {
+            id_Order: String(idOrder),
+            Company_Name: (mo.CustomerName || '').trim(),
+            Sales_Rep: mo.CustomerServiceRep || '',
+            id_Customer: mo.id_Customer || 0,
+            Matched_By: 'po-table-direct',
+          });
+        linkedPOs.add(sp);
+        matched++;
+      } catch (e) { console.error(`[PO-Match] PUT ${sp} failed:`, e.message); }
+    }
+  }
+  console.log(`[PO-Match] Linked ${matched} SanMar PO(s) directly from PurchaseOrders`);
+  return { matched, checked: rows.length, linkedPOs };
+}
+
+// ── POST /po-match — authoritative PO→WO backfill/relink from the PurchaseOrders table ──
+router.post('/po-match', async (req, res) => {
+  const secret = req.headers['x-api-secret'] || req.query.secret;
+  if (secret !== process.env.CRM_API_SECRET) return res.status(403).json({ error: 'Unauthorized' });
+  try {
+    const result = await runPurchaseOrderMatch();
+    res.json({ success: true, matched: result.matched, checked: result.checked });
+  } catch (err) {
+    console.error('[PO-Match] error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 async function runQuickMatch() {
   console.log('[QuickMatch] Starting Caspio-only matching...');
   const startTime = Date.now();
@@ -2031,6 +2153,16 @@ async function runQuickMatch() {
   );
   const unlinkedList = Array.isArray(unlinked) ? unlinked : (unlinked?.Result || []);
   console.log(`[QuickMatch] ${unlinkedList.length} unlinked orders`);
+
+  // 1b. AUTHORITATIVE PurchaseOrders (ID_PO→id_Order) direct match FIRST — deterministic + fresh.
+  //     Style overlap below is now only a FALLBACK for POs absent from PurchaseOrders, and it must
+  //     NEVER override an id_Order the PO table just wrote (or a pre-existing one).
+  let poRes = { matched: 0, linkedPOs: new Set() };
+  try { poRes = await runPurchaseOrderMatch(unlinkedList); }
+  catch (e) { console.error('[QuickMatch] PurchaseOrders match failed:', e.message); }
+  const styleCandidates = unlinkedList.filter(o =>
+    !String(o.id_Order || '').trim() && !poRes.linkedPOs.has(o.SanMar_PO));
+  console.log(`[QuickMatch] PurchaseOrders linked ${poRes.matched}; ${styleCandidates.length} remain for style-overlap fallback`);
 
   if (unlinkedList.length === 0) {
     return { matched: 0, unmatched: 0, message: 'All orders already linked' };
@@ -2138,10 +2270,10 @@ async function runQuickMatch() {
 
   console.log(`[QuickMatch] Built index: ${orderMap.size} MO orders, ${styleToOrders.size} styles`);
 
-  // 4. Match each unlinked order by style overlap
+  // 4. Match each STILL-unlinked order by style overlap (fallback for POs absent from PurchaseOrders)
   let matched = 0, unmatched = 0;
 
-  for (const sanmarOrder of unlinkedList) {
+  for (const sanmarOrder of styleCandidates) {
     const po = sanmarOrder.SanMar_PO;
     const styles = poStyles.get(po);
     if (!styles || styles.size === 0) { unmatched++; continue; }
@@ -2200,7 +2332,7 @@ async function runQuickMatch() {
 
   // 5. Live API fallback — for still-unmatched orders, fetch MO line items from live API
   if (unmatched > 0) {
-    const unmatchedWithStyles = unlinkedList.filter(o => {
+    const unmatchedWithStyles = styleCandidates.filter(o => {
       const styles = poStyles.get(o.SanMar_PO);
       return styles && styles.size > 0 && !styleToOrders.has([...styles][0]);
     }).slice(0, 30); // Cap at 30 to limit API calls
@@ -2301,7 +2433,7 @@ async function runQuickMatch() {
 
   // Debug: show why matches failed
   const debugMatches = [];
-  for (const sanmarOrder of unlinkedList.slice(0, 5)) {
+  for (const sanmarOrder of styleCandidates.slice(0, 5)) {
     const po = sanmarOrder.SanMar_PO;
     const styles = poStyles.get(po);
     const entry = { po, styles: styles ? [...styles] : 'NO_ITEMS', candidates: [] };
@@ -2323,7 +2455,10 @@ async function runQuickMatch() {
   const sampleMOStyles = [...styleToOrders.keys()].slice(0, 20);
 
   return {
-    matched, unmatched, elapsed, totalProcessed: unlinkedList.length,
+    matched: matched + poRes.matched,
+    poDirectMatched: poRes.matched,
+    styleMatched: matched,
+    unmatched, elapsed, totalProcessed: unlinkedList.length,
     debug: {
       sanmarOrderItemsCount: itemsList.length,
       poStylesMapSize: poStyles.size,
@@ -2385,6 +2520,24 @@ async function runManageOrdersMatch() {
 
     if (unlinked.length === 0) {
       moMatchStatus.lastResult = { success: true, matched: 0, message: 'All orders already linked' };
+      moMatchStatus.running = false;
+      return;
+    }
+
+    // 1b. AUTHORITATIVE PurchaseOrders (ID_PO→id_Order) direct match FIRST — deterministic + fresh.
+    //     The style-overlap pass below is only a fallback for POs absent from that table, and never
+    //     overrides an id_Order the PO table just wrote. If it links everything, skip the heavy live
+    //     ManageOrders line-item indexing entirely.
+    moMatchStatus.progress.phase = 'PurchaseOrders direct match';
+    let poResM = { matched: 0, linkedPOs: new Set() };
+    try { poResM = await runPurchaseOrderMatch(unlinked); }
+    catch (e) { console.error('[MO Match] PurchaseOrders match failed:', e.message); }
+    const styleCandidatesM = unlinked.filter(o =>
+      !String(o.id_Order || '').trim() && !poResM.linkedPOs.has(o.SanMar_PO));
+    moMatchStatus.progress.matched = poResM.matched;
+    console.log(`[MO Match] PurchaseOrders linked ${poResM.matched}; ${styleCandidatesM.length} remain for style-overlap`);
+    if (styleCandidatesM.length === 0) {
+      moMatchStatus.lastResult = { success: true, matched: poResM.matched, poDirectMatched: poResM.matched, styleMatched: 0, message: 'All linked via PurchaseOrders (no style-overlap needed)' };
       moMatchStatus.running = false;
       return;
     }
@@ -2456,10 +2609,10 @@ async function runManageOrdersMatch() {
     console.log(`[MO Match] Index complete: ${indexed} orders, ${styleToOrders.size} unique styles`);
     moMatchStatus.progress.phase = 'matching SanMar orders';
 
-    // 5. For each unlinked SanMar order, find best match using the style index
+    // 5. For each STILL-unlinked SanMar order, find best match using the style index
     let matched = 0, unmatched = 0;
 
-    for (const sanmarOrder of unlinked) {
+    for (const sanmarOrder of styleCandidatesM) {
       const po = sanmarOrder.SanMar_PO;
       const sanmarStyles = poStyles.get(po);
       if (!sanmarStyles || sanmarStyles.size === 0) {
@@ -2527,7 +2680,9 @@ async function runManageOrdersMatch() {
 
     moMatchStatus.lastResult = {
       success: true,
-      matched,
+      matched: matched + poResM.matched,
+      poDirectMatched: poResM.matched,
+      styleMatched: matched,
       unmatched,
       moOrdersIndexed: indexed,
       uniqueStyles: styleToOrders.size,
