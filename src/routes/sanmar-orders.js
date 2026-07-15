@@ -863,7 +863,11 @@ router.get('/inbound-today', async (req, res) => {
     const cacheKey = `sanmar-inbound-today-${date}`;
     if (!req.query.refresh) { const c = orderCache.get(cacheKey); if (c) return res.json(c); }
 
-    // 1. Shipments whose ESTIMATED ARRIVAL (ship date + transit) == the target day.
+    // 1. Candidate shipments (ship date in the last ~12 days). We gather everything whose ship+transit
+    //    ESTIMATE lands within a few days of the target, then let UPS's REAL delivery date decide the
+    //    actual arrival day (the estimate is only a fallback for boxes UPS hasn't scanned yet). This is
+    //    the truthful fix for "the arrival day isn't always right" — the old code bucketed purely on the
+    //    estimate, so a per-warehouse transit guess that was off by a day put the PO on the wrong day.
     const lookback = addDaysISO(date, -12);
     const shipRows = await fetchAllCaspioPages(`/tables/${TABLES.shipments}/records`, {
       'q.where': `Ship_Date>='${lookback}' AND Ship_Date<='${date}'`,
@@ -871,17 +875,40 @@ router.get('/inbound-today', async (req, res) => {
       'q.limit': 1000,
     }) || [];
 
-    const poShip = new Map(); // po -> { boxes, shipDate, carrier, tracking, fromCity, fromState }
+    // Candidate band: estimate within ±3 days of the target (UPS rarely differs by more). Fetch UPS for
+    // these, then keep only POs whose EFFECTIVE arrival (UPS date when known, else estimate) == date.
+    const bandLo = addDaysISO(date, -3), bandHi = addDaysISO(date, 3);
+    const poShip = new Map(); // po -> { boxes, shipDate, carrier, tracking, fromCity, fromState, estArrival, upsDelivery }
     for (const s of shipRows) {
       const po = s.SanMar_PO; const sd = (s.Ship_Date || '').slice(0, 10);
       if (!po || !sd) continue;
-      const transit = transitDaysFor(s.Ship_Method, s.Ship_From_State);
-      if (addBusinessDays(sd, transit) !== date) continue; // arrives a different (business) day
-      const cur = poShip.get(po) || { boxes: 0, shipDate: sd, carrier: s.Carrier || '', tracking: s.Tracking_Number || '', fromCity: s.Ship_From_City || '', fromState: s.Ship_From_State || '' };
+      const estArrival = addBusinessDays(sd, transitDaysFor(s.Ship_Method, s.Ship_From_State));
+      if (!estArrival || estArrival < bandLo || estArrival > bandHi) continue; // outside the candidate band
+      const cur = poShip.get(po) || { boxes: 0, shipDate: sd, carrier: s.Carrier || '', tracking: s.Tracking_Number || '', fromCity: s.Ship_From_City || '', fromState: s.Ship_From_State || '', estArrival };
       cur.boxes += 1;
       if (sd < cur.shipDate) cur.shipDate = sd;
+      if (estArrival < cur.estArrival) cur.estArrival = estArrival; // earliest box's estimate
       if (!cur.tracking && s.Tracking_Number) cur.tracking = s.Tracking_Number;
       poShip.set(po, cur);
+    }
+
+    // UPS's REAL delivery date per candidate PO (first 1Z tracking) — pooled + cached; best-effort.
+    try {
+      const { trackOne } = require('./ups-tracking');
+      const cands = [...poShip.entries()].filter(([, v]) => v.tracking && /^1Z/i.test(v.tracking));
+      const fetchUps = async ([po, v]) => {
+        try {
+          const r = await trackOne(v.tracking);
+          if (r && r.deliveryDate) v.upsDelivery = { date: r.deliveryDate, type: r.deliveryType || 'scheduled', status: r.status || '' };
+        } catch (e) { /* leave this PO on its estimate */ }
+      };
+      for (let i = 0; i < cands.length; i += 5) await Promise.all(cands.slice(i, i + 5).map(fetchUps));
+    } catch (e) { /* UPS enrichment best-effort; estimates stand */ }
+
+    // Keep only POs whose EFFECTIVE arrival == the target day (UPS real date when known, else estimate).
+    for (const [po, v] of [...poShip.entries()]) {
+      const effective = (v.upsDelivery && v.upsDelivery.date) ? v.upsDelivery.date : v.estArrival;
+      if (effective !== date) poShip.delete(po);
     }
 
     if (poShip.size === 0) {
@@ -1057,7 +1084,11 @@ router.get('/inbound-today', async (req, res) => {
         designName: mo ? (mo.DesignName || '').trim() : '',
         contactName, customerPO: mo ? (mo.CustomerPurchaseOrder || '').trim() : '', terms: mo ? (mo.TermsName || '').trim() : '',
         issue: deriveIssueFlags(o.Issue_Details),
-        method, arrival: date, shipDate: sh.shipDate, fromCity: sh.fromCity, fromState: sh.fromState,
+        method, arrival: date,
+        arrivalSource: (sh.upsDelivery && sh.upsDelivery.date) ? 'ups' : 'estimate', // truthful vs guess
+        estArrival: sh.estArrival || '',
+        upsDelivery: sh.upsDelivery || null,
+        shipDate: sh.shipDate, fromCity: sh.fromCity, fromState: sh.fromState,
         carrier: sh.carrier, tracking: sh.tracking, trackingUrl: buildCarrierTrackingUrl(sh.carrier, sh.tracking),
         boxes: (boxDetailByPo.get(po) || []).length || sh.boxes,
         boxDetail: boxDetailByPo.get(po) || null,
@@ -1066,20 +1097,8 @@ router.get('/inbound-today', async (req, res) => {
       };
     }).sort((a, b) => (a.company || '').localeCompare(b.company || '') || a.sanmarPO.localeCompare(b.sanmarPO));
 
-    // UPS live delivery dates — the REAL arrival when UPS knows it (scheduled/rescheduled/delivered),
-    // per arriving PO, pooled + best-effort. Never blocks the response: a UPS hiccup just leaves the
-    // PO on its business-day estimate. Only UPS 1Z numbers; cached in the ups-tracking module.
-    try {
-      const { trackOne } = require('./ups-tracking');
-      const enrichUps = (o) => {
-        if (!(o.tracking && /^1Z/i.test(o.tracking))) return Promise.resolve();
-        return trackOne(o.tracking)
-          .then(r => { if (r && r.deliveryDate) o.upsDelivery = { date: r.deliveryDate, type: r.deliveryType || 'scheduled', status: r.status || '' }; })
-          .catch(() => {});
-      };
-      for (let i = 0; i < orders.length; i += 5) await Promise.all(orders.slice(i, i + 5).map(enrichUps));
-    } catch (e) { /* UPS enrichment is best-effort; estimate stands */ }
-
+    // (UPS real delivery dates were already resolved above — they DROVE which day each PO is on — and
+    //  are carried on each order as .upsDelivery / .arrivalSource; no second pass needed.)
     const wos = new Set();
     const totals = orders.reduce((t, o) => {
       wos.add(o.workOrder || ('po:' + o.sanmarPO));
@@ -1090,7 +1109,7 @@ router.get('/inbound-today', async (req, res) => {
       date, today, generatedAt: new Date().toISOString(),
       totals: { pos: totals.pos, workOrders: wos.size, boxes: totals.boxes, piecesShipped: totals.piecesShipped, piecesOrdered: totals.piecesOrdered, lines: totals.lines, cost: Math.round(totals.cost * 100) / 100 },
       orders,
-      note: 'Arriving = actual SanMar ship date + ground-transit estimate (business days; weekends & holidays skipped — we receive Mon–Fri only) to Milton, WA. Per-box contents come live from SanMar\'s shipment feed; colors/sizes from the SanMar product table (unresolved SKUs show the Part_ID only).',
+      note: 'Arriving = UPS\'s real scheduled/rescheduled/delivered date whenever UPS has scanned the boxes (marked ✓ UPS); otherwise a SanMar ship-date + ground-transit ESTIMATE (marked ~ est., business days; weekends & holidays skipped — we receive Mon–Fri only). Per-box contents come live from SanMar\'s shipment feed; colors/sizes from the SanMar product table.',
     };
     orderCache.set(cacheKey, payload, 600);
     res.json(payload);
