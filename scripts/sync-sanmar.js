@@ -196,6 +196,16 @@ async function matchManageOrders() {
   return result;
 }
 
+async function syncDeliveryDates() {
+  const url = `${BASE_URL}/api/sanmar-orders/sync-delivery-dates`;
+  console.log(`\n[${new Date().toISOString()}] Syncing UPS delivery/received dates onto shipments...`);
+  // Async (202) — fire-and-forget; the web dyno backfills recent shipments (skips already-delivered)
+  // in the background. Poll /sync-delivery-dates-status if you need the tally.
+  const response = await axios.post(url, {}, { headers: AUTH_HEADERS, timeout: TIMEOUT });
+  console.log(`  ${(response.data && response.data.message) || 'started'}`);
+  return response.data;
+}
+
 async function checkStatus() {
   const url = `${BASE_URL}/api/sanmar-orders/status-summary`;
   console.log(`\n[${new Date().toISOString()}] Checking SanMar sync status...`);
@@ -252,6 +262,7 @@ async function main() {
       await syncRecentCompleted();
       await syncInvoices();
       await matchManageOrders();
+      await syncDeliveryDates();
     }
 
     console.log(`\n[${new Date().toISOString()}] SanMar sync completed successfully.`);
