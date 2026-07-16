@@ -21,6 +21,9 @@ const BASE_URL = process.env.BASE_URL || 'https://caspio-pricing-proxy-ab30a0499
 const CASPIO_BASE = 'https://c3eku948.caspio.com/rest/v2';
 const CASPIO_CLIENT_ID = process.env.CASPIO_CLIENT_ID;
 const CASPIO_CLIENT_SECRET = process.env.CASPIO_CLIENT_SECRET;
+// GET /api/manageorders/* reads are PII-gated behind requireCrmApiSecret (server.js, v878
+// 2026-07-05). Without this header every fetch 401s — the sync silently froze 7/4→7/16.
+const CRM_API_SECRET = process.env.CRM_API_SECRET;
 const DAYS_BACK = 60;
 const LINE_ITEM_DELAY_MS = 250;
 const RATE_LIMIT_WAIT_MS = 62000;
@@ -109,7 +112,10 @@ const MAX_RETRIES = 3;
 async function fetchWithRetry(url, label) {
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
-      const resp = await axios.get(url, { timeout: TIMEOUT });
+      const resp = await axios.get(url, {
+        timeout: TIMEOUT,
+        headers: { 'x-crm-api-secret': CRM_API_SECRET }
+      });
       return resp.data.result || [];
     } catch (err) {
       if (err.response && err.response.status === 429 && attempt < MAX_RETRIES) {
@@ -248,6 +254,10 @@ async function main() {
 
   if (!CASPIO_CLIENT_ID || !CASPIO_CLIENT_SECRET) {
     console.error('ERROR: CASPIO_CLIENT_ID and CASPIO_CLIENT_SECRET required');
+    process.exit(1);
+  }
+  if (!CRM_API_SECRET) {
+    console.error('ERROR: CRM_API_SECRET required — /api/manageorders reads are PII-gated (401 without it)');
     process.exit(1);
   }
 

@@ -54,7 +54,12 @@ async function fetchEnrichment(idOrder) {
     if (idOrder == null || idOrder === '') return null;
     try {
         const url = `${PROXY_BASE}/api/manageorders/orders/${encodeURIComponent(idOrder)}`;
-        const { data } = await axios.get(url, { timeout: 15000 });
+        // PII-gated read (requireCrmApiSecret, v878) — without the header this 401s
+        // and Slack messages silently lose customer/rep enrichment.
+        const { data } = await axios.get(url, {
+            timeout: 15000,
+            headers: { 'x-crm-api-secret': process.env.CRM_API_SECRET || '' }
+        });
         // Endpoint shape: { result: [order], count, cached }
         const order = Array.isArray(data && data.result) && data.result.length > 0
             ? data.result[0]
