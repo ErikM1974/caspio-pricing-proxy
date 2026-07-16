@@ -47,8 +47,10 @@ const DEFAULT_STATUS = {
 
 // PUBLIC lead forms → Slack ping on arrival (the Inbox is pull; a quote lead
 // sitting unseen for a day is a lost sale). webstore-request doubles as the
-// staff twin AND the public inquiry — both are worth a ping.
-const LEAD_NOTIFY_FORMS = new Set(['quote-request', 'webstore-request']);
+// staff twin AND the public inquiry — both are worth a ping. team-roster is
+// linked from the webstore spokes' names-and-numbers sections (2026-07-16) —
+// a customer roster arriving silently would read as "order placed" to them.
+const LEAD_NOTIFY_FORMS = new Set(['quote-request', 'webstore-request', 'team-roster']);
 
 // Forms whose payloads must NEVER carry card data — stripCardFields() runs
 // server-side on these regardless of what the client sends. credit-card-auth
