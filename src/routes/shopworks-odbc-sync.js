@@ -51,13 +51,25 @@ const ODBC_FIELDS = [
     'cur_Subtotal', 'cur_Taxable01', 'cur_Shipping',
     'cnCur_TotalInvoice', 'cnCur_SalesTaxTotal'
 ];
-// Keep only whitelisted fields; blank dates → null (Caspio Date/Time 400s on '').
+// Caspio text-field capacities in ORDER_ODBC: everything is TEXT255 except the
+// two 64K note fields. FileMaker has no such limits, so long values must be
+// truncated or Caspio 400s the row ("value doesn't match the data type" —
+// caught live on order 139191's NotesToProduction, 2026-07-16).
+const TEXT_LIMITS = { NotesOnOrder: 64000, NotesToAccounting: 64000 };
+const DEFAULT_TEXT_LIMIT = 255;
+
+// Keep only whitelisted fields; blank → null (Caspio Date/Time 400s on '');
+// strings truncated to the destination column's capacity.
 function sanitizeRow(raw) {
     const row = {};
     for (const f of ODBC_FIELDS) {
         if (!(f in raw)) continue;
         let v = raw[f];
         if (v === '') v = null; // esp. Date/Time fields — Caspio 400s on ''
+        if (typeof v === 'string') {
+            const limit = TEXT_LIMITS[f] || DEFAULT_TEXT_LIMIT;
+            if (v.length > limit) v = v.slice(0, limit);
+        }
         row[f] = v;
     }
     return row;
