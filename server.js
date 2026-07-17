@@ -811,13 +811,21 @@ console.log('✓ JDS Catalog routes loaded');
 const sanmarShopworksRoutes = require('./src/routes/sanmar-shopworks');
 const sanmarLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 60, // 60 req/min — generous since import-format has server-side cache
+  max: 60, // 60 req/min per IP — generous since import-format has server-side cache
   message: {
     error: 'Too many requests to SanMar-ShopWorks endpoints',
     retryAfter: '60 seconds'
   },
   standardHeaders: true,
   legacyHeaders: false,
+  // This limiter is mounted broadly on /api, so it also counts the internal bandit
+  // syncs (thumbnail image upload, ODBC syncs, crons). Those are server-to-server,
+  // authenticate with the CRM secret, and are NOT the public abuse vector this guards
+  // — exempt them, else the thumbnail image sync 429s at 60/min (caught 2026-07-17).
+  skip: (req) => {
+    const s = req.headers['x-crm-api-secret'];
+    return !!s && !!process.env.CRM_API_SECRET && s === process.env.CRM_API_SECRET;
+  },
 });
 app.use('/api', sanmarLimiter, sanmarShopworksRoutes);
 console.log('✓ Sanmar-ShopWorks mapping routes loaded (rate limited: 60 req/min, cached)');

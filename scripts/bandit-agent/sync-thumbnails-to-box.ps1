@@ -96,6 +96,14 @@ try {
     }
     Log ("already have an image: {0} rows" -f $up.count)
 
+    # 1b) Which serials have a metadata ROW at all. We must NOT POST an image for a
+    # serial with no row — upload-with-stub 404s it (rows are created by the metadata
+    # sync). Without this, ~15k share images with no row 404-churn every run.
+    $ai = Invoke-RestMethod -Method Get -Uri "$proxy/api/thumbnails/all-ids" -Headers $headers -TimeoutSec 300
+    $existing = @{}
+    foreach ($id in $ai.ids) { $existing[[string]$id] = $true }
+    Log ("metadata rows that exist: {0}" -f $ai.count)
+
     # 2) Enumerate valid image files on the share ({ID_Serial}_*.jpg/png), newest first.
     $files = Get-ChildItem -LiteralPath $ThumbShare -File -ErrorAction Stop |
              Where-Object { ($AllowedExt -contains $_.Extension.ToLower()) -and ($_.Name -match '^\d+_') } |
@@ -106,6 +114,7 @@ try {
     $pending = New-Object System.Collections.ArrayList
     foreach ($f in $files) {
         $id = ([regex]::Match($f.Name, '^(\d+)_')).Groups[1].Value
+        if (-not $existing.ContainsKey($id)) { continue }   # no metadata row yet - skip (would 404); the metadata sync creates the row, then we pick it up
         if ($uploaded.ContainsKey($id)) {
             $storedSize = $uploaded[$id]
             # Already has an image. Only re-upload when we have a DEFINITE stored size that
@@ -128,20 +137,21 @@ try {
     try {
         foreach ($f in $batch) {
             $i++
-            try {
-                $r = Send-Image $client $postUri $secret $f.FullName $f.Name
-                if ($r.status -ge 200 -and $r.status -lt 300) {
-                    $ok++
-                } elseif ($r.status -eq 404) {
-                    # metadata row not created yet — retried automatically next run
-                    $skip++
-                } else {
+            $attempt = 0
+            while ($true) {
+                try {
+                    $r = Send-Image $client $postUri $secret $f.FullName $f.Name
+                    # 429 safety net (the proxy now exempts secret-holders, but back off anyway).
+                    if ($r.status -eq 429 -and $attempt -lt 5) { $attempt++; Log ("  429 rate-limited - backing off 60s (attempt {0})" -f $attempt); Start-Sleep -Seconds 60; continue }
+                    if ($r.status -ge 200 -and $r.status -lt 300) { $ok++ }
+                    elseif ($r.status -eq 404) { $skip++ }
+                    else { $err++; if ($err -le 5) { Log ("  {0} -> HTTP {1}: {2}" -f $f.Name, $r.status, $r.body.Substring(0, [Math]::Min(180, $r.body.Length))) } }
+                    break
+                } catch {
                     $err++
-                    if ($err -le 5) { Log ("  {0} -> HTTP {1}: {2}" -f $f.Name, $r.status, $r.body.Substring(0, [Math]::Min(180, $r.body.Length))) }
+                    if ($err -le 5) { Log ("  {0} EX: {1}" -f $f.Name, $_.Exception.Message) }
+                    break
                 }
-            } catch {
-                $err++
-                if ($err -le 5) { Log ("  {0} EX: {1}" -f $f.Name, $_.Exception.Message) }
             }
             if ($i % 50 -eq 0) { Log ("  progress {0}/{1}: {2} ok, {3} skipped(no row), {4} err" -f $i, $batch.Count, $ok, $skip, $err) }
             Start-Sleep -Milliseconds $PaceMs
