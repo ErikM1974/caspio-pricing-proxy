@@ -1106,4 +1106,102 @@ router.delete('/thumbnails/delete-by-year/:year', async (req, res) => {
   }
 });
 
+/**
+ * POST /api/thumbnails/metadata-sync
+ * Upsert Shopworks_Thumbnail_Report metadata by ID_Serial from the ShopWorks
+ * "Thumbnails Report" export. The bandit agent reads the .xlsx and POSTs batches.
+ *
+ * Replaces the old dist\build_caspio_import_csv.py 3-way join + Caspio file-import.
+ * Writes ONLY metadata columns (design/part/dims/timestamp). The image-side
+ * columns (ExternalKey/FileUrl/FileSizeNumber/timestamp_Uploaded) are owned by
+ * upload-with-stub and never touched here. This endpoint is the RECORD-CREATOR
+ * (upload-with-stub refuses to create stubs — see ~L794).
+ *
+ * Upsert: PUT by ID_Serial (metadata only, never FileName on update so the
+ * image-side staged filename is preserved) → 0 RecordsAffected → INSERT with a
+ * serial-prefixed FileName ({ID_Serial}_{original}) to satisfy the UNIQUE FileName.
+ *
+ * Body: { rows: [ { ID_Serial, FileName, FileWidth, FileHeight, FileSizeDisplay,
+ *   timestamp_Added, Thumb_DesLocid_Design, Thumb_DesLoc_DesDesignName,
+ *   Thumb_ProdPartNumber, Thumb_ProdDescription } ] }   (rows:[] is a valid heartbeat)
+ * Auth: x-crm-api-secret (mounted in server.js).
+ */
+const THUMB_TABLE = 'Shopworks_Thumbnail_Report';
+const THUMB_TEXT_LIMIT = 255;
+const THUMB_META_COLS = ['Thumb_DesLocid_Design', 'Thumb_DesLoc_DesDesignName', 'Thumb_ProdPartNumber', 'Thumb_ProdDescription', 'FileWidth', 'FileHeight', 'FileSizeDisplay', 'timestamp_Added'];
+const THUMB_TEXT_COLS = new Set(['Thumb_DesLocid_Design', 'Thumb_DesLoc_DesDesignName', 'Thumb_ProdPartNumber', 'Thumb_ProdDescription', 'FileSizeDisplay', 'FileName']);
+
+function thumbClean(col, v) {
+  if (v === undefined || v === null || v === '') return null; // '' → null (Caspio Date/Time 400s on '')
+  if (THUMB_TEXT_COLS.has(col) && typeof v === 'string' && v.length > THUMB_TEXT_LIMIT) return v.slice(0, THUMB_TEXT_LIMIT);
+  return v;
+}
+
+router.post('/thumbnails/metadata-sync', async (req, res) => {
+  try {
+    const rows = req.body && req.body.rows;
+    if (!Array.isArray(rows)) return res.status(400).json({ success: false, error: 'Body must be { rows: [...] }' });
+    if (rows.length > 500) return res.status(400).json({ success: false, error: 'Max 500 rows per call — chunk on the agent side' });
+
+    const token = await getCaspioAccessToken();
+    const base = config.caspio.apiBaseUrl;
+    const H = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+
+    let inserted = 0, updated = 0, errored = 0;
+    const errors = [];
+    const CONC = 10; // parallel waves — Heroku 30s router timeout (serial breaches it)
+
+    for (let i = 0; i < rows.length; i += CONC) {
+      const wave = rows.slice(i, i + CONC);
+      const settled = await Promise.allSettled(wave.map(async (raw) => {
+        const id = parseInt(raw.ID_Serial, 10);
+        if (!Number.isInteger(id)) throw new Error('bad ID_Serial: ' + raw.ID_Serial);
+        const meta = {};
+        for (const c of THUMB_META_COLS) meta[c] = thumbClean(c, raw[c]);
+
+        // UPDATE by ID_Serial — metadata only (preserve image-side FileName/URL)
+        const put = await axios.put(`${base}/tables/${THUMB_TABLE}/records`, meta,
+          { headers: H, params: { 'q.where': `ID_Serial=${id}` }, timeout: 15000 });
+        if (((put.data && put.data.RecordsAffected) || 0) > 0) return { action: 'updated' };
+
+        // INSERT new record (Caspio PUT no-match = 200 RecordsAffected:0)
+        const orig = (raw.FileName == null ? '' : String(raw.FileName)).trim();
+        const insertBody = Object.assign({ ID_Serial: id }, meta);
+        if (orig) insertBody.FileName = thumbClean('FileName', `${id}_${orig}`);
+        await axios.post(`${base}/tables/${THUMB_TABLE}/records`, insertBody, { headers: H, timeout: 15000 });
+        return { action: 'inserted' };
+      }));
+      settled.forEach((s, j) => {
+        if (s.status === 'fulfilled') { s.value.action === 'inserted' ? inserted++ : updated++; }
+        else {
+          errored++;
+          const e = s.reason;
+          const d = e.response ? JSON.stringify(e.response.data) : e.message;
+          errors.push({ ID_Serial: wave[j] && wave[j].ID_Serial, error: String(d).slice(0, 300) });
+          console.error(`[thumb-meta] row ${wave[j] && wave[j].ID_Serial} failed:`, d);
+        }
+      });
+    }
+
+    // Heartbeat (shared Sync_Heartbeats table; own Sync_Name)
+    if (errored === 0 || errored < rows.length) {
+      try {
+        const stamp = new Date().toISOString().slice(0, 19);
+        const hb = { Last_Success: stamp, Last_Rows: rows.length, Last_Summary: `${inserted} ins, ${updated} upd, ${errored} err of ${rows.length}`.slice(0, 250) };
+        const put = await axios.put(`${base}/tables/Sync_Heartbeats/records`, hb,
+          { headers: H, params: { 'q.where': `Sync_Name='shopworks-thumbnail-metadata'` }, timeout: 15000 });
+        if (((put.data && put.data.RecordsAffected) || 0) === 0) {
+          await axios.post(`${base}/tables/Sync_Heartbeats/records`, Object.assign({ Sync_Name: 'shopworks-thumbnail-metadata' }, hb), { headers: H, timeout: 15000 });
+        }
+      } catch (hbErr) { console.warn('[thumb-meta] heartbeat failed:', hbErr.message); }
+    }
+
+    console.log(`[thumb-meta] ${inserted} inserted, ${updated} updated, ${errored} errored of ${rows.length}`);
+    res.json({ success: errored === 0, summary: { inserted, updated, errored, total: rows.length }, errors: errors.slice(0, 20) });
+  } catch (error) {
+    console.error('[thumb-meta] batch failed:', error.response ? JSON.stringify(error.response.data) : error.message);
+    res.status(500).json({ success: false, error: 'metadata sync failed: ' + error.message });
+  }
+});
+
 module.exports = router;
