@@ -2201,6 +2201,81 @@ router.post('/po-match', async (req, res) => {
   }
 });
 
+// ── Reconcile: CORRECT an existing SanMar_Orders.id_Order when the authoritative
+//    ShopWorks PurchaseOrders link (ID_PO→id_Order) disagrees. runPurchaseOrderMatch
+//    only fills BLANK rows and runQuickMatch only revisits blank-company rows, so a
+//    WRONG id_Order written by the old style-overlap / PO+offset guesser is sticky
+//    forever (it mislabels the whole card: WO#, company, rep, design). ShopWorks is
+//    the system of record for which WO a PO belongs to, so its link wins here. The
+//    PurchaseOrders mirror is kept fresh by the 15-min ODBC PO sync + daily CSV.
+//    dryRun=true previews the corrections without writing.
+async function runPurchaseOrderReconcile({ dryRun, limit, minPO } = {}) {
+  const floor = parseInt(minPO, 10);
+  const rows = await fetchAllCaspioPages(`/tables/${TABLES.orders}/records`, {
+    'q.where': "SanMar_PO IS NOT NULL AND SanMar_PO<>''",
+    'q.select': 'SanMar_PO,id_Order,Company_Name', 'q.orderBy': 'PK_ID', 'q.limit': 1000,
+  }) || [];
+  // numericPO → [{ sp, cur }]
+  const byNumeric = new Map();
+  for (const r of rows) {
+    const n = extractPONumber(r.SanMar_PO);
+    if (!n) continue;
+    if (Number.isInteger(floor) && n < floor) continue;
+    if (!byNumeric.has(n)) byNumeric.set(n, []);
+    byNumeric.get(n).push({ sp: r.SanMar_PO, cur: String(r.id_Order || '').trim(), curCompany: (r.Company_Name || '').trim() });
+  }
+  if (!byNumeric.size) return { checked: rows.length, disagreements: 0, fixed: 0, changes: [] };
+
+  const poMap = await fetchPoToOrderMap([...byNumeric.keys()]);        // authoritative numericPO → id_Order
+  const toFix = [];
+  for (const [numeric, entries] of byNumeric) {
+    const auth = poMap.get(numeric);
+    if (!auth) continue;                                               // no authoritative link → leave as-is
+    for (const e of entries) {
+      if (e.cur !== String(auth)) toFix.push({ sp: e.sp, from: e.cur || '(blank)', to: String(auth), fromCompany: e.curCompany });
+    }
+  }
+  const moMap = await fetchMoOrdersByIdOrder([...new Set(toFix.map(f => f.to))]);
+  const changes = [];
+  let fixed = 0;
+  for (const f of toFix) {
+    if (Number.isInteger(limit) && limit > 0 && fixed >= limit) break;
+    const mo = moMap.get(f.to) || {};
+    const toCompany = (mo.CustomerName || '').trim();
+    const change = { SanMar_PO: f.sp, from_id_Order: f.from, to_id_Order: f.to, fromCompany: f.fromCompany, toCompany: toCompany || '(not in MO mirror yet)' };
+    changes.push(change);
+    if (dryRun) { fixed++; continue; }
+    // Always correct id_Order; only rewrite company/rep when the MO mirror has the
+    // new order (else leave them — the dashboard re-derives company from id_Order).
+    const patch = { id_Order: f.to, Matched_By: 'po-table-reconcile' };
+    if (toCompany) { patch.Company_Name = toCompany; patch.Sales_Rep = mo.CustomerServiceRep || ''; patch.id_Customer = mo.id_Customer || 0; }
+    try {
+      await makeCaspioRequest('PUT', `/tables/${TABLES.orders}/records`, { 'q.where': `SanMar_PO='${xmlEscape(f.sp)}'` }, patch);
+      fixed++;
+    } catch (e) { console.error(`[PO-Reconcile] PUT ${f.sp} failed:`, e.message); change.error = e.message; }
+  }
+  console.log(`[PO-Reconcile] ${dryRun ? 'DRY-RUN ' : ''}${fixed}/${toFix.length} corrected (checked ${rows.length})`);
+  return { checked: rows.length, disagreements: toFix.length, fixed, changes };
+}
+
+// ── POST /po-reconcile — correct sticky-wrong PO→WO links against ShopWorks PurchaseOrders ──
+//    ?dryRun=true previews; ?limit=N caps writes; ?minPO=NNNNNN only reconciles POs at/above a number.
+router.post('/po-reconcile', async (req, res) => {
+  const secret = req.headers['x-api-secret'] || req.query.secret;
+  if (secret !== process.env.CRM_API_SECRET) return res.status(403).json({ error: 'Unauthorized' });
+  try {
+    const result = await runPurchaseOrderReconcile({
+      dryRun: String(req.query.dryRun || '') === 'true',
+      limit: parseInt(req.query.limit, 10) || 0,
+      minPO: req.query.minPO,
+    });
+    res.json({ success: true, dryRun: String(req.query.dryRun || '') === 'true', ...result });
+  } catch (err) {
+    console.error('[PO-Reconcile] error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // ── Persist UPS's REAL delivery/received date onto SanMar_Shipments ──────────
 // Fills the (previously unused) Delivery_Status + Estimated_Delivery fields from UPS Track:
 //   • Delivered  → Estimated_Delivery = the ACTUAL delivered date (= the received date), status 'Delivered'
