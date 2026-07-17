@@ -691,8 +691,9 @@ console.log('✓ Supacolor Jobs routes loaded');
 // /health/alert stay open (read-only, non-PII — Supacolor watchdog precedent).
 const shopworksOdbcSyncRoutes = require('./src/routes/shopworks-odbc-sync');
 app.use('/api/shopworks-odbc/sync-orders', requireCrmApiSecret);
+app.use('/api/shopworks-odbc/sync-purchase-orders', requireCrmApiSecret);
 app.use('/api', shopworksOdbcSyncRoutes);
-console.log('✓ ShopWorks ODBC sync routes loaded (sync-orders secret-gated)');
+console.log('✓ ShopWorks ODBC sync routes loaded (sync-orders + sync-purchase-orders secret-gated)');
 
 // Credit-Card Reconciliation Lookups (Atmos card formatter: vendors, POs, supacolor PO index)
 // SECURITY (2026-06-30): the WRITE path POST /api/creditcard-atmos/upsert mutates the

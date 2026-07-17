@@ -114,21 +114,21 @@ function utcStamp() {
     return new Date().toISOString().slice(0, 19);
 }
 
-async function stampHeartbeat(token, rows, summary) {
+async function stampHeartbeat(token, rows, summary, syncName = SYNC_NAME) {
     const data = { Last_Success: utcStamp(), Last_Rows: rows, Last_Summary: String(summary).slice(0, 250) };
     const putResp = await axios.put(
         `${caspioApiBaseUrl}/tables/${TABLE_HEARTBEATS}/records`,
         data,
         {
             headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-            params: { 'q.where': `Sync_Name='${SYNC_NAME}'` },
+            params: { 'q.where': `Sync_Name='${syncName}'` },
             timeout: 15000
         }
     );
     if (((putResp.data && putResp.data.RecordsAffected) || 0) === 0) {
         await axios.post(
             `${caspioApiBaseUrl}/tables/${TABLE_HEARTBEATS}/records`,
-            Object.assign({ Sync_Name: SYNC_NAME }, data),
+            Object.assign({ Sync_Name: syncName }, data),
             { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, timeout: 15000 }
         );
     }
@@ -197,10 +197,10 @@ router.post('/shopworks-odbc/sync-orders', async (req, res) => {
     }
 });
 
-async function computeHealth() {
+async function computeHealth(syncName = SYNC_NAME) {
     const token = await getCaspioAccessToken();
     const resp = await axios.get(
-        `${caspioApiBaseUrl}/tables/${TABLE_HEARTBEATS}/records?q.where=Sync_Name='${SYNC_NAME}'`,
+        `${caspioApiBaseUrl}/tables/${TABLE_HEARTBEATS}/records?q.where=Sync_Name='${syncName}'`,
         { headers: { Authorization: `Bearer ${token}` }, timeout: 15000 }
     );
     const hb = (resp.data.Result || [])[0] || null;
@@ -262,6 +262,179 @@ router.post('/shopworks-odbc/health/alert', async (req, res) => {
         res.json({ success: true, ...result, notify });
     } catch (error) {
         console.error('[odbc-sync] health alert failed:', error.message);
+        res.status(500).json({ success: false, ok: false, error: 'Health alert failed: ' + error.message });
+    }
+});
+
+// ============================================================================
+// PURCHASE ORDERS — direct ShopWorks PO → Caspio PurchaseOrders sync
+// ----------------------------------------------------------------------------
+// Same agent/pattern as orders, for the ShopWorks `PO` table. The win: PO
+// receiving (date_Received / sts_Received, set when receiving counts a PO in)
+// reaches Caspio in ~15 min instead of the legacy daily CSV export — which is
+// what makes the SanMar Inbound "✓ Received" filter clear promptly. Runs in
+// PARALLEL with the legacy CSV chain (both upsert by ID_PO, both source from
+// ShopWorks) until the CSV task is retired.
+//
+// DESIGN RULES:
+//  - Upsert key = ID_PO. PUT-by-ID_PO → 0 affected → INSERT (no dupes vs CSV).
+//  - Only PO_ODBC_FIELDS are written; Slack_Notified (Caspio-side enrichment,
+//    owned by check-transfers-received) is NEVER in the payload → untouched.
+//  - Caspio type coercion: INTEGER cols rounded, NUMBER cols kept, DATE cols
+//    '' → null (Caspio 400s on empty-string dates), TEXT truncated to 255.
+//  - ShopWorks is source-of-truth → full overwrite of the whitelist on update.
+const TABLE_POS = 'PurchaseOrders';
+const SYNC_NAME_POS = 'shopworks-odbc-purchase-orders';
+
+// Caspio PurchaseOrders columns the agent sends (agent aliases the ODBC field
+// names to these). ID_PO is the key; the rest are payload. PK_ID (auto) and
+// Slack_Notified (enrichment) are intentionally absent.
+const PO_INT_FIELDS = ['ID_PO', 'id_Order', 'id_Vendor', 'sts_Issued', 'sts_Received', 'sts_RelatedToOrder', 'SalesTax', 'Shipping', 'PayablesOutstanding'];
+const PO_NUM_FIELDS = ['Subtotal', 'TotalInvoice'];
+const PO_DATE_FIELDS = ['date_POIssued', 'date_PORequestedToShip', 'date_Received', 'date_Modification'];
+const PO_TEXT_FIELDS = ['VendorName', 'ConfirmationNumber', 'date_PODropDead']; // date_PODropDead is TEXT255 in Caspio
+const PO_ODBC_FIELDS = [...PO_INT_FIELDS, ...PO_NUM_FIELDS, ...PO_DATE_FIELDS, ...PO_TEXT_FIELDS];
+
+// Coerce one raw PO row to Caspio types. Integers rounded (ODBC returns decimals
+// like 113664.0); numbers kept; blank dates → null; text truncated to 255.
+function sanitizePoRow(raw) {
+    const row = {};
+    for (const f of PO_ODBC_FIELDS) {
+        if (!(f in raw)) continue;
+        let v = raw[f];
+        if (v === '') v = null;
+        if (v != null && PO_INT_FIELDS.includes(f)) {
+            const n = Math.round(Number(v));
+            v = Number.isFinite(n) ? n : null;
+        } else if (v != null && PO_NUM_FIELDS.includes(f)) {
+            const n = Number(v);
+            v = Number.isFinite(n) ? n : null;
+        } else if (typeof v === 'string' && PO_TEXT_FIELDS.includes(f) && v.length > 255) {
+            v = v.slice(0, 255);
+        }
+        row[f] = v;
+    }
+    return row;
+}
+
+// PUT-by-ID_PO first; 0 RecordsAffected → INSERT. Mirrors upsertOrder.
+async function upsertPo(token, row) {
+    const idPo = parseInt(row.ID_PO, 10);
+    if (!Number.isInteger(idPo)) throw new Error('bad ID_PO: ' + row.ID_PO);
+    const payload = Object.assign({}, row);
+    delete payload.ID_PO;
+    const putResp = await axios.put(
+        `${caspioApiBaseUrl}/tables/${TABLE_POS}/records`,
+        payload,
+        {
+            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+            params: { 'q.where': `ID_PO=${idPo}` },
+            timeout: 15000
+        }
+    );
+    if (((putResp.data && putResp.data.RecordsAffected) || 0) > 0) return 'updated';
+    await axios.post(
+        `${caspioApiBaseUrl}/tables/${TABLE_POS}/records`,
+        Object.assign({ ID_PO: idPo }, payload),
+        { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, timeout: 15000 }
+    );
+    return 'inserted';
+}
+
+/**
+ * POST /api/shopworks-odbc/sync-purchase-orders
+ * Body: { rows: [ { ID_PO, id_Order, date_Received, sts_Received, ... } ] }
+ *   rows: [] is a valid heartbeat ping. ?dryRun=true validates + reports what
+ *   WOULD be written without touching Caspio (safe end-to-end test).
+ * Auth: x-crm-api-secret (mounted in server.js).
+ */
+router.post('/shopworks-odbc/sync-purchase-orders', async (req, res) => {
+    try {
+        const rows = (req.body && req.body.rows) || null;
+        if (!Array.isArray(rows)) {
+            return res.status(400).json({ success: false, error: 'Body must be { rows: [...] }' });
+        }
+        if (rows.length > MAX_ROWS_PER_CALL) {
+            return res.status(400).json({ success: false, error: `Max ${MAX_ROWS_PER_CALL} rows per call — batch on the agent side` });
+        }
+        const dryRun = String(req.query.dryRun || '') === 'true';
+
+        if (dryRun) {
+            const preview = rows.slice(0, 5).map(sanitizePoRow);
+            return res.json({ success: true, dryRun: true, wouldUpsert: rows.length, sampleSanitized: preview });
+        }
+
+        const token = await getCaspioAccessToken();
+        let updated = 0, inserted = 0, errored = 0;
+        const errors = [];
+        const CONCURRENCY = 10;
+        for (let i = 0; i < rows.length; i += CONCURRENCY) {
+            const wave = rows.slice(i, i + CONCURRENCY);
+            const settled = await Promise.allSettled(wave.map(async (raw) => {
+                const row = sanitizePoRow(raw);
+                if (row.ID_PO == null) throw new Error('missing ID_PO');
+                const action = await upsertPo(token, row);
+                return { id: row.ID_PO, action };
+            }));
+            settled.forEach((s, j) => {
+                if (s.status === 'fulfilled') {
+                    if (s.value.action === 'inserted') inserted++; else updated++;
+                } else {
+                    errored++;
+                    const rowErr = s.reason;
+                    const detail = rowErr.response ? JSON.stringify(rowErr.response.data) : rowErr.message;
+                    const id = wave[j] && wave[j].ID_PO;
+                    errors.push({ ID_PO: id, error: String(detail).slice(0, 300) });
+                    console.error(`[odbc-po-sync] row ${id} failed:`, detail);
+                }
+            });
+        }
+
+        const summary = `${inserted} inserted, ${updated} updated, ${errored} errored of ${rows.length}`;
+        if (errored === 0 || errored < rows.length) {
+            try { await stampHeartbeat(token, rows.length, summary, SYNC_NAME_POS); }
+            catch (hbErr) { console.warn('[odbc-po-sync] heartbeat write failed:', hbErr.message); }
+        }
+        console.log(`[odbc-po-sync] ${summary}`);
+        res.json({ success: errored === 0, summary: { inserted, updated, errored, total: rows.length }, errors });
+    } catch (error) {
+        console.error('[odbc-po-sync] batch failed:', error.response ? JSON.stringify(error.response.data) : error.message);
+        res.status(500).json({ success: false, error: 'PO sync failed: ' + error.message });
+    }
+});
+
+/** GET /api/shopworks-odbc/po-health — read-only watchdog view for the PO sync. */
+router.get('/shopworks-odbc/po-health', async (req, res) => {
+    try {
+        const result = await computeHealth(SYNC_NAME_POS);
+        res.json({ success: true, sync: SYNC_NAME_POS, ...result });
+    } catch (error) {
+        console.error('[odbc-po-sync] health failed:', error.message);
+        res.status(500).json({ success: false, ok: false, error: 'Health check failed: ' + error.message });
+    }
+});
+
+let lastPoAlertAt = 0;
+/** POST /api/shopworks-odbc/po-health/alert — health + Slack DM to Erik when the PO sync is stale. */
+router.post('/shopworks-odbc/po-health/alert', async (req, res) => {
+    try {
+        const result = await computeHealth(SYNC_NAME_POS);
+        let notify = { sent: false, skipped: 'ok' };
+        if (!result.ok) {
+            if (Date.now() - lastPoAlertAt > ALERT_TTL_MS) {
+                notify = await sendSlackDM(ALERT_EMAIL,
+                    `:warning: *ShopWorks ODBC purchase-order sync is STALE* — last successful sync ` +
+                    `${result.lastSuccess || 'NEVER'} (${result.ageMin == null ? 'n/a' : result.ageMin + ' min ago'}). ` +
+                    `PO receiving status may be lagging on the SanMar Inbound board. ` +
+                    `Check bandit (power? Task Scheduler? ODBC listener?). Health: /api/shopworks-odbc/po-health`);
+                if (notify.sent) lastPoAlertAt = Date.now();
+            } else {
+                notify = { sent: false, skipped: 'deduped-4h' };
+            }
+        }
+        res.json({ success: true, sync: SYNC_NAME_POS, ...result, notify });
+    } catch (error) {
+        console.error('[odbc-po-sync] health alert failed:', error.message);
         res.status(500).json({ success: false, ok: false, error: 'Health alert failed: ' + error.message });
     }
 });
