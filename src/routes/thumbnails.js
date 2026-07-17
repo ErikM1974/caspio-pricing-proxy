@@ -711,67 +711,92 @@ router.post('/thumbnails/upload-with-stub', upload.single('file'), async (req, r
     const existingRecords = Array.isArray(existing) ? existing : (existing?.Result || []);
     console.log(`[Thumbnails] Check existing: ID_Serial=${idSerial}, found=${existingRecords.length} records`);
 
-    // Upload to Caspio Files
-    const token = await getCaspioAccessToken();
-    const artworkFolderKey = config.caspio.artworkFolderKey;
-
-    const formData = new FormData();
-    formData.append('Files', req.file.buffer, {
-      filename: fileName,
-      contentType: req.file.mimetype
-    });
-
-    const uploadUrl = `${config.caspio.apiV3BaseUrl}/files?externalKey=${artworkFolderKey}`;
-    console.log(`[Thumbnails] Uploading to Caspio Files: ${fileName}`);
-
-    let externalKey;
+    // Where the image bytes go. ?target=box stores it in BOX (frees Caspio storage AND makes serving
+    // free of the Caspio API budget — the all-Box pipeline); default stores it in Caspio Files (legacy).
+    // Either way the row-upsert below is identical; only ExternalKey (Caspio) vs FileUrl (Box) differs.
+    const useBox = req.query.target === 'box' || req.query.store === 'box';
+    let externalKey = '';        // '' for Box-stored rows (no Caspio file) → consumers fall back to FileUrl
+    let fileUrl;
     let fileAlreadyExisted = false;
 
-    try {
-      const uploadResponse = await axios.post(uploadUrl, formData, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          ...formData.getHeaders()
-        },
-        maxBodyLength: Infinity,
-        maxContentLength: Infinity,
-        timeout: 30000
+    if (useBox) {
+      const folderId = process.env.BOX_THUMBNAIL_ARCHIVE_FOLDER_ID;
+      if (!folderId) return res.status(500).json({ success: false, error: 'BOX_THUMBNAIL_ARCHIVE_FOLDER_ID not set' });
+      let boxFile;
+      try {
+        boxFile = await uploadFileToBox(folderId, fileName, req.file.buffer, req.file.mimetype);
+      } catch (uploadError) {
+        // 409 = a file with that name already in the Box folder — retry with a timestamp suffix
+        // (the ID_Serial keys the DB row, so the Box filename doesn't need to be unique).
+        if (uploadError.response && uploadError.response.status === 409) {
+          const ts = new Date().toISOString().replace(/[:.]/g, '-').replace('Z', '');
+          const dot = fileName.lastIndexOf('.');
+          const uniq = dot <= 0 ? `${fileName}_${ts}` : `${fileName.slice(0, dot)}_${ts}${fileName.slice(dot)}`;
+          boxFile = await uploadFileToBox(folderId, uniq, req.file.buffer, req.file.mimetype);
+        } else { throw uploadError; }
+      }
+      fileUrl = `${THUMB_ARCHIVE_PROXY_BASE}/api/box/thumbnail/${boxFile.id}`;
+      console.log(`[Thumbnails] Uploaded to BOX: ${fileName} -> file ${boxFile.id}`);
+    } else {
+      // Upload to Caspio Files (legacy path)
+      const token = await getCaspioAccessToken();
+      const artworkFolderKey = config.caspio.artworkFolderKey;
+
+      const formData = new FormData();
+      formData.append('Files', req.file.buffer, {
+        filename: fileName,
+        contentType: req.file.mimetype
       });
 
-      externalKey = uploadResponse.data?.Result?.[0]?.ExternalKey;
-      if (!externalKey) {
-        console.error('[Thumbnails] Caspio upload response:', JSON.stringify(uploadResponse.data));
-        throw new Error('Upload succeeded but no ExternalKey returned');
-      }
-    } catch (uploadError) {
-      // Handle 409 - file already exists in Caspio Files
-      if (uploadError.response?.status === 409) {
-        console.log(`[Thumbnails] File ${fileName} already exists, looking up ExternalKey...`);
-        fileAlreadyExisted = true;
+      const uploadUrl = `${config.caspio.apiV3BaseUrl}/files?externalKey=${artworkFolderKey}`;
+      console.log(`[Thumbnails] Uploading to Caspio Files: ${fileName}`);
 
-        // List files in Artwork folder to find the existing file
-        const listUrl = `${config.caspio.apiV3BaseUrl}/files?externalKey=${artworkFolderKey}&q.pageSize=1000`;
-        const listResponse = await axios.get(listUrl, {
-          headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' }
+      try {
+        const uploadResponse = await axios.post(uploadUrl, formData, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            ...formData.getHeaders()
+          },
+          maxBodyLength: Infinity,
+          maxContentLength: Infinity,
+          timeout: 30000
         });
 
-        const files = listResponse.data?.Result || [];
-        const existingFile = files.find(f => f.Name === fileName);
-
-        if (!existingFile) {
-          throw new Error(`File ${fileName} reported as existing but not found in folder listing`);
+        externalKey = uploadResponse.data?.Result?.[0]?.ExternalKey;
+        if (!externalKey) {
+          console.error('[Thumbnails] Caspio upload response:', JSON.stringify(uploadResponse.data));
+          throw new Error('Upload succeeded but no ExternalKey returned');
         }
+      } catch (uploadError) {
+        // Handle 409 - file already exists in Caspio Files
+        if (uploadError.response?.status === 409) {
+          console.log(`[Thumbnails] File ${fileName} already exists, looking up ExternalKey...`);
+          fileAlreadyExisted = true;
 
-        externalKey = existingFile.ExternalKey;
-        console.log(`[Thumbnails] Found existing file: ${fileName} -> ${externalKey}`);
-      } else {
-        throw uploadError;
+          // List files in Artwork folder to find the existing file
+          const listUrl = `${config.caspio.apiV3BaseUrl}/files?externalKey=${artworkFolderKey}&q.pageSize=1000`;
+          const listResponse = await axios.get(listUrl, {
+            headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' }
+          });
+
+          const files = listResponse.data?.Result || [];
+          const existingFile = files.find(f => f.Name === fileName);
+
+          if (!existingFile) {
+            throw new Error(`File ${fileName} reported as existing but not found in folder listing`);
+          }
+
+          externalKey = existingFile.ExternalKey;
+          console.log(`[Thumbnails] Found existing file: ${fileName} -> ${externalKey}`);
+        } else {
+          throw uploadError;
+        }
       }
+
+      fileUrl = `https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/files/${externalKey}`;
     }
 
-    const fileUrl = `https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/files/${externalKey}`;
-
-    // Data to save (size for change detection)
+    // Data to save (size for change detection). Box rows carry ExternalKey='' so the FileUrl (Box) wins.
     // NOTE: timestamp_Uploaded is a Timestamp field in Caspio (auto-populated, read-only)
     const recordData = {
       ExternalKey: externalKey,
