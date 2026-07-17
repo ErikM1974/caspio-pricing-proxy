@@ -61,6 +61,7 @@ function sanitizeCustomerId(raw) {
 function sanitizeMethod(raw) {
     if (!raw) return null;
     const m = String(raw).trim().toLowerCase();
+    if (m === 'all') return 'all'; // all methods — no DesignType filter (portal logo library)
     return METHOD_TO_DESIGN_TYPE[m] != null ? m : null;
 }
 
@@ -146,11 +147,11 @@ router.get('/designs/by-customer/:customerId', async (req, res) => {
         if (!method) {
             return res.status(400).json({
                 success: false,
-                error: 'Invalid or missing method query param. Valid: ' + Object.keys(METHOD_TO_DESIGN_TYPE).join(', '),
+                error: 'Invalid or missing method query param. Valid: all, ' + Object.keys(METHOD_TO_DESIGN_TYPE).join(', '),
             });
         }
 
-        const designType = METHOD_TO_DESIGN_TYPE[method];
+        const designType = method === 'all' ? null : METHOD_TO_DESIGN_TYPE[method];
         const includeVariations = req.query.includeVariations === 'true';
         const limitRaw = parseInt(req.query.limit, 10);
         const limit = (Number.isFinite(limitRaw) && limitRaw > 0) ? Math.min(limitRaw, 500) : 100;
@@ -168,8 +169,10 @@ router.get('/designs/by-customer/:customerId', async (req, res) => {
         const whereParts = [
             `ID_Customer=${customerId}`,
             `Active=1`,
-            `DesignType=${designType}`,
         ];
+        if (designType != null) {
+            whereParts.push(`DesignType=${designType}`); // omitted for method=all
+        }
         if (!includeVariations) {
             whereParts.push(`IsVariation=0`);
         }
