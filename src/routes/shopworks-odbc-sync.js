@@ -154,22 +154,31 @@ router.post('/shopworks-odbc/sync-orders', async (req, res) => {
         let updated = 0, inserted = 0, errored = 0;
         const errors = [];
 
-        for (const raw of rows) {
-            const row = sanitizeRow(raw);
-            if (row.ID_Order == null) {
-                errored++;
-                errors.push({ error: 'missing ID_Order' });
-                continue;
-            }
-            try {
+        // Parallel upserts in small waves — 75 SERIAL rows breached Heroku's hard
+        // 30s router timeout on live Caspio latency (503, 2026-07-16). Rows are
+        // independent (distinct ID_Order), so waves of 10 are safe and cut a
+        // 75-row batch to ~4s.
+        const CONCURRENCY = 10;
+        for (let i = 0; i < rows.length; i += CONCURRENCY) {
+            const wave = rows.slice(i, i + CONCURRENCY);
+            const settled = await Promise.allSettled(wave.map(async (raw) => {
+                const row = sanitizeRow(raw);
+                if (row.ID_Order == null) throw new Error('missing ID_Order');
                 const action = await upsertOrder(token, row);
-                if (action === 'inserted') inserted++; else updated++;
-            } catch (rowErr) {
-                errored++;
-                const detail = rowErr.response ? JSON.stringify(rowErr.response.data) : rowErr.message;
-                errors.push({ ID_Order: row.ID_Order, error: detail.slice(0, 300) });
-                console.error(`[odbc-sync] row ${row.ID_Order} failed:`, detail);
-            }
+                return { id: row.ID_Order, action };
+            }));
+            settled.forEach((s, j) => {
+                if (s.status === 'fulfilled') {
+                    if (s.value.action === 'inserted') inserted++; else updated++;
+                } else {
+                    errored++;
+                    const rowErr = s.reason;
+                    const detail = rowErr.response ? JSON.stringify(rowErr.response.data) : rowErr.message;
+                    const id = wave[j] && wave[j].ID_Order;
+                    errors.push({ ID_Order: id, error: String(detail).slice(0, 300) });
+                    console.error(`[odbc-sync] row ${id} failed:`, detail);
+                }
+            });
         }
 
         const summary = `${inserted} inserted, ${updated} updated, ${errored} errored of ${rows.length}`;
