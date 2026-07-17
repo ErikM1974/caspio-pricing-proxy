@@ -594,4 +594,51 @@ router.get('/shopworks-odbc/contacts-health', async (req, res) => {
     catch (error) { res.status(500).json({ success: false, ok: false, error: 'Health check failed: ' + error.message }); }
 });
 
+// ============================================================================
+// DESIGNS — direct ShopWorks Des → Caspio Designs2026 sync
+// ----------------------------------------------------------------------------
+// Replaces NWCA_Designs_Export.ps1 → OneDrive CSV → Caspio import. Upsert key =
+// ID_Design, which is a NUMBER and may carry a fractional variant (e.g. 35439.03)
+// — so it is NEVER rounded. The bandit agent scans Des (date_Creation >= 2022,
+// matching the table's floor) and posts the 18 mapped columns.
+const TABLE_DESIGNS = 'Designs2026';
+const SYNC_NAME_DESIGNS = 'shopworks-odbc-designs';
+const DES_INT = ['Active', 'DesignComplete', 'DesignType', 'HasAttachments', 'HasThumbnails', 'ID_Customer', 'IsVariation', 'LocationCount', 'ParentDesign'];
+const DES_DATE = ['DateCreated'];             // DATE/TIME — '' → null (DateDesigned is TEXT, left as-is)
+const DES_TEXT = ['DesignName', 'Artist', 'TotalArtHours', 'DateDesigned', 'SepType', 'SepTime', 'NotesToProduction'];
+
+function sanitizeDesignRow(raw) {
+    const row = {};
+    for (const f of DES_TEXT) if (f in raw) { let v = raw[f] == null ? '' : String(raw[f]); if (v.length > 255) v = v.slice(0, 255); row[f] = v; }
+    for (const f of DES_INT) if (f in raw) { const v = raw[f]; if (v === '' || v == null) { row[f] = null; } else { const n = Math.round(Number(v)); row[f] = Number.isFinite(n) ? n : null; } }
+    for (const f of DES_DATE) if (f in raw) { const v = raw[f]; row[f] = (v === '' || v == null) ? null : v; }
+    return row;
+}
+
+async function upsertDesign(token, raw) {
+    const idNum = Number(raw.ID_Design);      // keep decimals (variant ids like 35439.03) — do NOT parseInt
+    if (raw.ID_Design === '' || raw.ID_Design == null || !Number.isFinite(idNum)) throw new Error('bad ID_Design: ' + raw.ID_Design);
+    const payload = sanitizeDesignRow(raw);
+    const putResp = await axios.put(
+        `${caspioApiBaseUrl}/tables/${TABLE_DESIGNS}/records`, payload,
+        { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, params: { 'q.where': `ID_Design=${idNum}` }, timeout: 15000 }
+    );
+    if (((putResp.data && putResp.data.RecordsAffected) || 0) > 0) return 'updated';
+    await axios.post(
+        `${caspioApiBaseUrl}/tables/${TABLE_DESIGNS}/records`, Object.assign({ ID_Design: idNum }, payload),
+        { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, timeout: 15000 }
+    );
+    return 'inserted';
+}
+
+/** POST /api/shopworks-odbc/sync-designs — body { rows:[{ID_Design, DesignName, ...}] }. ?dryRun=true validates only. */
+router.post('/shopworks-odbc/sync-designs', (req, res) =>
+    runBatchSync(req, res, { keyField: 'ID_Design', sanitize: sanitizeDesignRow, upsertOne: upsertDesign, syncName: SYNC_NAME_DESIGNS, tag: 'odbc-designs-sync' }));
+
+/** GET /api/shopworks-odbc/designs-health — watchdog view for the designs sync. */
+router.get('/shopworks-odbc/designs-health', async (req, res) => {
+    try { res.json({ success: true, sync: SYNC_NAME_DESIGNS, ...(await computeHealth(SYNC_NAME_DESIGNS)) }); }
+    catch (error) { res.status(500).json({ success: false, ok: false, error: 'Health check failed: ' + error.message }); }
+});
+
 module.exports = router;
