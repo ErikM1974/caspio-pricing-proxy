@@ -16,6 +16,14 @@
 #   sync-sales-reps.log        append-only run log
 #
 # Master copy: caspio-pricing-proxy/scripts/bandit-agent/ — edit HERE, recopy to bandit.
+#
+# -DryRun : ODBC-read + clean + compute the delta, then POST a sample to
+#           ?dryRun=true (validates the whole pipeline, writes NOTHING to Caspio).
+# -SeedSnapshot : adopt the CURRENT cleaned state as the delta baseline WITHOUT
+#           posting — the Caspio table is already current from the last CSV import
+#           (same cleaning), so only FUTURE changes sync. ~0 Caspio writes cutover.
+
+param([switch]$DryRun, [switch]$SeedSnapshot)
 
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -129,6 +137,24 @@ try {
     }
     $pending = @($all | Where-Object { $k = [string]$_.ID_Customer; -not $confirmed.ContainsKey($k) -or $confirmed[$k] -ne $newHash[$k] })
     Log "pending (new/changed): $($pending.Count)"
+
+    if ($DryRun) {
+        $sample = @($pending | Select-Object -First $ChunkSize)
+        $body = ConvertTo-Json @{ rows = $sample } -Depth 5 -Compress
+        $resp = Invoke-RestMethod -Method Post -Uri "$uri`?dryRun=true" -Headers $headers -Body ([System.Text.Encoding]::UTF8.GetBytes($body)) -ContentType 'application/json; charset=utf-8' -TimeoutSec 120
+        Log "DRY-RUN: pending=$($pending.Count); posted $($sample.Count) rows to ?dryRun=true; wouldUpsert=$($resp.wouldUpsert)"
+        Log ('  sample: ' + (ConvertTo-Json $resp.sampleSanitized -Compress))
+        exit 0
+    }
+
+    if ($SeedSnapshot) {
+        $seed = @{}
+        foreach ($row in $all) { $seed[[string]$row.ID_Customer] = $newHash[[string]$row.ID_Customer] }
+        ($seed | ConvertTo-Json -Compress) | Set-Content -Path $SnapshotPath -Encoding UTF8
+        Invoke-RestMethod -Method Post -Uri $uri -Headers $headers -Body (ConvertTo-Json @{ rows = @() } -Compress) -ContentType 'application/json' -TimeoutSec 60 | Out-Null
+        Log "SEEDED snapshot with $($seed.Count) rows (no backfill; only future changes will sync)"
+        exit 0
+    }
 
     if ($pending.Count -eq 0) {
         Invoke-RestMethod -Method Post -Uri $uri -Headers $headers -Body (ConvertTo-Json @{ rows = @() } -Compress) -ContentType 'application/json' -TimeoutSec 60 | Out-Null
