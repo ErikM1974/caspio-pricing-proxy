@@ -635,10 +635,14 @@ router.get('/thumbnails/uploaded-ids', async (req, res) => {
   try {
     console.log('[Thumbnails] Fetching uploaded IDs with metadata');
 
+    // "Uploaded" = has an image on ANY backend. Caspio rows carry a Caspio ExternalKey;
+    // Box rows carry ExternalKey='' but a Box FileUrl. Keying on FileUrl catches both, so
+    // the Box push sync (?target=box) doesn't re-upload every image, and the legacy Caspio
+    // sync is unaffected (Caspio rows still have a FileUrl).
     const records = await fetchAllCaspioPages(
       '/tables/Shopworks_Thumbnail_Report/records',
       {
-        'q.where': "ExternalKey IS NOT NULL AND ExternalKey != ''",
+        'q.where': "FileUrl IS NOT NULL AND FileUrl != ''",
         'q.select': 'ID_Serial,FileSizeNumber,timestamp_Uploaded',
         'q.orderBy': 'PK_ID' // stable pagination — sync scripts diff against this list; dropped rows = re-uploads
       }
