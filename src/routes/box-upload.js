@@ -1021,24 +1021,35 @@ router.get('/box/thumbnail/:fileId', async (req, res) => {
             // Representation not ready — fall through to small thumbnail as graceful fallback
         }
 
-        // Default path: small thumbnail for gallery grids
-        const thumbResp = await axios.get(`${BOX_API_BASE}/files/${fileId}/thumbnail.png`, {
-            params: { min_height: 256, min_width: 256 },
-            headers: { 'Authorization': `Bearer ${token}` },
-            responseType: 'arraybuffer',
-            timeout: 10000,
-            // Box returns 202 if thumbnail is generating, 302 for placeholder
-            validateStatus: (s) => s === 200 || s === 202 || s === 302
-        });
+        // Default path: small thumbnail for gallery grids. Box returns 202 while it GENERATES the
+        // thumbnail on the first request for a rarely-viewed file (e.g. a just-archived thumbnail) —
+        // POLL a few times instead of 404ing (the ?size=large path already does this). This stops the
+        // portal My Logos grid from showing a broken image on first paint of a cold archived thumbnail.
+        let thumbResp = null;
+        for (let attempt = 0; attempt < 4; attempt++) {
+            thumbResp = await axios.get(`${BOX_API_BASE}/files/${fileId}/thumbnail.png`, {
+                params: { min_height: 256, min_width: 256 },
+                headers: { 'Authorization': `Bearer ${token}` },
+                responseType: 'arraybuffer',
+                timeout: 10000,
+                validateStatus: (s) => s === 200 || s === 202 || s === 302
+            });
+            if (thumbResp.status === 200 && thumbResp.data && thumbResp.data.length > 0) break;
+            if (thumbResp.status !== 202) break;       // 302 placeholder → try the representation
+            await new Promise(r => setTimeout(r, 800)); // 202 generating → wait and retry
+        }
 
-        if (thumbResp.status === 200 && thumbResp.data && thumbResp.data.length > 0) {
-            const contentType = thumbResp.headers['content-type'] || 'image/png';
-            res.set('Content-Type', contentType);
+        if (thumbResp && thumbResp.status === 200 && thumbResp.data && thumbResp.data.length > 0) {
+            // Box sometimes labels thumbnail.png as application/octet-stream — force an image type so
+            // strict <img>/CDN consumers render it (it IS a PNG).
+            const ct = thumbResp.headers['content-type'];
+            res.set('Content-Type', (ct && ct.indexOf('image/') === 0) ? ct : 'image/png');
             res.set('Cache-Control', 'public, max-age=3600'); // cache 1hr
             return res.send(Buffer.from(thumbResp.data));
         }
 
-        // 202 = generating, 302 = placeholder — try Representations API as fallback
+        // Still not ready — Representations API fallback. TRIGGER + poll generation (like the large
+        // path) so a cold file eventually returns an image instead of a 404.
         const repResp = await axios.get(`${BOX_API_BASE}/files/${fileId}`, {
             params: { fields: 'representations' },
             headers: {
@@ -1048,20 +1059,34 @@ router.get('/box/thumbnail/:fileId', async (req, res) => {
             timeout: 5000
         });
         const reps = repResp.data.representations?.entries || [];
-        const jpgRep = reps.find(r => r.representation === 'jpg' && r.status?.state === 'success');
+        const jpgRep = reps.find(r => r.representation === 'jpg');
         if (jpgRep?.content?.url_template) {
+            if (jpgRep.status?.state !== 'success' && jpgRep.info?.url) {
+                for (let i = 0; i < 3; i++) {
+                    try {
+                        const s = await axios.get(jpgRep.info.url, { headers: { 'Authorization': `Bearer ${token}` }, timeout: 5000 });
+                        if (s.data?.status?.state === 'success') break;
+                    } catch (_) { /* keep trying */ }
+                    await new Promise(r => setTimeout(r, 800));
+                }
+            }
             const repUrl = jpgRep.content.url_template.replace('{+asset_path}', '');
             const imgResp = await axios.get(repUrl, {
                 headers: { 'Authorization': `Bearer ${token}` },
                 responseType: 'arraybuffer',
-                timeout: 8000
+                timeout: 8000,
+                validateStatus: (s) => s === 200 || s === 202
             });
-            res.set('Content-Type', 'image/jpeg');
-            res.set('Cache-Control', 'public, max-age=3600');
-            return res.send(Buffer.from(imgResp.data));
+            if (imgResp.status === 200 && imgResp.data?.length > 0) {
+                res.set('Content-Type', 'image/jpeg');
+                res.set('Cache-Control', 'public, max-age=3600');
+                return res.send(Buffer.from(imgResp.data));
+            }
         }
 
-        // No thumbnail available
+        // Genuinely not ready after polling (rare) — 404; the portal shows its own placeholder and the
+        // next view will be warm. Short negative-cache so a retry isn't hammered.
+        res.set('Cache-Control', 'public, max-age=30');
         res.status(404).json({ error: 'No thumbnail available' });
     } catch (err) {
         if (err.response?.status === 401) {

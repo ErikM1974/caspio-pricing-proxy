@@ -21,6 +21,7 @@ const BASE = process.env.BASE_URL || 'https://caspio-pricing-proxy-ab30a049961a.
 const SECRET = process.env.CRM_API_SECRET;
 const YEAR = process.env.YEAR;
 const BEFORE = process.env.BEFORE;
+const UNDATED = process.env.UNDATED === '1'; // rows with no timestamp_Added (year/before can't catch them)
 const DRY = process.env.DRY === '1';
 const LIMIT = parseInt(process.env.LIMIT, 10) || 20;
 const PACE_MS = parseInt(process.env.PACE_MS, 10) || 1500;
@@ -30,9 +31,10 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function main() {
   if (!SECRET) { console.error('CRM_API_SECRET required'); process.exit(1); }
-  if (!YEAR && !BEFORE) { console.error('set YEAR=YYYY or BEFORE=YYYY'); process.exit(1); }
+  if (!YEAR && !BEFORE && !UNDATED) { console.error('set YEAR=YYYY, BEFORE=YYYY, or UNDATED=1'); process.exit(1); }
 
-  const qs = (YEAR ? `year=${YEAR}` : `before=${BEFORE}`) + `&limit=${LIMIT}` + (DRY ? '&dryRun=true' : '');
+  const sel = UNDATED ? 'undated=1' : (YEAR ? `year=${YEAR}` : `before=${BEFORE}`);
+  const qs = sel + `&limit=${LIMIT}` + (DRY ? '&dryRun=true' : '');
   const url = `${BASE}/api/thumbnails/archive-to-box?${qs}`;
   const headers = { 'x-crm-api-secret': SECRET };
 

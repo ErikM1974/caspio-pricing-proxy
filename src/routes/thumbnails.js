@@ -1243,12 +1243,16 @@ router.post('/thumbnails/archive-to-box', async (req, res) => {
 
     const year = req.query.year ? parseInt(req.query.year, 10) : null;
     const before = req.query.before ? parseInt(req.query.before, 10) : null;
+    const undated = req.query.undated === '1' || req.query.undated === 'true';
     const limit = Math.min(parseInt(req.query.limit, 10) || 20, 50);
     const dryRun = req.query.dryRun === 'true';
-    if (!year && !before) return res.status(400).json({ success: false, error: 'pass ?year=YYYY or ?before=YYYY' });
+    if (!year && !before && !undated) return res.status(400).json({ success: false, error: 'pass ?year=YYYY, ?before=YYYY, or ?undated=1' });
 
-    const yearClause = year ? `YEAR(timestamp_Added)=${year}` : `YEAR(timestamp_Added)<${before}`;
-    const where = `${yearClause} AND ExternalKey IS NOT NULL AND ExternalKey != ''`;
+    // undated = rows with no timestamp_Added — YEAR(NULL) can't satisfy a year/before filter, so these
+    // would never be swept otherwise. year/before behave as before.
+    const selClause = undated ? 'timestamp_Added IS NULL'
+      : (year ? `YEAR(timestamp_Added)=${year}` : `YEAR(timestamp_Added)<${before}`);
+    const where = `${selClause} AND ExternalKey IS NOT NULL AND ExternalKey != ''`;
 
     const chunkResp = await makeCaspioRequest('get', '/tables/Shopworks_Thumbnail_Report/records',
       { 'q.where': where, 'q.select': 'ID_Serial,ExternalKey,FileName,FileSizeNumber', 'q.limit': limit });
