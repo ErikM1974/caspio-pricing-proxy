@@ -2873,12 +2873,24 @@ async function runManageOrdersMatch() {
       }
     }
 
+    // Self-heal: CORRECT any SanMar_Orders.id_Order that disagrees with the authoritative
+    // ShopWorks PurchaseOrders link (kept fresh by the 15-min ODBC PO sync). The blank-only
+    // matchers above never revisit a row once it has a (possibly wrong) id_Order/company, so
+    // a sticky bad guess from the style-overlap/offset path would otherwise mislabel the
+    // inbound board forever. ShopWorks is the system of record for PO→WO, so it wins here.
+    let reconcile = { fixed: 0, disagreements: 0 };
+    try { reconcile = await runPurchaseOrderReconcile({}); }
+    catch (e) { console.error('[MO Match] reconcile failed:', e.message); reconcile = { error: e.message }; }
+    if (reconcile.fixed) console.log(`[MO Match] reconcile corrected ${reconcile.fixed} sticky-wrong PO→WO link(s)`);
+
     moMatchStatus.lastResult = {
       success: true,
       matched: matched + poResM.matched,
       poDirectMatched: poResM.matched,
       styleMatched: matched,
       unmatched,
+      reconciled: reconcile.fixed || 0,
+      reconcileDisagreements: reconcile.disagreements || 0,
       moOrdersIndexed: indexed,
       uniqueStyles: styleToOrders.size,
       completedAt: new Date().toISOString()
