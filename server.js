@@ -646,6 +646,19 @@ const imageUploadsRoutes = require('./src/routes/image-uploads');
 app.use('/api', imageUploadsRoutes);
 console.log('✓ Image Uploads routes loaded');
 
+// Finished Photos — factory captures a decorated-product photo → Box → shown to the customer
+// (once approved) in the portal.
+//   POST (capture) is OPEN + rate-limited — the capture PAGE is SAML-gated (same pattern as the
+//     open /api/mockups/:id/upload-file route the mockup dashboards use), and photos land HIDDEN
+//     (Show_To_Customer='No'), so an upload can never reach a customer without a staff approval.
+//   GET (list, incl. unapproved) + PATCH (approve/publish) require the CRM secret — the portal reads
+//     via getPortalData's portalProxyGet, and the staff manage view forwards through the APP.
+app.use('/api/finished-photos', (req, res, next) =>
+  req.method === 'POST' ? imageUploadLimiter(req, res, next) : requireCrmApiSecret(req, res, next));
+const finishedPhotosRoutes = require('./src/routes/finished-photos');
+app.use('/api', finishedPhotosRoutes);
+console.log('✓ Finished Photos routes loaded (POST open+limited, GET/PATCH secret-gated)');
+
 // Digitizing Mockup Routes (Ruth's mockup workflow)
 // SECURITY (2026-07-04): mockup GET reads carry the same internal fields as art
 // rows; gate reads behind secret-or-browser-origin (writes untouched).
