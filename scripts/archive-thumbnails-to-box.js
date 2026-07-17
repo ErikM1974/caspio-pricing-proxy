@@ -24,6 +24,7 @@ const BEFORE = process.env.BEFORE;
 const DRY = process.env.DRY === '1';
 const LIMIT = parseInt(process.env.LIMIT, 10) || 20;
 const PACE_MS = parseInt(process.env.PACE_MS, 10) || 1500;
+const MAX_CHUNKS = parseInt(process.env.MAX_CHUNKS, 10) || 0; // 0 = unlimited; set to cap a run (testing/budget)
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -58,6 +59,7 @@ async function main() {
     console.log(`chunk ${chunk}: +${s.archived || 0} archived, ${s.errored || 0} err, ${s.mbFreed || 0}MB  (total ${totalArchived}, ~${totalMb.toFixed(1)}MB)`);
 
     if (!resp.moreLikely) { console.log(`DONE: ${totalArchived} archived, ~${totalMb.toFixed(1)}MB freed`); return; }
+    if (MAX_CHUNKS && chunk >= MAX_CHUNKS) { console.log(`STOPPED at MAX_CHUNKS=${MAX_CHUNKS}: ${totalArchived} archived, ~${totalMb.toFixed(1)}MB (more remain)`); return; }
     // guard against an all-errors loop (records that never archive keep re-matching)
     if ((s.archived || 0) === 0) { noProgress++; if (noProgress >= 3) { console.error('3 chunks with 0 progress — stopping (check errors above)'); process.exit(1); } }
     else { noProgress = 0; }
