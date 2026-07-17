@@ -711,6 +711,19 @@ router.post('/thumbnails/upload-with-stub', upload.single('file'), async (req, r
     const existingRecords = Array.isArray(existing) ? existing : (existing?.Result || []);
     console.log(`[Thumbnails] Check existing: ID_Serial=${idSerial}, found=${existingRecords.length} records`);
 
+    // No row to attach an image to — bail BEFORE uploading so we never orphan a Caspio/Box file.
+    // Rows are created by the ShopWorks metadata sync; Thumb_DesLocid_Design is UNIQUE + NOT NULL so
+    // we can't stub one here.
+    if (existingRecords.length === 0) {
+      console.log(`[Thumbnails] Record ${idSerial} not found - skipping upload (no row to link)`);
+      return res.status(404).json({
+        success: false,
+        error: `Thumbnail record ${idSerial} not found in database`,
+        code: 'RECORD_NOT_FOUND',
+        message: 'Records must exist from ShopWorks sync; nothing was uploaded.'
+      });
+    }
+
     // Where the image bytes go. ?target=box stores it in BOX (frees Caspio storage AND makes serving
     // free of the Caspio API budget — the all-Box pipeline); default stores it in Caspio Files (legacy).
     // Either way the row-upsert below is identical; only ExternalKey (Caspio) vs FileUrl (Box) differs.
@@ -805,28 +818,14 @@ router.post('/thumbnails/upload-with-stub', upload.single('file'), async (req, r
       FileSizeNumber: fileSize
     };
 
-    // Create or update record
-    let action;
-    if (existingRecords.length > 0) {
-      // Update existing record
-      await makeCaspioRequest(
-        'put',
-        '/tables/Shopworks_Thumbnail_Report/records',
-        { 'q.where': `ID_Serial=${idSerial}` },
-        recordData
-      );
-      action = fileAlreadyExisted ? 'linked_existing' : 'updated';
-    } else {
-      // Record doesn't exist - cannot create stub (ShopWorks sync creates records)
-      // Table has constraints (Thumb_DesLocid_Design is UNIQUE + NOT NULL) that prevent stub creation
-      console.log(`[Thumbnails] Record ${idSerial} not found - cannot create stub`);
-      return res.status(404).json({
-        success: false,
-        error: `Thumbnail record ${idSerial} not found in database`,
-        code: 'RECORD_NOT_FOUND',
-        message: 'Records must exist from ShopWorks sync. File was uploaded to Caspio Files but no database record to link it to.'
-      });
-    }
+    // Update the (guaranteed-to-exist) record with the new image reference.
+    await makeCaspioRequest(
+      'put',
+      '/tables/Shopworks_Thumbnail_Report/records',
+      { 'q.where': `ID_Serial=${idSerial}` },
+      recordData
+    );
+    const action = fileAlreadyExisted ? 'linked_existing' : (useBox ? 'updated_box' : 'updated');
     console.log(`[Thumbnails] ${action} record ${idSerial}`);
 
     res.json({
