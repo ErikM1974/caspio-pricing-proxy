@@ -562,7 +562,7 @@ const CON_TEXT = ['CustomerCompanyName', 'NameFirst', 'NameLast', 'ct_NameFull',
 function sanitizeContactRow(raw) {
     const row = {};
     for (const f of CON_TEXT) if (f in raw) { let v = raw[f] == null ? '' : String(raw[f]); if (v.length > 255) v = v.slice(0, 255); row[f] = v; }
-    for (const f of CON_INT) if (f in raw) { const v = raw[f]; if (v === '' || v == null) { row[f] = null; } else { const n = Math.round(Number(v)); row[f] = Number.isFinite(n) ? n : null; } }
+    for (const f of CON_INT) if (f in raw) { const v = raw[f]; if (v === '' || v == null) { row[f] = null; } else { const n = Math.trunc(Number(v)); row[f] = Number.isFinite(n) ? n : null; } }
     for (const f of CON_NUM) if (f in raw) { const v = raw[f]; if (v === '' || v == null) { row[f] = null; } else { const n = Number(v); row[f] = Number.isFinite(n) ? n : null; } }
     for (const f of CON_DATE) if (f in raw) { const v = raw[f]; row[f] = (v === '' || v == null) ? null : v; }
     return row;
@@ -610,7 +610,7 @@ const DES_TEXT = ['DesignName', 'Artist', 'TotalArtHours', 'DateDesigned', 'SepT
 function sanitizeDesignRow(raw) {
     const row = {};
     for (const f of DES_TEXT) if (f in raw) { let v = raw[f] == null ? '' : String(raw[f]); if (v.length > 255) v = v.slice(0, 255); row[f] = v; }
-    for (const f of DES_INT) if (f in raw) { const v = raw[f]; if (v === '' || v == null) { row[f] = null; } else { const n = Math.round(Number(v)); row[f] = Number.isFinite(n) ? n : null; } }
+    for (const f of DES_INT) if (f in raw) { const v = raw[f]; if (v === '' || v == null) { row[f] = null; } else { const n = Math.trunc(Number(v)); row[f] = Number.isFinite(n) ? n : null; } }
     for (const f of DES_DATE) if (f in raw) { const v = raw[f]; row[f] = (v === '' || v == null) ? null : v; }
     return row;
 }
