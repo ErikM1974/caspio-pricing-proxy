@@ -16,8 +16,11 @@
 //   parseBoxFileUrl(url)             — extracts {fileId | sharedToken | sharedUrl} from an input URL
 
 const axios = require('axios');
+const FormData = require('form-data');
+const { Readable } = require('stream');
 
 const BOX_API_BASE = 'https://api.box.com/2.0';
+const BOX_UPLOAD_BASE = 'https://upload.box.com/api/2.0';
 const BOX_OAUTH_URL = 'https://api.box.com/oauth2/token';
 
 const BOX_CLIENT_ID = process.env.BOX_CLIENT_ID;
@@ -61,6 +64,28 @@ async function boxRequest(method, url, data, extraHeaders) {
         ...extraHeaders
     };
     return axios({ method, url, data, headers, timeout: 30000 });
+}
+
+// ── File Upload ────────────────────────────────────────────────────────
+
+/**
+ * Upload a file buffer to a Box folder. Mirrors box-upload.js:287 so new routes
+ * can push bytes to Box without duplicating (or importing) that 2.3k-line route file.
+ * @returns Box file entry { id, name, ... } (Box returns an array; we return [0]).
+ */
+async function uploadFileToBox(folderId, fileName, fileBuffer, fileMimeType) {
+    const token = await getBoxAccessToken();
+    const form = new FormData();
+    form.append('attributes', JSON.stringify({ name: fileName, parent: { id: folderId } }));
+    form.append('file', Readable.from(fileBuffer), { filename: fileName, contentType: fileMimeType });
+
+    const resp = await axios.post(`${BOX_UPLOAD_BASE}/files/content`, form, {
+        headers: { 'Authorization': `Bearer ${token}`, ...form.getHeaders() },
+        maxBodyLength: Infinity,
+        maxContentLength: Infinity,
+        timeout: 60000
+    });
+    return resp.data.entries[0];
 }
 
 // ── File Metadata ──────────────────────────────────────────────────────
@@ -273,6 +298,7 @@ module.exports = {
     BOX_API_BASE,
     getBoxAccessToken,
     boxRequest,
+    uploadFileToBox,
     boxGetFileInfo,
     boxFetchFileBytes,
     boxResolveSharedLink,

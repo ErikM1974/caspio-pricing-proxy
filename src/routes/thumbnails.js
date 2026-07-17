@@ -9,6 +9,7 @@ const axios = require('axios');
 const multer = require('multer');
 const FormData = require('form-data');
 const { makeCaspioRequest, fetchAllCaspioPages, getCaspioAccessToken } = require('../utils/caspio');
+const { uploadFileToBox } = require('../utils/box-client');
 const config = require('../../config');
 
 // Configure multer for memory storage (multipart/form-data uploads)
@@ -1206,6 +1207,116 @@ router.post('/thumbnails/metadata-sync', async (req, res) => {
   } catch (error) {
     console.error('[thumb-meta] batch failed:', error.response ? JSON.stringify(error.response.data) : error.message);
     res.status(500).json({ success: false, error: 'metadata sync failed: ' + error.message });
+  }
+});
+
+/**
+ * POST /api/thumbnails/archive-to-box
+ * Move OLD thumbnail images from Caspio Files to Box.com to free Caspio storage,
+ * keeping the Shopworks_Thumbnail_Report row + metadata intact. Transparent to all
+ * consumers: they build the image URL as `ExternalKey ? /api/files/{key} : FileUrl`,
+ * so clearing ExternalKey + pointing FileUrl at Box makes them serve from Box (the
+ * `/api/box/thumbnail/:fileId` route) with zero consumer changes.
+ *
+ * Query: ?year=YYYY  (archive one year) OR ?before=YYYY (all years < YYYY),
+ *        ?limit (default 20, cap 50 — small so a chunk stays under Heroku 30s),
+ *        ?dryRun=true (report a sample, mutate nothing).
+ * Auth: x-crm-api-secret (gateWritesOnly on /api/thumbnails).
+ *
+ * Per record, IN ORDER (never leave an image unservable): download bytes from
+ * Caspio → upload to Box → repoint FileUrl + clear ExternalKey/FileSizeNumber →
+ * delete the Caspio file. If the delete fails, FileUrl already points to Box.
+ *
+ * ⚠ Caspio API budget: ~3 Caspio calls/record. Run the full sweep after the
+ * monthly reset or paced; the driver loops small chunks (scripts/archive-thumbnails-to-box.js).
+ */
+const THUMB_ARCHIVE_PROXY_BASE = 'https://caspio-pricing-proxy-ab30a049961a.herokuapp.com';
+function thumbMimeFromName(name) {
+  const ext = String(name || '').toLowerCase().split('.').pop();
+  return ({ jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', bmp: 'image/bmp', tif: 'image/tiff', tiff: 'image/tiff', webp: 'image/webp' })[ext] || 'application/octet-stream';
+}
+
+router.post('/thumbnails/archive-to-box', async (req, res) => {
+  try {
+    const folderId = process.env.BOX_THUMBNAIL_ARCHIVE_FOLDER_ID;
+    if (!folderId) return res.status(500).json({ success: false, error: 'BOX_THUMBNAIL_ARCHIVE_FOLDER_ID not set' });
+
+    const year = req.query.year ? parseInt(req.query.year, 10) : null;
+    const before = req.query.before ? parseInt(req.query.before, 10) : null;
+    const limit = Math.min(parseInt(req.query.limit, 10) || 20, 50);
+    const dryRun = req.query.dryRun === 'true';
+    if (!year && !before) return res.status(400).json({ success: false, error: 'pass ?year=YYYY or ?before=YYYY' });
+
+    const yearClause = year ? `YEAR(timestamp_Added)=${year}` : `YEAR(timestamp_Added)<${before}`;
+    const where = `${yearClause} AND ExternalKey IS NOT NULL AND ExternalKey != ''`;
+
+    const chunkResp = await makeCaspioRequest('get', '/tables/Shopworks_Thumbnail_Report/records',
+      { 'q.where': where, 'q.select': 'ID_Serial,ExternalKey,FileName,FileSizeNumber', 'q.limit': limit });
+    const records = Array.isArray(chunkResp) ? chunkResp : (chunkResp?.Result || []);
+
+    if (dryRun || records.length === 0) {
+      return res.json({
+        success: true, dryRun,
+        matchedThisChunk: records.length,
+        moreLikely: records.length === limit,
+        sample: records.slice(0, 5).map(r => ({ ID_Serial: r.ID_Serial, FileName: r.FileName })),
+        note: dryRun ? 'nothing mutated — use GET /api/thumbnails/stats-by-year for full counts' : 'no more records to archive for this selection'
+      });
+    }
+
+    const token = await getCaspioAccessToken();
+    const v3 = config.caspio.apiV3BaseUrl;
+    const H = { Authorization: `Bearer ${token}` };
+    let archived = 0, errored = 0, bytes = 0;
+    const errors = [];
+    const CONC = 3; // gentle on both Caspio (budget/429) and Box
+
+    for (let i = 0; i < records.length; i += CONC) {
+      const wave = records.slice(i, i + CONC);
+      const settled = await Promise.allSettled(wave.map(async (rec) => {
+        const id = rec.ID_Serial, key = rec.ExternalKey;
+        const fname = rec.FileName || `${id}.jpg`;
+        // 1. download bytes from Caspio Files (Box can't fetch Caspio's authed URL)
+        const dl = await axios.get(`${v3}/files/${key}`, { headers: H, responseType: 'arraybuffer', timeout: 30000 });
+        const buf = Buffer.from(dl.data);
+        // 2. upload to Box (409 duplicate filename → timestamp-suffix retry)
+        let boxFile;
+        try { boxFile = await uploadFileToBox(folderId, fname, buf, thumbMimeFromName(fname)); }
+        catch (e) {
+          if (e.response && e.response.status === 409) {
+            const dot = fname.lastIndexOf('.');
+            const alt = dot > 0 ? `${fname.slice(0, dot)}_${Date.now().toString(36)}${fname.slice(dot)}` : `${fname}_${Date.now().toString(36)}`;
+            boxFile = await uploadFileToBox(folderId, alt, buf, thumbMimeFromName(fname));
+          } else throw e;
+        }
+        // 3. repoint FileUrl → Box + clear Caspio linkage (BEFORE the delete)
+        const boxUrl = `${THUMB_ARCHIVE_PROXY_BASE}/api/box/thumbnail/${boxFile.id}`;
+        await makeCaspioRequest('put', '/tables/Shopworks_Thumbnail_Report/records',
+          { 'q.where': `ID_Serial=${id}` }, { FileUrl: boxUrl, ExternalKey: '', FileSizeNumber: null });
+        // 4. delete the Caspio file (frees the storage); 404 = already gone
+        try { await axios.delete(`${v3}/files/${key}`, { headers: H, timeout: 20000 }); }
+        catch (e) { if (!(e.response && e.response.status === 404)) throw e; }
+        return { bytes: rec.FileSizeNumber || 0 };
+      }));
+      settled.forEach((s, j) => {
+        if (s.status === 'fulfilled') { archived++; bytes += s.value.bytes; }
+        else {
+          errored++;
+          const e = s.reason;
+          const d = e.response ? JSON.stringify(e.response.data) : e.message;
+          errors.push({ ID_Serial: wave[j] && wave[j].ID_Serial, error: String(d).slice(0, 300) });
+          console.error(`[thumb-archive] ${wave[j] && wave[j].ID_Serial}:`, d);
+        }
+      });
+      if (i + CONC < records.length) await new Promise(r => setTimeout(r, 400));
+    }
+
+    const mbFreed = Number((bytes / 1048576).toFixed(1));
+    console.log(`[thumb-archive] archived ${archived}, errored ${errored}, ~${mbFreed}MB freed`);
+    res.json({ success: errored === 0, summary: { archived, errored, mbFreed }, moreLikely: records.length === limit, errors: errors.slice(0, 10) });
+  } catch (error) {
+    console.error('[thumb-archive] failed:', error.response ? JSON.stringify(error.response.data) : error.message);
+    res.status(500).json({ success: false, error: 'archive failed: ' + error.message });
   }
 });
 

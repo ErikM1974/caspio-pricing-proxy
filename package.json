@@ -27,6 +27,7 @@
     "sync-supacolor": "node scripts/sync-supacolor.js",
     "check-supacolor-health": "node scripts/check-supacolor-health.js",
     "check-shopworks-odbc-health": "node scripts/check-shopworks-odbc-health.js",
+    "archive-thumbnails-to-box": "node scripts/archive-thumbnails-to-box.js",
     "check-quote-sync-health": "node scripts/check-quote-sync-health.js",
     "check-transfers-received": "node scripts/check-transfers-received.js",
     "check-zero-billing": "node scripts/check-zero-billing.js",
