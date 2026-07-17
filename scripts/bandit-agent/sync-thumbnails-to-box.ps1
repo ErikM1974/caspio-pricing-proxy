@@ -88,8 +88,12 @@ try {
 
     # 1) Server truth: which rows already have an image (any backend), and its size.
     $up = Invoke-RestMethod -Method Get -Uri "$proxy/api/thumbnails/uploaded-ids" -Headers $headers -TimeoutSec 300
-    $uploaded = @{}
-    foreach ($u in $up.uploaded) { if ($null -ne $u.id) { $uploaded[[string]$u.id] = [int64]($u.size) } }
+    $uploaded = @{}   # ID_Serial -> stored size (0 when unknown; many legacy rows have no FileSizeNumber)
+    foreach ($u in $up.uploaded) {
+        if ($null -eq $u.id) { continue }
+        $sz = 0L; if ($null -ne $u.size) { [void][int64]::TryParse([string]$u.size, [ref]$sz) }
+        $uploaded[[string]$u.id] = $sz
+    }
     Log ("already have an image: {0} rows" -f $up.count)
 
     # 2) Enumerate valid image files on the share ({ID_Serial}_*.jpg/png), newest first.
@@ -102,7 +106,13 @@ try {
     $pending = New-Object System.Collections.ArrayList
     foreach ($f in $files) {
         $id = ([regex]::Match($f.Name, '^(\d+)_')).Groups[1].Value
-        if ($uploaded.ContainsKey($id) -and $uploaded[$id] -eq [int64]$f.Length) { continue }
+        if ($uploaded.ContainsKey($id)) {
+            $storedSize = $uploaded[$id]
+            # Already has an image. Only re-upload when we have a DEFINITE stored size that
+            # differs from the file on disk; an unknown (0) stored size means "leave it alone"
+            # (legacy rows have no FileSizeNumber — churning them would re-upload ~12k images).
+            if ($storedSize -le 0 -or $storedSize -eq [int64]$f.Length) { continue }
+        }
         [void]$pending.Add($f)
     }
     Log ("pending (new/changed): {0}" -f $pending.Count)
