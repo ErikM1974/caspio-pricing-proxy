@@ -937,6 +937,11 @@ router.get('/inbound-today', async (req, res) => {
       : new Map();
     const woFor = (po) => String((orderByPo.get(po) || {}).id_Order || poWoFallback.get(extractPONumber(po)) || '');
 
+    // Received status (ShopWorks PO count-in by receiving) from the same PurchaseOrders mirror, keyed
+    // by ID_PO. A counted-in PO is physically HERE, so we mark it received and drop it from the
+    // "arriving" totals + box-label set (Mikalah's count beats UPS's "out for delivery").
+    const receivedByPo = await fetchPoReceivedMap(pos.map(extractPONumber).filter(Boolean));
+
     // 3. Line items for these POs.
     const itemRows = await fetchAllCaspioPages(`/tables/${TABLES.items}/records`, {
       'q.where': poWhere,
@@ -1095,21 +1100,27 @@ router.get('/inbound-today', async (req, res) => {
         boxes: (boxDetailByPo.get(po) || []).length || sh.boxes,
         boxDetail: boxDetailByPo.get(po) || null,
         boxDetailAvailable: boxesByPo.has(po),
+        received: receivedByPo.has(extractPONumber(po)),
+        receivedDate: (receivedByPo.get(extractPONumber(po)) || {}).receivedDate || '',
         cost, piecesShipped, piecesOrdered, lines,
       };
-    }).sort((a, b) => (a.company || '').localeCompare(b.company || '') || a.sanmarPO.localeCompare(b.sanmarPO));
+    }).sort((a, b) => (a.received ? 1 : 0) - (b.received ? 1 : 0)
+      || (a.company || '').localeCompare(b.company || '')
+      || a.sanmarPO.localeCompare(b.sanmarPO));
 
     // (UPS real delivery dates were already resolved above — they DROVE which day each PO is on — and
     //  are carried on each order as .upsDelivery / .arrivalSource; no second pass needed.)
     const wos = new Set();
+    let receivedCount = 0;
     const totals = orders.reduce((t, o) => {
+      if (o.received) { receivedCount++; return t; }   // counted in by receiving — not an "arriving" box
       wos.add(o.workOrder || ('po:' + o.sanmarPO));
       return { pos: t.pos + 1, boxes: t.boxes + o.boxes, piecesShipped: t.piecesShipped + o.piecesShipped, piecesOrdered: t.piecesOrdered + o.piecesOrdered, lines: t.lines + o.lines.length, cost: t.cost + (o.cost || 0) };
     }, { pos: 0, boxes: 0, piecesShipped: 0, piecesOrdered: 0, lines: 0, cost: 0 });
 
     const payload = {
       date, today, generatedAt: new Date().toISOString(),
-      totals: { pos: totals.pos, workOrders: wos.size, boxes: totals.boxes, piecesShipped: totals.piecesShipped, piecesOrdered: totals.piecesOrdered, lines: totals.lines, cost: Math.round(totals.cost * 100) / 100 },
+      totals: { pos: totals.pos, workOrders: wos.size, boxes: totals.boxes, piecesShipped: totals.piecesShipped, piecesOrdered: totals.piecesOrdered, lines: totals.lines, cost: Math.round(totals.cost * 100) / 100, received: receivedCount },
       orders,
       note: 'Arriving = UPS\'s real scheduled/rescheduled/delivered date whenever UPS has scanned the boxes (marked ✓ UPS); otherwise a SanMar ship-date + ground-transit ESTIMATE (marked ~ est., business days; weekends & holidays skipped — we receive Mon–Fri only). Per-box contents come live from SanMar\'s shipment feed; colors/sizes from the SanMar product table.',
     };
@@ -2077,6 +2088,32 @@ async function fetchPoToOrderMap(numericPOs) {
         if (r.ID_PO != null && String(r.id_Order || '').trim()) map.set(String(r.ID_PO), String(r.id_Order));
       }
     } catch (e) { console.error('[PO-Match] PurchaseOrders read failed:', e.message); }
+  }
+  return map;
+}
+
+// numericPO[] → Map(numericPO(String) → { receivedDate:'YYYY-MM-DD' }). Reads the same ShopWorks PO
+// mirror (PurchaseOrders): date_Received = the date receiving (Mikalah) counted the blanks in;
+// sts_Received = its 1/0 flag. A counted-in PO is physically HERE — more truthful than UPS's "out for
+// delivery" — so inbound-today marks it received and drops it from the arriving totals + box-label set.
+// Best-effort: a failed read flags nothing (the PO stays on the inbound list) — never hide an inbound
+// box on error (Rule #4). Map key present ⇒ received (same signal the check-transfers-received cron uses).
+async function fetchPoReceivedMap(numericPOs) {
+  const map = new Map();
+  const ids = [...new Set((numericPOs || []).map(p => parseInt(p, 10)).filter(n => Number.isInteger(n) && n > 0))];
+  for (let i = 0; i < ids.length; i += 100) {
+    const chunk = ids.slice(i, i + 100);
+    const where = chunk.map(n => `ID_PO=${n}`).join(' OR ');
+    try {
+      const rows = await fetchAllCaspioPages(`/tables/${PO_TABLE}/records`, {
+        'q.where': where, 'q.select': 'ID_PO,sts_Received,date_Received', 'q.orderBy': 'ID_PO', 'q.limit': 1000,
+      }) || [];
+      for (const r of rows) {
+        const d = String(r.date_Received || '').slice(0, 10);
+        const received = !!d || parseInt(r.sts_Received, 10) === 1;
+        if (received) map.set(String(r.ID_PO), { receivedDate: /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : '' });
+      }
+    } catch (e) { console.error('[inbound-today] PurchaseOrders received read failed:', e.message); }
   }
   return map;
 }
