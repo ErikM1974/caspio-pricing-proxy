@@ -671,6 +671,16 @@ const supacolorJobsRoutes = require('./src/routes/supacolor-jobs');
 app.use('/api', supacolorJobsRoutes);
 console.log('✓ Supacolor Jobs routes loaded');
 
+// ShopWorks ODBC direct sync (replaces the bandit CSV → OneDrive → DataHub chain).
+// The PowerShell agent on BANDIT posts changed Orders rows here; upserts into
+// ORDER_ODBC by ID_Order, whitelisted columns only (Caspio enrichment columns
+// like Codereadr_* are never touched). Write path is secret-gated; /health and
+// /health/alert stay open (read-only, non-PII — Supacolor watchdog precedent).
+const shopworksOdbcSyncRoutes = require('./src/routes/shopworks-odbc-sync');
+app.use('/api/shopworks-odbc/sync-orders', requireCrmApiSecret);
+app.use('/api', shopworksOdbcSyncRoutes);
+console.log('✓ ShopWorks ODBC sync routes loaded (sync-orders secret-gated)');
+
 // Credit-Card Reconciliation Lookups (Atmos card formatter: vendors, POs, supacolor PO index)
 // SECURITY (2026-06-30): the WRITE path POST /api/creditcard-atmos/upsert mutates the
 // BofA reconciliation table (amounts/ref-IDs/PO#s). Sole caller is the Python InkSoft
