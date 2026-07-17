@@ -15,7 +15,7 @@ const router = express.Router();
 const axios = require('axios');
 const multer = require('multer');
 const config = require('../../config');
-const { getCaspioAccessToken, fetchAllCaspioPages } = require('../utils/caspio');
+const { getCaspioAccessToken, fetchAllCaspioPages, makeCaspioRequest } = require('../utils/caspio');
 const { uploadFileToBox, boxRequest, BOX_API_BASE } = require('../utils/box-client');
 
 const TABLE = 'Finished_Photos';
@@ -236,8 +236,100 @@ router.delete('/finished-photos/:pkId', async (req, res) => {
   }
 });
 
+/**
+ * GET /api/finished-photos/lookup?code=<scan-or-typed>
+ * Resolves a scanned work-order barcode to the customer, so the capture page can skip the
+ * company search. Accepts three shapes (all from the printed ShopWorks work order):
+ *   "142476"     — footer barcode / Order Number  → ORDER_ODBC → { customer }
+ *   "40121Loc1"  — design-sheet barcode           → Designs2026 → { customer + design }
+ *   plain digits that miss as an order # are retried as a design # (order #s and design #s
+ *   don't overlap in practice, but a floor scan should never dead-end on the wrong table).
+ * Secret-gated by the mount (every non-POST /api/finished-photos/* requires the CRM secret);
+ * the capture page reaches it through the APP's SAML-gated /api/staff/finished-photos/lookup.
+ */
+const ORDERS_TABLE = 'ORDER_ODBC';
+const DESIGNS_TABLE = 'Designs2026';
+
+// "*40121LOC1*" (Code 39 sentinels, any case) → { num: '40121', isDesign: true };
+// "142476" → { num: '142476', isDesign: false }; anything non-numeric → null.
+function parseScanCode(raw) {
+  const s = String(raw == null ? '' : raw).replace(/[\s*]+/g, '');
+  const m = /^(\d{1,10})(?:loc\d{0,4})?$/i.exec(s);
+  if (!m) return null;
+  return { num: m[1], isDesign: /loc/i.test(s) };
+}
+
+async function firstRow(resource, params) {
+  const response = await makeCaspioRequest('get', resource, params);
+  const records = Array.isArray(response) ? response : (response && response.Result) || [];
+  return records.length ? records[0] : null;
+}
+
+async function lookupOrder(num) {
+  const row = await firstRow(`/tables/${ORDERS_TABLE}/records`, {
+    'q.where': `ID_Order=${num}`,
+    'q.limit': 1,
+  });
+  if (!row) return null;
+  return {
+    type: 'order',
+    orderNumber: String(num),
+    idCustomer: row.id_Customer != null ? String(row.id_Customer) : '',
+    companyName: row.CompanyName || '',
+    datePlaced: row.date_OrderPlaced || '',
+  };
+}
+
+async function lookupDesign(num) {
+  const row = await firstRow(`/tables/${DESIGNS_TABLE}/records`, {
+    'q.where': `ID_Design=${num}`,
+    'q.limit': 1,
+  });
+  if (!row) return null;
+  const idCustomer = row.ID_Customer != null ? String(row.ID_Customer) : '';
+  let companyName = '';
+  if (idCustomer) {
+    // Newest order carries the current company name (Designs2026 has no name column).
+    const o = await firstRow(`/tables/${ORDERS_TABLE}/records`, {
+      'q.where': `id_Customer=${idCustomer}`,
+      'q.orderBy': 'ID_Order DESC',
+      'q.limit': 1,
+    });
+    if (o) companyName = o.CompanyName || '';
+  }
+  return {
+    type: 'design',
+    designNumber: String(num),
+    designName: row.DesignName || '',
+    idCustomer,
+    companyName,
+  };
+}
+
+router.get('/finished-photos/lookup', async (req, res) => {
+  const parsed = parseScanCode(req.query.code);
+  if (!parsed) {
+    return res.status(400).json({ success: false, error: 'Scan or type an order # or design # (digits only)', code: 'BAD_CODE' });
+  }
+  try {
+    let match = null;
+    if (parsed.isDesign) {
+      match = await lookupDesign(parsed.num);
+    } else {
+      match = await lookupOrder(parsed.num);
+      if (!match) match = await lookupDesign(parsed.num); // digits that miss as an order # → try design #
+    }
+    // "No match" is a normal floor outcome (old order not in the ODBC mirror) — 200, not 404.
+    return res.json({ success: true, code: parsed.num, match });
+  } catch (error) {
+    console.error('[finished-photos] lookup failed:', error.message);
+    return res.status(500).json({ success: false, error: 'Lookup failed — try the company search', code: 'LOOKUP_FAILED' });
+  }
+});
+
 module.exports = router;
 // Helpers exported for jest.
 module.exports.toShape = toShape;
 module.exports.sanitizeFilename = sanitizeFilename;
 module.exports.uniqueName = uniqueName;
+module.exports.parseScanCode = parseScanCode;
