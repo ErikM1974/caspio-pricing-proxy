@@ -209,6 +209,33 @@ router.patch('/finished-photos/:pkId', express.json(), async (req, res) => {
   }
 });
 
+/**
+ * DELETE /api/finished-photos/:pkId — remove a photo entirely (Caspio row + its Box file).
+ * Staff action (secret-gated via the mount). Used by the manage view to drop a wrong/bad photo.
+ */
+router.delete('/finished-photos/:pkId', async (req, res) => {
+  const pk = String(req.params.pkId || '').trim();
+  if (!isNumericId(pk)) {
+    return res.status(400).json({ success: false, error: 'Invalid id', code: 'BAD_ID' });
+  }
+  try {
+    const rows = await fetchAllCaspioPages(`/tables/${TABLE}/records`, { 'q.where': `PK_ID=${pk}` });
+    if (!rows || !rows.length) return res.status(404).json({ success: false, error: 'Photo not found', code: 'NOT_FOUND' });
+    const boxId = rows[0].Box_File_Id;
+    const token = await getCaspioAccessToken();
+    await axios.delete(
+      `${caspioV3BaseUrl}/tables/${TABLE}/records?q.where=${encodeURIComponent(`PK_ID=${pk}`)}`,
+      { headers: { Authorization: `Bearer ${token}` }, timeout: 20000 }
+    );
+    if (boxId) await deleteBoxFile(boxId); // best-effort — a stray Box file is harmless
+    console.log(`[finished-photos] deleted PK ${pk} (box ${boxId || '-'})`);
+    return res.json({ success: true, deleted: pk });
+  } catch (error) {
+    console.error('[finished-photos] delete failed:', error.message);
+    return res.status(500).json({ success: false, error: 'Failed to delete photo', code: 'DELETE_FAILED' });
+  }
+});
+
 module.exports = router;
 // Helpers exported for jest.
 module.exports.toShape = toShape;
