@@ -439,4 +439,159 @@ router.post('/shopworks-odbc/po-health/alert', async (req, res) => {
     }
 });
 
+// ============================================================================
+// Generic batch-upsert handler — shared by the contacts + sales-reps endpoints
+// (orders/PO above predate it and keep their inline copies). Same contract:
+// body { rows:[...] } (rows:[] = heartbeat ping), ?dryRun=true = validate only,
+// waves of 10, heartbeat on a materially-healthy batch.
+// ----------------------------------------------------------------------------
+async function runBatchSync(req, res, { keyField, sanitize, upsertOne, syncName, tag }) {
+    try {
+        const rows = (req.body && req.body.rows) || null;
+        if (!Array.isArray(rows)) {
+            return res.status(400).json({ success: false, error: 'Body must be { rows: [...] }' });
+        }
+        if (rows.length > MAX_ROWS_PER_CALL) {
+            return res.status(400).json({ success: false, error: `Max ${MAX_ROWS_PER_CALL} rows per call — batch on the agent side` });
+        }
+        const dryRun = String(req.query.dryRun || '') === 'true';
+        if (dryRun) {
+            const preview = rows.slice(0, 5).map((r) => Object.assign({ [keyField]: r[keyField] }, sanitize(r)));
+            return res.json({ success: true, dryRun: true, wouldUpsert: rows.length, sampleSanitized: preview });
+        }
+
+        const token = await getCaspioAccessToken();
+        let updated = 0, inserted = 0, errored = 0;
+        const errors = [];
+        const CONCURRENCY = 10;
+        for (let i = 0; i < rows.length; i += CONCURRENCY) {
+            const wave = rows.slice(i, i + CONCURRENCY);
+            const settled = await Promise.allSettled(wave.map(async (raw) => {
+                const action = await upsertOne(token, raw);
+                return { action };
+            }));
+            settled.forEach((s, j) => {
+                if (s.status === 'fulfilled') {
+                    if (s.value.action === 'inserted') inserted++; else updated++;
+                } else {
+                    errored++;
+                    const e = s.reason;
+                    const detail = e.response ? JSON.stringify(e.response.data) : e.message;
+                    errors.push({ key: wave[j] && wave[j][keyField], error: String(detail).slice(0, 300) });
+                    console.error(`[${tag}] row ${wave[j] && wave[j][keyField]} failed:`, detail);
+                }
+            });
+        }
+        const summary = `${inserted} inserted, ${updated} updated, ${errored} errored of ${rows.length}`;
+        if (errored === 0 || errored < rows.length) {
+            try { await stampHeartbeat(token, rows.length, summary, syncName); }
+            catch (hbErr) { console.warn(`[${tag}] heartbeat write failed:`, hbErr.message); }
+        }
+        console.log(`[${tag}] ${summary}`);
+        res.json({ success: errored === 0, summary: { inserted, updated, errored, total: rows.length }, errors });
+    } catch (error) {
+        console.error(`[${tag}] batch failed:`, error.response ? JSON.stringify(error.response.data) : error.message);
+        res.status(500).json({ success: false, error: `${tag} sync failed: ` + error.message });
+    }
+}
+
+// ============================================================================
+// SALES REPS — direct ShopWorks Cust → Caspio Sales_Reps_2026 sync
+// ----------------------------------------------------------------------------
+// Replaces NWCA_SalesReps_Export.ps1 → OneDrive CSV → Caspio import. The bandit
+// agent does the ODBC read + rep/tier cleaning, then POSTs the same 6 columns.
+// Upsert key = ID_Customer (INTEGER, UNIQUE). Only the whitelist is written; any
+// Caspio-side columns on Sales_Reps_2026 are left untouched.
+const TABLE_REPS = 'Sales_Reps_2026';
+const SYNC_NAME_REPS = 'shopworks-odbc-sales-reps';
+const REP_TEXT = ['CompanyName', 'CustomerServiceRep', 'Account_Tier'];
+const REP_DATE = ['date_LastOrdered'];       // DATE/TIME — '' → null
+const REP_YESNO = ['Inksoft_Store'];         // YES/NO — coerce to boolean
+
+function sanitizeRepRow(raw) {
+    const row = {};
+    for (const f of REP_TEXT) if (f in raw) { let v = raw[f] == null ? '' : String(raw[f]); if (v.length > 255) v = v.slice(0, 255); row[f] = v; }
+    for (const f of REP_DATE) if (f in raw) { const v = raw[f]; row[f] = (v === '' || v == null) ? null : v; }
+    for (const f of REP_YESNO) if (f in raw) { const v = raw[f]; row[f] = (v === true || v === 1 || v === '1' || String(v).toLowerCase() === 'true'); }
+    return row;
+}
+
+async function upsertRep(token, raw) {
+    const idCustomer = parseInt(raw.ID_Customer, 10);
+    if (!Number.isInteger(idCustomer)) throw new Error('bad ID_Customer: ' + raw.ID_Customer);
+    const payload = sanitizeRepRow(raw);
+    const putResp = await axios.put(
+        `${caspioApiBaseUrl}/tables/${TABLE_REPS}/records`, payload,
+        { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, params: { 'q.where': `ID_Customer=${idCustomer}` }, timeout: 15000 }
+    );
+    if (((putResp.data && putResp.data.RecordsAffected) || 0) > 0) return 'updated';
+    await axios.post(
+        `${caspioApiBaseUrl}/tables/${TABLE_REPS}/records`, Object.assign({ ID_Customer: idCustomer }, payload),
+        { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, timeout: 15000 }
+    );
+    return 'inserted';
+}
+
+/** POST /api/shopworks-odbc/sync-sales-reps — body { rows:[{ID_Customer, CompanyName, CustomerServiceRep, Account_Tier, Inksoft_Store, date_LastOrdered}] }. ?dryRun=true validates only. */
+router.post('/shopworks-odbc/sync-sales-reps', (req, res) =>
+    runBatchSync(req, res, { keyField: 'ID_Customer', sanitize: sanitizeRepRow, upsertOne: upsertRep, syncName: SYNC_NAME_REPS, tag: 'odbc-reps-sync' }));
+
+/** GET /api/shopworks-odbc/reps-health — watchdog view for the sales-reps sync. */
+router.get('/shopworks-odbc/reps-health', async (req, res) => {
+    try { res.json({ success: true, sync: SYNC_NAME_REPS, ...(await computeHealth(SYNC_NAME_REPS)) }); }
+    catch (error) { res.status(500).json({ success: false, ok: false, error: 'Health check failed: ' + error.message }); }
+});
+
+// ============================================================================
+// COMPANY CONTACTS — direct ShopWorks → Caspio CompanyContactsMerge2026 sync
+// ----------------------------------------------------------------------------
+// Replaces NWCA_Contacts_Export.ps1 → OneDrive CSV → Caspio import. The bandit
+// agent does the 4-table ODBC read + heavy data-cleaning, then POSTs the cleaned
+// rows. Upsert key = ID_Contact. WHITELIST ONLY — the Caspio-side enrichment
+// columns (MO_Sync_*, Orders_*_24mo, Phone_Best, Phone_All_JSON,
+// Preferred_Terms_FromOrders) are NEVER written, so the MO-sync / orders-enrichment
+// jobs keep owning them. (Export-only fields Phone/Employee_Count/Hold_Message are
+// omitted too — CompanyContactsMerge2026 has no such column.)
+const TABLE_CONTACTS = 'CompanyContactsMerge2026';
+const SYNC_NAME_CONTACTS = 'shopworks-odbc-contacts';
+const CON_INT = ['id_Customer', 'Active_Flag', 'Is_Active', 'Is_Dead', 'Is_Individual', 'Has_Email', 'Has_Complete_Address', 'Is_Stale', 'Needs_Review', 'Is_Tax_Exempt'];
+const CON_NUM = ['YTD_Sales'];
+const CON_DATE = ['Last_Order_Date'];        // DATE/TIME — '' → null
+const CON_TEXT = ['CustomerCompanyName', 'NameFirst', 'NameLast', 'ct_NameFull', 'ContactNumbersEmail', 'CustomerCustomerServiceRep', 'Account_Owner', 'Email_Salesrep', 'DateLastOrderEmail', 'Address', 'Address2', 'City', 'State', 'Zip', 'CustTerms', 'Title', 'Department', 'Email', 'Company_Name', 'Company_Phone', 'Company_Email', 'Customer_Type', 'Sales_Group', 'Sales_Rep', 'Account_Tier', 'Contact_Created', 'Payment_Terms', 'Tax_Exempt_Number', 'Website', 'Customer_Warning'];
+
+function sanitizeContactRow(raw) {
+    const row = {};
+    for (const f of CON_TEXT) if (f in raw) { let v = raw[f] == null ? '' : String(raw[f]); if (v.length > 255) v = v.slice(0, 255); row[f] = v; }
+    for (const f of CON_INT) if (f in raw) { const v = raw[f]; if (v === '' || v == null) { row[f] = null; } else { const n = Math.round(Number(v)); row[f] = Number.isFinite(n) ? n : null; } }
+    for (const f of CON_NUM) if (f in raw) { const v = raw[f]; if (v === '' || v == null) { row[f] = null; } else { const n = Number(v); row[f] = Number.isFinite(n) ? n : null; } }
+    for (const f of CON_DATE) if (f in raw) { const v = raw[f]; row[f] = (v === '' || v == null) ? null : v; }
+    return row;
+}
+
+async function upsertContact(token, raw) {
+    const idContact = parseInt(raw.ID_Contact, 10);
+    if (!Number.isInteger(idContact)) throw new Error('bad ID_Contact: ' + raw.ID_Contact);
+    const payload = sanitizeContactRow(raw);
+    const putResp = await axios.put(
+        `${caspioApiBaseUrl}/tables/${TABLE_CONTACTS}/records`, payload,
+        { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, params: { 'q.where': `ID_Contact=${idContact}` }, timeout: 15000 }
+    );
+    if (((putResp.data && putResp.data.RecordsAffected) || 0) > 0) return 'updated';
+    await axios.post(
+        `${caspioApiBaseUrl}/tables/${TABLE_CONTACTS}/records`, Object.assign({ ID_Contact: idContact }, payload),
+        { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, timeout: 15000 }
+    );
+    return 'inserted';
+}
+
+/** POST /api/shopworks-odbc/sync-contacts — body { rows:[{ID_Contact, id_Customer, ...cleaned fields}] }. ?dryRun=true validates only. */
+router.post('/shopworks-odbc/sync-contacts', (req, res) =>
+    runBatchSync(req, res, { keyField: 'ID_Contact', sanitize: sanitizeContactRow, upsertOne: upsertContact, syncName: SYNC_NAME_CONTACTS, tag: 'odbc-contacts-sync' }));
+
+/** GET /api/shopworks-odbc/contacts-health — watchdog view for the contacts sync. */
+router.get('/shopworks-odbc/contacts-health', async (req, res) => {
+    try { res.json({ success: true, sync: SYNC_NAME_CONTACTS, ...(await computeHealth(SYNC_NAME_CONTACTS)) }); }
+    catch (error) { res.status(500).json({ success: false, ok: false, error: 'Health check failed: ' + error.message }); }
+});
+
 module.exports = router;
