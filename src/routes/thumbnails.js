@@ -1130,9 +1130,11 @@ const THUMB_TABLE = 'Shopworks_Thumbnail_Report';
 const THUMB_TEXT_LIMIT = 255;
 const THUMB_META_COLS = ['Thumb_DesLocid_Design', 'Thumb_DesLoc_DesDesignName', 'Thumb_ProdPartNumber', 'Thumb_ProdDescription', 'FileWidth', 'FileHeight', 'FileSizeDisplay', 'timestamp_Added'];
 const THUMB_TEXT_COLS = new Set(['Thumb_DesLocid_Design', 'Thumb_DesLoc_DesDesignName', 'Thumb_ProdPartNumber', 'Thumb_ProdDescription', 'FileSizeDisplay', 'FileName']);
+const THUMB_NUM_COLS = new Set(['FileWidth', 'FileHeight']); // Caspio Number fields — coerce or null
 
 function thumbClean(col, v) {
   if (v === undefined || v === null || v === '') return null; // '' → null (Caspio Date/Time 400s on '')
+  if (THUMB_NUM_COLS.has(col)) { const n = Number(v); return Number.isFinite(n) ? n : null; } // bad width/height → null (not a 400)
   if (THUMB_TEXT_COLS.has(col) && typeof v === 'string' && v.length > THUMB_TEXT_LIMIT) return v.slice(0, THUMB_TEXT_LIMIT);
   return v;
 }
@@ -1149,7 +1151,7 @@ router.post('/thumbnails/metadata-sync', async (req, res) => {
 
     let inserted = 0, updated = 0, errored = 0;
     const errors = [];
-    const CONC = 10; // parallel waves — Heroku 30s router timeout (serial breaches it)
+    const CONC = 5; // parallel waves — balance Heroku 30s router timeout vs Caspio API rate limit (429 at ~10+ calls/s burst, 2026-07-17)
 
     for (let i = 0; i < rows.length; i += CONC) {
       const wave = rows.slice(i, i + CONC);
@@ -1181,6 +1183,9 @@ router.post('/thumbnails/metadata-sync', async (req, res) => {
           console.error(`[thumb-meta] row ${wave[j] && wave[j].ID_Serial} failed:`, d);
         }
       });
+      // Inter-wave throttle: keep Caspio call rate ~7-8/s (429 at ~30/s burst, 2026-07-17).
+      // 50-row chunks × 10 waves × ~1s ≈ 10-15s, safely under Heroku's 30s router limit.
+      if (i + CONC < rows.length) await new Promise(r => setTimeout(r, 500));
     }
 
     // Heartbeat (shared Sync_Heartbeats table; own Sync_Name)
