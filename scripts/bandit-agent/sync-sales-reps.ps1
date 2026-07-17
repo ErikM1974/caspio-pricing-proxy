@@ -23,7 +23,10 @@
 #           posting — the Caspio table is already current from the last CSV import
 #           (same cleaning), so only FUTURE changes sync. ~0 Caspio writes cutover.
 
-param([switch]$DryRun, [switch]$SeedSnapshot)
+# -CsvOut <path> : write the cleaned rows to a CSV (for a one-time bulk Caspio
+#           import) instead of syncing — exact table columns, 0 Integrations calls.
+
+param([switch]$DryRun, [switch]$SeedSnapshot, [string]$CsvOut)
 
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -129,6 +132,12 @@ try {
         $newHash[[string]$idc] = (($row.Values | ForEach-Object { "$_" }) -join '|')
     }
     Log "cleaned/kept $($all.Count) active rep rows"
+
+    if ($CsvOut) {
+        ($all | ForEach-Object { [pscustomobject]$_ }) | Export-Csv -Path $CsvOut -NoTypeInformation -Encoding UTF8
+        Log "CSV written: $CsvOut ($($all.Count) rows)"
+        exit 0
+    }
 
     # --- snapshot delta ---
     $confirmed = @{}
