@@ -317,9 +317,20 @@ async function fetchAllCaspioPages(resourcePath, initialParams = {}, options = {
 // financials + InternalNotes and allowed anon DELETE. Full-gate. A 401 surge in proxy logs
 // would reveal a hidden reader → reverse to gateWritesOnly if so.
 app.use('/api/orders', requireCrmApiSecret);
+// #9 gate COMPLETED (2026-07-18): the same orders router ALSO mounts /api/order-odbc,
+// /api/order-dashboard and /api/customers — the '/api/orders' prefix above never matched
+// them, so they stayed anonymous: ORDER_ODBC (customer contact info + invoice financials)
+// was an open raw-q.where read, Customer_Info an open enumeration + anon POST/PUT/DELETE.
+// Live callers: FE portal server (already sends X-CRM-API-Secret) and the public BOGO
+// promo page's browser POST /api/customers — so the bare create POST stays public per
+// PROXY_SIDE_DOOR_AUDIT_2026-06 decision #6; everything else on these mounts = secret-only.
+// (OPTIONS preflight never reaches these gates — the CORS layer above answers it.)
+app.use(['/api/order-odbc', '/api/order-dashboard'], requireCrmApiSecret);
+app.use('/api/customers', (req, res, next) =>
+  (req.method === 'POST' && (req.path === '/' || req.path === '')) ? next() : requireCrmApiSecret(req, res, next));
 const orderRoutes = require('./src/routes/orders');
 app.use('/api', orderRoutes);
-console.log('✓ Orders routes loaded');
+console.log('✓ Orders routes loaded [order-odbc/order-dashboard/customers CRM-gated; POST /api/customers public]');
 
 // Miscellaneous Routes (contains staff-announcements endpoint)
 const miscRoutes = require('./src/routes/misc');

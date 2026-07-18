@@ -5,6 +5,26 @@ All notable changes to the Caspio Pricing Proxy API will be documented in this f
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] - 2026-07-18
+
+### Security - CRM-secret gate on the orders router's escaped mounts
+
+The 2026-06-29 side-door flip (`app.use('/api/orders', requireCrmApiSecret)`) only matched the
+`/api/orders*` path segment — the same router's **other** mounts stayed publicly reachable:
+
+- `GET /api/order-odbc` — raw `q.where` passthrough over `ORDER_ODBC` (customer company/contact
+  info + invoice financials) → **now requires `x-crm-api-secret`** (sole caller, the FE portal
+  server, already sends it).
+- `GET /api/order-dashboard` — sales metrics + `CompanyName` details → **now secret-only**
+  (zero live callers; a 401 surge in logs would reveal a hidden reader, same reversal rule as 6/29).
+- `/api/customers` — `Customer_Info` was open to anonymous enumeration and anon POST/PUT/DELETE.
+  **GET/PUT/DELETE now secret-only; the bare create `POST /api/customers` stays public** for the
+  customer-facing BOGO promo form (PROXY_SIDE_DOOR_AUDIT_2026-06 open decision #6 unchanged).
+
+No caller repoints were needed: portal already authenticated; Python Inksoft, proxy `scripts/`,
+and both repos' browser JS have zero references to the gated methods. Lesson: a prefix gate on a
+multi-mount router must enumerate EVERY path the router registers.
+
 ## [1.5.0] - 2026-07-08
 
 ### Changed - Honest DELETE responses for quote endpoints
