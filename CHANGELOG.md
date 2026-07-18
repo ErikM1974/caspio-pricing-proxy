@@ -1,3 +1,11 @@
+## v2026.07.18.4 (2026-07-18)
+
+- feat(leads-crm): activity timeline — new `Lead_Activity` Caspio table (Submission_ID FK, typed note/status/attachment/quote/system rows, TEXT body, server-stamped Created_At) + `GET/POST /api/lead-activity` (CRM-secret; staff reach it via the main app's session forwarder); attachment URLs allow-listed to proxy `/api/files/` + JotForm hosts
+- feat(leads-crm): `Lead_Value` column on Form_Submissions (+PUT whitelist) — estimated pipeline $; a linked quote's TotalAmount snapshots into it
+- feat(leads-crm): follow-up digest — `src/utils/lead-followup-digest.js` (overdue / due-today / new-&-untouched-48h buckets, per-AE via rep-email-map resolveAEEmailLoose, one EmailJS email each, #hash deep links — never '=' in emailed links); cron weekdays 7:45 AM PT (staggered before the 8:00 approval digest); admin `GET /api/lead-digest/scan` (dry-run) + `POST /api/lead-digest/send` (x-admin-key); env `EMAILJS_TEMPLATE_LEAD_FOLLOWUP_DIGEST`
+- feat(rep-email-map): + Jim / Bradley / Steve(art@) / General(sales@) — leads carry full display names, resolved via resolveAEEmailLoose
+- test: 14-case lead-digest-model + lead-activity-validate jest suites
+
 ## v2026.07.18.3 (2026-07-18)
 
 - fix(leads): webhook ingest is REST-first — fetches the submission from the JotForm API on each webhook ping (rawRequest stays as fallback), so upload URLs are always captured (Erik's 7/18 test lead arrived without its attachment; backfill rows via REST had them)

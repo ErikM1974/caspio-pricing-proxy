@@ -1208,6 +1208,13 @@ const jotformRoutes = require('./src/routes/jotform');
 app.use('/api', jotformRoutes);
 console.log('✓ JotForm lead routes loaded [webhook token-gated]');
 
+// Leads CRM v2 — activity timeline (Lead_Activity table; secret-only per-route,
+// staff reach it via the main app's /api/crm-proxy/lead-activity* forwarder)
+// + follow-up-digest admin (scan = dry-run; send = x-admin-key). Cron below.
+const leadActivityRoutes = require('./src/routes/lead-activity');
+app.use('/api', leadActivityRoutes);
+console.log('✓ Lead activity + digest routes loaded [activity CRM-gated]');
+
 // Blog Posts (Blog_Posts table) — the main site's /blog SSR + homepage teaser
 // read Published posts publicly; drafts and all writes need the CRM secret
 // (staff Blog Editor via the main app's /api/crm-proxy/blog-posts forwarder).
@@ -1495,6 +1502,29 @@ const server = app.listen(PORT, async () => {
         }
     } catch (err) {
         console.error('⏰ Failed to schedule AE approval digest cron:', err.message);
+    }
+
+    // Schedule: weekday Leads-CRM follow-up digest at 7:45 AM Pacific —
+    // staggered 15 min BEFORE the 8:00 approval digest to avoid an EmailJS
+    // burst. One email per AE: overdue follow-ups / due today / new &
+    // untouched leads. AEs with nothing get no email.
+    try {
+        const cron = require('node-cron');
+        const { runLeadFollowupDigest } = require('./src/utils/lead-followup-digest');
+        const leadDigestConfigured = process.env.EMAILJS_PRIVATE_KEY
+            && process.env.EMAILJS_TEMPLATE_LEAD_FOLLOWUP_DIGEST;
+        if (leadDigestConfigured) {
+            cron.schedule('45 7 * * 1-5', () => {
+                runLeadFollowupDigest().catch(err => {
+                    console.error('[Lead Digest] Cron failed:', err.message);
+                });
+            }, { timezone: 'America/Los_Angeles' });
+            console.log('⏰ Lead follow-up digest cron scheduled: weekdays 7:45 AM Pacific');
+        } else {
+            console.log('⏰ Lead follow-up digest cron NOT scheduled — missing EMAILJS_TEMPLATE_LEAD_FOLLOWUP_DIGEST');
+        }
+    } catch (err) {
+        console.error('⏰ Failed to schedule lead follow-up digest cron:', err.message);
     }
 });
 

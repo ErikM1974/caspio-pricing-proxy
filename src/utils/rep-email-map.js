@@ -13,7 +13,13 @@ const REP_EMAIL_MAP = {
     // real account). ArtRequests stores her Sales_Rep as "Ruthie"; alias "Ruth".
     'Ruthie':   'ruth@nwcustomapparel.com',
     'Ruth':     'ruth@nwcustomapparel.com',
-    'Erik':     'erik@nwcustomapparel.com'
+    'Erik':     'erik@nwcustomapparel.com',
+    // Added 2026-07-18 for the Leads CRM follow-up digest — leads carry FULL
+    // display names ("Jim Mickelson") resolved via resolveAEEmailLoose.
+    'Jim':      'jim@nwcustomapparel.com',
+    'Bradley':  'bradley@nwcustomapparel.com',
+    'Steve':    'art@nwcustomapparel.com',
+    'General':  'sales@nwcustomapparel.com'   // "General Sales"
 };
 
 // Only the internal domain is allowed to receive AE digests. User_Email on

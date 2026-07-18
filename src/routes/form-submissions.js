@@ -234,7 +234,7 @@ router.put('/items/:pkId', async (req, res) => {
 router.put('/:submissionId', async (req, res) => {
   const id = sanitizeId(req.params.submissionId);
   if (!id) return res.status(400).json({ error: 'Invalid submission id' });
-  const ALLOWED = ['Status', 'Updated_By', 'Art_Request_ID', 'Due_Date', 'Sales_Rep', 'Matched_ID_Customer', 'Linked_Quote_ID'];
+  const ALLOWED = ['Status', 'Updated_By', 'Art_Request_ID', 'Due_Date', 'Sales_Rep', 'Matched_ID_Customer', 'Linked_Quote_ID', 'Lead_Value'];
   const updates = {};
   for (const k of ALLOWED) if (req.body && req.body[k] !== undefined) updates[k] = S(req.body[k]);
   if (!Object.keys(updates).length) return res.status(400).json({ error: 'No updatable fields supplied' });

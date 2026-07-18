@@ -53,6 +53,24 @@ const TABLES = [
       { Name: 'External_ID', Type: 'STRING' },         // JotForm submissionID — app-level dedupe key (NOT Unique: legacy rows are blank)
       { Name: 'Matched_ID_Customer', Type: 'STRING' }, // ShopWorks id_Customer (auto email-match at ingest, or staff "Link customer")
       { Name: 'Linked_Quote_ID', Type: 'STRING' },     // optional lead → quote_sessions.QuoteID link
+      // Leads CRM v2 (2026-07-18) — pipeline value; linking a quote snapshots
+      // its TotalAmount here so kanban $ totals cost zero extra reads
+      { Name: 'Lead_Value', Type: 'STRING' },
+    ],
+  },
+  {
+    // Leads CRM v2 activity timeline — one row per note / status change /
+    // attachment / quote link / system event on a lead. Modeled on DesignNotes
+    // (src/routes/art.js). PK_ID (autonumber) doubles as chronological order.
+    Name: 'Lead_Activity',
+    Fields: [
+      { Name: 'Submission_ID', Type: 'STRING' },  // FK → Form_Submissions.Submission_ID (e.g. JFL0718-9574)
+      { Name: 'Activity_Type', Type: 'STRING' },  // note | status | attachment | quote | system (server allowlist)
+      { Name: 'Activity_Text', Type: 'TEXT' },    // TEXT (64K) — notes exceed STRING's 255
+      { Name: 'Attachment_URL', Type: 'STRING' }, // proxy /api/files/<key> or JotForm upload URL (server-validated)
+      { Name: 'Created_By', Type: 'STRING' },     // staff email (client-sent, same trust model as Updated_By)
+      { Name: 'Created_At', Type: 'STRING' },     // ISO — server nowIso() only, never client-supplied
+      { Name: 'Parent_PK', Type: 'NUMBER' },      // future threading — dormant v1
     ],
   },
   {

@@ -5,6 +5,23 @@ All notable changes to the Caspio Pricing Proxy API will be documented in this f
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0] - 2026-07-18
+
+### Added - Leads CRM v2 phase 1 (activity timeline + follow-up digest)
+
+- **`Lead_Activity` table** (modeled on DesignNotes): `Submission_ID` (FK → Form_Submissions),
+  `Activity_Type` (note|status|attachment|quote|system), `Activity_Text` (TEXT 64K),
+  `Attachment_URL` (allow-listed), `Created_By`, `Created_At` (server-stamped), `Parent_PK` (dormant).
+- `GET /api/lead-activity?submissionId=` + `POST /api/lead-activity` — CRM-secret per-route; browsers
+  use the main app's `/api/crm-proxy/lead-activity*` (requireStaff). Rows immutable v1.
+- `Form_Submissions.Lead_Value` (STRING) + PUT whitelist — estimated pipeline value.
+- Follow-up digest: `GET /api/lead-digest/scan` (dry-run) / `POST /api/lead-digest/send`
+  (`x-admin-key` = ADMIN_KEY_DIGEST); cron weekdays 7:45 AM PT. Buckets: overdue (`Due_Date < today`),
+  due today, "new & untouched" (Status=New, no Due_Date, >48h, ≤60d). Emailed links are `#hash`
+  (quoted-printable mangles `=`). Env: `EMAILJS_TEMPLATE_LEAD_FOLLOWUP_DIGEST`.
+- `rep-email-map`: added Jim/Bradley/Steve→art@/General→sales@ (leads hold full display names;
+  resolved via `resolveAEEmailLoose`).
+
 ## [1.7.1] - 2026-07-18
 
 ### Added/Fixed - JotForm attachments reach the app
