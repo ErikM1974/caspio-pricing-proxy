@@ -6,10 +6,47 @@ const { makeCaspioRequest, fetchAllCaspioPages } = require('../utils/caspio');
 const { mapFieldsForBackwardCompatibility, createProductColorsResponse, createColorSwatchesResponse } = require('../utils/field-mapper');
 const { getActiveColors } = require('./sanmar-product-data');
 const { computeDisplayPrice, formatDisplayPriceLabel, getDecoratedDisplayPricingConfig } = require('../utils/catalog-display-price');
+const { createTtlCache, shouldBypass, makeKey, clearAll } = require('../utils/ttl-cache');
+const { clearStaticTableCaches } = require('../utils/caspio-static-tables');
 
 // Cache for product search (5 minute TTL)
 const productSearchCache = new Map();
 const PRODUCT_SEARCH_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+// Sanitize style number input to prevent Caspio WHERE clause injection.
+// Mirrors sanitizeStyleNumber in pricing.js / inventory.js.
+function sanitizeStyleNumber(input) {
+  if (!input || typeof input !== 'string') return null;
+  const sanitized = input.replace(/[^a-zA-Z0-9\-\.]/g, '').trim();
+  return (sanitized.length > 0 && sanitized.length <= 30) ? sanitized : null;
+}
+
+// Per-style response caches (2026-07-18 Caspio quota reduction). Product data
+// only changes on the nightly SanMar sync; `?refresh=true` bypasses. Responses
+// that degraded (SanMar active-color filter unavailable) are served but never
+// cached — see ttl-cache.js Rule-4 note.
+const styleSearchCache = createTtlCache({ name: 'stylesearch', ttlMs: 60 * 1000, maxEntries: 200 });
+const productDetailsCache = createTtlCache({ name: 'product-details', ttlMs: 10 * 60 * 1000, maxEntries: 100 });
+const colorSwatchesCache = createTtlCache({ name: 'color-swatches', ttlMs: 15 * 60 * 1000, maxEntries: 200 });
+const productColorsCache = createTtlCache({ name: 'product-colors', ttlMs: 15 * 60 * 1000, maxEntries: 200 });
+
+// GET /api/product-cache/clear
+// Flushes every registered TTL response cache (products + pricing + inventory
+// routes) plus the static lookup-table caches, so a Caspio edit can be forced
+// live without waiting out a TTL. Same unauthenticated-GET precedent as the
+// other /cache/clear routes (service-codes, tax-rate, …). NOTE: caches are
+// per-dyno — with >1 dyno this clears only the dyno that serves the request
+// (heroku restart is the cluster-wide option).
+router.get('/product-cache/clear', (req, res) => {
+  const cleared = clearAll();
+  Object.assign(cleared, clearStaticTableCaches());
+  console.log('[product-cache/clear]', cleared);
+  res.json({
+    success: true,
+    message: 'Product/pricing response caches cleared (this dyno)',
+    cleared
+  });
+});
 
 // GET /api/stylesearch
 router.get('/stylesearch', async (req, res) => {
@@ -21,7 +58,16 @@ router.get('/stylesearch', async (req, res) => {
   }
 
   try {
-    const whereClause = `STYLE LIKE '%${term}%'`;
+    // Autocomplete fires per keystroke — a 60s cache absorbs near-duplicate
+    // bursts. Empty suggestion lists are legit results and are cached too.
+    const cacheKey = makeKey({ term: String(term).trim().toLowerCase() });
+    if (!shouldBypass(req)) {
+      const cached = styleSearchCache.get(cacheKey);
+      if (cached !== undefined) return res.json(cached);
+    }
+
+    const safeTerm = String(term).replace(/'/g, "''"); // escape quotes for the LIKE clause
+    const whereClause = `STYLE LIKE '%${safeTerm}%'`;
     const records = await fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
       'q.where': whereClause,
       'q.select': 'STYLE,PRODUCT_TITLE',
@@ -35,6 +81,7 @@ router.get('/stylesearch', async (req, res) => {
       label: `${r.STYLE} - ${r.PRODUCT_TITLE}`
     }));
     console.log(`Style search for "${term}": ${suggestions.length} result(s)`);
+    styleSearchCache.set(cacheKey, suggestions);
     res.json(suggestions);
   } catch (error) {
     console.error('Error in style search:', error.message);
@@ -141,9 +188,33 @@ router.get('/product-details', async (req, res) => {
   }
 
   try {
-    let whereClause = `STYLE='${styleNumber}'`;
+    const safeStyle = sanitizeStyleNumber(styleNumber);
+    if (!safeStyle) return res.status(400).json({ error: 'Invalid style number format' });
+    const safeColor = color ? String(color).replace(/'/g, "''").substring(0, 100) : null;
+    const includeDiscontinued = req.query.includeDiscontinued === 'true';
+
+    // Cached entries are pre-applyProductCopy snapshots: on a hit we deep-copy
+    // and overlay per request, so Erik's Product_Copy edits keep their own
+    // ≤10-min latency (getProductCopyMap cache) with no TTL stacking, and the
+    // cached rows are never mutated by reference.
+    const cacheKey = makeKey({
+      style: safeStyle.toUpperCase(),
+      color: color ? String(color).trim().toLowerCase() : null,
+      inclDisc: includeDiscontinued
+    });
+    if (!shouldBypass(req)) {
+      const cached = productDetailsCache.get(cacheKey);
+      if (cached !== undefined) {
+        const clone = JSON.parse(JSON.stringify(cached));
+        await applyProductCopy(clone);
+        res.set('Cache-Control', 'public, max-age=600');
+        return res.json(clone);
+      }
+    }
+
+    let whereClause = `STYLE='${safeStyle}'`;
     if (color) {
-      whereClause += ` AND COLOR_NAME='${color}'`;
+      whereClause += ` AND COLOR_NAME='${safeColor}'`;
     }
 
     // Use the original field names from the Caspio table.
@@ -169,7 +240,7 @@ router.get('/product-details', async (req, res) => {
     // Fallback: If color was provided but no results, try CATALOG_COLOR
     if (records.length === 0 && color) {
       console.log(`No results for COLOR_NAME='${color}', trying CATALOG_COLOR`);
-      const fallbackWhere = `STYLE='${styleNumber}' AND CATALOG_COLOR='${color}'`;
+      const fallbackWhere = `STYLE='${safeStyle}' AND CATALOG_COLOR='${safeColor}'`;
       records = await fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
         'q.where': fallbackWhere,
         'q.select': selectFields.join(', ')
@@ -218,8 +289,11 @@ router.get('/product-details', async (req, res) => {
     const uniqueStyles = [];
     const seenStyles = new Set();
 
-    // Filter discontinued colors via SanMar API (fail-open)
-    const includeDiscontinued = req.query.includeDiscontinued === 'true';
+    // Filter discontinued colors via SanMar API (fail-open). filterOk tracks
+    // whether the filter actually ran — getActiveColors returns null both on
+    // SanMar failure and on zero active colors, so those responses are served
+    // but never cached (rare; avoids pinning a degraded/ambiguous payload).
+    let filterOk = true;
     if (!includeDiscontinued) {
       try {
         const activeColors = await getActiveColors(styleNumber);
@@ -234,14 +308,21 @@ router.get('/product-details', async (req, res) => {
           if (removedCount > 0) {
             console.log(`Filtered ${removedCount} discontinued record(s) for ${styleNumber}`);
           }
+        } else {
+          filterOk = false;
         }
       } catch (filterErr) {
+        filterOk = false;
         console.warn(`SanMar filter failed for product-details ${styleNumber}, showing all:`, filterErr.message);
       }
     }
 
     // Return the records with the original field names as expected by existing apps
     console.log(`Product details for ${styleNumber}: ${records.length} record(s)`);
+    // Snapshot BEFORE the copy overlay (see cacheKey comment above).
+    if (records.length > 0 && filterOk) {
+      productDetailsCache.set(cacheKey, JSON.parse(JSON.stringify(records)));
+    }
     await applyProductCopy(records); // NWCA copy overrides SanMar boilerplate
     // Product data changes via the daily SanMar sync — let browsers keep it
     // 10 min (the ETag Express already sends turns repeat views into 304s).
@@ -263,11 +344,21 @@ router.get('/color-swatches', async (req, res) => {
   }
 
   try {
+    const safeStyle = sanitizeStyleNumber(styleNumber);
+    if (!safeStyle) return res.status(400).json({ error: 'Invalid style number format' });
+    const includeDiscontinued = req.query.includeDiscontinued === 'true';
+
+    const cacheKey = makeKey({ style: safeStyle.toUpperCase(), inclDisc: includeDiscontinued });
+    if (!shouldBypass(req)) {
+      const cached = colorSwatchesCache.get(cacheKey);
+      if (cached !== undefined) return res.json(cached);
+    }
+
     // Original API used these fields
     const selectFields = 'COLOR_NAME, CATALOG_COLOR, COLOR_SQUARE_IMAGE';
 
     const records = await fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
-      'q.where': `STYLE='${styleNumber}'`,
+      'q.where': `STYLE='${safeStyle}'`,
       'q.select': selectFields,
       'q.limit': 1000
     });
@@ -275,8 +366,10 @@ router.get('/color-swatches', async (req, res) => {
     // Use the mapper to create the original response format
     let colorSwatches = createColorSwatchesResponse(records);
 
-    // Filter discontinued colors via SanMar API (fail-open: if API fails, show all)
-    const includeDiscontinued = req.query.includeDiscontinued === 'true';
+    // Filter discontinued colors via SanMar API (fail-open: if API fails, show
+    // all). filterOk tracks whether the filter ran — degraded responses are
+    // served but never cached (getActiveColors null = failed OR zero active).
+    let filterOk = true;
     if (!includeDiscontinued) {
       try {
         const activeColors = await getActiveColors(styleNumber);
@@ -291,13 +384,19 @@ router.get('/color-swatches', async (req, res) => {
           if (removedCount > 0) {
             console.log(`Filtered ${removedCount} discontinued swatch(es) for ${styleNumber}`);
           }
+        } else {
+          filterOk = false;
         }
       } catch (filterErr) {
+        filterOk = false;
         console.warn(`SanMar swatch filter failed for ${styleNumber}, showing all:`, filterErr.message);
       }
     }
 
     console.log(`Color swatches for ${styleNumber}: ${colorSwatches.length} color(s)`);
+    if (colorSwatches.length > 0 && filterOk) {
+      colorSwatchesCache.set(cacheKey, colorSwatches);
+    }
     res.json(colorSwatches);
   } catch (error) {
     console.error('Error fetching color swatches:', error.message);
@@ -1189,6 +1288,16 @@ router.get('/product-colors', async (req, res) => {
   }
 
   try {
+    const safeStyle = sanitizeStyleNumber(styleNumber);
+    if (!safeStyle) return res.status(400).json({ error: 'Invalid style number format' });
+    const includeDiscontinued = req.query.includeDiscontinued === 'true';
+
+    const cacheKey = makeKey({ style: safeStyle.toUpperCase(), inclDisc: includeDiscontinued });
+    if (!shouldBypass(req)) {
+      const cached = productColorsCache.get(cacheKey);
+      if (cached !== undefined) return res.json(cached);
+    }
+
     // Get the fields needed for the original response format
     const selectFields = [
       'PRODUCT_TITLE', 'PRODUCT_DESCRIPTION', 'COLOR_NAME', 'CATALOG_COLOR',
@@ -1198,7 +1307,7 @@ router.get('/product-colors', async (req, res) => {
     ];
 
     const records = await fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
-      'q.where': `STYLE='${styleNumber}'`,
+      'q.where': `STYLE='${safeStyle}'`,
       'q.select': selectFields.join(', ')
     });
 
@@ -1209,8 +1318,10 @@ router.get('/product-colors', async (req, res) => {
       return res.status(404).json({ error: 'Product not found' });
     }
 
-    // Filter discontinued colors via SanMar API (fail-open: if API fails, show all)
-    const includeDiscontinued = req.query.includeDiscontinued === 'true';
+    // Filter discontinued colors via SanMar API (fail-open: if API fails, show
+    // all). filterOk tracks whether the filter ran — degraded responses are
+    // served but never cached (getActiveColors null = failed OR zero active).
+    let filterOk = true;
     if (!includeDiscontinued) {
       try {
         const activeColors = await getActiveColors(styleNumber);
@@ -1227,13 +1338,19 @@ router.get('/product-colors', async (req, res) => {
             productColorsResponse.removedCount = removedCount;
             console.log(`Filtered ${removedCount} discontinued color(s) for ${styleNumber}`);
           }
+        } else {
+          filterOk = false;
         }
       } catch (filterErr) {
+        filterOk = false;
         console.warn(`SanMar color filter failed for ${styleNumber}, showing all:`, filterErr.message);
       }
     }
 
     console.log(`Product colors for ${styleNumber}: ${productColorsResponse.colors.length} unique color(s) found`);
+    if (productColorsResponse.colors.length > 0 && filterOk) {
+      productColorsCache.set(cacheKey, productColorsResponse);
+    }
     res.json(productColorsResponse);
   } catch (error) {
     console.error('Error fetching product colors:', error.message);
