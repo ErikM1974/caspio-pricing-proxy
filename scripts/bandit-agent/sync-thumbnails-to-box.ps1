@@ -32,7 +32,8 @@
 param(
     [string]$ThumbShare     = '\\NCA-FS01\Thumbnails',
     [int]   $MaxFilesPerRun = 200,
-    [int]   $PaceMs         = 300
+    [int]   $PaceMs         = 300,
+    [string]$CsvOut         = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -114,7 +115,7 @@ try {
     $pending = New-Object System.Collections.ArrayList
     foreach ($f in $files) {
         $id = ([regex]::Match($f.Name, '^(\d+)_')).Groups[1].Value
-        if (-not $existing.ContainsKey($id)) { continue }   # no metadata row yet - skip (would 404); the metadata sync creates the row, then we pick it up
+        if ((-not $CsvOut) -and (-not $existing.ContainsKey($id))) { continue }   # API mode skips no-row files (404); CSV mode includes all (import matches by ID_Serial)
         if ($uploaded.ContainsKey($id)) {
             $storedSize = $uploaded[$id]
             # Already has an image. Only re-upload when we have a DEFINITE stored size that
@@ -125,6 +126,42 @@ try {
         [void]$pending.Add($f)
     }
     Log ("pending (new/changed): {0}" -f $pending.Count)
+
+    if ($CsvOut) {
+        # Upload each pending image to Box (0 Caspio calls via ?csv=1) and emit an
+        # ID_Serial -> FileUrl CSV for a bulk Caspio import (Update on ID_Serial).
+        # Checkpoints the CSV every 200 so a long/interrupted run isn't lost.
+        $boxUri = "$proxy/api/thumbnails/upload-with-stub?target=box&csv=1"
+        $client = New-Object System.Net.Http.HttpClient; $client.Timeout = [TimeSpan]::FromSeconds(120)
+        $rows = New-Object System.Collections.ArrayList
+        $done = @{}
+        # Resume: rows already in the checkpoint CSV are done (each was uploaded to Box) — skip them.
+        if (Test-Path $CsvOut) { try { Import-Csv $CsvOut | ForEach-Object { [void]$rows.Add($_); $done[[string]$_.ID_Serial] = $true } } catch {} }
+        Log ("CSV mode: {0} pending, {1} already done (resuming)" -f $pending.Count, $done.Count)
+        $ok = 0; $err = 0; $i = 0
+        try {
+            foreach ($f in $pending) {
+                $sid = ([regex]::Match($f.Name, '^(\d+)_')).Groups[1].Value
+                if ($done.ContainsKey($sid)) { continue }
+                $i++
+                try {
+                    $r = Send-Image $client $boxUri $secret $f.FullName $f.Name
+                    if ($r.status -ge 200 -and $r.status -lt 300) {
+                        $j = $r.body | ConvertFrom-Json
+                        [void]$rows.Add([pscustomobject]@{ ID_Serial = $j.thumbnailId; FileUrl = $j.fileUrl; ExternalKey = ''; FileSizeNumber = [int64]$f.Length })
+                        $done[$sid] = $true
+                        $ok++
+                    } else { $err++; if ($err -le 5) { Log ("  {0} -> HTTP {1}: {2}" -f $f.Name, $r.status, $r.body.Substring(0, [Math]::Min(160, $r.body.Length))) } }
+                } catch { $err++; if ($err -le 5) { Log ("  {0} EX: {1}" -f $f.Name, $_.Exception.Message) } }
+                if ($i % 200 -eq 0) { Log ("  progress {0}/{1}: {2} ok, {3} err" -f $i, $pending.Count, $ok, $err); ($rows | Export-Csv -Path $CsvOut -NoTypeInformation -Encoding UTF8) }
+                Start-Sleep -Milliseconds $PaceMs
+            }
+        } finally { $client.Dispose() }
+        ($rows | Export-Csv -Path $CsvOut -NoTypeInformation -Encoding UTF8)
+        Log ("CSV DONE: {0} uploaded to Box + in CSV, {1} errored -> {2}" -f $ok, $err, $CsvOut)
+        exit 0
+    }
+
     if ($pending.Count -eq 0) { Log 'nothing to upload'; exit 0 }
 
     $batch = @($pending | Select-Object -First $MaxFilesPerRun)
