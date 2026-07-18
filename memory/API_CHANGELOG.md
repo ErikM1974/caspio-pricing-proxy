@@ -5,6 +5,19 @@ All notable changes to the Caspio Pricing Proxy API will be documented in this f
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.1] - 2026-07-18
+
+### Added/Fixed - JotForm attachments reach the app
+
+- Webhook ingest is **REST-first**: each webhook ping fetches the full submission via
+  `GET /submission/{id}` (complete `answers` incl. upload URLs — the multipart `rawRequest`
+  omits them); `rawRequest` parsing remains the no-API-key fallback.
+- `GET /api/jotform/file?u=…` — staff passthrough streaming a JotForm upload with the API key
+  (JotForm upload links require a JotForm login otherwise). Gated `requireCrmSecretOrBrowserOrigin`;
+  `u` must match the JotForm upload-host allow-list (`www.jotform.com/uploads/`, `files.jotform.com`) —
+  never usable as an open proxy. The Leads drawer renders image attachments as in-app thumbnails
+  through it.
+
 ## [1.7.0] - 2026-07-18
 
 ### Added - JotForm lead ingest (Leads CRM)

@@ -21,11 +21,14 @@ const multer = require('multer');
 const rateLimit = require('express-rate-limit');
 const router = express.Router();
 
-const { requireCrmApiSecret } = require('../middleware');
+const { requireCrmApiSecret, requireCrmSecretOrBrowserOrigin } = require('../middleware');
 const {
   JOTFORM_FORMS,
   insertLead,
   normalizeFromRawRequest,
+  normalizeFromApiAnswers,
+  fetchJotformSubmission,
+  isJotformUploadUrl,
   timingSafeSecretCompare,
   reconcileRecent,
 } = require('../utils/jotform');
@@ -80,9 +83,23 @@ router.post(
           console.warn(`[jotform] webhook for unregistered form ${formID || '(none)'} — ignored`);
           return;
         }
-        let raw = {};
-        try { raw = JSON.parse(body.rawRequest || '{}'); } catch (_) { raw = {}; }
-        const normalized = normalizeFromRawRequest(formID, raw, submissionID);
+        // REST-first: the API's `answers` are complete — upload URLs are missing
+        // from the multipart rawRequest (proven by Erik's 7/18 test lead).
+        // rawRequest stays as the fallback so a JotForm API hiccup never drops a lead.
+        let normalized = null;
+        if (process.env.JOTFORM_API_KEY) {
+          try {
+            const sub = await fetchJotformSubmission(submissionID);
+            if (sub && sub.answers) normalized = normalizeFromApiAnswers(formID, sub.answers, submissionID);
+          } catch (e) {
+            console.warn('[jotform] REST fetch for webhook failed — falling back to rawRequest:', e.message);
+          }
+        }
+        if (!normalized) {
+          let raw = {};
+          try { raw = JSON.parse(body.rawRequest || '{}'); } catch (_) { raw = {}; }
+          normalized = normalizeFromRawRequest(formID, raw, submissionID);
+        }
         const result = await insertLead({ formID, submissionId: submissionID, normalized, via: 'jotform-webhook' });
         state.webhooksReceived += 1;
         state.lastWebhookAt = new Date().toISOString();
@@ -125,6 +142,37 @@ router.post('/jotform/sync', requireCrmApiSecret, async (req, res) => {
     state.lastError = e.message;
     console.error('[jotform] sync failed:', e.message);
     res.status(502).json({ error: 'JotForm sync failed: ' + e.message });
+  }
+});
+
+// GET /api/jotform/file?u=… — stream a JotForm upload to staff browsers.
+// JotForm upload links require a JotForm login to view; this fetches the file
+// server-side with the API key and streams it back, so attachments open right
+// in the Leads drawer. Gate = requireCrmSecretOrBrowserOrigin (the softer
+// staff-dashboard read gate); the URL is allow-listed to JotForm upload hosts
+// only, so this can never act as an open proxy.
+router.get('/jotform/file', requireCrmSecretOrBrowserOrigin, async (req, res) => {
+  const u = String(req.query.u || '').trim();
+  if (!isJotformUploadUrl(u)) return res.status(400).json({ error: 'Not a JotForm upload URL' });
+  const key = process.env.JOTFORM_API_KEY || '';
+  if (!key) return res.status(503).json({ error: 'JOTFORM_API_KEY not configured' });
+  try {
+    const axios = require('axios');
+    const upstream = await axios.get(u, {
+      headers: { APIKEY: key },
+      responseType: 'stream',
+      timeout: 30000,
+      maxRedirects: 3,
+    });
+    res.set('Content-Type', upstream.headers['content-type'] || 'application/octet-stream');
+    if (upstream.headers['content-length']) res.set('Content-Length', upstream.headers['content-length']);
+    res.set('Content-Disposition', 'inline');
+    res.set('Cache-Control', 'private, max-age=3600');
+    upstream.data.pipe(res);
+  } catch (e) {
+    const status = e.response ? e.response.status : 502;
+    console.warn('[jotform] file passthrough failed:', status, u.slice(0, 120));
+    res.status(status === 404 ? 404 : 502).json({ error: `File unavailable from JotForm (${status})` });
   }
 });
 

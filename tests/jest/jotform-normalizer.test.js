@@ -14,6 +14,8 @@ const {
   timingSafeSecretCompare,
   toIsoFromZone,
   insertLead,
+  extractUploadUrls,
+  isJotformUploadUrl,
 } = require('../../src/utils/jotform');
 
 const LEAD_FORM = '21764724640151'; // Leads NWCA #1
@@ -179,6 +181,27 @@ describe('insertLead pre-Caspio guards (no network touched)', () => {
       .toMatchObject({ skipped: 'unknown-form' });
     expect(await insertLead({ formID: LEAD_FORM, submissionId: '', normalized: {} }))
       .toMatchObject({ skipped: 'no-submission-id' });
+  });
+});
+
+describe('upload URL handling', () => {
+  test('extractUploadUrls accepts full URLs AND protocol-less rawRequest paths', () => {
+    expect(extractUploadUrls(['https://www.jotform.com/uploads/acct/1/2/a.jpg']))
+      .toEqual(['https://www.jotform.com/uploads/acct/1/2/a.jpg']);
+    expect(extractUploadUrls(['uploads/acct/1/2/b.png']))
+      .toEqual(['https://www.jotform.com/uploads/acct/1/2/b.png']);
+    expect(extractUploadUrls(['www.jotform.com/uploads/acct/1/2/c.pdf']))
+      .toEqual(['https://www.jotform.com/uploads/acct/1/2/c.pdf']);
+    expect(extractUploadUrls(['just-a-filename.jpg'])).toEqual([]);
+  });
+
+  test('isJotformUploadUrl allow-lists only JotForm upload hosts (no open proxy)', () => {
+    expect(isJotformUploadUrl('https://www.jotform.com/uploads/acct/1/2/a.jpg')).toBe(true);
+    expect(isJotformUploadUrl('https://files.jotform.com/x/y.png')).toBe(true);
+    expect(isJotformUploadUrl('https://evil.com/uploads/a.jpg')).toBe(false);
+    expect(isJotformUploadUrl('https://www.jotform.com.evil.com/uploads/a.jpg')).toBe(false);
+    expect(isJotformUploadUrl('http://www.jotform.com/uploads/a.jpg')).toBe(false);
+    expect(isJotformUploadUrl('')).toBe(false);
   });
 });
 

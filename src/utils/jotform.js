@@ -124,7 +124,22 @@ function extractUploadUrls(value) {
   const flat = Array.isArray(value) ? value : [value];
   return flat
     .map((v) => (typeof v === 'string' ? v.trim() : ''))
-    .filter((v) => /^https?:\/\/\S+/i.test(v));
+    .map((v) => {
+      if (/^https?:\/\/\S+/i.test(v)) return v;
+      // webhook rawRequest sometimes carries protocol-less upload paths
+      if (/^(www\.jotform\.com\/)?uploads\//i.test(v)) {
+        return 'https://www.jotform.com/' + v.replace(/^www\.jotform\.com\//i, '');
+      }
+      return '';
+    })
+    .filter(Boolean);
+}
+
+// Passthrough allow-list — ONLY JotForm upload hosts, so /api/jotform/file
+// can never be used as an open proxy.
+const JOTFORM_UPLOAD_URL_RE = /^https:\/\/((www\.)?jotform\.com\/uploads\/|files\.jotform\.com\/)/i;
+function isJotformUploadUrl(u) {
+  return typeof u === 'string' && JOTFORM_UPLOAD_URL_RE.test(u.trim());
 }
 
 // Slug → semantic kind. Compact key = lowercase alphanumerics only.
@@ -406,6 +421,20 @@ async function insertLead({ formID, submissionId, normalized, via, opts = {}, kn
 
 // ── JotForm REST ──────────────────────────────────────────────────────
 
+// Single-submission fetch — the webhook path uses this (REST-first) because
+// the API's `answers` are complete (incl. upload URLs) where the multipart
+// rawRequest is not.
+async function fetchJotformSubmission(submissionID) {
+  const key = process.env.JOTFORM_API_KEY || '';
+  if (!key) throw new Error('JOTFORM_API_KEY is not set');
+  const axios = require('axios');
+  const resp = await axios.get(`${JOTFORM_API_BASE}/submission/${encodeURIComponent(String(submissionID))}`, {
+    headers: { APIKEY: key },
+    timeout: 20000,
+  });
+  return (resp.data && resp.data.content) || null;
+}
+
 async function fetchJotformSubmissions(formID, { filter, limit = 1000, offset = 0, orderby = 'id' } = {}) {
   const key = process.env.JOTFORM_API_KEY || '';
   if (!key) throw new Error('JOTFORM_API_KEY is not set');
@@ -477,6 +506,8 @@ module.exports = {
   normalizeFromApiAnswers,
   valueToText,
   classify,
+  extractUploadUrls,
+  isJotformUploadUrl,
   pickBestContact,
   buildLeadRecord,
   timingSafeSecretCompare,
@@ -486,6 +517,7 @@ module.exports = {
   assignLead,
   existsByExternalId,
   insertLead,
+  fetchJotformSubmission,
   fetchJotformSubmissions,
   reconcileRecent,
 };

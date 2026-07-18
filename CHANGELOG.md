@@ -1,3 +1,10 @@
+## v2026.07.18.3 (2026-07-18)
+
+- fix(leads): webhook ingest is REST-first — fetches the submission from the JotForm API on each webhook ping (rawRequest stays as fallback), so upload URLs are always captured (Erik's 7/18 test lead arrived without its attachment; backfill rows via REST had them)
+- feat(leads): GET /api/jotform/file?u= — staff passthrough that streams JotForm uploads using the API key (JotForm upload links otherwise require a JotForm login); requireCrmSecretOrBrowserOrigin gate + strict JotForm-upload-host allow-list (never an open proxy). Leads drawer now shows in-app thumbnails
+- fix(jotform): extractUploadUrls also accepts protocol-less rawRequest upload paths
+- test: upload-URL extraction + passthrough allow-list cases (28 total across the jotform suites)
+
 ## v2026.07.18.2 (2026-07-18)
 
 - feat(leads): JotForm lead ingest — POST /api/jotform/webhook (token-gated fast-ack multipart receiver), POST /api/jotform/sync (CRM-secret reconcile), GET /api/jotform/health; the 6 JotForm lead forms normalize into Form_Submissions as Form_ID='jotform-lead' (prefix JFL, External_ID dedupe) with AE auto-assignment (exact-email match in CompanyContactsMerge2026 → contact's rep + Matched_ID_Customer, Sales_Reps_2026 fallback; else Taneisha Clark) + #form-leads Slack card showing rep + source form
