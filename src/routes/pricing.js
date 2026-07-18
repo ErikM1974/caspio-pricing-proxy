@@ -4,6 +4,8 @@ const express = require('express');
 const router = express.Router();
 const rateLimit = require('express-rate-limit');
 const { makeCaspioRequest, fetchAllCaspioPages } = require('../utils/caspio');
+const { createTtlCache, shouldBypass, makeKey } = require('../utils/ttl-cache');
+const { getSizeUpchargeRows, getSizeDisplayOrderRows } = require('../utils/caspio-static-tables');
 
 // Rate limiter scoped to pricing routes only (not all /api routes)
 const pricingLimiter = rateLimit({
@@ -37,6 +39,13 @@ function sanitizeStyleNumber(input) {
 // Cache for pricing bundle (15 minute TTL) - HIGH IMPACT
 const pricingBundleCache = new Map();
 const PRICING_BUNDLE_CACHE_TTL = 15 * 60 * 1000; // 15 minutes
+
+// Per-style response caches (2026-07-18 Caspio quota reduction). Source data
+// only changes on the nightly SanMar sync; `?refresh=true` bypasses. Only
+// verified-complete responses are cached (Rule 4 corollary — see ttl-cache.js).
+const baseItemCostsCache = createTtlCache({ name: 'base-item-costs', ttlMs: 15 * 60 * 1000, maxEntries: 200 });
+const sizePricingCache = createTtlCache({ name: 'size-pricing', ttlMs: 15 * 60 * 1000, maxEntries: 300 });
+const maxPricesCache = createTtlCache({ name: 'max-prices-by-style', ttlMs: 15 * 60 * 1000, maxEntries: 200 });
 
 // GET /api/pricing-tiers
 router.get('/pricing-tiers', async (req, res) => {
@@ -504,6 +513,13 @@ router.get('/base-item-costs', async (req, res) => {
   try {
     const safeStyle = sanitizeStyleNumber(styleNumber);
     if (!safeStyle) return res.status(400).json({ error: 'Invalid style number format' });
+
+    const cacheKey = makeKey({ style: safeStyle.toUpperCase() });
+    if (!shouldBypass(req)) {
+      const cached = baseItemCostsCache.get(cacheKey);
+      if (cached !== undefined) return res.json(cached);
+    }
+
     const whereClause = `STYLE='${safeStyle}'`;
     const records = await fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
       'q.where': whereClause,
@@ -515,7 +531,7 @@ router.get('/base-item-costs', async (req, res) => {
     }
 
     const baseCosts = {};
-    
+
     records.forEach(record => {
       if (record.SIZE && record.CASE_PRICE !== null && record.CASE_PRICE !== undefined) {
         baseCosts[record.SIZE] = parseFloat(record.CASE_PRICE);
@@ -523,10 +539,12 @@ router.get('/base-item-costs', async (req, res) => {
     });
 
     console.log(`Base costs for ${styleNumber}:`, baseCosts);
-    res.json({
+    const response = {
       styleNumber: styleNumber,
       baseCosts: baseCosts
-    });
+    };
+    baseItemCostsCache.set(cacheKey, response);
+    res.json(response);
   } catch (error) {
     console.error('Error fetching base item costs:', error.message);
     res.status(500).json({ error: 'Failed to fetch base item costs', details: error.message });
@@ -545,21 +563,31 @@ router.get('/size-pricing', async (req, res) => {
   try {
     const safeStyle = sanitizeStyleNumber(styleNumber);
     if (!safeStyle) return res.status(400).json({ error: 'Invalid style number format' });
+
+    const force = shouldBypass(req);
+    const cacheKey = makeKey({
+      style: safeStyle.toUpperCase(),
+      color: color ? String(color).trim().toLowerCase() : null
+    });
+    if (!force) {
+      const cached = sizePricingCache.get(cacheKey);
+      if (cached !== undefined) return res.json(cached);
+    }
+
     let whereClause = `STYLE='${safeStyle}'`;
     if (color) {
       const safeColor = color.replace(/'/g, "''").substring(0, 100);
       whereClause += ` AND COLOR_NAME='${safeColor}'`;
     }
 
-    // Fetch pricing data and size upcharges in parallel
+    // Fetch pricing data and (1h-cached) size upcharges in parallel. The
+    // upcharge getter throws on cold-fetch failure — same 500 as before.
     const [records, sizeUpcharges] = await Promise.all([
       fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
         'q.where': whereClause,
         'q.select': 'STYLE, COLOR_NAME, SIZE, CASE_PRICE'
       }),
-      fetchAllCaspioPages('/tables/Standard_Size_Upcharges/records', {
-        'q.select': 'SizeDesignation, StandardAddOnAmount'
-      })
+      getSizeUpchargeRows({ force })
     ]);
 
     if (records.length === 0) {
@@ -601,6 +629,7 @@ router.get('/size-pricing', async (req, res) => {
     const result = Object.values(priceData);
 
     console.log(`Size pricing for ${styleNumber}: ${result.length} color(s) found`);
+    sizePricingCache.set(cacheKey, result);
     res.json(result);
   } catch (error) {
     console.error('Error fetching size pricing:', error.message);
@@ -620,30 +649,37 @@ router.get('/max-prices-by-style', async (req, res) => {
   try {
     console.log(`Fetching data for /api/max-prices-by-style for style: ${styleNumber}`);
 
+    const safeStyle = sanitizeStyleNumber(styleNumber);
+    if (!safeStyle) return res.status(400).json({ error: 'Invalid style number format' });
+
+    const force = shouldBypass(req);
+    const cacheKey = makeKey({ style: safeStyle.toUpperCase() });
+    if (!force) {
+      const cached = maxPricesCache.get(cacheKey);
+      if (cached !== undefined) return res.json(cached);
+    }
+
     // 1. Fetch Selling Price Display Add-Ons from Standard_Size_Upcharges
+    // (1h-cached). Track success — a degraded {} payload must not be cached.
     let sellingPriceDisplayAddOns = {};
+    let upchargeFetchSucceeded = true;
     try {
-      const upchargeResults = await fetchAllCaspioPages('/tables/Standard_Size_Upcharges/records', {
-        'q.select': 'SizeDesignation,StandardAddOnAmount',
-        'q.orderby': 'SizeDesignation ASC',
-        'q.limit': 200
-      });
-      
+      const upchargeResults = await getSizeUpchargeRows({ force });
+
       upchargeResults.forEach(rule => {
         if (rule.SizeDesignation && rule.StandardAddOnAmount !== null && !isNaN(parseFloat(rule.StandardAddOnAmount))) {
           sellingPriceDisplayAddOns[String(rule.SizeDesignation).trim().toUpperCase()] = parseFloat(rule.StandardAddOnAmount);
         }
       });
-      
+
       console.log("Fetched Selling Price Display Add-Ons for /max-prices-by-style:", sellingPriceDisplayAddOns);
     } catch (upchargeError) {
       console.error("Error fetching Selling Price Display Add-Ons for /max-prices-by-style:", upchargeError.message);
       sellingPriceDisplayAddOns = {};
+      upchargeFetchSucceeded = false;
     }
 
     // 2. Fetch Inventory Data from Sanmar table (using STYLE field to match catalog_no)
-    const safeStyle = sanitizeStyleNumber(styleNumber);
-    if (!safeStyle) return res.status(400).json({ error: 'Invalid style number format' });
     const inventoryWhereClause = `STYLE='${safeStyle}'`;
     const inventoryParams = {
       'q.where': inventoryWhereClause,
@@ -682,13 +718,18 @@ router.get('/max-prices-by-style', async (req, res) => {
     }));
 
     console.log(`Max prices found for ${styleNumber}: ${sizes.length} size(s)`);
-    
-    res.json({
+
+    const response = {
       style: styleNumber,
       sizes: sizes,
       sellingPriceDisplayAddOns: sellingPriceDisplayAddOns
-    });
-    
+    };
+    // Only cache complete payloads: non-empty sizes AND upcharges fetched OK.
+    if (sizes.length > 0 && upchargeFetchSucceeded) {
+      maxPricesCache.set(cacheKey, response);
+    }
+    res.json(response);
+
   } catch (error) {
     console.error('Error fetching max prices:', error.message);
     res.status(500).json({ error: 'Failed to fetch max prices', details: error.message });
@@ -886,37 +927,34 @@ router.get('/pricing-bundle', async (req, res) => {
 
     // If styleNumber is provided, also fetch size-specific data
     if (styleNumber) {
-      // Add the size upcharges query with error handling
+      // Add the size upcharges query (1h static-table cache) with error handling
       baseQueries.push(
-        fetchAllCaspioPages('/tables/Standard_Size_Upcharges/records', {
-          'q.select': 'SizeDesignation,StandardAddOnAmount',
-          'q.orderby': 'SizeDesignation ASC',
-          'q.limit': 200
-        }).catch(err => {
+        getSizeUpchargeRows({ force: forceRefresh }).catch(err => {
           console.error('Failed to fetch size upcharges:', err.message);
           return [];
         })
       );
-      
-      // Add the Sanmar query for sizes with error handling
+
+      // Add the Sanmar query for sizes with error handling. An unsanitizable
+      // style yields [] — never fall back to interpolating the raw input.
+      const safeBundleStyle = sanitizeStyleNumber(styleNumber);
       baseQueries.push(
-        fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
-          'q.where': `STYLE='${sanitizeStyleNumber(styleNumber) || styleNumber}'`,
-          'q.select': 'SIZE, MAX(CASE_PRICE) AS MAX_PRICE',
-          'q.groupBy': 'SIZE',
-          'q.limit': 100
-        }).catch(err => {
-          console.error(`Failed to fetch inventory for style ${styleNumber}:`, err.message);
-          return [];
-        })
+        safeBundleStyle
+          ? fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
+              'q.where': `STYLE='${safeBundleStyle}'`,
+              'q.select': 'SIZE, MAX(CASE_PRICE) AS MAX_PRICE',
+              'q.groupBy': 'SIZE',
+              'q.limit': 100
+            }).catch(err => {
+              console.error(`Failed to fetch inventory for style ${styleNumber}:`, err.message);
+              return [];
+            })
+          : Promise.resolve([])
       );
-      
-      // Add the Size Display Order query with error handling
+
+      // Add the Size Display Order query (1h static-table cache) with error handling
       baseQueries.push(
-        fetchAllCaspioPages('/tables/Size_Display_Order/records', {
-          'q.select': 'size,sort_order',
-          'q.limit': 200
-        }).catch(err => {
+        getSizeDisplayOrderRows({ force: forceRefresh }).catch(err => {
           console.error('Failed to fetch size display order:', err.message);
           return [];
         })
