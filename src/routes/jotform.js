@@ -21,7 +21,7 @@ const multer = require('multer');
 const rateLimit = require('express-rate-limit');
 const router = express.Router();
 
-const { requireCrmApiSecret, requireCrmSecretOrBrowserOrigin } = require('../middleware');
+const { requireCrmApiSecret } = require('../middleware');
 const {
   JOTFORM_FORMS,
   insertLead,
@@ -148,10 +148,13 @@ router.post('/jotform/sync', requireCrmApiSecret, async (req, res) => {
 // GET /api/jotform/file?u=… — stream a JotForm upload to staff browsers.
 // JotForm upload links require a JotForm login to view; this fetches the file
 // server-side with the API key and streams it back, so attachments open right
-// in the Leads drawer. Gate = requireCrmSecretOrBrowserOrigin (the softer
-// staff-dashboard read gate); the URL is allow-listed to JotForm upload hosts
-// only, so this can never act as an open proxy.
-router.get('/jotform/file', requireCrmSecretOrBrowserOrigin, async (req, res) => {
+// in the Leads drawer/workspace.
+// UNGATED like its sibling /api/files/:externalKey (same customer-artwork
+// class, unguessable URLs): the original origin-or-secret gate 401'd normal
+// staff clicks — target=_blank links and privacy-stripped browsers send no
+// Referer (Erik hit this live 2026-07-18). The u= allow-list (JotForm upload
+// hosts ONLY) is what prevents open-proxy abuse.
+router.get('/jotform/file', async (req, res) => {
   const u = String(req.query.u || '').trim();
   if (!isJotformUploadUrl(u)) return res.status(400).json({ error: 'Not a JotForm upload URL' });
   const key = process.env.JOTFORM_API_KEY || '';
