@@ -453,6 +453,12 @@ router.get('/files/:externalKey', async (req, res) => {
         if (response.headers['content-disposition']) {
             res.setHeader('Content-Disposition', response.headers['content-disposition']);
         }
+        // ?download=1 → force save-as, keeping Caspio's real filename when it sent one
+        // (Leads drawer download buttons; additive — existing callers unaffected)
+        if (String(req.query.download) === '1') {
+            const dlName = (fn ? fn[1] : externalKey).replace(/["\\]/g, '');
+            res.setHeader('Content-Disposition', `attachment; filename="${dlName}"`);
+        }
 
         // Stream the file to the client
         response.data.pipe(res);

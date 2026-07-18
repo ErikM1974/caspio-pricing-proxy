@@ -178,7 +178,12 @@ router.get('/jotform/file', requireCrmSecretOrBrowserOrigin, async (req, res) =>
     }
     res.set('Content-Type', ctype);
     if (upstream.headers['content-length']) res.set('Content-Length', upstream.headers['content-length']);
-    res.set('Content-Disposition', 'inline');
+    // filename from the upload URL's basename; ?download=1 → save-as instead of inline view
+    let baseName = '';
+    try { baseName = decodeURIComponent(u.split('?')[0].split('/').pop() || ''); } catch (_) { baseName = u.split('/').pop() || ''; }
+    baseName = (baseName || 'attachment').replace(/["\\]/g, '').slice(0, 120);
+    const wantDownload = String(req.query.download) === '1';
+    res.set('Content-Disposition', `${wantDownload ? 'attachment' : 'inline'}; filename="${baseName}"`);
     res.set('Cache-Control', 'private, max-age=3600');
     upstream.data.pipe(res);
   } catch (e) {
