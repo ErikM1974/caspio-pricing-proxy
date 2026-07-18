@@ -164,7 +164,19 @@ router.get('/jotform/file', requireCrmSecretOrBrowserOrigin, async (req, res) =>
       timeout: 30000,
       maxRedirects: 3,
     });
-    res.set('Content-Type', upstream.headers['content-type'] || 'application/octet-stream');
+    // JotForm serves uploads as octet-stream — infer the real MIME from the
+    // extension so images/PDFs display in-browser instead of downloading
+    // (same trick as files-simple.js for Caspio's text/plain).
+    const EXT_MIME = {
+      jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif',
+      webp: 'image/webp', bmp: 'image/bmp', svg: 'image/svg+xml', pdf: 'application/pdf',
+    };
+    let ctype = upstream.headers['content-type'] || '';
+    if (!ctype || /octet-stream|text\/plain/i.test(ctype)) {
+      const ext = (u.split('?')[0].split('.').pop() || '').toLowerCase();
+      ctype = EXT_MIME[ext] || ctype || 'application/octet-stream';
+    }
+    res.set('Content-Type', ctype);
     if (upstream.headers['content-length']) res.set('Content-Length', upstream.headers['content-length']);
     res.set('Content-Disposition', 'inline');
     res.set('Cache-Control', 'private, max-age=3600');
