@@ -1,3 +1,11 @@
+## v2026.07.18.1 (2026-07-18)
+
+- perf(cache): shared TTL cache (`src/utils/ttl-cache.js`) + 1h static-table cache (`src/utils/caspio-static-tables.js`) — per-style caching on 9 hot endpoints (size-pricing, max-prices-by-style, base-item-costs, inventory, sizes-by-style-color, product-colors, color-swatches, product-details, stylesearch); PDP Caspio cost drops ~13→~1 calls/view (Caspio quota was 507K/500K)
+- perf(inventory): remove dead `/tables/Inventory` probe from /sizes-by-style-color (404'd on every call since 2026-06-18)
+- security(inventory/products/pricing): sanitize style/color interpolation in WHERE clauses; remove `sanitize()||rawInput` fallbacks; escape stylesearch LIKE term
+- feat(cache): GET /api/product-cache/clear — flush all product/pricing response caches (per-dyno); `?refresh=true` bypass on all cached endpoints
+- test: 4 hermetic jest suites for cache behavior (hit/miss/TTL/bypass/no-cache-on-degraded/error-propagation)
+
 ## v2026.07.01.1 (2026-07-01)
 
 - feat(portal-recs): candidate-pool columns on GET /recommendations for per-customer ranking

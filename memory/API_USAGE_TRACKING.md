@@ -1,9 +1,42 @@
 # API Usage Tracking & Optimization
 
-**Version**: 1.1.0
-**Deployed**: 2025-11-29 (Heroku v201)
-**Updated**: 2025-12-17
-**Status**: Production - HEALTHY
+**Version**: 1.2.0
+**Deployed**: 2025-11-29 (Heroku v201) · wave 2 2026-07-18
+**Updated**: 2026-07-18
+**Status**: Production
+
+## Wave 2 — July 2026 (per-style endpoint caching)
+
+July 2026 blew the quota again (507K/500K by day 22; ~100K one-off backfills but
+recurring baseline ≈18K/day ≈ 545K/mo by itself). Root cause: the per-style
+product endpoints were never cached — a PDP view cost ~13 Caspio calls. Fix
+(shared `src/utils/ttl-cache.js` + `src/utils/caspio-static-tables.js`):
+
+- **Cached (15 min, `?refresh=true` bypass)**: `/api/size-pricing`,
+  `/api/max-prices-by-style`, `/api/base-item-costs`, `/api/product-colors`,
+  `/api/color-swatches`, `/api/sizes-by-style-color` (style-keyed size run);
+  10 min: `/api/inventory` (memory-heavy rows), `/api/product-details`
+  (pre-`applyProductCopy` snapshot — copy overlay applied per request);
+  60 s: `/api/stylesearch` (per-keystroke LIKE scan).
+- **Static tables cached 1 h process-wide**: `Standard_Size_Upcharges` +
+  `Size_Display_Order` (were re-fetched in full on every pricing/size call,
+  incl. inside `/api/pricing-bundle`).
+- **Dead `/tables/Inventory` probe removed** from `/api/sizes-by-style-color`
+  (404'd on 100% of calls since 2026-06-18 — one doomed Caspio call per request).
+- **Rule 4 held**: expired cache never served; errors propagate; degraded
+  payloads (SanMar active-color filter down, upcharge fetch failed, empty
+  results) are served but never cached.
+- **Flush**: `GET /api/product-cache/clear` (per-dyno) or per-request
+  `?refresh=true`. Injection guards: `sanitize()||raw` fallbacks removed
+  (pricing-bundle style query, getStyleSizeRun); raw interpolations sanitized
+  in products.js/inventory.js.
+- Tests: `tests/jest/{ttl-cache,pricing-cache-routes,product-colors-cache,sizes-by-style-color-route}.test.js` (hermetic, mocked Caspio).
+
+Verify impact via `GET /api/admin/metrics` (`callsByTable`): expect Sanmar_Bulk
+sharply down, Standard_Size_Upcharges + Size_Display_Order → ~24-50/day,
+`/tables/Inventory` → 0. Companion frontend work (same date, pricing-index
+repo): dashboard pollers pause when tab hidden; hourly quote bulk-sync got
+age-based backoff + cancelled-row exclusion.
 
 ## Results Summary (December 2025)
 
