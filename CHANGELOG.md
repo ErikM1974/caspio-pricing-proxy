@@ -1,3 +1,8 @@
+## v2026.07.18.8 (2026-07-18)
+
+- fix(lead-outreach): drop the company from template prose when it's really just the person again (blank, equals the contact name, or the modal's "Individual — Name" fallback) — "custom apparel for Jordan Hibbard — I'll be your…" now reads "custom apparel — I'll be your…"; real companies unchanged (+jest cases)
+- 🔒 fix(lead-digest): `GET /api/lead-digest/scan` was ANONYMOUS (dry-run report exposes lead companies/contacts + AE emails) — now requireCrmApiSecret, same posture as /lead-activity (the orders-router "enumerate every route" lesson again)
+
 ## v2026.07.18.7 (2026-07-18)
 
 - feat(leads-crm): manual lead capture — new Form_ID `manual-lead` (prefix MNL, default Status New) for phone/walk-in leads logged by staff from the Leads board; Slack card "📞 New PHONE/WALK-IN LEAD"; counts in the follow-up digest; arrival enrichment runs but SKIPS the rep email when the logging AE already picked a rep (no self-notify noise)

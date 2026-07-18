@@ -129,7 +129,10 @@ router.post('/lead-outreach', requireCrmApiSecret, async (req, res) => {
 // --- Follow-up digest admin (clone of the AE approval-digest admin pattern) ---
 
 // GET /lead-digest/scan — dry-run: what WOULD be sent, per AE. No email.
-router.get('/lead-digest/scan', async (req, res) => {
+// CRM-secret gated (2026-07-18): the dry-run report lists lead companies,
+// contacts, and AE emails — same posture as /lead-activity, and the same
+// "every route a router registers" lesson as the orders-router side doors.
+router.get('/lead-digest/scan', requireCrmApiSecret, async (req, res) => {
   try {
     const { runLeadFollowupDigest } = require('../utils/lead-followup-digest');
     const result = await runLeadFollowupDigest({ dryRun: true });

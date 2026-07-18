@@ -87,6 +87,19 @@ const TEMPLATES = {
   },
 };
 
+// A "company" that is really just the person again reads awkwardly in prose
+// ("custom apparel for Jordan Hibbard — I'll be your…"). Solo submitters get
+// their own name (QRQ) or the modal's "Individual — Name" fallback stored in
+// Company — treat those as no-company so templates phrase around it.
+function meaningfulCompany(company, contactName) {
+  const co = String(company || '').trim();
+  if (!co) return '';
+  if (/^individual\s*[—-]/i.test(co)) return '';
+  const norm = (s) => s.toLowerCase().replace(/\s+/g, ' ').trim();
+  if (contactName && norm(co) === norm(contactName)) return '';
+  return co;
+}
+
 /**
  * @param {string} key — template key
  * @param {{contactName, company, aeName}} ctx
@@ -95,7 +108,8 @@ const TEMPLATES = {
 function buildOutreach(key, ctx) {
   const t = TEMPLATES[key];
   if (!t) return null;
-  const built = t.build(ctx || {});
+  const c = ctx || {};
+  const built = t.build({ ...c, company: meaningfulCompany(c.company, c.contactName) });
   return { label: t.label, subject: built.subject, bodyHtml: built.bodyHtml };
 }
 

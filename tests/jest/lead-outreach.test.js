@@ -30,4 +30,18 @@ describe('buildOutreach', () => {
     expect(b.bodyHtml).toContain('&lt;img');
     expect(b.subject).not.toContain('<b>');
   });
+
+  test('company that is just the person again is dropped from the prose', () => {
+    // QRQ solo submitters carry their own name in Company
+    const same = buildOutreach('intro', { contactName: 'Jordan Hibbard', company: 'Jordan  hibbard', aeName: 'Taneisha Clark' });
+    expect(same.bodyHtml).not.toContain('for Jordan');
+    expect(same.bodyHtml).toContain('about custom apparel —');
+    // the manual-lead modal fallback
+    const solo = buildOutreach('checking-in', { contactName: 'Pat Walkin', company: 'Individual — Pat Walkin', aeName: 'Nika Lao' });
+    expect(solo.subject).toBe('Still thinking about custom apparel?');
+    expect(solo.bodyHtml).not.toContain('Individual');
+    // a real company still shows
+    const real = buildOutreach('intro', { contactName: 'Jordan Hibbard', company: 'NW Equipment', aeName: 'Taneisha Clark' });
+    expect(real.bodyHtml).toContain('for NW Equipment');
+  });
 });
