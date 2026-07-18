@@ -1,3 +1,8 @@
+## v2026.07.18.6 (2026-07-18)
+
+- feat(leads-crm): in-app lead forms (quote-request / webstore-request / team-roster) now get the SAME arrival enrichment as JotForm leads — fire-and-forget AE auto-assign (email match → AE else Taneisha; roster keeps a customer-chosen rep, blanks only) + Matched_ID_Customer stamp + EmailJS rep notification. Enrichment can never fail or slow the customer's save.
+- feat(rep-email-map): 'House' → sales@ (house-account CSR on some ShopWorks contacts previously fell to the unassigned bucket)
+
 ## v2026.07.18.5 (2026-07-18)
 
 - feat(leads-crm): digest + new-lead-email deep links now open the full lead workspace (`/dashboards/lead.html#<id>` — still hash-only, QP-safe)

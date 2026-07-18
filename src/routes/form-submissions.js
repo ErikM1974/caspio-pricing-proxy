@@ -123,6 +123,39 @@ router.post('/', submitLimiter, async (req, res) => {
       });
     }
 
+    // Leads CRM enrichment for the IN-APP lead forms — parity with the JotForm
+    // ingest (2026-07-18): auto-assign the AE (customer email match → their AE,
+    // else Taneisha) + email them. Fire-and-forget AFTER the 201 — enrichment
+    // must never fail or slow a customer's submission. team-roster keeps a
+    // customer-chosen rep when one was entered (we only fill blanks).
+    if (LEAD_NOTIFY_FORMS.has(formId) && formId !== 'jotform-lead') {
+      const IN_APP_SOURCE_TITLES = {
+        'quote-request': 'Quote Request (teamnwca.com)',
+        'webstore-request': 'Webstore Inquiry',
+        'team-roster': 'Team Roster',
+      };
+      setImmediate(async () => {
+        try {
+          const { assignLead } = require('../utils/jotform');
+          const { sendLeadEmail } = require('../utils/send-lead-email');
+          const assign = await assignLead({ email: record.Email });
+          const updates = {};
+          if (!record.Sales_Rep && assign.salesRep) updates.Sales_Rep = assign.salesRep;
+          if (assign.matchedIdCustomer) updates.Matched_ID_Customer = assign.matchedIdCustomer;
+          if (Object.keys(updates).length) {
+            await caspioPut(SUBMISSIONS_PATH, `Submission_ID='${record.Submission_ID}'`, updates);
+          }
+          sendLeadEmail({
+            record: { ...record, ...updates, Sales_Rep: record.Sales_Rep || assign.salesRep },
+            sourceTitle: IN_APP_SOURCE_TITLES[formId] || formId,
+            matchedCompany: assign.matchedCompany,
+          });
+        } catch (e) {
+          console.warn('[form-submissions] lead enrichment failed (save unaffected):', e.message);
+        }
+      });
+    }
+
     res.status(201).json({ submissionId: record.Submission_ID });
   } catch (e) {
     console.error('[form-submissions] save failed:', e.message);

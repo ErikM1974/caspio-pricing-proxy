@@ -19,7 +19,8 @@ const REP_EMAIL_MAP = {
     'Jim':      'jim@nwcustomapparel.com',
     'Bradley':  'bradley@nwcustomapparel.com',
     'Steve':    'art@nwcustomapparel.com',
-    'General':  'sales@nwcustomapparel.com'   // "General Sales"
+    'General':  'sales@nwcustomapparel.com',  // "General Sales"
+    'House':    'sales@nwcustomapparel.com'   // house-account CSR on some ShopWorks contacts
 };
 
 // Only the internal domain is allowed to receive AE digests. User_Email on
