@@ -143,8 +143,8 @@ function fmtValue(v) {
   return isFinite(n) && n > 0 ? ' · est. $' + n.toLocaleString('en-US') : '';
 }
 
-// Deep link — #hash only (no '='). P2 flips the page to lead.html.
-const LEAD_PAGE = '/dashboards/leads.html#';
+// Deep link — #hash only (no '='). Opens the full lead workspace (P2).
+const LEAD_PAGE = '/dashboards/lead.html#';
 
 function buildRowsHtml(kind, rows) {
   const shown = rows.slice(0, SECTION_CAP);

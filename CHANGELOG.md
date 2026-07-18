@@ -1,3 +1,7 @@
+## v2026.07.18.5 (2026-07-18)
+
+- feat(leads-crm): digest + new-lead-email deep links now open the full lead workspace (`/dashboards/lead.html#<id>` — still hash-only, QP-safe)
+
 ## v2026.07.18.4 (2026-07-18)
 
 - feat(leads-crm): activity timeline — new `Lead_Activity` Caspio table (Submission_ID FK, typed note/status/attachment/quote/system rows, TEXT body, server-stamped Created_At) + `GET/POST /api/lead-activity` (CRM-secret; staff reach it via the main app's session forwarder); attachment URLs allow-listed to proxy `/api/files/` + JotForm hosts

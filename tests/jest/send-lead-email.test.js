@@ -47,7 +47,7 @@ describe('buildParams', () => {
 
     test('lead_link uses a #hash and carries NO "=" (quoted-printable mangling)', () => {
         const p = buildParams({ record });
-        expect(p.lead_link).toBe('https://teamnwca.com/dashboards/leads.html#JFL0718-4821');
+        expect(p.lead_link).toBe('https://teamnwca.com/dashboards/lead.html#JFL0718-4821');
         expect(p.lead_link.indexOf('=')).toBe(-1);
     });
 

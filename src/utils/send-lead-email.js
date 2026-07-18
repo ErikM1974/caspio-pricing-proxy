@@ -75,7 +75,7 @@ function buildParams(args) {
             ? 'Existing ShopWorks customer #' + record.Matched_ID_Customer +
               (args.matchedCompany ? ' — ' + args.matchedCompany : '')
             : 'New prospect (no ShopWorks match)',
-        lead_link: SITE_ORIGIN + '/dashboards/leads.html#' + encodeURIComponent(record.Submission_ID || ''),
+        lead_link: SITE_ORIGIN + '/dashboards/lead.html#' + encodeURIComponent(record.Submission_ID || ''),
         from_name: 'NWCA Leads',
     };
 }

@@ -95,7 +95,7 @@ describe('section html', () => {
     expect(__test__.buildSectionHtml('Overdue', '🔴', 'overdue', [])).toBe('');
     const html = __test__.buildSectionHtml('Overdue', '🔴', 'overdue',
       [lead({ Submission_ID: 'JFL0715-1', Due_Date: '2026-07-15', daysOverdue: 3 })]);
-    expect(html).toContain('/dashboards/leads.html#JFL0715-1');
+    expect(html).toContain('/dashboards/lead.html#JFL0715-1');
     const hrefs = html.match(/href="([^"]+)"/g) || [];
     expect(hrefs.length).toBeGreaterThan(0);
     hrefs.forEach((h) => {
