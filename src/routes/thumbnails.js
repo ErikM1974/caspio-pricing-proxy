@@ -645,7 +645,8 @@ router.get('/thumbnails/uploaded-ids', async (req, res) => {
         'q.where': "FileUrl IS NOT NULL AND FileUrl != ''",
         'q.select': 'ID_Serial,FileSizeNumber,timestamp_Uploaded',
         'q.orderBy': 'PK_ID' // stable pagination — sync scripts diff against this list; dropped rows = re-uploads
-      }
+      },
+      { maxPages: 100 } // table is 27k+ rows; the default 20-page (20k) cap silently truncated → sync re-uploaded the missing rows (matches all-ids)
     );
 
     const uploaded = records.map(r => ({
