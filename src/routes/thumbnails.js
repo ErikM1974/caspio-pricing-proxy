@@ -706,6 +706,29 @@ router.post('/thumbnails/upload-with-stub', upload.single('file'), async (req, r
     const idSerial = parseInt(match[1], 10);
     console.log(`[Thumbnails] Processing upload for ID_Serial ${idSerial}: ${fileName} (${fileSize} bytes)`);
 
+    // Box-only mode (?target=box&csv=1): upload the image to Box and return its id/url
+    // with ZERO Caspio calls — the row's FileUrl is set later via a bulk CSV import
+    // (import quota, not the Integrations API budget). Used to backfill images off-budget.
+    if ((req.query.target === 'box' || req.query.store === 'box') && req.query.csv === '1') {
+      const folderId = process.env.BOX_THUMBNAIL_ARCHIVE_FOLDER_ID;
+      if (!folderId) return res.status(500).json({ success: false, error: 'BOX_THUMBNAIL_ARCHIVE_FOLDER_ID not set' });
+      let boxFile;
+      try {
+        boxFile = await uploadFileToBox(folderId, fileName, req.file.buffer, req.file.mimetype);
+      } catch (uploadError) {
+        if (uploadError.response && uploadError.response.status === 409) {
+          const ts = new Date().toISOString().replace(/[:.]/g, '-').replace('Z', '');
+          const dot = fileName.lastIndexOf('.');
+          const uniq = dot <= 0 ? `${fileName}_${ts}` : `${fileName.slice(0, dot)}_${ts}${fileName.slice(dot)}`;
+          boxFile = await uploadFileToBox(folderId, uniq, req.file.buffer, req.file.mimetype);
+        } else { throw uploadError; }
+      }
+      return res.json({
+        success: true, thumbnailId: idSerial, boxId: boxFile.id,
+        fileUrl: `${THUMB_ARCHIVE_PROXY_BASE}/api/box/thumbnail/${boxFile.id}`, fileSize
+      });
+    }
+
     // Check if record exists (don't check ExternalKey - allow re-uploads)
     const existing = await makeCaspioRequest(
       'get',
