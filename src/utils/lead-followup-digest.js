@@ -26,7 +26,7 @@ const { resolveAEEmailLoose, resolveAEName } = require('./rep-email-map');
 
 const SITE_ORIGIN = process.env.SITE_ORIGIN || 'https://www.teamnwca.com';
 
-const LEAD_FORM_IDS = ['jotform-lead', 'quote-request', 'webstore-request', 'team-roster'];
+const LEAD_FORM_IDS = ['jotform-lead', 'quote-request', 'webstore-request', 'team-roster', 'manual-lead'];
 // Mirrors the frontend's WON_STATUSES ∪ {Lost, Archived} (dashboards/js/leads.js) —
 // keep in sync if the pipeline vocabulary changes.
 const TERMINAL_STATUSES = ['Won', 'Lost', 'Archived', 'Launched', 'Completed', 'Entered in ShopWorks'];

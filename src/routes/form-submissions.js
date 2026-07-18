@@ -133,6 +133,7 @@ router.post('/', submitLimiter, async (req, res) => {
         'quote-request': 'Quote Request (teamnwca.com)',
         'webstore-request': 'Webstore Inquiry',
         'team-roster': 'Team Roster',
+        'manual-lead': 'Phone/Walk-in',
       };
       setImmediate(async () => {
         try {
@@ -145,11 +146,16 @@ router.post('/', submitLimiter, async (req, res) => {
           if (Object.keys(updates).length) {
             await caspioPut(SUBMISSIONS_PATH, `Submission_ID='${record.Submission_ID}'`, updates);
           }
-          sendLeadEmail({
-            record: { ...record, ...updates, Sales_Rep: record.Sales_Rep || assign.salesRep },
-            sourceTitle: IN_APP_SOURCE_TITLES[formId] || formId,
-            matchedCompany: assign.matchedCompany,
-          });
+          // A manual lead where the AE already picked a rep (usually themselves)
+          // doesn't need a "new lead" email to that same rep — skip the noise.
+          const skipRepEmail = formId === 'manual-lead' && !!record.Sales_Rep;
+          if (!skipRepEmail) {
+            sendLeadEmail({
+              record: { ...record, ...updates, Sales_Rep: record.Sales_Rep || assign.salesRep },
+              sourceTitle: IN_APP_SOURCE_TITLES[formId] || formId,
+              matchedCompany: assign.matchedCompany,
+            });
+          }
         } catch (e) {
           console.warn('[form-submissions] lead enrichment failed (save unaffected):', e.message);
         }

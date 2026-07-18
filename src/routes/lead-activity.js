@@ -58,6 +58,74 @@ router.post('/lead-activity', requireCrmApiSecret, async (req, res) => {
   }
 });
 
+// POST /lead-outreach — one-click AE outreach email to a lead, staff-only via
+// the main app's /api/crm-proxy/lead-outreach* forwarder.
+//   { submissionId, template, lead:{contactName,email,company}, aeName, aeEmail, preview? }
+// preview:true → { label, subject, bodyHtml } without sending.
+// send → EmailJS template_lead_outreach (To = the LEAD, Reply-To = the AE)
+//        + an 'email' Lead_Activity row. Lead fields ride in from the staff
+//        page (same trust model as Updated_By) so preview/send costs zero
+//        Caspio reads; the activity log is the only write.
+router.post('/lead-outreach', requireCrmApiSecret, async (req, res) => {
+  const body = req.body || {};
+  const { buildOutreach } = require('../utils/lead-outreach-templates');
+  const submissionId = sanitizeId(body.submissionId);
+  const lead = body.lead || {};
+  const toEmail = String(lead.email || '').trim();
+  const aeName = String(body.aeName || '').trim() || 'Northwest Custom Apparel';
+  const aeEmail = String(body.aeEmail || '').trim();
+
+  const built = buildOutreach(String(body.template || ''), {
+    contactName: lead.contactName,
+    company: lead.company,
+    aeName: aeName,
+  });
+  if (!built) return res.status(400).json({ error: 'Unknown outreach template' });
+  if (!submissionId) return res.status(400).json({ error: 'submissionId is required' });
+
+  if (body.preview) return res.json({ preview: true, ...built });
+
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(toEmail)) {
+    return res.status(400).json({ error: 'Lead has no valid email address' });
+  }
+  const serviceId = process.env.EMAILJS_SERVICE_ID;
+  const templateId = process.env.EMAILJS_TEMPLATE_LEAD_OUTREACH;
+  const publicKey = process.env.EMAILJS_PUBLIC_KEY;
+  const privateKey = process.env.EMAILJS_PRIVATE_KEY;
+  if (!serviceId || !templateId || !publicKey || !privateKey) {
+    return res.status(503).json({ error: 'Outreach email not configured — set EMAILJS_TEMPLATE_LEAD_OUTREACH.' });
+  }
+
+  try {
+    const emailjs = require('@emailjs/nodejs');
+    const resp = await emailjs.send(serviceId, templateId, {
+      to_email: toEmail,
+      reply_to: /@nwcustomapparel\.com$/i.test(aeEmail) ? aeEmail : 'sales@nwcustomapparel.com',
+      from_name: aeName + ' — Northwest Custom Apparel',
+      subject: built.subject,
+      body_html: built.bodyHtml,
+    }, { publicKey, privateKey });
+
+    // Timeline entry (fire-and-forget — the email already went)
+    makeCaspioRequest('post', ACTIVITY_PATH, {}, {
+      Submission_ID: submissionId,
+      Activity_Type: 'email',
+      Activity_Text: `Emailed “${built.label}” → ${toEmail}`,
+      Attachment_URL: '',
+      Created_By: aeEmail || 'leads-page',
+      Created_At: nowIso(),
+      Parent_PK: null,
+    }).catch((e) => console.warn('[lead-outreach] activity log failed (email already sent):', e.message));
+
+    console.log(`[lead-outreach] ${built.label} → ${toEmail} for ${submissionId} by ${aeEmail} (status ${resp.status})`);
+    res.json({ sent: true, label: built.label, to: toEmail });
+  } catch (err) {
+    const errText = (err && (err.text || err.message)) || JSON.stringify(err);
+    console.error('[lead-outreach] send failed:', errText);
+    res.status(502).json({ error: 'Email NOT sent: ' + errText });
+  }
+});
+
 // --- Follow-up digest admin (clone of the AE approval-digest admin pattern) ---
 
 // GET /lead-digest/scan — dry-run: what WOULD be sent, per AE. No email.

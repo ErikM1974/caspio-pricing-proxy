@@ -1,3 +1,10 @@
+## v2026.07.18.7 (2026-07-18)
+
+- feat(leads-crm): manual lead capture — new Form_ID `manual-lead` (prefix MNL, default Status New) for phone/walk-in leads logged by staff from the Leads board; Slack card "📞 New PHONE/WALK-IN LEAD"; counts in the follow-up digest; arrival enrichment runs but SKIPS the rep email when the logging AE already picked a rep (no self-notify noise)
+- feat(leads-crm): one-click outreach — `POST /api/lead-outreach` (CRM-secret; staff via the main app's forwarder): 4 server-built templates (`src/utils/lead-outreach-templates.js` — intro / quote-followup / checking-in / won-thanks, every lead value HTML-escaped), `preview:true` returns {label,subject,bodyHtml} without sending; send goes EmailJS `EMAILJS_TEMPLATE_LEAD_OUTREACH` (To=lead, Reply-To=AE if @nwcustomapparel.com else sales@) then logs an `email` Lead_Activity row
+- feat(lead-activity): Activity_Type allowlist += `email`
+- test: lead-outreach jest suite (template build, unknown-key null, XSS-escape lock)
+
 ## v2026.07.18.6 (2026-07-18)
 
 - feat(leads-crm): in-app lead forms (quote-request / webstore-request / team-roster) now get the SAME arrival enrichment as JotForm leads — fire-and-forget AE auto-assign (email match → AE else Taneisha; roster keeps a customer-chosen rep, blanks only) + Matched_ID_Customer stamp + EmailJS rep notification. Enrichment can never fail or slow the customer's save.

@@ -18,6 +18,7 @@ const FORM_LABELS = {
   'quote-request': '💬 New QUOTE REQUEST',
   'webstore-request': '🏪 New WEBSTORE inquiry',
   'jotform-lead': '🌐 New WEBSITE LEAD',
+  'manual-lead': '📞 New PHONE/WALK-IN LEAD',
 };
 
 // rep + sourceTitle are optional (JotForm leads set both: auto-assigned AE or

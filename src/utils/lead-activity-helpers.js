@@ -3,7 +3,7 @@
 // form-submission-helpers.js).
 'use strict';
 
-const ACTIVITY_TYPES = ['note', 'status', 'attachment', 'quote', 'system'];
+const ACTIVITY_TYPES = ['note', 'status', 'attachment', 'quote', 'system', 'email'];
 
 // Activity_Text is a Caspio TEXT column (64K) — long-cap, NOT the default
 // 255-char S() from form-submission-helpers.

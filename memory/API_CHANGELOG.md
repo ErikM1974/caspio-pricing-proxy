@@ -5,6 +5,22 @@ All notable changes to the Caspio Pricing Proxy API will be documented in this f
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.0] - 2026-07-18
+
+### Added - Leads CRM extras (manual capture + one-click outreach)
+
+- **Form_ID `manual-lead`** (prefix `MNL`, default Status `New`) — staff-logged phone/walk-in
+  leads via the public `POST /api/form-submissions` (company required; `salesRep`/`dueDateIso`
+  honored). In `LEAD_NOTIFY_FORMS` (Slack "📞 New PHONE/WALK-IN LEAD") and the follow-up digest;
+  arrival enrichment skips the rep email when the logger already picked a rep.
+- **`POST /api/lead-outreach`** (CRM-secret; browsers via `/api/crm-proxy/lead-outreach`):
+  `{submissionId, template, lead:{contactName,email,company}, aeName, aeEmail, preview?}`.
+  Templates in `src/utils/lead-outreach-templates.js` (intro | quote-followup | checking-in |
+  won-thanks — all lead values HTML-escaped). `preview:true` → `{label,subject,bodyHtml}`;
+  send → EmailJS `EMAILJS_TEMPLATE_LEAD_OUTREACH` (To=lead; Reply-To=AE only if
+  `@nwcustomapparel.com`, else sales@) → `{sent,label,to}` + an `email` Lead_Activity row.
+- `Lead_Activity.Activity_Type` allowlist += `email`.
+
 ## [1.8.0] - 2026-07-18
 
 ### Added - Leads CRM v2 phase 1 (activity timeline + follow-up digest)
