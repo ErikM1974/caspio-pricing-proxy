@@ -1,3 +1,11 @@
+## v2026.07.18.2 (2026-07-18)
+
+- feat(leads): JotForm lead ingest — POST /api/jotform/webhook (token-gated fast-ack multipart receiver), POST /api/jotform/sync (CRM-secret reconcile), GET /api/jotform/health; the 6 JotForm lead forms normalize into Form_Submissions as Form_ID='jotform-lead' (prefix JFL, External_ID dedupe) with AE auto-assignment (exact-email match in CompanyContactsMerge2026 → contact's rep + Matched_ID_Customer, Sales_Reps_2026 fallback; else Taneisha Clark) + #form-leads Slack card showing rep + source form
+- feat(form-submissions): GET accepts formIds= (comma list) + statusNot= + limit= (≤2000, pageSize 500); PUT whitelist adds Sales_Rep / Matched_ID_Customer / Linked_Quote_ID (Leads CRM page writes)
+- feat(schema): Form_Submissions +4 STRING columns (External_Source, External_ID, Matched_ID_Customer, Linked_Quote_ID) via create-form-submissions-tables.js field-sync — run `node scripts/create-form-submissions-tables.js --apply` once
+- feat(scripts): register-jotform-webhooks (idempotent; --list/--remove/--form/--sample) · jotform-reconcile (daily Heroku Scheduler webhook-miss backstop) · backfill-jotform-csv (LOCAL one-off → Caspio CSV import = $0 Integrations quota; offline AE assignment; JFL{MMDD}-nnnn historical ids; >60d rows land Archived)
+- test: jotform-normalizer jest suite (19 tests — both payload shapes, assignment pick, record build, webhook secret compare, account-TZ → ISO conversion)
+
 ## v2026.07.18.1 (2026-07-18)
 
 - perf(cache): shared TTL cache (`src/utils/ttl-cache.js`) + 1h static-table cache (`src/utils/caspio-static-tables.js`) — per-style caching on 9 hot endpoints (size-pricing, max-prices-by-style, base-item-costs, inventory, sizes-by-style-color, product-colors, color-swatches, product-details, stylesearch); PDP Caspio cost drops ~13→~1 calls/view (Caspio quota was 507K/500K)

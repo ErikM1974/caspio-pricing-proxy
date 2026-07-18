@@ -5,6 +5,28 @@ All notable changes to the Caspio Pricing Proxy API will be documented in this f
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0] - 2026-07-18
+
+### Added - JotForm lead ingest (Leads CRM)
+
+- `POST /api/jotform/webhook?secret=…` — multipart receiver for the 6 JotForm lead forms; fast-200
+  ack then async normalize → AE auto-assign → insert into `Form_Submissions`
+  (`Form_ID='jotform-lead'`, prefix `JFL`, `External_ID` = JotForm submissionID as dedupe key) +
+  `#form-leads` Slack card. Public by design with a constant-time `?secret=` token gate (JotForm
+  cannot send custom headers). Unparseable posts are acked 200 so JotForm never retry-storms; the
+  daily reconcile is the correctness net.
+- `POST /api/jotform/sync` (`x-crm-api-secret`) — pulls the last N days (default 2) from the JotForm
+  REST API and ingests anything the webhook missed. `GET /api/jotform/health` — config flags +
+  in-memory ingest state.
+- Assignment rule: exact-email match in `CompanyContactsMerge2026` → that customer's AE
+  (`Sales_Rep`, `Sales_Reps_2026.CustomerServiceRep` fallback) + `Matched_ID_Customer`; no match →
+  Taneisha Clark. A lookup failure defaults the rep — it never drops the lead.
+- `GET /api/form-submissions` — new `formIds` (comma list), `statusNot`, `limit` (≤2000) params.
+  `PUT /api/form-submissions/:id` — whitelist adds `Sales_Rep`, `Matched_ID_Customer`,
+  `Linked_Quote_ID`.
+- `Form_Submissions` +4 STRING columns: `External_Source` (`jotform:{formID}`), `External_ID`,
+  `Matched_ID_Customer`, `Linked_Quote_ID` (table-script field-sync).
+
 ## [1.6.0] - 2026-07-18
 
 ### Security - CRM-secret gate on the orders router's escaped mounts

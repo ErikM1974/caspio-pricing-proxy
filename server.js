@@ -1199,6 +1199,15 @@ const gatePublicSaveOnly = (req, res, next) =>
 app.use('/api/form-submissions', gatePublicSaveOnly, formSubmissionsRoutes);
 console.log('✓ Form Submissions routes loaded [reads + push CRM-gated]');
 
+// JotForm lead ingest (Leads CRM) — website leads from the 6 JotForm forms →
+// Form_Submissions rows (Form_ID='jotform-lead', prefix JFL) with AE
+// auto-assignment (Taneisha default). The webhook POST is public by design,
+// gated by a ?secret= token (JotForm can't send custom headers); /sync needs
+// the CRM secret; /health is a public read. See src/routes/jotform.js.
+const jotformRoutes = require('./src/routes/jotform');
+app.use('/api', jotformRoutes);
+console.log('✓ JotForm lead routes loaded [webhook token-gated]');
+
 // Blog Posts (Blog_Posts table) — the main site's /blog SSR + homepage teaser
 // read Published posts publicly; drafts and all writes need the CRM secret
 // (staff Blog Editor via the main app's /api/crm-proxy/blog-posts forwarder).

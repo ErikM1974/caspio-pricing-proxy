@@ -130,21 +130,31 @@ router.post('/', submitLimiter, async (req, res) => {
   }
 });
 
-// GET /api/form-submissions?form=&status=&q=&limit= → { submissions } (secret-gated at mount)
+// GET /api/form-submissions?form=&formIds=&status=&statusNot=&q=&limit= → { submissions }
+// (secret-gated at mount). formIds = comma list for the Leads page's one-call
+// multi-form read; statusNot excludes a status (e.g. Archived) server-side.
 router.get('/', async (req, res) => {
   try {
     const where = [];
     if (req.query.form && FORM_PREFIX[req.query.form]) where.push(`Form_ID='${req.query.form}'`);
+    if (req.query.formIds) {
+      const ids = String(req.query.formIds).split(',').map((s) => s.trim()).filter((f) => FORM_PREFIX[f]);
+      if (ids.length) where.push(`Form_ID IN (${ids.map((f) => `'${f}'`).join(',')})`);
+    }
     const status = sanitizeLike(req.query.status);
     if (status) where.push(`Status='${status}'`);
+    const statusNot = sanitizeLike(req.query.statusNot);
+    if (statusNot) where.push(`Status<>'${statusNot}'`);
     const q = sanitizeLike(req.query.q);
     if (q) where.push(`(Company LIKE '%${q}%' OR Contact_Name LIKE '%${q}%' OR Submission_ID LIKE '%${q}%')`);
 
-    const params = { 'q.pageSize': 200, 'q.orderBy': 'Submitted_At DESC' };
+    // default 600 rows (legacy Inbox behavior); Leads "show archived" may raise it
+    const limit = Math.min(2000, Math.max(1, parseInt(req.query.limit, 10) || 600));
+    const params = { 'q.pageSize': 500, 'q.orderBy': 'Submitted_At DESC' };
     if (where.length) params['q.where'] = where.join(' AND ');
 
-    const rows = await fetchAllCaspioPages(SUBMISSIONS_PATH, params, { maxPages: 3 });
-    res.json({ submissions: rows || [] });
+    const rows = await fetchAllCaspioPages(SUBMISSIONS_PATH, params, { maxPages: Math.ceil(limit / 500) });
+    res.json({ submissions: (rows || []).slice(0, limit) });
   } catch (e) {
     console.error('[form-submissions] list failed:', e.message);
     res.status(502).json({ error: 'Submissions lookup failed' });
@@ -220,11 +230,11 @@ router.put('/items/:pkId', async (req, res) => {
   }
 });
 
-// PUT /api/form-submissions/:submissionId → status / art-link updates
+// PUT /api/form-submissions/:submissionId → status / art-link / Leads-CRM updates
 router.put('/:submissionId', async (req, res) => {
   const id = sanitizeId(req.params.submissionId);
   if (!id) return res.status(400).json({ error: 'Invalid submission id' });
-  const ALLOWED = ['Status', 'Updated_By', 'Art_Request_ID', 'Due_Date'];
+  const ALLOWED = ['Status', 'Updated_By', 'Art_Request_ID', 'Due_Date', 'Sales_Rep', 'Matched_ID_Customer', 'Linked_Quote_ID'];
   const updates = {};
   for (const k of ALLOWED) if (req.body && req.body[k] !== undefined) updates[k] = S(req.body[k]);
   if (!Object.keys(updates).length) return res.status(400).json({ error: 'No updatable fields supplied' });

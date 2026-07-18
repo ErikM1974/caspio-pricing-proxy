@@ -17,18 +17,25 @@ const SITE_ORIGIN = process.env.SITE_ORIGIN || 'https://www.teamnwca.com';
 const FORM_LABELS = {
   'quote-request': '💬 New QUOTE REQUEST',
   'webstore-request': '🏪 New WEBSTORE inquiry',
+  'jotform-lead': '🌐 New WEBSITE LEAD',
 };
 
-async function notifyFormLead({ formId, submissionId, company, contactName, phone, email, summary }) {
+// rep + sourceTitle are optional (JotForm leads set both: auto-assigned AE or
+// the Taneisha default, and which of the 6 JotForm forms it came through).
+async function notifyFormLead({ formId, submissionId, company, contactName, phone, email, summary, rep, sourceTitle }) {
   if (!WEBHOOK_URL) return; // not configured — silent no-op by design
 
   const label = FORM_LABELS[formId] || `📥 New ${formId}`;
+  const inboxLink = formId === 'jotform-lead'
+    ? `<${SITE_ORIGIN}/dashboards/leads.html|Open the Leads board>`
+    : `<${SITE_ORIGIN}/dashboards/form-submissions.html|Open the Forms Inbox>`;
   const lines = [
-    `*${label}* — \`${submissionId}\``,
+    `*${label}*${sourceTitle ? ` (${sourceTitle})` : ''} — \`${submissionId}\``,
     `*${company || '(no company)'}*${contactName ? ' · ' + contactName : ''}`,
     [phone, email].filter(Boolean).join(' · '),
     summary || '',
-    `<${SITE_ORIGIN}/dashboards/form-submissions.html|Open the Forms Inbox>`,
+    rep ? `Assigned: *${rep}*` : '',
+    inboxLink,
   ].filter(Boolean);
 
   try {

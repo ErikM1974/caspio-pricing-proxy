@@ -48,6 +48,11 @@ const TABLES = [
       { Name: 'Art_Request_ID', Type: 'STRING' }, // set when an artwork-request row is pushed to Art Hub
       { Name: 'Pushed_To_ShopWorks', Type: 'STRING' }, // 'Yes' after the AEO→SW push (dup guard)
       { Name: 'ShopWorks_Order_ID', Type: 'STRING' },  // ExtOrderID written back by the push
+      // Leads CRM columns (2026-07-18) — JotForm ingest + ShopWorks customer linkage
+      { Name: 'External_Source', Type: 'STRING' },     // 'jotform:{formID}' — which of the 6 JotForm lead forms
+      { Name: 'External_ID', Type: 'STRING' },         // JotForm submissionID — app-level dedupe key (NOT Unique: legacy rows are blank)
+      { Name: 'Matched_ID_Customer', Type: 'STRING' }, // ShopWorks id_Customer (auto email-match at ingest, or staff "Link customer")
+      { Name: 'Linked_Quote_ID', Type: 'STRING' },     // optional lead → quote_sessions.QuoteID link
     ],
   },
   {

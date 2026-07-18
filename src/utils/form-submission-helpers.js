@@ -23,6 +23,7 @@ const FORM_PREFIX = {
   'injury-report': 'INJ',
   'credit-card-auth': 'CCA',   // stores IDENTITY only (last4/expiry) — PAN/CVV never; strip enforced
   'quote-request': 'QRQ',      // PUBLIC customer lead form — Slack-notified on arrival
+  'jotform-lead': 'JFL',       // JotForm website leads (6 forms) — ingested by src/routes/jotform.js, never posted by a twin
 };
 
 const DEFAULT_STATUS = {
@@ -43,6 +44,7 @@ const DEFAULT_STATUS = {
   'injury-report': 'Open',
   'credit-card-auth': 'New',
   'quote-request': 'New',
+  'jotform-lead': 'New',
 };
 
 // PUBLIC lead forms → Slack ping on arrival (the Inbox is pull; a quote lead
@@ -50,7 +52,7 @@ const DEFAULT_STATUS = {
 // staff twin AND the public inquiry — both are worth a ping. team-roster is
 // linked from the webstore spokes' names-and-numbers sections (2026-07-16) —
 // a customer roster arriving silently would read as "order placed" to them.
-const LEAD_NOTIFY_FORMS = new Set(['quote-request', 'webstore-request', 'team-roster']);
+const LEAD_NOTIFY_FORMS = new Set(['quote-request', 'webstore-request', 'team-roster', 'jotform-lead']);
 
 // Forms whose payloads must NEVER carry card data — stripCardFields() runs
 // server-side on these regardless of what the client sends. credit-card-auth

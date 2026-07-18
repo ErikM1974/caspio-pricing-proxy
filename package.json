@@ -30,6 +30,9 @@
     "archive-thumbnails-to-box": "node scripts/archive-thumbnails-to-box.js",
     "check-quote-sync-health": "node scripts/check-quote-sync-health.js",
     "check-transfers-received": "node scripts/check-transfers-received.js",
+    "jotform-reconcile": "node scripts/jotform-reconcile.js",
+    "register-jotform-webhooks": "node scripts/register-jotform-webhooks.js",
+    "backfill-jotform-csv": "node scripts/backfill-jotform-csv.js",
     "check-zero-billing": "node scripts/check-zero-billing.js",
     "auto-recover-all-broken-mockups": "node scripts/auto-recover-all-broken-mockups.js"
   },
