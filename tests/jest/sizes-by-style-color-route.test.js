@@ -5,8 +5,11 @@
  *
  * Regression context (2026-06-18): the dedicated Caspio "Inventory" table started
  * 404ing, so the route 500'd on EVERY style/color and the quote builders silently
- * fell back to a hardcoded S–4XL list — hiding 5XL/6XL for styles like PC61. The fix
- * falls back to the real size run derived from the live SanMar bulk table.
+ * fell back to a hardcoded S–4XL list — hiding 5XL/6XL for styles like PC61. The
+ * route now derives the size run from the live SanMar bulk table; the doomed
+ * /tables/Inventory probe was removed entirely in 2026-07 (the mock's
+ * "Unexpected table path" rejection doubles as a regression guard that no code
+ * path probes it anymore). A 15-min per-style cache was added at the same time.
  */
 
 jest.mock('../../src/utils/caspio', () => ({
@@ -17,6 +20,8 @@ jest.mock('../../src/utils/caspio', () => ({
 const express = require('express');
 const axios = require('axios');
 const { fetchAllCaspioPages } = require('../../src/utils/caspio');
+const { clearAll } = require('../../src/utils/ttl-cache');
+const { clearStaticTableCaches } = require('../../src/utils/caspio-static-tables');
 const inventoryRouter = require('../../src/routes/inventory');
 const { getStyleSizeRun } = inventoryRouter;
 
@@ -47,35 +52,24 @@ const SIZE_DISPLAY_ORDER = [
 
 const PC61_RUN = ['S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL', '6XL'];
 
-/** Inventory-table rows in the legacy warehouse-matrix shape (the primary source). */
-const INVENTORY_ROWS = [
-  { catalog_no: 'PC61', catalog_color: 'Black', size: 'S', SizeSortOrder: 1, WarehouseName: 'Seattle', quantity: 10, WarehouseSort: 1 },
-  { catalog_no: 'PC61', catalog_color: 'Black', size: 'M', SizeSortOrder: 2, WarehouseName: 'Seattle', quantity: 5,  WarehouseSort: 1 },
-  { catalog_no: 'PC61', catalog_color: 'Black', size: 'S', SizeSortOrder: 1, WarehouseName: 'Dallas',  quantity: 7,  WarehouseSort: 2 }
-];
-
 /**
- * Dispatch the Caspio mock by table path.
+ * Dispatch the Caspio mock by table path. Rejecting on any unexpected path is a
+ * regression guard: it proves the removed /tables/Inventory probe stays removed.
  * @param {object} opts
- *   inventory: array of rows | Error to reject with (default: reject 404 — the live bug)
  *   bulk:      SanMar bulk rows (default: PC61 run)
  *   sizeOrder: Size_Display_Order rows (default: canonical subset)
  */
-function mockCaspio({ inventory, bulk = PC61_BULK_ROWS, sizeOrder = SIZE_DISPLAY_ORDER } = {}) {
+function mockCaspio({ bulk = PC61_BULK_ROWS, sizeOrder = SIZE_DISPLAY_ORDER } = {}) {
   fetchAllCaspioPages.mockImplementation((path) => {
-    if (path.includes('/tables/Inventory/records')) {
-      if (inventory instanceof Error) return Promise.reject(inventory);
-      return Promise.resolve(inventory || []);
-    }
     if (path.includes('Sanmar_Bulk')) return Promise.resolve(bulk);
     if (path.includes('Size_Display_Order')) return Promise.resolve(sizeOrder);
     return Promise.reject(new Error(`Unexpected table path: ${path}`));
   });
 }
 
-/** A 404 error shaped like what the Caspio helper throws for the missing table. */
-function caspio404() {
-  return new Error('Request failed with status code 404');
+/** Count of Caspio calls that hit the SanMar bulk table. */
+function bulkCallCount() {
+  return fetchAllCaspioPages.mock.calls.filter(([p]) => p.includes('Sanmar_Bulk')).length;
 }
 
 let server;
@@ -97,6 +91,9 @@ afterAll(() => new Promise((resolve) => {
 
 beforeEach(() => {
   fetchAllCaspioPages.mockReset();
+  // Route-level caches are module-global — reset for hermetic tests.
+  clearAll();
+  clearStaticTableCaches();
 });
 
 describe('GET /api/sizes-by-style-color', () => {
@@ -107,8 +104,18 @@ describe('GET /api/sizes-by-style-color', () => {
     expect(fetchAllCaspioPages).not.toHaveBeenCalled();
   });
 
-  test('Inventory table 404 → falls back to the real SanMar size run (incl. 5XL/6XL)', async () => {
-    mockCaspio({ inventory: caspio404() });
+  test('validation: style that sanitizes to nothing → 400, no Caspio call', async () => {
+    const res = await axios.get(
+      `${baseUrl}/api/sizes-by-style-color?styleNumber=${encodeURIComponent('@@@')}&color=Black`,
+      { validateStatus: () => true }
+    );
+    expect(res.status).toBe(400);
+    expect(res.data.error).toMatch(/invalid style/i);
+    expect(fetchAllCaspioPages).not.toHaveBeenCalled();
+  });
+
+  test('derives the real SanMar size run (incl. 5XL/6XL), sorted and de-duped', async () => {
+    mockCaspio();
 
     const res = await axios.get(
       `${baseUrl}/api/sizes-by-style-color?styleNumber=PC61&color=${encodeURIComponent('Black')}`,
@@ -128,54 +135,55 @@ describe('GET /api/sizes-by-style-color', () => {
     expect(res.data.grandTotal).toBe(0);
   });
 
-  test('Inventory table reachable with rows → returns warehouse matrix (source: inventory)', async () => {
-    mockCaspio({ inventory: INVENTORY_ROWS });
+  test('cache: a second request (even another color) serves from cache — no new bulk call', async () => {
+    mockCaspio();
 
-    const res = await axios.get(
-      `${baseUrl}/api/sizes-by-style-color?styleNumber=PC61&color=${encodeURIComponent('Black')}`,
-      { validateStatus: () => true }
-    );
+    const first = await axios.get(`${baseUrl}/api/sizes-by-style-color?styleNumber=PC61&color=Black`, { validateStatus: () => true });
+    expect(first.status).toBe(200);
+    const callsAfterFirst = bulkCallCount();
+    expect(callsAfterFirst).toBe(1);
 
-    expect(res.status).toBe(200);
-    expect(res.data.source).toBe('inventory');
-    expect(res.data.sizes).toEqual(['S', 'M']);
-    expect(res.data.warehouses.map(w => w.name)).toEqual(['Seattle', 'Dallas']);
-    expect(res.data.grandTotal).toBe(22); // 10 + 5 + 7
-    // Did NOT need the bulk fallback.
-    const paths = fetchAllCaspioPages.mock.calls.map(([p]) => p);
-    expect(paths.some(p => p.includes('Sanmar_Bulk'))).toBe(false);
-  });
-
-  test('Inventory reachable but empty → still falls back to the bulk size run', async () => {
-    mockCaspio({ inventory: [] });
-
-    const res = await axios.get(
+    // Same style, different color: size runs are style-level, so this is a hit.
+    const second = await axios.get(
       `${baseUrl}/api/sizes-by-style-color?styleNumber=PC61&color=${encodeURIComponent('Jet Black')}`,
       { validateStatus: () => true }
     );
-
-    expect(res.status).toBe(200);
-    expect(res.data.source).toBe('sanmar-bulk');
-    expect(res.data.sizes).toEqual(PC61_RUN);
+    expect(second.status).toBe(200);
+    expect(second.data.sizes).toEqual(PC61_RUN);
+    expect(second.data.color).toBe('Jet Black'); // envelope rebuilt per request
+    expect(bulkCallCount()).toBe(callsAfterFirst); // no extra Caspio traffic
   });
 
-  test('unknown style: Inventory 404 and no bulk rows → 404 (not 500)', async () => {
-    mockCaspio({ inventory: caspio404(), bulk: [] });
+  test('cache: refresh=true bypasses and refetches', async () => {
+    mockCaspio();
+
+    await axios.get(`${baseUrl}/api/sizes-by-style-color?styleNumber=PC61&color=Black`, { validateStatus: () => true });
+    expect(bulkCallCount()).toBe(1);
 
     const res = await axios.get(
-      `${baseUrl}/api/sizes-by-style-color?styleNumber=NOPE&color=Black`,
+      `${baseUrl}/api/sizes-by-style-color?styleNumber=PC61&color=Black&refresh=true`,
       { validateStatus: () => true }
     );
-
-    expect(res.status).toBe(404);
-    expect(res.data.error).toMatch(/no sizes found/i);
+    expect(res.status).toBe(200);
+    expect(bulkCallCount()).toBe(2);
   });
 
-  test('fallback source itself errors → 500 with details', async () => {
-    fetchAllCaspioPages.mockImplementation((path) => {
-      if (path.includes('/tables/Inventory/records')) return Promise.reject(caspio404());
-      return Promise.reject(new Error('Caspio down'));
-    });
+  test('no negative caching: unknown style 404s, then succeeds once rows exist', async () => {
+    mockCaspio({ bulk: [] });
+
+    const miss = await axios.get(`${baseUrl}/api/sizes-by-style-color?styleNumber=NOPE&color=Black`, { validateStatus: () => true });
+    expect(miss.status).toBe(404);
+    expect(miss.data.error).toMatch(/no sizes found/i);
+
+    // Style appears in the bulk table (e.g. new product on the nightly sync).
+    mockCaspio();
+    const hit = await axios.get(`${baseUrl}/api/sizes-by-style-color?styleNumber=NOPE&color=Black`, { validateStatus: () => true });
+    expect(hit.status).toBe(200);
+    expect(hit.data.sizes).toEqual(PC61_RUN); // empty result was NOT pinned
+  });
+
+  test('Caspio down → 500 with details, and the failure is not cached', async () => {
+    fetchAllCaspioPages.mockImplementation(() => Promise.reject(new Error('Caspio down')));
 
     const res = await axios.get(
       `${baseUrl}/api/sizes-by-style-color?styleNumber=PC61&color=Black`,
@@ -185,12 +193,18 @@ describe('GET /api/sizes-by-style-color', () => {
     expect(res.status).toBe(500);
     expect(res.data.error).toMatch(/failed to fetch sizes/i);
     expect(res.data.details).toContain('Caspio down');
+
+    // Recovery works immediately — the error was never cached (Rule 4).
+    mockCaspio();
+    const recovered = await axios.get(`${baseUrl}/api/sizes-by-style-color?styleNumber=PC61&color=Black`, { validateStatus: () => true });
+    expect(recovered.status).toBe(200);
+    expect(recovered.data.sizes).toEqual(PC61_RUN);
   });
 });
 
 describe('getStyleSizeRun (helper)', () => {
   test('de-dups, drops junk, sorts by Size_Display_Order — color-independent', async () => {
-    mockCaspio({ inventory: caspio404() });
+    mockCaspio();
     const sizes = await getStyleSizeRun('PC61');
     expect(sizes).toEqual(PC61_RUN);
   });
@@ -203,5 +217,19 @@ describe('getStyleSizeRun (helper)', () => {
     });
     const sizes = await getStyleSizeRun('PC61');
     expect(sizes.sort()).toEqual(['M', 'S']); // de-duped; order unspecified without the sort table
+  });
+
+  test('no raw-input fallback: dangerous chars are stripped, unsanitizable style skips Caspio', async () => {
+    mockCaspio();
+    // "';DELETE--" strips to "DELETE--" — the quote/semicolon never reach the WHERE clause.
+    await getStyleSizeRun("';DELETE--");
+    const bulkCalls = fetchAllCaspioPages.mock.calls.filter(([p]) => p.includes('Sanmar_Bulk'));
+    expect(bulkCalls.length).toBe(1);
+    expect(bulkCalls[0][1]['q.where']).toBe("STYLE='DELETE--'");
+
+    // A style that strips to nothing returns [] without any Caspio call.
+    const empty = await getStyleSizeRun('@@@');
+    expect(empty).toEqual([]);
+    expect(fetchAllCaspioPages.mock.calls.filter(([p]) => p.includes('Sanmar_Bulk')).length).toBe(1);
   });
 });
