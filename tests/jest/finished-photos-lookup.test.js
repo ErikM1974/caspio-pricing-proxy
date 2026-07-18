@@ -17,6 +17,16 @@ describe('finished-photos parseScanCode', () => {
     expect(parseScanCode('*142476*')).toEqual({ num: '142476', isDesign: false });
   });
 
+  test('ShopWorks alpha prefixes — the footer barcode encodes "Ord<order#>"', () => {
+    expect(parseScanCode('Ord142476')).toEqual({ num: '142476', isDesign: false });
+    expect(parseScanCode('ORD142476')).toEqual({ num: '142476', isDesign: false });
+    expect(parseScanCode('*Ord142476*')).toEqual({ num: '142476', isDesign: false });
+    expect(parseScanCode('Order142476')).toEqual({ num: '142476', isDesign: false });
+    expect(parseScanCode('WO142476')).toEqual({ num: '142476', isDesign: false });
+    expect(parseScanCode('Des40121')).toEqual({ num: '40121', isDesign: true });
+    expect(parseScanCode('Ord40121Loc1')).toEqual({ num: '40121', isDesign: true });
+  });
+
   test('rejects non-numeric / empty / junk', () => {
     expect(parseScanCode('')).toBeNull();
     expect(parseScanCode(null)).toBeNull();

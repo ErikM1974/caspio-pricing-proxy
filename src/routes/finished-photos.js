@@ -250,13 +250,19 @@ router.delete('/finished-photos/:pkId', async (req, res) => {
 const ORDERS_TABLE = 'ORDER_ODBC';
 const DESIGNS_TABLE = 'Designs2026';
 
-// "*40121LOC1*" (Code 39 sentinels, any case) → { num: '40121', isDesign: true };
-// "142476" → { num: '142476', isDesign: false }; anything non-numeric → null.
+// ShopWorks barcodes wrap the number: the work-order footer encodes "Ord142476" (alpha
+// prefix), the design sheet encodes "40121Loc1" (Loc suffix), and Code 39 readers may keep
+// the * sentinels. All of these (any case) resolve:
+//   "Ord142476" / "142476" → { num: '142476', isDesign: false }
+//   "40121Loc1" / "Des40121" → { num: '40121', isDesign: true }
+// Unknown prefixes ("PC54") stay rejected → null (don't burn lookups on style numbers).
 function parseScanCode(raw) {
   const s = String(raw == null ? '' : raw).replace(/[\s*]+/g, '');
-  const m = /^(\d{1,10})(?:loc\d{0,4})?$/i.exec(s);
+  const m = /^(ord(?:er)?|des(?:ign)?|wo|job)?(\d{1,10})(?:loc\d{0,4})?$/i.exec(s);
   if (!m) return null;
-  return { num: m[1], isDesign: /loc/i.test(s) };
+  const prefix = (m[1] || '').toLowerCase();
+  const isDesign = /loc\d{0,4}$/i.test(s) || prefix === 'des' || prefix === 'design';
+  return { num: m[2], isDesign };
 }
 
 async function firstRow(resource, params) {
