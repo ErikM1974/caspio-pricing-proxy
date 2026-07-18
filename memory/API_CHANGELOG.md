@@ -20,6 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   send → EmailJS `EMAILJS_TEMPLATE_LEAD_OUTREACH` (To=lead; Reply-To=AE only if
   `@nwcustomapparel.com`, else sales@) → `{sent,label,to}` + an `email` Lead_Activity row.
 - `Lead_Activity.Activity_Type` allowlist += `email`.
+- 🔒 `GET /api/lead-digest/scan` now requires the CRM secret (was anonymous; the dry-run
+  report lists lead companies/contacts + AE emails). `POST /send` unchanged (x-admin-key).
+- Outreach templates drop a "company" that is just the contact again (or the manual-lead
+  "Individual — Name" fallback) from the prose.
 
 ## [1.8.0] - 2026-07-18
 
