@@ -5,6 +5,7 @@
 - feat(schema): Form_Submissions +4 STRING columns (External_Source, External_ID, Matched_ID_Customer, Linked_Quote_ID) via create-form-submissions-tables.js field-sync — run `node scripts/create-form-submissions-tables.js --apply` once
 - feat(scripts): register-jotform-webhooks (idempotent; --list/--remove/--form/--sample) · jotform-reconcile (daily Heroku Scheduler webhook-miss backstop) · backfill-jotform-csv (LOCAL one-off → Caspio CSV import = $0 Integrations quota; offline AE assignment; JFL{MMDD}-nnnn historical ids; >60d rows land Archived)
 - test: jotform-normalizer jest suite (19 tests — both payload shapes, assignment pick, record build, webhook secret compare, account-TZ → ISO conversion)
+- feat(leads): EmailJS "new lead" notification to the assigned rep (send-lead-email.js — AE from the match, else Taneisha; same EMAILJS_* creds as the other send-* utils; template `template_new_lead`; lead_link = /dashboards/leads.html#JFL… hash, no '=' per the QP-mangling rule; fire-and-forget, never blocks the save) + 7-test jest suite
 
 ## v2026.07.18.1 (2026-07-18)
 

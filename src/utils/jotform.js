@@ -391,6 +391,15 @@ async function insertLead({ formID, submissionId, normalized, via, opts = {}, kn
     sourceTitle: JOTFORM_FORMS[formID].title,
   });
 
+  // Email the assigned rep (AE from the match, else Taneisha) — fire-and-forget
+  // like the Slack card; sendLeadEmail always resolves, never throws.
+  const { sendLeadEmail } = require('./send-lead-email');
+  sendLeadEmail({
+    record,
+    sourceTitle: JOTFORM_FORMS[formID].title,
+    matchedCompany: assign.matchedCompany,
+  });
+
   console.log(`[jotform] ingested ${record.Submission_ID} (${JOTFORM_FORMS[formID].title}, ext ${extId}) → ${record.Sales_Rep}${record.Matched_ID_Customer ? ` [customer ${record.Matched_ID_Customer}]` : ''} via ${via}`);
   return { inserted: true, record };
 }

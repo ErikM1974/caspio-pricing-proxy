@@ -26,6 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Linked_Quote_ID`.
 - `Form_Submissions` +4 STRING columns: `External_Source` (`jotform:{formID}`), `External_ID`,
   `Matched_ID_Customer`, `Linked_Quote_ID` (table-script field-sync).
+- New-lead **email** to the assigned rep via EmailJS (`send-lead-email.js`, template
+  `template_new_lead`, same `EMAILJS_*` creds as the art/digest senders): rep-name → inbox map with
+  first-name drift tolerance, Taneisha fallback; `lead_link` is a `#Submission_ID` hash (no `=` —
+  quoted-printable mangles it) that the Leads board auto-opens. Fire-and-forget after the insert.
 
 ## [1.6.0] - 2026-07-18
 
