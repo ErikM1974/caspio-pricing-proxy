@@ -21,6 +21,11 @@
 # Master copy: caspio-pricing-proxy/scripts/bandit-agent/ — edit here, recopy to bandit.
 # Deps on bandit: ImportExcel module. Reuses odbc-sync config.json (ProxyBase + CrmApiSecret).
 
+# -CsvOut <path> : write the transformed metadata rows to a CSV for a one-time bulk
+#   Caspio import (Add+Update on ID_Serial) instead of POSTing. Uses the Data
+#   import/export quota, NOT the Integrations API budget — works even when capped.
+param([string]$CsvOut)
+
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 Import-Module ImportExcel
@@ -79,6 +84,19 @@ try {
         $newHash[[string]$row.ID_Serial] = ($row.Values -join '|')
     }
     Log ('rows in export: ' + $all.Count)
+
+    if ($CsvOut) {
+        # Serial-prefix FileName ({id}_{orig}) to match the endpoint's insert + keep it
+        # UNIQUE; the image sync overwrites FileName later when it attaches the image.
+        ($all | ForEach-Object {
+            $o = [ordered]@{}
+            foreach ($k in $_.Keys) { $o[$k] = $_[$k] }
+            $o['FileName'] = "$($_.ID_Serial)_$($_.FileName)"
+            [pscustomobject]$o
+        }) | Export-Csv -Path $CsvOut -NoTypeInformation -Encoding UTF8
+        Log "CSV written: $CsvOut ($($all.Count) rows)"
+        exit 0
+    }
 
     # confirmed snapshot (what Caspio already has, by our record)
     $confirmed = @{}
