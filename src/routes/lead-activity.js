@@ -159,4 +159,50 @@ router.post('/lead-digest/send', async (req, res) => {
   }
 });
 
+// --- Conversion tracking + rep scorecard ---
+
+// GET /lead-conversion/scan — dry-run: which leads WOULD auto-Won + lifetime
+// refresh count. No writes. CRM-secret (lists lead + customer identities).
+router.get('/lead-conversion/scan', requireCrmApiSecret, async (req, res) => {
+  try {
+    const { runConversionSync } = require('../utils/lead-conversion');
+    const result = await runConversionSync({ dryRun: true, includeArchived: req.query.includeArchived === '1', fuzzyCompany: req.query.fuzzy === '1' });
+    res.json({ success: true, ...result });
+  } catch (err) {
+    console.error('[Conversion] Scan failed:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /lead-conversion/run — auto-Won + lifetime refresh. x-admin-key gated.
+// {includeArchived:true, fuzzy:true} = the one-time historical backfill.
+router.post('/lead-conversion/run', async (req, res) => {
+  const expected = process.env.ADMIN_KEY_DIGEST;
+  if (!expected) return res.status(500).json({ success: false, error: 'ADMIN_KEY_DIGEST env var not configured on server.' });
+  if (req.headers['x-admin-key'] !== expected) return res.status(401).json({ success: false, error: 'Unauthorized' });
+  try {
+    const body = req.body || {};
+    const { runConversionSync } = require('../utils/lead-conversion');
+    const result = await runConversionSync({ includeArchived: !!body.includeArchived, fuzzyCompany: !!body.fuzzy });
+    res.json({ success: true, ...result });
+  } catch (err) {
+    console.error('[Conversion] Run failed:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET /lead-scorecard?since=YYYY-MM-DD&until=YYYY-MM-DD — per-rep close report.
+// CRM-secret; staff reach it via /api/crm-proxy/lead-scorecard*.
+router.get('/lead-scorecard', requireCrmApiSecret, async (req, res) => {
+  try {
+    const iso = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) ? v : undefined);
+    const { buildScorecard } = require('../utils/lead-conversion');
+    const result = await buildScorecard({ since: iso(req.query.since), until: iso(req.query.until) });
+    res.json({ success: true, ...result });
+  } catch (err) {
+    console.error('[Scorecard] Build failed:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 module.exports = router;

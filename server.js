@@ -1526,6 +1526,29 @@ const server = app.listen(PORT, async () => {
     } catch (err) {
         console.error('⏰ Failed to schedule lead follow-up digest cron:', err.message);
     }
+
+    // Schedule: daily Leads-CRM conversion sync at 6:15 AM Pacific — auto-move a
+    // lead to WON once its ShopWorks customer places an order AFTER the inquiry,
+    // attach the customer # + lifetime sales, and refresh lifetime on Won leads.
+    // Runs BEFORE the 7:45 follow-up digest so fresh Wins drop off it. Scans only
+    // OPEN leads (never resurrects Archived) — the historical backfill is the
+    // one-time POST /api/lead-conversion/run {includeArchived,fuzzy}.
+    try {
+        const cron = require('node-cron');
+        const { runConversionSync } = require('./src/utils/lead-conversion');
+        if (process.env.CONVERSION_SYNC_DISABLED === '1') {
+            console.log('⏰ Lead conversion sync cron DISABLED (CONVERSION_SYNC_DISABLED=1)');
+        } else {
+            cron.schedule('15 6 * * *', () => {
+                runConversionSync().catch(err => {
+                    console.error('[Conversion] Cron failed:', err.message);
+                });
+            }, { timezone: 'America/Los_Angeles' });
+            console.log('⏰ Lead conversion sync cron scheduled: daily 6:15 AM Pacific');
+        }
+    } catch (err) {
+        console.error('⏰ Failed to schedule lead conversion sync cron:', err.message);
+    }
 });
 
 // Export for testing and route modules

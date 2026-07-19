@@ -1,3 +1,7 @@
+## v2026.07.19.1 (2026-07-19)
+
+- feat(leads-crm): lead-conversion tracking + rep scorecard. `src/utils/lead-conversion.js` — `runConversionSync()` auto-moves a lead to WON once its ShopWorks customer places an order AFTER the inquiry (email OR company match; "first order after lead" rule; personal-email + name-mismatch = collision-risk, skipped), attaches the customer # + stamps lifetime sales in Lead_Value, and refreshes lifetime on Won leads. `buildScorecard({since,until})` = per-rep closes + total order value by conversion date (answers "Taneisha since Oct 2025"). Routes: `GET /api/lead-conversion/scan` (CRM-secret dry-run), `POST /api/lead-conversion/run` (x-admin-key; `{includeArchived,fuzzy}` = one-time backfill), `GET /api/lead-scorecard` (CRM-secret). Cron: daily 6:15 AM PT (before the 7:45 digest; `CONVERSION_SYNC_DISABLED=1` to pause). Pure helpers jest-locked (11 cases). Quota-light: scan touches only OPEN leads; scorecard computes on demand.
+
 ## v2026.07.18.8 (2026-07-18)
 
 - fix(lead-outreach): drop the company from template prose when it's really just the person again (blank, equals the contact name, or the modal's "Individual — Name" fallback) — "custom apparel for Jordan Hibbard — I'll be your…" now reads "custom apparel — I'll be your…"; real companies unchanged (+jest cases)
