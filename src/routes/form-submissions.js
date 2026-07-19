@@ -74,14 +74,32 @@ router.post('/', submitLimiter, async (req, res) => {
     Art_Request_ID: '',
   };
 
+  let parentSaved = false;
   try {
     try {
       await makeCaspioRequest('post', SUBMISSIONS_PATH, {}, record);
     } catch (e) {
-      // one retry on the (rare) Submission_ID collision
-      record.Submission_ID = buildSubmissionId(formId);
-      await makeCaspioRequest('post', SUBMISSIONS_PATH, {}, record);
+      // The first POST errored. Don't blindly retry with a new id: if the row is
+      // ALREADY there, the error was a post-write timeout (Caspio committed) and a
+      // retry would create a DUPLICATE lead (two cards, two AE emails). Only retry
+      // when the row truly isn't there (a genuine Submission_ID collision).
+      let alreadyWritten = false;
+      try {
+        const existing = await fetchAllCaspioPages(
+          SUBMISSIONS_PATH,
+          { 'q.where': `Submission_ID='${record.Submission_ID}'`, 'q.pageSize': 1 },
+          { maxPages: 1 }
+        );
+        alreadyWritten = Array.isArray(existing) && existing.length > 0;
+      } catch (_) { /* readback failed too — fall through to a cautious retry */ }
+      if (alreadyWritten) {
+        console.warn(`[form-submissions] first POST errored but ${record.Submission_ID} WAS written (post-write timeout) — not retrying`);
+      } else {
+        record.Submission_ID = buildSubmissionId(formId);
+        await makeCaspioRequest('post', SUBMISSIONS_PATH, {}, record);
+      }
     }
+    parentSaved = true;
 
     if (formId === 'sample-checkout' && Array.isArray(body.items)) {
       let line = 0;
@@ -164,6 +182,16 @@ router.post('/', submitLimiter, async (req, res) => {
 
     res.status(201).json({ submissionId: record.Submission_ID });
   } catch (e) {
+    if (parentSaved) {
+      // The submission ITSELF was stored; only a sample-item row (or later step)
+      // failed. Telling staff it was "NOT stored — try again" makes them resubmit
+      // → a duplicate submission + double-counted "Out" items. Report the truth.
+      console.error(`[form-submissions] ${record.Submission_ID} saved but a later step failed:`, e.message);
+      return res.status(201).json({
+        submissionId: record.Submission_ID,
+        itemsWarning: 'The order was recorded, but some sample items may not have saved. Do NOT resubmit — check the sample tracker and re-add any missing items.',
+      });
+    }
     console.error('[form-submissions] save failed:', e.message);
     res.status(502).json({ error: 'Save failed — the form was NOT stored. Print a paper copy and try again later.' });
   }
@@ -189,7 +217,10 @@ router.get('/', async (req, res) => {
 
     // default 600 rows (legacy Inbox behavior); Leads "show archived" may raise it
     const limit = Math.min(2000, Math.max(1, parseInt(req.query.limit, 10) || 600));
-    const params = { 'q.pageSize': 500, 'q.orderBy': 'Submitted_At DESC' };
+    // Submitted_At is NOT unique (the JotForm backfill wrote second-precision
+    // timestamps), so paginating by it alone lets Caspio shuffle rows across page
+    // boundaries → dropped/duplicated leads. Tiebreak on the unique PK (house rule).
+    const params = { 'q.pageSize': 500, 'q.orderBy': 'Submitted_At DESC, PK_ID DESC' };
     if (where.length) params['q.where'] = where.join(' AND ');
 
     const rows = await fetchAllCaspioPages(SUBMISSIONS_PATH, params, { maxPages: Math.ceil(limit / 500) });
