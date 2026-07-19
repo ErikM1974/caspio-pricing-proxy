@@ -56,6 +56,10 @@ const TABLES = [
       // Leads CRM v2 (2026-07-18) — pipeline value; linking a quote snapshots
       // its TotalAmount here so kanban $ totals cost zero extra reads
       { Name: 'Lead_Value', Type: 'STRING' },
+      // Lead qualification (2026-07-19) — Claude-categorized: '' | qualified |
+      // unqualified | spam. Drives the Unqualified & Spam review page; spam/
+      // unqualified stay Status='Archived' (off the board) but split by this.
+      { Name: 'Lead_Category', Type: 'STRING' },
     ],
   },
   {

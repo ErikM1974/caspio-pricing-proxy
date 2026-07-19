@@ -216,6 +216,8 @@ router.get('/', async (req, res) => {
     if (status) where.push(`Status='${status}'`);
     const statusNot = sanitizeLike(req.query.statusNot);
     if (statusNot) where.push(`Status<>'${statusNot}'`);
+    const category = sanitizeLike(req.query.category);
+    if (category) where.push(`Lead_Category='${category}'`); // Unqualified & Spam page
     const q = sanitizeLike(req.query.q);
     if (q) where.push(`(Company LIKE '%${q}%' OR Contact_Name LIKE '%${q}%' OR Submission_ID LIKE '%${q}%')`);
 
@@ -313,7 +315,7 @@ router.put('/:submissionId', async (req, res) => {
   // outreach, the digest, AE auto-assign, and ShopWorks matching). Payload_JSON
   // stays immutable — it's the provenance snapshot of what the customer submitted.
   const ALLOWED = ['Status', 'Updated_By', 'Art_Request_ID', 'Due_Date', 'Sales_Rep', 'Matched_ID_Customer', 'Linked_Quote_ID', 'Lead_Value',
-    'Contact_Name', 'Company', 'Email', 'Phone', 'Summary', 'Customer_Number'];
+    'Contact_Name', 'Company', 'Email', 'Phone', 'Summary', 'Customer_Number', 'Lead_Category'];
   // Mirror the POST caps so an edit can't exceed what a submission could store.
   const CAPS = { Phone: 60, Summary: 250, Customer_Number: 40, Sales_Rep: 80 };
   const updates = {};

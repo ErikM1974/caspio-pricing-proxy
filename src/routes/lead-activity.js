@@ -22,6 +22,7 @@ const { sanitizeId, nowIso } = require('../utils/form-submission-helpers');
 const { validateActivity } = require('../utils/lead-activity-helpers');
 
 const ACTIVITY_PATH = '/tables/Lead_Activity/records';
+const SUBMISSIONS_PATH = '/tables/Form_Submissions/records';
 // Attachment_URL allow-list base = this proxy's own origin (image-uploads.js precedent).
 const FILES_BASE = process.env.PROXY_BASE_URL || 'https://caspio-pricing-proxy-ab30a049961a.herokuapp.com';
 
@@ -188,6 +189,44 @@ router.post('/lead-conversion/run', async (req, res) => {
   } catch (err) {
     console.error('[Conversion] Run failed:', err.message);
     res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /lead-categorize/apply — bulk-apply a Claude categorization. x-admin-key.
+// Body: { toLost:[ids], spam:[ids], unqualified:[ids] }
+//   toLost      → Status='Lost'                              (qualified non-converters)
+//   spam        → Lead_Category='spam', keep Status=Archived (off the board)
+//   unqualified → Lead_Category='unqualified', keep Archived
+// Chunked Submission_ID IN() PUTs (server-side — no 30s browser-request limit).
+router.post('/lead-categorize/apply', async (req, res) => {
+  const expected = process.env.ADMIN_KEY_DIGEST;
+  if (!expected) return res.status(500).json({ success: false, error: 'ADMIN_KEY_DIGEST not configured.' });
+  if (req.headers['x-admin-key'] !== expected) return res.status(401).json({ success: false, error: 'Unauthorized' });
+  const { putWithRecordsAffected } = require('../utils/caspio');
+  const body = req.body || {};
+  const clean = (a) => [...new Set((Array.isArray(a) ? a : []).map(sanitizeId).filter(Boolean))];
+  const groups = [
+    { ids: clean(body.toLost), data: { Status: 'Lost', Updated_By: 'lead-categorize' } },
+    { ids: clean(body.spam), data: { Lead_Category: 'spam', Updated_By: 'lead-categorize' } },
+    { ids: clean(body.unqualified), data: { Lead_Category: 'unqualified', Updated_By: 'lead-categorize' } },
+  ];
+  const chunk = (a, n) => { const o = []; for (let i = 0; i < a.length; i += n) o.push(a.slice(i, i + n)); return o; };
+  const result = {};
+  try {
+    for (const g of groups) {
+      let affected = 0;
+      for (const grp of chunk(g.ids, 40)) {
+        const where = "Submission_ID IN ('" + grp.join("','") + "')";
+        const r = await putWithRecordsAffected(SUBMISSIONS_PATH, where, { ...g.data, Updated_At: nowIso() });
+        affected += (r && r.RecordsAffected) || 0;
+      }
+      result[g.data.Status || g.data.Lead_Category] = { requested: g.ids.length, updated: affected };
+    }
+    console.log('[lead-categorize] applied:', JSON.stringify(result));
+    res.json({ success: true, result });
+  } catch (err) {
+    console.error('[lead-categorize] apply failed:', err.message);
+    res.status(500).json({ success: false, error: err.message, partial: result });
   }
 });
 

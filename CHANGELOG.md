@@ -1,3 +1,7 @@
+## v2026.07.19.2 (2026-07-19)
+
+- feat(leads-crm): lead qualification. New `Form_Submissions.Lead_Category` field ('' | qualified | unqualified | spam) — Claude-categorized via a 28-agent workflow. `POST /api/lead-categorize/apply` (x-admin-key): bulk chunked `Submission_ID IN()` PUTs — `toLost` qualified non-converters → Status='Lost', `spam`/`unqualified` → Lead_Category set + kept Status='Archived' (off the board). `GET /api/form-submissions?category=` filter + PUT whitelist += Lead_Category — powers the "Unqualified & Spam" review page. Server-side chunking dodges the 30s browser-request limit.
+
 ## v2026.07.19.1 (2026-07-19)
 
 - feat(leads-crm): lead-conversion tracking + rep scorecard. `src/utils/lead-conversion.js` — `runConversionSync()` auto-moves a lead to WON once its ShopWorks customer places an order AFTER the inquiry (email OR company match; "first order after lead" rule; personal-email + name-mismatch = collision-risk, skipped), attaches the customer # + stamps lifetime sales in Lead_Value, and refreshes lifetime on Won leads. `buildScorecard({since,until})` = per-rep closes + total order value by conversion date (answers "Taneisha since Oct 2025"). Routes: `GET /api/lead-conversion/scan` (CRM-secret dry-run), `POST /api/lead-conversion/run` (x-admin-key; `{includeArchived,fuzzy}` = one-time backfill), `GET /api/lead-scorecard` (CRM-secret). Cron: daily 6:15 AM PT (before the 7:45 digest; `CONVERSION_SYNC_DISABLED=1` to pause). Pure helpers jest-locked (11 cases). Quota-light: scan touches only OPEN leads; scorecard computes on demand.
