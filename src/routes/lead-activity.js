@@ -230,6 +230,35 @@ router.post('/lead-categorize/apply', async (req, res) => {
   }
 });
 
+// GET /lead-classify/scan — dry-run: how many New leads are uncategorized and
+// what Claude WOULD label them, no writes. CRM-secret (staff-triggerable).
+router.get('/lead-classify/scan', requireCrmApiSecret, async (req, res) => {
+  try {
+    const { runLeadClassification } = require('../utils/lead-classify-ai');
+    const result = await runLeadClassification({ dryRun: true, limit: req.query.limit ? parseInt(req.query.limit, 10) : undefined });
+    res.json({ success: true, ...result });
+  } catch (err) {
+    console.error('[Lead Classify] Scan failed:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /lead-classify/run — classify the uncategorized New leads with Claude and
+// apply (spam/unqualified → Archived+tag, qualified → tag). CRM-secret so the
+// "Rescan with Claude" button can call it through the crm-proxy forwarder. Only
+// touches leads with a blank Lead_Category, so it's bounded + idempotent.
+router.post('/lead-classify/run', requireCrmApiSecret, async (req, res) => {
+  try {
+    const { runLeadClassification } = require('../utils/lead-classify-ai');
+    const result = await runLeadClassification({});
+    if (result.skipped) return res.status(503).json({ success: false, error: 'Lead classifier not configured — set ANTHROPIC_API_KEY on the proxy.' });
+    res.json({ success: true, ...result });
+  } catch (err) {
+    console.error('[Lead Classify] Run failed:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // GET /lead-scorecard?since=YYYY-MM-DD&until=YYYY-MM-DD — per-rep close report.
 // CRM-secret; staff reach it via /api/crm-proxy/lead-scorecard*.
 router.get('/lead-scorecard', requireCrmApiSecret, async (req, res) => {

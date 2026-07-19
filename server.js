@@ -1556,6 +1556,28 @@ const server = app.listen(PORT, async () => {
     } catch (err) {
         console.error('⏰ Failed to schedule lead conversion sync cron:', err.message);
     }
+
+    // Schedule: daily Leads-CRM AI qualification at 6:30 AM Pacific — Claude
+    // (Opus 4.8) categorizes newly-arrived, uncategorized leads as spam /
+    // unqualified / qualified; spam+unqualified auto-archive off the board.
+    // Env-guarded: no-op without ANTHROPIC_API_KEY. Runs after the 6:15
+    // conversion sync, before the 7:45 follow-up digest.
+    try {
+        const cron = require('node-cron');
+        const { runLeadClassification } = require('./src/utils/lead-classify-ai');
+        if (!process.env.ANTHROPIC_API_KEY) {
+            console.log('⏰ Lead AI-classify cron NOT scheduled — missing ANTHROPIC_API_KEY');
+        } else {
+            cron.schedule('30 6 * * *', () => {
+                runLeadClassification({}).catch(err => {
+                    console.error('[Lead Classify] Cron failed:', err.message);
+                });
+            }, { timezone: 'America/Los_Angeles' });
+            console.log('⏰ Lead AI-classify cron scheduled: daily 6:30 AM Pacific (' + (process.env.LEAD_CLASSIFY_MODEL || 'claude-opus-4-8') + ')');
+        }
+    } catch (err) {
+        console.error('⏰ Failed to schedule lead AI-classify cron:', err.message);
+    }
 });
 
 // Export for testing and route modules

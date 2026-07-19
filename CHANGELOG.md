@@ -1,3 +1,7 @@
+## v2026.07.19.3 (2026-07-19)
+
+- feat(leads-crm): live Claude lead qualification. `src/utils/lead-classify-ai.js` — Anthropic Messages API (`claude-opus-4-8`, override `LEAD_CLASSIFY_MODEL`; structured-output JSON) categorizes newly-arrived uncategorized `New` leads as spam/unqualified/qualified and applies (spam+unqualified → Status='Archived'+Lead_Category, qualified → tag; logs a `system` activity). Routes `GET /api/lead-classify/scan` (CRM-secret dry-run) + `POST /api/lead-classify/run` (CRM-secret; powers the "Rescan with Claude" button). Cron: daily 6:30 AM PT, env-guarded on `ANTHROPIC_API_KEY` (no-op if unset). Bounded/idempotent — only touches blank-category New leads. Adds `@anthropic-ai/sdk`.
+
 ## v2026.07.19.2 (2026-07-19)
 
 - feat(leads-crm): lead qualification. New `Form_Submissions.Lead_Category` field ('' | qualified | unqualified | spam) — Claude-categorized via a 28-agent workflow. `POST /api/lead-categorize/apply` (x-admin-key): bulk chunked `Submission_ID IN()` PUTs — `toLost` qualified non-converters → Status='Lost', `spam`/`unqualified` → Lead_Category set + kept Status='Archived' (off the board). `GET /api/form-submissions?category=` filter + PUT whitelist += Lead_Category — powers the "Unqualified & Spam" review page. Server-side chunking dodges the 30s browser-request limit.
