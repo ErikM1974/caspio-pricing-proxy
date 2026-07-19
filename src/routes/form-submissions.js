@@ -28,6 +28,10 @@ const { notifyFormLead } = require('../utils/slack-form-lead-notify');
 
 const SUBMISSIONS_PATH = '/tables/Form_Submissions/records';
 const ITEMS_PATH = '/tables/Sample_Checkout_Items/records';
+const ACTIVITY_PATH = '/tables/Lead_Activity/records';
+// Only these Form_IDs may be hard-deleted here (Leads CRM rows). Sample-checkout
+// and the HR/finance twins have their own financial/records trail — never DELETE.
+const DELETABLE_FORM_IDS = new Set(['jotform-lead', 'quote-request', 'webstore-request', 'team-roster', 'manual-lead']);
 
 // POST is public — keep a lid on abuse (the twins are quiet pages; 20/5min/IP is generous).
 const submitLimiter = rateLimit({
@@ -304,10 +308,21 @@ router.put('/items/:pkId', async (req, res) => {
 router.put('/:submissionId', async (req, res) => {
   const id = sanitizeId(req.params.submissionId);
   if (!id) return res.status(400).json({ error: 'Invalid submission id' });
-  const ALLOWED = ['Status', 'Updated_By', 'Art_Request_ID', 'Due_Date', 'Sales_Rep', 'Matched_ID_Customer', 'Linked_Quote_ID', 'Lead_Value'];
+  // Identity fields (Contact_Name/Company/Email/Phone/Summary/Customer_Number) are
+  // now editable so staff can fix a typo'd email/phone (which otherwise breaks
+  // outreach, the digest, AE auto-assign, and ShopWorks matching). Payload_JSON
+  // stays immutable — it's the provenance snapshot of what the customer submitted.
+  const ALLOWED = ['Status', 'Updated_By', 'Art_Request_ID', 'Due_Date', 'Sales_Rep', 'Matched_ID_Customer', 'Linked_Quote_ID', 'Lead_Value',
+    'Contact_Name', 'Company', 'Email', 'Phone', 'Summary', 'Customer_Number'];
+  // Mirror the POST caps so an edit can't exceed what a submission could store.
+  const CAPS = { Phone: 60, Summary: 250, Customer_Number: 40, Sales_Rep: 80 };
   const updates = {};
-  for (const k of ALLOWED) if (req.body && req.body[k] !== undefined) updates[k] = S(req.body[k]);
+  for (const k of ALLOWED) if (req.body && req.body[k] !== undefined) updates[k] = S(req.body[k], CAPS[k]);
   if (!Object.keys(updates).length) return res.status(400).json({ error: 'No updatable fields supplied' });
+  // A garbage email silently breaks outreach/digest/matching — reject it at the edge.
+  if (updates.Email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(updates.Email)) {
+    return res.status(400).json({ error: 'Invalid email address' });
+  }
   updates.Updated_At = nowIso();
 
   try {
@@ -317,6 +332,49 @@ router.put('/:submissionId', async (req, res) => {
   } catch (e) {
     console.error('[form-submissions] update failed:', e.message);
     res.status(502).json({ error: 'Submission update failed' });
+  }
+});
+
+// DELETE /api/form-submissions/:submissionId → hard-delete a LEAD row + cascade its
+// timeline. Secret-gated at the mount; the ADMIN-only restriction is enforced on
+// the main app (server.js app.delete route stamps deletedBy from the session). Only
+// lead Form_IDs are deletable here — sample-checkout/HR/finance twins are refused.
+router.delete('/:submissionId', async (req, res) => {
+  const id = sanitizeId(req.params.submissionId);
+  if (!id) return res.status(400).json({ error: 'Invalid submission id' });
+  try {
+    // Confirm the row exists AND is a deletable lead before touching anything.
+    const rows = await fetchAllCaspioPages(
+      SUBMISSIONS_PATH,
+      { 'q.where': `Submission_ID='${id}'`, 'q.pageSize': 1 },
+      { maxPages: 1 }
+    );
+    const row = Array.isArray(rows) ? rows[0] : null;
+    if (!row) return res.status(404).json({ error: `Submission '${id}' not found` });
+    if (!DELETABLE_FORM_IDS.has(row.Form_ID)) {
+      return res.status(403).json({ error: `Form type '${row.Form_ID}' cannot be deleted here` });
+    }
+
+    const del = await makeCaspioRequest('delete', SUBMISSIONS_PATH, { 'q.where': `Submission_ID='${id}'` });
+    // Caspio 200s a no-match with RecordsAffected:0 — treat that as a 404, not success.
+    if (!del || !del.RecordsAffected) return res.status(404).json({ error: `Submission '${id}' not found` });
+
+    // Cascade the timeline (immutable Lead_Activity rows would otherwise orphan
+    // and keep the deleted lead's PII forever).
+    let activityDeleted = 0;
+    try {
+      const actDel = await makeCaspioRequest('delete', ACTIVITY_PATH, { 'q.where': `Submission_ID='${id}'` });
+      activityDeleted = (actDel && actDel.RecordsAffected) || 0;
+    } catch (e) {
+      console.warn(`[form-submissions] activity cascade failed for ${id} (row deleted):`, e.message);
+    }
+
+    const deletedBy = S(req.query.deletedBy, 120);
+    console.log(`[form-submissions] DELETED ${id} (${row.Form_ID}) by ${deletedBy || 'unknown'} — ${activityDeleted} activity rows cascaded`);
+    res.json({ deleted: id, formId: row.Form_ID, activityDeleted });
+  } catch (e) {
+    console.error('[form-submissions] delete failed:', e.message);
+    res.status(502).json({ error: 'Submission delete failed' });
   }
 });
 
