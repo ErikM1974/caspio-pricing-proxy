@@ -59,21 +59,34 @@ function companyNamesAlign(a, b) {
   return companyTokens(b).some((t) => A.has(t));
 }
 
-// Given a lead's inquiry date and a customer's order dates (ms epochs), classify.
-// converted = has an order on/after (leadDate - grace). firstOrder/lastOrder/count/
-// lifetime come from the caller. NEW-vs-existing isn't decided here — the sync
-// only requires "ordered after inquiry" to call it a win for this lead.
-function classifyOrders(leadDateMs, orderDatesMs) {
-  const dates = (orderDatesMs || []).filter((t) => typeof t === 'number' && !isNaN(t)).sort((x, y) => x - y);
-  if (!dates.length) return { converted: false, orderCount: 0, firstOrderMs: 0, lastOrderMs: 0, conversionMs: 0 };
-  const grace = GRACE_DAYS * 86400000;
-  const conv = dates.find((t) => t >= (leadDateMs || 0) - grace) || 0;
+// Classify a customer's orders against a lead's inquiry date.
+//   orders: [{t: ms, amt: number}]
+//   isNewCustomer = the customer's FIRST order is on/after (inquiry - grace):
+//     they became a customer via this lead → the auto-Won trigger (matches the
+//     verified analysis; an established customer re-inquiring is NOT auto-won).
+//   converted = has ANY order on/after inquiry (re-inquiry detection).
+//   attributedRevenue = orders on/after inquiry only — the value THIS lead drove
+//     (so an established customer's back-catalog never inflates rep credit).
+//   lifetimeRevenue = all orders (customer-health number shown on the lead).
+function classifyOrders(leadDateMs, orders) {
+  const os = (orders || [])
+    .map((o) => (typeof o === 'number' ? { t: o, amt: 0 } : o))
+    .filter((o) => o && typeof o.t === 'number' && !isNaN(o.t))
+    .sort((a, b) => a.t - b.t);
+  const lifetimeRevenue = os.reduce((s, o) => s + (o.amt || 0), 0);
+  if (!os.length) return { converted: false, isNewCustomer: false, orderCount: 0, firstOrderMs: 0, lastOrderMs: 0, conversionMs: 0, attributedRevenue: 0, lifetimeRevenue: 0 };
+  const cutoff = (leadDateMs || 0) - GRACE_DAYS * 86400000;
+  const after = os.filter((o) => o.t >= cutoff);
+  const firstOrderMs = os[0].t;
   return {
-    converted: !!conv,
-    orderCount: dates.length,
-    firstOrderMs: dates[0],
-    lastOrderMs: dates[dates.length - 1],
-    conversionMs: conv, // the first order on/after the inquiry — the true "close" date
+    converted: after.length > 0,
+    isNewCustomer: firstOrderMs >= cutoff, // no orders before the inquiry
+    orderCount: os.length,
+    firstOrderMs,
+    lastOrderMs: os[os.length - 1].t,
+    conversionMs: after.length ? after[0].t : 0, // first order on/after inquiry = the "close" date
+    attributedRevenue: after.reduce((s, o) => s + (o.amt || 0), 0),
+    lifetimeRevenue,
   };
 }
 
@@ -100,11 +113,9 @@ async function fetchOrdersByCustomer(custIds) {
     }, { maxPages: 15 });
     for (const o of rows) {
       const k = String(o.id_Customer);
-      if (!byCust.has(k)) byCust.set(k, { dates: [], lifetime: 0 });
-      const b = byCust.get(k);
+      if (!byCust.has(k)) byCust.set(k, { orders: [] });
       const t = Date.parse(o.date_OrderPlaced);
-      if (!isNaN(t)) b.dates.push(t);
-      b.lifetime += parseFloat(o.cnCur_TotalInvoice) || 0;
+      if (!isNaN(t)) byCust.get(k).orders.push({ t, amt: parseFloat(o.cnCur_TotalInvoice) || 0 });
     }
   }
   return byCust;
@@ -207,14 +218,21 @@ async function runConversionSync(opts) {
   const won = [], skipped = [];
   for (const l of matchedLeads) {
     const m = matches.get(l.Submission_ID);
-    const oc = ordersByCust.get(String(m.custId)) || { dates: [], lifetime: 0 };
-    const cls = classifyOrders(dayMs(l.Submitted_At), oc.dates);
-    if (!cls.converted) continue; // matched a customer but no order after the inquiry
+    const oc = ordersByCust.get(String(m.custId)) || { orders: [] };
+    const cls = classifyOrders(dayMs(l.Submitted_At), oc.orders);
+    // Auto-Won only for a genuine NEW customer (first order after the inquiry).
+    // An established customer re-inquiring has orders before the lead — not
+    // auto-won (a rep can still mark it Won manually); this is why the honest
+    // number is ~223, not the ~330 that "any order after" would claim.
+    if (!cls.isNewCustomer) {
+      if (cls.converted) skipped.push({ id: l.Submission_ID, reason: 'existing-customer-reinquiry', custId: m.custId, custCompany: m.custCompany, attributed: Math.round(cls.attributedRevenue) });
+      continue;
+    }
     if (isCollisionRisk(m.via, l.Email, l.Company, m.custCompany)) {
       skipped.push({ id: l.Submission_ID, reason: 'collision-risk', email: l.Email, leadCompany: l.Company, custCompany: m.custCompany, custId: m.custId });
       continue;
     }
-    const lifetime = Math.round(oc.lifetime);
+    const lifetime = Math.round(cls.lifetimeRevenue);
     const rec = { id: l.Submission_ID, custId: String(m.custId), custCompany: m.custCompany, lifetime, orders: cls.orderCount, via: m.via, rep: l.Sales_Rep, conversionDate: msToDay(cls.conversionMs), fromStatus: l.Status };
     won.push(rec);
     if (!dryRun) {
@@ -241,7 +259,7 @@ async function runConversionSync(opts) {
     const wonOrders = await fetchOrdersByCustomer(wonLeads.map((l) => l.Matched_ID_Customer));
     for (const l of wonLeads) {
       const oc = wonOrders.get(String(l.Matched_ID_Customer)); if (!oc) continue;
-      const lifetime = String(Math.round(oc.lifetime));
+      const lifetime = String(Math.round(oc.orders.reduce((s, o) => s + (o.amt || 0), 0)));
       if (String(l.Lead_Value || '') === lifetime) continue; // no change → no write
       if (!dryRun) {
         await putWithRecordsAffected(SUBMISSIONS_PATH, `Submission_ID='${escWhere(l.Submission_ID)}'`, {
@@ -280,29 +298,34 @@ async function buildScorecard(opts) {
   let totalSales = 0, totalClosed = 0;
   for (const l of wonLeads) {
     const oc = l.Matched_ID_Customer ? ordersByCust.get(String(l.Matched_ID_Customer)) : null;
-    const cls = classifyOrders(dayMs(l.Submitted_At), oc ? oc.dates : []);
+    const cls = classifyOrders(dayMs(l.Submitted_At), oc ? oc.orders : []);
     // conversion date = first order after inquiry; fall back to the inquiry date
     // for a manually-Won lead with no matched orders.
     const convMs = cls.conversionMs || dayMs(l.Submitted_At);
     if (convMs < sinceMs || convMs >= untilMs) continue;
-    const lifetime = oc ? Math.round(oc.lifetime) : (parseFloat(l.Lead_Value) || 0);
+    // "Value closed" = orders placed AFTER the inquiry (attributed), so an
+    // established customer's back-catalog never inflates rep credit. Lifetime is
+    // reported alongside as customer-health context. Manual Wons with no matched
+    // orders fall back to the stamped Lead_Value.
+    const attributed = oc ? Math.round(cls.attributedRevenue) : (parseFloat(l.Lead_Value) || 0);
+    const lifetime = oc ? Math.round(cls.lifetimeRevenue) : (parseFloat(l.Lead_Value) || 0);
     const rep = l.Sales_Rep || '(unassigned)';
-    if (!perRep.has(rep)) perRep.set(rep, { rep, leadsClosed: 0, totalSales: 0, withOrders: 0 });
+    if (!perRep.has(rep)) perRep.set(rep, { rep, leadsClosed: 0, attributedSales: 0, lifetimeSales: 0, withOrders: 0 });
     const r = perRep.get(rep);
-    r.leadsClosed += 1; r.totalSales += lifetime; if (oc) r.withOrders += 1;
-    totalClosed += 1; totalSales += lifetime;
+    r.leadsClosed += 1; r.attributedSales += attributed; r.lifetimeSales += lifetime; if (oc) r.withOrders += 1;
+    totalClosed += 1; totalSales += attributed;
     leadsOut.push({
       submissionId: l.Submission_ID, company: l.Company, contact: l.Contact_Name, rep,
-      custId: l.Matched_ID_Customer, lifetime, orders: cls.orderCount,
+      custId: l.Matched_ID_Customer, attributed, lifetime, orders: cls.orderCount,
       inquiry: String(l.Submitted_At || '').slice(0, 10), conversionDate: msToDay(convMs),
     });
   }
-  const reps = [...perRep.values()].map((r) => ({ ...r, totalSales: Math.round(r.totalSales) }))
-    .sort((a, b) => b.totalSales - a.totalSales);
-  leadsOut.sort((a, b) => b.lifetime - a.lifetime);
+  const reps = [...perRep.values()].map((r) => ({ ...r, attributedSales: Math.round(r.attributedSales), lifetimeSales: Math.round(r.lifetimeSales) }))
+    .sort((a, b) => b.attributedSales - a.attributedSales);
+  leadsOut.sort((a, b) => b.attributed - a.attributed);
   return {
     since: opts.since || null, until: opts.until || null,
-    totals: { repsWithCloses: reps.length, leadsClosed: totalClosed, totalSales: Math.round(totalSales) },
+    totals: { repsWithCloses: reps.length, leadsClosed: totalClosed, attributedSales: Math.round(totalSales) },
     reps, leads: leadsOut,
   };
 }

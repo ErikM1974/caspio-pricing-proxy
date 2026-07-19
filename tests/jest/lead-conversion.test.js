@@ -33,24 +33,42 @@ describe('company + email helpers', () => {
   });
 });
 
-describe('classifyOrders — first order after inquiry', () => {
-  test('no orders → not converted', () => {
-    expect(classifyOrders(day('2025-01-01'), []).converted).toBe(false);
+const ord = (iso, amt) => ({ t: day(iso), amt });
+
+describe('classifyOrders — new customer vs re-inquiry + attribution', () => {
+  test('no orders → nothing', () => {
+    const r = classifyOrders(day('2025-01-01'), []);
+    expect(r.converted).toBe(false);
+    expect(r.isNewCustomer).toBe(false);
+    expect(r.attributedRevenue).toBe(0);
   });
-  test('order after inquiry → converted, conversion = that order', () => {
-    const r = classifyOrders(day('2025-01-01'), [day('2025-01-20'), day('2025-06-01')]);
+  test('first order after inquiry → NEW customer; attributed = lifetime', () => {
+    const r = classifyOrders(day('2025-01-01'), [ord('2025-01-20', 500), ord('2025-06-01', 800)]);
+    expect(r.isNewCustomer).toBe(true);
     expect(r.converted).toBe(true);
     expect(r.orderCount).toBe(2);
     expect(new Date(r.conversionMs).toISOString().slice(0, 10)).toBe('2025-01-20');
+    expect(r.attributedRevenue).toBe(1300);
+    expect(r.lifetimeRevenue).toBe(1300);
   });
-  test('all orders before inquiry → still "converted" for THIS lead only within grace', () => {
-    // an order 30 days before the inquiry does NOT count (outside 14d grace)
-    const r = classifyOrders(day('2025-02-01'), [day('2025-01-01')]);
-    expect(r.converted).toBe(false);
-  });
-  test('order within grace window before the lead counts', () => {
-    const r = classifyOrders(day('2025-02-01'), [day('2025-01-25')]); // 7d before < 14d grace
+  test('established customer re-inquires → NOT new; attributed counts only post-lead orders', () => {
+    // ordered $10k before the lead, $900 after → converted but not a new customer,
+    // and only the $900 is attributed to this lead (not the $10,900 lifetime).
+    const r = classifyOrders(day('2025-02-01'), [ord('2023-05-01', 10000), ord('2025-03-01', 900)]);
+    expect(r.isNewCustomer).toBe(false);
     expect(r.converted).toBe(true);
+    expect(r.attributedRevenue).toBe(900);
+    expect(r.lifetimeRevenue).toBe(10900);
+  });
+  test('all orders well before inquiry → not converted', () => {
+    const r = classifyOrders(day('2025-02-01'), [ord('2025-01-01', 300)]); // 31d before > 14d grace
+    expect(r.converted).toBe(false);
+    expect(r.isNewCustomer).toBe(false);
+  });
+  test('order within grace window before the lead still counts as new', () => {
+    const r = classifyOrders(day('2025-02-01'), [ord('2025-01-25', 300)]); // 7d before < 14d grace
+    expect(r.isNewCustomer).toBe(true);
+    expect(r.attributedRevenue).toBe(300);
     expect(GRACE_DAYS).toBe(14);
   });
 });
