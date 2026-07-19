@@ -1215,6 +1215,13 @@ const leadActivityRoutes = require('./src/routes/lead-activity');
 app.use('/api', leadActivityRoutes);
 console.log('✓ Lead activity + digest routes loaded [activity CRM-gated]');
 
+// Leads CRM — "Send a marketing kit" fulfillment (Marketing_Shipments +
+// Marketing_Kit_Items). Recipient PII → secret-only at the mount; staff reach it
+// via the main app's /api/crm-proxy/marketing-shipments* forwarder (requireStaff).
+const marketingShipmentsRoutes = require('./src/routes/marketing-shipments');
+app.use('/api/marketing-shipments', requireCrmApiSecret, marketingShipmentsRoutes);
+console.log('✓ Marketing shipments routes loaded [CRM-gated]');
+
 // Blog Posts (Blog_Posts table) — the main site's /blog SSR + homepage teaser
 // read Published posts publicly; drafts and all writes need the CRM secret
 // (staff Blog Editor via the main app's /api/crm-proxy/blog-posts forwarder).
