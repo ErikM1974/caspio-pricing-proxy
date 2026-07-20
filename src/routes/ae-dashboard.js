@@ -362,6 +362,158 @@ async function buildSummary(rep) {
     };
 }
 
+// ── Growth radar ("Money on the Table") ──────────────────────────────────
+// Mines the rep's OWN order history (ORDER_ODBC, 24 months) for revenue that
+// is statistically missing right now — two signals reps don't naturally see:
+//   1. RHYTHM BREAK — the account has a measurable reorder cadence (median gap
+//      between its own orders) and is now ≥1.6× past it. "Cintas orders every
+//      6 weeks; it's been 13." Est. $ = its own average order value.
+//   2. SEASON AHEAD — in the SAME upcoming 45-day window LAST year the account
+//      spent real money (uniforms for the fair, hoodies for the crew). Est. $
+//      = last year's spend in that window.
+// Ranked by estimated $. This is deliberately per-account-relative math — a
+// $400 account that's quiet 3× its own cadence outranks a whale that's right
+// on schedule.
+//
+// Attribution note: orders are pulled by ORDER_ODBC.CustomerServiceRep (the
+// order-time snapshot). A recently-reassigned account's OLD orders keep the
+// old rep, so its cadence may be invisible for a while — acceptable for a
+// radar (the summary's panels use current ownership; this is a lead list,
+// not payroll).
+const GROWTH_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6h — cadence moves daily, not hourly
+const growthCache = new Map(); // email → { data, fetchedAt }
+const GROWTH_LIMIT = 12;
+
+function median(nums) {
+    if (!nums.length) return 0;
+    const s = [...nums].sort((a, b) => a - b);
+    const mid = Math.floor(s.length / 2);
+    return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+}
+
+async function buildGrowthRadar(rep) {
+    const rows = await fetchAllCaspioPages('/tables/ORDER_ODBC/records', {
+        'q.where': `CustomerServiceRep='${escWhere(rep.fullName)}' AND date_OrderInvoiced>='${isoDaysAgo(730)}'`,
+        'q.select': 'ID_Order,id_Customer,CompanyName,date_OrderInvoiced,cur_Subtotal',
+        'q.pageSize': 1000,
+        'q.orderBy': 'PK_ID',
+    }, { maxPages: 12 });
+
+    // ORDER_ODBC repeats an order row per design block — dedupe by ID_Order.
+    const orders = new Map();
+    for (const r of rows) {
+        if (!orders.has(r.ID_Order)) orders.set(r.ID_Order, r);
+    }
+
+    // Group per customer
+    const byCust = new Map();
+    for (const o of orders.values()) {
+        const key = String(o.id_Customer || '');
+        if (!key) continue;
+        if (!byCust.has(key)) byCust.set(key, { company: o.CompanyName, orders: [] });
+        const g = byCust.get(key);
+        if (o.CompanyName) g.company = o.CompanyName;
+        const day = String(o.date_OrderInvoiced || '').slice(0, 10);
+        const amt = num(o.cur_Subtotal);
+        if (day) g.orders.push({ day, amt });
+    }
+
+    const now = Date.now();
+    const todayMs = now;
+    const upcomingStartLY = new Date(now); upcomingStartLY.setFullYear(upcomingStartLY.getFullYear() - 1);
+    const upcomingEndLY = new Date(upcomingStartLY.getTime() + 45 * 86400000);
+    const lyStart = upcomingStartLY.toISOString().slice(0, 10);
+    const lyEnd = upcomingEndLY.toISOString().slice(0, 10);
+
+    const findings = [];
+    for (const [custId, g] of byCust) {
+        g.orders.sort((a, b) => a.day.localeCompare(b.day));
+        const dates = g.orders.map((o) => Date.parse(o.day + 'T12:00:00Z'));
+        const lastMs = dates[dates.length - 1];
+        const daysSince = Math.round((todayMs - lastMs) / 86400000);
+        const gaps = [];
+        for (let i = 1; i < dates.length; i++) {
+            const gap = Math.round((dates[i] - dates[i - 1]) / 86400000);
+            if (gap > 0) gaps.push(gap); // same-day reorders don't define cadence
+        }
+        const medianGap = Math.round(median(gaps));
+        const totalSpend = g.orders.reduce((s, o) => s + o.amt, 0);
+        const avgOrder = g.orders.length ? Math.round((totalSpend / g.orders.length) * 100) / 100 : 0;
+        const lyUpcoming = Math.round(g.orders
+            .filter((o) => o.day >= lyStart && o.day <= lyEnd)
+            .reduce((s, o) => s + o.amt, 0) * 100) / 100;
+
+        const reasons = [];
+        let estValue = 0;
+        // Rhythm break: enough history to trust the cadence, cadence is a real
+        // repeat pattern (10-120d), and they're well past it.
+        if (gaps.length >= 3 && medianGap >= 10 && medianGap <= 120 && daysSince >= Math.round(medianGap * 1.6)) {
+            reasons.push({
+                type: 'rhythm',
+                text: `usually orders every ~${medianGap} days — quiet for ${daysSince}`,
+            });
+            estValue = Math.max(estValue, avgOrder);
+        }
+        // Season ahead: real money in the same upcoming window last year, and
+        // they haven't ordered recently (a fresh order likely IS the seasonal buy).
+        if (lyUpcoming >= 400 && daysSince > 30) {
+            reasons.push({
+                type: 'season',
+                text: `spent ${'$' + Math.round(lyUpcoming).toLocaleString('en-US')} in the next 45 days LAST year`,
+            });
+            estValue = Math.max(estValue, lyUpcoming);
+        }
+        if (!reasons.length) continue;
+
+        findings.push({
+            idCustomer: custId,
+            company: g.company || ('Customer #' + custId),
+            orderCount24mo: g.orders.length,
+            medianGapDays: medianGap,
+            daysSinceLastOrder: daysSince,
+            lastOrderDate: g.orders[g.orders.length - 1].day,
+            avgOrderValue: avgOrder,
+            lyUpcoming45d: lyUpcoming,
+            estValue: Math.round(estValue * 100) / 100,
+            reasons,
+        });
+    }
+
+    findings.sort((a, b) => b.estValue - a.estValue);
+    const top = findings.slice(0, GROWTH_LIMIT);
+    return {
+        rep: { email: rep.email, fullName: rep.fullName, firstName: rep.firstName },
+        generatedAt: new Date().toISOString(),
+        windowMonths: 24,
+        accountsScanned: byCust.size,
+        flaggedCount: findings.length,
+        potentialTotal: Math.round(findings.reduce((s, f) => s + f.estValue, 0) * 100) / 100,
+        items: top,
+        truncated: findings.length > top.length ? findings.length - top.length : 0,
+    };
+}
+
+// GET /growth?email=  (mounted at /api/ae-dashboard, secret-gated)
+router.get('/growth', async (req, res) => {
+    const email = String(req.query.email || '').toLowerCase().trim();
+    const reg = AE_REGISTRY[email];
+    if (!reg) return res.status(404).json({ error: 'Unknown AE email' });
+    const rep = { email, ...reg };
+
+    const entry = growthCache.get(email);
+    if (entry && Date.now() - entry.fetchedAt < GROWTH_CACHE_TTL_MS) {
+        return res.json({ ...entry.data, cacheHit: true });
+    }
+    try {
+        const data = await buildGrowthRadar(rep);
+        growthCache.set(email, { data, fetchedAt: Date.now() });
+        res.json({ ...data, cacheHit: false });
+    } catch (error) {
+        console.error('[ae-dashboard] growth radar failed:', error.message);
+        res.status(500).json({ error: 'Failed to build growth radar', details: error.message });
+    }
+});
+
 // GET /summary?email=&refresh=1  (mounted at /api/ae-dashboard, secret-gated)
 router.get('/summary', async (req, res) => {
     const email = String(req.query.email || '').toLowerCase().trim();

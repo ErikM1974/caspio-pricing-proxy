@@ -1472,6 +1472,38 @@ const server = app.listen(PORT, async () => {
         console.error('⏰ Failed to schedule Ruth digest cron:', err.message);
     }
 
+    // Schedule: daily CRM dashboard sync at 6 AM Pacific — ownership
+    // (Sales_Reps_2026 → rep account tables) then sales (YTD_Sales_2026 via
+    // hybrid archive+fresh). This was designed for Heroku Scheduler but never
+    // scheduled, so the rep CRM pages ran "16d stale" until someone clicked
+    // "Sync All CRM" by hand (caught 2026-07-19 — tier cards + reconciliation
+    // gap all inherit this lag). Spawns the existing battle-tested script so
+    // manual runs and the cron share one code path.
+    try {
+        const cron = require('node-cron');
+        if (process.env.CRM_API_SECRET) {
+            cron.schedule('0 6 * * *', () => {
+                const { spawn } = require('child_process');
+                console.log('[CRM Sync Cron] Starting daily sync-crm-dashboards run…');
+                const child = spawn('node', ['scripts/sync-crm-dashboards.js'], {
+                    env: process.env,
+                    stdio: ['ignore', 'pipe', 'pipe'],
+                });
+                child.stdout.on('data', (d) => process.stdout.write('[CRM Sync] ' + d));
+                child.stderr.on('data', (d) => process.stderr.write('[CRM Sync] ' + d));
+                child.on('close', (code) => {
+                    if (code === 0) console.log('[CRM Sync Cron] Completed OK');
+                    else console.error(`[CRM Sync Cron] FAILED (exit ${code}) — rep CRM YTD/tier data is going stale; run "Sync All CRM" manually and check logs`);
+                });
+            }, { timezone: 'America/Los_Angeles' });
+            console.log('⏰ CRM dashboard sync cron scheduled: daily 6 AM Pacific');
+        } else {
+            console.log('⏰ CRM sync cron NOT scheduled — missing CRM_API_SECRET');
+        }
+    } catch (err) {
+        console.error('⏰ Failed to schedule CRM sync cron:', err.message);
+    }
+
     // Schedule: monthly orphan-Box-folder digest email to Erik at 8 AM Pacific
     // on the 1st of each month. Catches any folder that lands in Ruth's Box
     // area without a matching Caspio row (e.g. manual right-click → New Folder
