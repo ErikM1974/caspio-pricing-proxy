@@ -642,12 +642,17 @@ async function buildDataQuality(rep) {
         }
     }
 
-    // Order findings — open (un-shipped) orders first, newest entered first.
+    // Order findings — an order is only LISTED when it carries at least one
+    // hard error; warn-level issues (e.g. blank ship-to, which is normal on
+    // pickup orders) ride along as context but never flag an order alone.
+    // Verified live 2026-07-19: without this, blank-ship-to warns on pickup
+    // orders drowned the real gaps (80/125 of Nika's orders "flagged").
+    // Open (un-shipped) orders first, most errors first, newest first.
     const flaggedOrders = [];
     for (const o of orders.values()) {
         const cust = custById.get(parseInt(o.id_Customer, 10)) || null;
         const issues = dqOrderIssues(o, cust);
-        if (!issues.length) continue;
+        if (!issues.some((i) => i.severity === 'err')) continue;
         flaggedOrders.push({
             idOrder: o.ID_Order,
             idCustomer: parseInt(o.id_Customer, 10) || null,
