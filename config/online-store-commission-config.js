@@ -69,7 +69,9 @@ const ONLINE_STORE_COMMISSION_CONFIG = {
             rep: 'Taneisha Clark',
             type: 'newCompany',         // 5% rate — brand new customer
             startDate: '2026-01-08',    // First invoiced order
-            setupBonusPaid: false,      // $250 bonus at $2,500 revenue (within 12 months)
+            // $250 bonus recorded on the Q2-2026 payout (Commission_Payouts
+            // 'Setup Bonus' row, Erik-approved 2026-07-19, paycheck 7/24).
+            setupBonusPaid: true,
         },
         {
             parentCompany: 'Stella Jones',
