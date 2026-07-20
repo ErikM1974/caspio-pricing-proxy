@@ -44,8 +44,16 @@ function buildInvoiceRequest(methodName, methodBody) {
 }
 
 // ── GET /by-po/:po — Invoice for a specific PO ──
+// FIXED 2026-07-19: the original op name `GetInvoiceByPurchaseOrderNo`
+// (singular) is not in SanMar's XSD — this endpoint had never returned an
+// invoice. The schema-correct `GetInvoicesByPurchaseOrderNo` (plural) parses
+// but SanMar answers "Unauthenticated request" for this account, so the
+// dependable path is the PROVEN GetInvoicesByInvoiceDateRange, filtered to
+// the PO. `?orderedDate=YYYY-MM-DD` (the PO's issue date, which callers like
+// the Purchasing Portal already know) narrows the window to [issue, +45d];
+// without it we scan the last 90 days.
 router.get('/by-po/:po', async (req, res) => {
-  const po = req.params.po;
+  const po = String(req.params.po).trim();
   const cacheKey = `sanmar-invoice-po-${po}`;
   const cached = invoiceCache.get(cacheKey);
   if (cached) return res.json({ ...cached, cached: true });
@@ -56,25 +64,44 @@ router.get('/by-po/:po', async (req, res) => {
       return res.status(500).json({ error: 'SanMar customer number not configured (SANMAR_CUSTOMER_NUMBER env var)' });
     }
 
-    const soapBody = buildInvoiceRequest('GetInvoiceByPurchaseOrderNo',
-      `<web:PurchaseOrderNo>${xmlEscape(po)}</web:PurchaseOrderNo>`
+    const day = (d) => d.toISOString().slice(0, 10);
+    let start, end;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(String(req.query.orderedDate || ''))) {
+      const od = new Date(req.query.orderedDate + 'T12:00:00Z');
+      start = day(od);
+      end = day(new Date(Math.min(Date.now(), od.getTime() + 45 * 86400000)));
+    } else {
+      end = day(new Date());
+      start = day(new Date(Date.now() - 90 * 86400000));
+    }
+
+    const soapBody = buildInvoiceRequest('GetInvoicesByInvoiceDateRange',
+      `<web:StartDate>${xmlEscape(start)}</web:StartDate>
+       <web:EndDate>${xmlEscape(end)}</web:EndDate>`
     );
 
     const xml = await makeSoapRequest(ENDPOINTS.standardInvoice, soapBody, {
-      timeout: 30000,
+      timeout: 60000,
       namespaces: { web: STANDARD_NS }
     });
 
     const soapError = checkSoapError(xml);
     if (soapError) {
       if (soapError.message === 'Data not found') {
-        return res.json({ invoices: [], message: 'No invoices found for this PO' });
+        return res.json({ purchaseOrder: po, invoices: [], message: 'No invoices found for this PO yet' });
       }
       return res.status(400).json({ error: soapError.message });
     }
 
-    const invoices = parseInvoiceResponse(xml);
-    const result = { purchaseOrder: po, invoices, fetchedAt: new Date().toISOString() };
+    const invoices = parseInvoiceResponse(xml)
+      .filter((inv) => String(inv.purchaseOrderNo || '').trim() === po);
+    const result = {
+      purchaseOrder: po,
+      invoices,
+      searchedWindow: { start, end },
+      message: invoices.length ? undefined : 'No invoices found for this PO yet (SanMar invoices cut after shipment)',
+      fetchedAt: new Date().toISOString(),
+    };
     invoiceCache.set(cacheKey, result);
 
     res.json(result);

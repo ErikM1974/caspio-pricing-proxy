@@ -514,6 +514,210 @@ router.get('/growth', async (req, res) => {
     }
 });
 
+// ── Data-quality radar ("go back and finish this ShopWorks entry") ───────
+// Scans the rep's recently-ENTERED orders (ORDER_ODBC, by date_OrderPlaced)
+// for essential fields ShopWorks lets you skip: contact first/last/phone/
+// email, ship-to address, payment terms, requested-ship date, and sales tax
+// that looks wrong (taxable dollars, $0 tax, customer not tax-exempt). Then
+// joins the same orders' customers to CompanyContactsMerge2026 (the ShopWorks
+// Cust mirror) and flags setup gaps there too: customer type, phone, default
+// terms, incomplete address, tax-exempt without an exemption number.
+// "This is the order — this is the customer that needs field updates."
+//
+// Known limit: ship METHOD is not in the 33-column ORDER_ODBC sync, so
+// "UPS Ground chosen but no address" is approximated by the address checks
+// (shipping charged + no ship-to = error). Add ShipMethod to sync-orders.ps1
+// + the Caspio table if we ever want the literal check.
+const DQ_CACHE_TTL_MS = 10 * 60 * 1000;
+const dqCache = new Map(); // email → { data, fetchedAt }
+const DQ_WINDOW_DAYS = 30;
+const DQ_ORDER_LIMIT = 20;
+const DQ_CUSTOMER_LIMIT = 15;
+
+function dqBlank(v) { return String(v == null ? '' : v).trim() === ''; }
+
+// One order → list of {field, severity ('err'|'warn'), text} issues.
+function dqOrderIssues(o, cust) {
+    const issues = [];
+    const add = (field, severity, text) => issues.push({ field, severity, text });
+
+    if (dqBlank(o.ContactFirst)) add('first-name', 'err', 'no contact first name');
+    if (dqBlank(o.ContactLast)) add('last-name', 'err', 'no contact last name');
+    if (dqBlank(o.ContactPhone)) add('phone', 'err', 'no contact phone');
+    if (dqBlank(o.ContactEmail)) add('email', 'err', 'no contact email');
+
+    // Ship-to address block. No digits = no street number / ZIP = not a real
+    // address. Shipping dollars charged with no address is the hard failure
+    // ("UPS Ground picked, address never entered").
+    const ship = String(o.Invoice_AddressBlock_Shipping || '').trim();
+    const shippingCharged = num(o.cur_Shipping) > 0;
+    if (!ship) {
+        add('ship-address', shippingCharged ? 'err' : 'warn',
+            shippingCharged ? 'shipping charged but NO ship-to address' : 'no ship-to address (OK only if pickup)');
+    } else if (!/\d/.test(ship)) {
+        add('ship-address', 'warn', 'ship-to address looks incomplete (no street # or ZIP)');
+    }
+
+    if (dqBlank(o.TermsName)) add('terms', 'err', 'no payment terms');
+
+    const placed = String(o.date_OrderPlaced || '').slice(0, 10);
+    const reqShip = String(o.date_OrderRequestedToShip || '').slice(0, 10);
+    if (!reqShip) add('due-date', 'err', 'no requested-ship date');
+    else if (placed && reqShip < placed) add('due-date', 'err', `ship date ${reqShip} is before order date`);
+    else if (placed && reqShip > String(new Date(Date.parse(placed + 'T12:00:00Z') + 365 * 86400000).toISOString()).slice(0, 10)) {
+        add('due-date', 'warn', `ship date ${reqShip} is over a year out — typo?`);
+    }
+
+    // Sales tax sanity: taxable dollars, zero tax, and the customer record
+    // does NOT say tax-exempt → someone skipped the tax setup.
+    const taxable = num(o.cur_Taxable01);
+    const tax = num(o.cnCur_SalesTaxTotal);
+    const custExempt = cust ? cust.isTaxExempt : false;
+    if (taxable > 0 && tax === 0 && !custExempt) add('tax', 'err', 'taxable order but $0 sales tax (customer is not tax-exempt)');
+
+    return issues;
+}
+
+// One customer (merged CompanyContactsMerge2026 rows) → setup issues.
+function dqCustomerIssues(c) {
+    const issues = [];
+    const add = (field, severity, text) => issues.push({ field, severity, text });
+    if (dqBlank(c.customerType)) add('customer-type', 'err', 'customer type not set');
+    if (dqBlank(c.companyPhone) && dqBlank(c.phoneBest)) add('phone', 'err', 'no phone on the customer record');
+    if (dqBlank(c.paymentTerms)) add('terms', 'warn', 'no default payment terms');
+    if (c.hasCompleteAddress === 0) add('address', 'warn', 'address incomplete');
+    if (c.isTaxExempt && dqBlank(c.taxExemptNumber)) add('tax', 'err', 'marked tax-exempt but no exemption # on file');
+    return issues;
+}
+
+async function buildDataQuality(rep) {
+    const rows = await fetchAllCaspioPages('/tables/ORDER_ODBC/records', {
+        'q.where': `CustomerServiceRep='${escWhere(rep.fullName)}' AND date_OrderPlaced>='${isoDaysAgo(DQ_WINDOW_DAYS)}'`,
+        'q.select': 'ID_Order,id_Customer,CompanyName,date_OrderPlaced,date_OrderRequestedToShip,' +
+            'ContactFirst,ContactLast,ContactPhone,ContactEmail,Invoice_AddressBlock_Shipping,' +
+            'TermsName,cur_Shipping,cur_Taxable01,cnCur_SalesTaxTotal,sts_Invoiced,sts_Shipped',
+        'q.pageSize': 1000,
+        'q.orderBy': 'PK_ID',
+    }, { maxPages: 4 });
+
+    // ORDER_ODBC repeats an order row per design block — dedupe by ID_Order.
+    const orders = new Map();
+    for (const r of rows) {
+        if (!orders.has(r.ID_Order)) orders.set(r.ID_Order, r);
+    }
+
+    // Customer records behind these orders (chunked IN() reads on the Cust
+    // mirror). Multiple contact rows per customer — first non-blank value wins.
+    const custIds = [...new Set([...orders.values()]
+        .map((o) => parseInt(o.id_Customer, 10)).filter((n) => Number.isInteger(n) && n > 0))];
+    const custById = new Map();
+    for (const ids of chunk(custIds, 40)) {
+        if (!ids.length) continue;
+        const custRows = await fetchAllCaspioPages('/tables/CompanyContactsMerge2026/records', {
+            'q.where': `id_Customer IN (${ids.join(',')})`,
+            'q.select': 'id_Customer,Company_Name,CustomerCompanyName,Customer_Type,Company_Phone,Phone_Best,' +
+                'Payment_Terms,Is_Tax_Exempt,Tax_Exempt_Number,Has_Complete_Address',
+            'q.pageSize': 1000,
+            'q.orderBy': 'PK_ID',
+        }, { maxPages: 4 });
+        for (const r of custRows) {
+            const key = parseInt(r.id_Customer, 10);
+            if (!custById.has(key)) {
+                custById.set(key, {
+                    idCustomer: key, company: '', customerType: '', companyPhone: '', phoneBest: '',
+                    paymentTerms: '', isTaxExempt: false, taxExemptNumber: '', hasCompleteAddress: null,
+                });
+            }
+            const c = custById.get(key);
+            if (!c.company) c.company = String(r.Company_Name || r.CustomerCompanyName || '').trim();
+            if (!c.customerType) c.customerType = String(r.Customer_Type || '').trim();
+            if (!c.companyPhone) c.companyPhone = String(r.Company_Phone || '').trim();
+            if (!c.phoneBest) c.phoneBest = String(r.Phone_Best || '').trim();
+            if (!c.paymentTerms) c.paymentTerms = String(r.Payment_Terms || '').trim();
+            if (parseInt(r.Is_Tax_Exempt, 10) === 1) c.isTaxExempt = true;
+            if (!c.taxExemptNumber) c.taxExemptNumber = String(r.Tax_Exempt_Number || '').trim();
+            const hca = parseInt(r.Has_Complete_Address, 10);
+            // any contact row with a complete address clears the flag
+            if (c.hasCompleteAddress !== 1 && (hca === 0 || hca === 1)) c.hasCompleteAddress = hca;
+        }
+    }
+
+    // Order findings — open (un-shipped) orders first, newest entered first.
+    const flaggedOrders = [];
+    for (const o of orders.values()) {
+        const cust = custById.get(parseInt(o.id_Customer, 10)) || null;
+        const issues = dqOrderIssues(o, cust);
+        if (!issues.length) continue;
+        flaggedOrders.push({
+            idOrder: o.ID_Order,
+            idCustomer: parseInt(o.id_Customer, 10) || null,
+            company: o.CompanyName || (cust && cust.company) || '',
+            placedDate: String(o.date_OrderPlaced || '').slice(0, 10),
+            requestedShipDate: String(o.date_OrderRequestedToShip || '').slice(0, 10),
+            invoiced: parseInt(o.sts_Invoiced, 10) === 1,
+            shipped: parseInt(o.sts_Shipped, 10) === 1,
+            errCount: issues.filter((i) => i.severity === 'err').length,
+            issues,
+        });
+    }
+    flaggedOrders.sort((a, b) =>
+        (a.shipped - b.shipped) || (b.errCount - a.errCount) || String(b.placedDate).localeCompare(String(a.placedDate)));
+
+    // Customer findings — only customers who actually ordered in the window.
+    const flaggedCustomers = [];
+    for (const c of custById.values()) {
+        const issues = dqCustomerIssues(c);
+        if (!issues.length) continue;
+        flaggedCustomers.push({
+            idCustomer: c.idCustomer,
+            company: c.company || ('Customer #' + c.idCustomer),
+            errCount: issues.filter((i) => i.severity === 'err').length,
+            issues,
+        });
+    }
+    flaggedCustomers.sort((a, b) => (b.errCount - a.errCount) || String(a.company).localeCompare(String(b.company)));
+
+    const topOrders = flaggedOrders.slice(0, DQ_ORDER_LIMIT);
+    const topCustomers = flaggedCustomers.slice(0, DQ_CUSTOMER_LIMIT);
+    return {
+        rep: { email: rep.email, fullName: rep.fullName, firstName: rep.firstName },
+        generatedAt: new Date().toISOString(),
+        windowDays: DQ_WINDOW_DAYS,
+        ordersScanned: orders.size,
+        customersScanned: custById.size,
+        counts: {
+            ordersFlagged: flaggedOrders.length,
+            customersFlagged: flaggedCustomers.length,
+            orderErrors: flaggedOrders.reduce((s, o) => s + o.errCount, 0),
+        },
+        orders: topOrders,
+        customers: topCustomers,
+        ordersTruncated: flaggedOrders.length - topOrders.length,
+        customersTruncated: flaggedCustomers.length - topCustomers.length,
+    };
+}
+
+// GET /data-quality?email=  (mounted at /api/ae-dashboard, secret-gated)
+router.get('/data-quality', async (req, res) => {
+    const email = String(req.query.email || '').toLowerCase().trim();
+    const reg = AE_REGISTRY[email];
+    if (!reg) return res.status(404).json({ error: 'Unknown AE email' });
+    const rep = { email, ...reg };
+
+    const entry = dqCache.get(email);
+    if (entry && Date.now() - entry.fetchedAt < DQ_CACHE_TTL_MS) {
+        return res.json({ ...entry.data, cacheHit: true });
+    }
+    try {
+        const data = await buildDataQuality(rep);
+        dqCache.set(email, { data, fetchedAt: Date.now() });
+        res.json({ ...data, cacheHit: false });
+    } catch (error) {
+        console.error('[ae-dashboard] data-quality radar failed:', error.message);
+        res.status(500).json({ error: 'Failed to build data-quality radar', details: error.message });
+    }
+});
+
 // ── Purchasing tracker ("did Bradley order my blanks?") ──────────────────
 // The AEs submit blanks-purchase requests to Bradley via the JotForm
 // "Purchasing" form (Order # fields = ShopWorks work-order numbers). This
@@ -631,6 +835,11 @@ async function buildPurchasing(rep) {
                 status,
                 poCount: pos.length,
                 vendors: [...new Set(pos.map((p) => p.VendorName).filter(Boolean))],
+                // SanMar-vendor PO numbers — SanMar's invoice API is keyed by
+                // PurchaseOrderNo, and our SanMar orders carry the ShopWorks
+                // ID_PO as that number (same match the inbound dashboard uses),
+                // so the portal can pull the actual SanMar invoice per PO.
+                sanmarPos: [...new Set(pos.filter((p) => /sanmar/i.test(String(p.VendorName || ''))).map((p) => p.ID_PO))],
                 orderedDate: issued.length ? day(issued[0].date_POIssued) : '',
                 receivedDate: received.length ? day(received[received.length - 1].date_Received) : '',
             };
@@ -687,6 +896,159 @@ router.get('/purchasing', async (req, res) => {
     } catch (error) {
         console.error('[ae-dashboard] purchasing tracker failed:', error.message);
         res.status(500).json({ error: 'Failed to build purchasing tracker', details: error.message });
+    }
+});
+
+// ── Order due dates ("will this order ship on time?") ────────────────────
+// The rep's UNSHIPPED ShopWorks orders measured against their requested-ship
+// date, joined to the PurchaseOrders mirror so "are the blanks even here?" is
+// answered on the same row. Two flags, nothing else:
+//   LATE    — requested-ship date already passed and the order hasn't shipped.
+//   AT RISK — due within DUE_SOON_DAYS and the blanks are NOT fully received
+//             (no PO on the work order, or PO issued but receiving hasn't
+//             counted it in). Due-soon orders whose blanks ARE in house are
+//             considered on track and only counted, not listed.
+// Orders with NO requested-ship date can't be judged here — the data-quality
+// radar already flags those as entry errors.
+const DUE_SOON_DAYS = 7;
+const DUE_LOOKBACK_DAYS = 60; // how far past-due we keep showing a missed date
+const DUE_LIMIT = 30;
+const DUE_CACHE_TTL_MS = 10 * 60 * 1000;
+const dueCache = new Map(); // email → { data, fetchedAt }
+
+async function buildDueDates(rep) {
+    const rows = await fetchAllCaspioPages('/tables/ORDER_ODBC/records', {
+        'q.where': `CustomerServiceRep='${escWhere(rep.fullName)}' AND date_OrderRequestedToShip>='${isoDaysAgo(DUE_LOOKBACK_DAYS)}'`,
+        'q.select': 'ID_Order,id_Customer,CompanyName,ORDER_TYPE,date_OrderPlaced,date_OrderRequestedToShip,cur_Subtotal,sts_Invoiced,sts_Shipped',
+        'q.pageSize': 1000,
+        'q.orderBy': 'PK_ID',
+    }, { maxPages: 4 });
+
+    // ORDER_ODBC repeats an order row per design block — dedupe by ID_Order.
+    const orders = new Map();
+    for (const r of rows) {
+        if (!orders.has(r.ID_Order)) orders.set(r.ID_Order, r);
+    }
+
+    const today = todayPT();
+    const todayMs = Date.parse(today + 'T12:00:00Z');
+    const daysUntil = (day) => Math.round((Date.parse(day + 'T12:00:00Z') - todayMs) / 86400000);
+
+    // Candidates = unshipped orders due on/before today+DUE_SOON_DAYS. Orders
+    // due further out aren't judged yet; shipped orders made their date (or
+    // are out the door either way).
+    const candidates = [];
+    let dueSoonTotal = 0;
+    for (const o of orders.values()) {
+        if (parseInt(o.sts_Shipped, 10) === 1) continue;
+        const due = String(o.date_OrderRequestedToShip || '').slice(0, 10);
+        if (!due) continue;
+        const d = daysUntil(due);
+        if (d > DUE_SOON_DAYS) continue;
+        if (d >= 0) dueSoonTotal++;
+        candidates.push({ o, due, d });
+    }
+
+    // Blanks status per candidate work order from the PurchaseOrders mirror
+    // (same join the purchasing tracker uses). Chunked IN() reads.
+    const candidateIds = [...new Set(candidates.map((c) => parseInt(c.o.ID_Order, 10)).filter((n) => Number.isInteger(n) && n > 0))];
+    const posByOrder = new Map();
+    for (const ids of chunk(candidateIds, 40)) {
+        if (!ids.length) continue;
+        const poRows = await fetchAllCaspioPages('/tables/PurchaseOrders/records', {
+            'q.where': `id_Order IN (${ids.join(',')})`,
+            'q.select': 'ID_PO,id_Order,VendorName,date_POIssued,date_Received,sts_Received',
+            'q.pageSize': 500,
+            'q.orderBy': 'PK_ID',
+        }, { maxPages: 2 });
+        for (const r of poRows) {
+            const key = parseInt(r.id_Order, 10);
+            if (!posByOrder.has(key)) posByOrder.set(key, []);
+            posByOrder.get(key).push(r);
+        }
+    }
+
+    const day = (v) => String(v || '').slice(0, 10);
+    const late = [];
+    const atRisk = [];
+    for (const { o, due, d } of candidates) {
+        const pos = posByOrder.get(parseInt(o.ID_Order, 10)) || [];
+        const received = pos.filter((p) => day(p.date_Received) || parseInt(p.sts_Received, 10) === 1);
+        let blanks = 'none';                                   // no PO on the WO yet
+        if (pos.length) blanks = 'ordered';                    // PO issued, nothing counted in
+        if (pos.length && received.length >= pos.length) blanks = 'received';
+        else if (received.length) blanks = 'partial';
+
+        const isLate = d < 0;
+        if (!isLate && blanks === 'received') continue;        // due soon but blanks in house — on track
+
+        const blanksText = blanks === 'none' ? 'blanks not purchased (no PO on this WO)'
+            : blanks === 'ordered' ? 'blanks ordered, not received'
+            : blanks === 'partial' ? 'blanks only partially received'
+            : 'blanks received';
+        const item = {
+            idOrder: o.ID_Order,
+            idCustomer: parseInt(o.id_Customer, 10) || null,
+            company: o.CompanyName || '',
+            orderType: o.ORDER_TYPE || '',
+            placedDate: day(o.date_OrderPlaced),
+            dueDate: due,
+            daysUntilDue: d,
+            subtotal: num(o.cur_Subtotal),
+            invoiced: parseInt(o.sts_Invoiced, 10) === 1,
+            blanks,
+            poCount: pos.length,
+            vendors: [...new Set(pos.map((p) => p.VendorName).filter(Boolean))],
+            flag: isLate ? 'late' : 'risk',
+            reason: isLate
+                ? `${Math.abs(d)}d past due` + (blanks !== 'received' ? ' · ' + blanksText : '')
+                : (d === 0 ? 'due TODAY' : `due in ${d}d`) + ' · ' + blanksText,
+        };
+        (isLate ? late : atRisk).push(item);
+    }
+    // Most urgent first: late = most overdue on top; at-risk = soonest due on top.
+    late.sort((a, b) => a.daysUntilDue - b.daysUntilDue);
+    atRisk.sort((a, b) => a.daysUntilDue - b.daysUntilDue);
+
+    const lateTop = late.slice(0, DUE_LIMIT);
+    const riskTop = atRisk.slice(0, DUE_LIMIT);
+    return {
+        rep: { email: rep.email, fullName: rep.fullName, firstName: rep.firstName },
+        generatedAt: new Date().toISOString(),
+        today,
+        dueSoonDays: DUE_SOON_DAYS,
+        lookbackDays: DUE_LOOKBACK_DAYS,
+        ordersScanned: orders.size,
+        counts: {
+            late: late.length,
+            atRisk: atRisk.length,
+            dueSoonOnTrack: Math.max(0, dueSoonTotal - atRisk.length),
+        },
+        late: lateTop,
+        atRisk: riskTop,
+        lateTruncated: late.length - lateTop.length,
+        atRiskTruncated: atRisk.length - riskTop.length,
+    };
+}
+
+// GET /due-dates?email=  (mounted at /api/ae-dashboard, secret-gated)
+router.get('/due-dates', async (req, res) => {
+    const email = String(req.query.email || '').toLowerCase().trim();
+    const reg = AE_REGISTRY[email];
+    if (!reg) return res.status(404).json({ error: 'Unknown AE email' });
+    const rep = { email, ...reg };
+
+    const entry = dueCache.get(email);
+    if (entry && Date.now() - entry.fetchedAt < DUE_CACHE_TTL_MS) {
+        return res.json({ ...entry.data, cacheHit: true });
+    }
+    try {
+        const data = await buildDueDates(rep);
+        dueCache.set(email, { data, fetchedAt: Date.now() });
+        res.json({ ...data, cacheHit: false });
+    } catch (error) {
+        console.error('[ae-dashboard] due-dates failed:', error.message);
+        res.status(500).json({ error: 'Failed to build order due dates', details: error.message });
     }
 });
 
