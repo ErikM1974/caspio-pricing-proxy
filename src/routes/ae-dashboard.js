@@ -262,7 +262,7 @@ async function fetchPayouts(rep) {
             total: sum(previous),
             allPaid: previous.length > 0 && previous.every((r) => r.status === 'Paid'),
         },
-        paidYtd: sum(rows.filter((r) => r.status === 'Paid').map(slim)),
+        paidYtd: sum(rows.filter((r) => r.Status === 'Paid').map(slim)), // raw rows — Caspio field is capital-S Status
     };
 }
 
