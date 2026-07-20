@@ -972,6 +972,13 @@ app.use('/api/online-store-commissions', requireCrmApiSecret);
 app.use('/api', onlineStoreCommissionRoutes);
 console.log('✓ Online Store Commission routes loaded');
 
+// AE Mission Control aggregate (per-rep leads/quotes/art/orders/sales/commission/kits
+// in ONE cached read). Secret-only — browsers come through the main app's session-gated
+// /api/crm-proxy/ae-dashboard/summary forwarder (which derives the rep from the session).
+const aeDashboardRoutes = require('./src/routes/ae-dashboard');
+app.use('/api/ae-dashboard', requireCrmApiSecret, aeDashboardRoutes);
+console.log('✓ AE Dashboard aggregate routes loaded (requireCrmApiSecret-gated)');
+
 // Commission Payouts Routes (unified commission tracking + payment history)
 // SECURITY (2026-06-30): gate ONLY the no-caller routes now — POST /save (anonymous payout
 // write) + the win-back/history rep-revenue reads. quarterly/annual-report (browser+cron) and

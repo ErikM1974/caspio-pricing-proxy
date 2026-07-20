@@ -452,6 +452,31 @@ router.get('/quote_sessions', async (req, res) => {
       whereConditions.push(`CreatedAt>'${createdAfter}'`);
     }
 
+    // salesRepEmail / salesRepName — "my quotes" filter for AE Mission Control
+    // (2026-07-19). Email reuses the strict email sanitizer; name strips every
+    // char that isn't a letter/space/period/hyphen (no quotes survive → no
+    // injection surface). Both filters may combine with status/createdAfter.
+    if (req.query.salesRepEmail) {
+      const sanitizedRepEmail = sanitizeEmail(req.query.salesRepEmail);
+      if (!sanitizedRepEmail) {
+        return res.status(400).json({
+          error: 'Invalid salesRepEmail parameter',
+          hint: 'Must be a valid email address'
+        });
+      }
+      whereConditions.push(`SalesRepEmail='${sanitizedRepEmail}'`);
+    }
+    if (req.query.salesRepName) {
+      const sanitizedRepName = String(req.query.salesRepName).replace(/[^a-zA-Z\s.-]/g, '').trim();
+      if (!sanitizedRepName) {
+        return res.status(400).json({
+          error: 'Invalid salesRepName parameter',
+          hint: 'Letters, spaces, periods, and hyphens only'
+        });
+      }
+      whereConditions.push(`SalesRepName='${sanitizedRepName}'`);
+    }
+
     // Warn if no filters
     if (whereConditions.length === 0) {
       console.warn('WARNING: No filters provided to /api/quote_sessions - returning all records');

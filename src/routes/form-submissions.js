@@ -218,6 +218,10 @@ router.get('/', async (req, res) => {
     if (statusNot) where.push(`Status<>'${statusNot}'`);
     const category = sanitizeLike(req.query.category);
     if (category) where.push(`Lead_Category='${category}'`); // Unqualified & Spam page
+    // salesRep — per-AE server-side filter (AE Mission Control "my leads", 2026-07-19).
+    // Values are full display names ("Taneisha Clark"), matching Sales_Reps_2026.
+    const salesRep = sanitizeLike(req.query.salesRep);
+    if (salesRep) where.push(`Sales_Rep='${salesRep}'`);
     const q = sanitizeLike(req.query.q);
     if (q) where.push(`(Company LIKE '%${q}%' OR Contact_Name LIKE '%${q}%' OR Submission_ID LIKE '%${q}%')`);
 

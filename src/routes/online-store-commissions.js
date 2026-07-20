@@ -462,3 +462,14 @@ router.get('/online-store-commissions/detail', async (req, res) => {
 });
 
 module.exports = router;
+// In-process reuse (AE Mission Control aggregate, src/routes/ae-dashboard.js) —
+// lets the summary endpoint compute one rep's quarterly commission without an
+// HTTP hop. A router is a function object, so attaching helpers is safe.
+module.exports.helpers = {
+  fetchInkSoftOrders,
+  aggregateOrders,
+  calculateRepCommission,
+  getCurrentQuarter,
+  getCurrentYear,
+  getQuarterDateRange,
+};
