@@ -514,6 +514,158 @@ router.get('/growth', async (req, res) => {
     }
 });
 
+// ── Purchasing tracker ("did Bradley order my blanks?") ──────────────────
+// The AEs submit blanks-purchase requests to Bradley via the JotForm
+// "Purchasing" form (Order # fields = ShopWorks work-order numbers). This
+// endpoint joins that form to the ShopWorks PurchaseOrders mirror so the rep
+// can see each request move: Sent to Bradley → Ordered (PO issued, vendor) →
+// Received (counted in by receiving) → Invoiced/Shipped (ORDER_ODBC flags).
+const PURCHASING_FORM_ID = '241646601815152';
+const PURCHASING_WINDOW_DAYS = 60;
+const PURCHASING_CACHE_TTL_MS = 15 * 60 * 1000;
+const purchasingCache = new Map(); // email → { data, fetchedAt }
+
+function chunk(arr, n) {
+    const out = [];
+    for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n));
+    return out;
+}
+
+async function buildPurchasing(rep) {
+    const { fetchJotformSubmissions } = require('../utils/jotform');
+    const sinceStr = new Date(Date.now() - PURCHASING_WINDOW_DAYS * 86400000)
+        .toISOString().slice(0, 10) + ' 00:00:00';
+    const subs = await fetchJotformSubmissions(PURCHASING_FORM_ID, {
+        filter: { 'created_at:gt': sinceStr },
+        limit: 500,
+        orderby: 'id',
+    });
+
+    // Parse + filter to this rep (the "Your Email" field).
+    const mine = [];
+    for (const s of subs) {
+        const answers = s.answers || {};
+        let email = '', poNum = '', orderType = '';
+        const orders = [];
+        for (const a of Object.values(answers)) {
+            const name = String(a.name || '');
+            const text = String(a.text || '');
+            const val = a.answer;
+            // JotForm answers we care about are plain strings (date/upload
+            // fields come back as objects — skip those).
+            if (typeof val !== 'string' || val.trim() === '') continue;
+            if (name === 'yourEmail' || /your email/i.test(text)) email = String(val).toLowerCase().trim();
+            else if (/^po\s*#/i.test(text)) poNum = String(val).trim();
+            else if (/^order[_ ]?\d*$/i.test(name) || /^order\s*#/i.test(text)) {
+                const num = parseInt(String(val).replace(/\D/g, ''), 10);
+                if (Number.isInteger(num) && num > 1000) orders.push(num);
+            } else if (name === 'typeOf' || /type of order/i.test(text)) orderType = String(val).trim();
+        }
+        if (email !== rep.email) continue;
+        if (!orders.length) continue;
+        mine.push({
+            submissionId: s.id,
+            submittedAt: s.created_at,
+            orderType,
+            bradleyPo: poNum,
+            orders: [...new Set(orders)],
+        });
+    }
+    mine.sort((a, b) => String(b.submittedAt).localeCompare(String(a.submittedAt)));
+    const recent = mine.slice(0, 20);
+
+    // Cross-reference ShopWorks: PurchaseOrders (blanks POs per work order) +
+    // ORDER_ODBC (company + production flags). Chunked IN() reads.
+    const allOrderNums = [...new Set(recent.flatMap((m) => m.orders))];
+    const posByOrder = new Map();
+    const odbcByOrder = new Map();
+    for (const ids of chunk(allOrderNums, 40)) {
+        if (!ids.length) continue;
+        const inList = ids.join(',');
+        const poRows = await fetchAllCaspioPages('/tables/PurchaseOrders/records', {
+            'q.where': `id_Order IN (${inList})`,
+            'q.select': 'ID_PO,id_Order,VendorName,date_POIssued,date_Received,sts_Received',
+            'q.orderBy': 'PK_ID',
+            'q.pageSize': 500,
+        }, { maxPages: 2 });
+        for (const r of poRows) {
+            const key = parseInt(r.id_Order, 10);
+            if (!posByOrder.has(key)) posByOrder.set(key, []);
+            posByOrder.get(key).push(r);
+        }
+        const odbcRows = await fetchAllCaspioPages('/tables/ORDER_ODBC/records', {
+            'q.where': `ID_Order IN (${inList})`,
+            'q.select': 'ID_Order,CompanyName,sts_Invoiced,sts_Shipped',
+            'q.orderBy': 'PK_ID',
+            'q.pageSize': 500,
+        }, { maxPages: 2 });
+        for (const r of odbcRows) {
+            const key = parseInt(r.ID_Order, 10);
+            if (!odbcByOrder.has(key)) odbcByOrder.set(key, r);
+        }
+    }
+
+    const day = (v) => String(v || '').slice(0, 10);
+    const items = recent.map((m) => ({
+        ...m,
+        orders: m.orders.map((num) => {
+            const pos = posByOrder.get(num) || [];
+            const odbc = odbcByOrder.get(num);
+            const issued = pos.filter((p) => day(p.date_POIssued));
+            const received = pos.filter((p) => day(p.date_Received) || parseInt(p.sts_Received, 10) === 1);
+            let status = 'sent';                                    // Bradley has the request
+            if (pos.length) status = 'ordered';                     // PO exists for this WO
+            if (pos.length && received.length >= pos.length) status = 'received';
+            else if (received.length) status = 'partial';
+            if (odbc && parseInt(odbc.sts_Shipped, 10) === 1) status = 'shipped';
+            else if (odbc && parseInt(odbc.sts_Invoiced, 10) === 1 && status === 'received') status = 'invoiced';
+            return {
+                orderNumber: num,
+                company: odbc ? odbc.CompanyName : '',
+                status,
+                poCount: pos.length,
+                vendors: [...new Set(pos.map((p) => p.VendorName).filter(Boolean))],
+                orderedDate: issued.length ? day(issued[0].date_POIssued) : '',
+                receivedDate: received.length ? day(received[received.length - 1].date_Received) : '',
+            };
+        }),
+    }));
+
+    const counts = { sent: 0, ordered: 0, partial: 0, received: 0, invoiced: 0, shipped: 0 };
+    items.forEach((m) => m.orders.forEach((o) => { counts[o.status] = (counts[o.status] || 0) + 1; }));
+
+    return {
+        rep: { email: rep.email, fullName: rep.fullName, firstName: rep.firstName },
+        generatedAt: new Date().toISOString(),
+        windowDays: PURCHASING_WINDOW_DAYS,
+        submissionCount: mine.length,
+        counts,
+        items,
+        truncated: mine.length > recent.length ? mine.length - recent.length : 0,
+    };
+}
+
+// GET /purchasing?email=  (mounted at /api/ae-dashboard, secret-gated)
+router.get('/purchasing', async (req, res) => {
+    const email = String(req.query.email || '').toLowerCase().trim();
+    const reg = AE_REGISTRY[email];
+    if (!reg) return res.status(404).json({ error: 'Unknown AE email' });
+    const rep = { email, ...reg };
+
+    const entry = purchasingCache.get(email);
+    if (entry && Date.now() - entry.fetchedAt < PURCHASING_CACHE_TTL_MS) {
+        return res.json({ ...entry.data, cacheHit: true });
+    }
+    try {
+        const data = await buildPurchasing(rep);
+        purchasingCache.set(email, { data, fetchedAt: Date.now() });
+        res.json({ ...data, cacheHit: false });
+    } catch (error) {
+        console.error('[ae-dashboard] purchasing tracker failed:', error.message);
+        res.status(500).json({ error: 'Failed to build purchasing tracker', details: error.message });
+    }
+});
+
 // GET /summary?email=&refresh=1  (mounted at /api/ae-dashboard, secret-gated)
 router.get('/summary', async (req, res) => {
     const email = String(req.query.email || '').toLowerCase().trim();
