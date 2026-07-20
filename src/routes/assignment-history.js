@@ -161,6 +161,77 @@ router.get('/assignment-history/recent', async (req, res) => {
     }
 });
 
+// ── ShopWorks To-Do (2026-07-19) ─────────────────────────────────────────
+// ShopWorks has NO write-back path (Erik keys CustomerServiceRep by hand), so
+// every dashboard-made assignment is provisional until ShopWorks matches. The
+// contract: dashboard flows log a history row (RECONCILE/CRM_MANUAL/ADMIN);
+// when the bandit ODBC agent later posts that customer (Erik's ShopWorks edit
+// triggers it within ~15 min), sync-sales-reps logs a SYNC row — confirmed if
+// the rep matches, a ⚠ REVERT row if ShopWorks says someone else. The to-do =
+// per customer, latest row is still a dashboard row.
+
+const TODO_WINDOW_DAYS = 90;
+
+/** Direct table write for system rows (bypasses the POST route's validation —
+ *  used by the ODBC sync to log SYNC confirm/revert outcomes). */
+async function logAssignmentRow(record) {
+    const token = await getCaspioAccessToken();
+    await axios.post(`${caspioApiBaseUrl}/tables/${TABLE_NAME}/records`, {
+        Action_Date: new Date().toISOString(),
+        Action_Type: 'REASSIGNED',
+        Changed_By: 'System',
+        Change_Source: 'SYNC',
+        Notes: '',
+        Related_Orders: '',
+        ...record,
+    }, { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, timeout: 15000 });
+}
+
+/** Latest history row per customer over the window → pending / reverted lists. */
+async function computeShopWorksTodo() {
+    const since = new Date(Date.now() - TODO_WINDOW_DAYS * 86400000).toISOString();
+    const records = await fetchAllCaspioPages(`/tables/${TABLE_NAME}/records`, {
+        'q.where': `Action_Date>='${since}'`,
+        'q.orderBy': 'Action_Date DESC, PK_ID DESC',
+        'q.pageSize': 500,
+    }, { maxPages: 4 });
+
+    const latestByCustomer = new Map();
+    for (const r of records) {
+        const key = String(r.Customer_ID);
+        if (!latestByCustomer.has(key)) latestByCustomer.set(key, r);
+    }
+
+    const pending = [], reverted = [];
+    for (const r of latestByCustomer.values()) {
+        const item = {
+            customerId: r.Customer_ID,
+            customerName: r.Customer_Name,
+            previousRep: r.Previous_Rep,
+            newRep: r.New_Rep,
+            actionDate: r.Action_Date,
+            changedBy: r.Changed_By,
+            source: r.Change_Source,
+            notes: r.Notes || '',
+        };
+        if (r.Change_Source !== 'SYNC') pending.push(item);
+        else if (String(r.Notes || '').startsWith('⚠')) reverted.push(item);
+    }
+    pending.sort((a, b) => String(a.actionDate).localeCompare(String(b.actionDate)));
+    return { pending, reverted, windowDays: TODO_WINDOW_DAYS };
+}
+
+// GET /api/assignment-history/shopworks-todo — the manual-keying checklist.
+router.get('/assignment-history/shopworks-todo', async (req, res) => {
+    try {
+        const todo = await computeShopWorksTodo();
+        res.json({ success: true, ...todo });
+    } catch (error) {
+        console.error('Error computing ShopWorks to-do:', error.message);
+        res.status(500).json({ success: false, error: 'Failed to compute ShopWorks to-do' });
+    }
+});
+
 // GET /api/assignment-history/stats - Get assignment statistics
 router.get('/assignment-history/stats', async (req, res) => {
     try {
@@ -211,3 +282,6 @@ router.get('/assignment-history/stats', async (req, res) => {
 });
 
 module.exports = router;
+// In-process reuse: shopworks-odbc-sync.js logs SYNC confirm/revert outcomes
+// against pending dashboard assignments (router is a function object).
+module.exports.helpers = { computeShopWorksTodo, logAssignmentRow };

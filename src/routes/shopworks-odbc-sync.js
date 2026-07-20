@@ -532,9 +532,48 @@ async function upsertRep(token, raw) {
     return 'inserted';
 }
 
+/**
+ * ShopWorks To-Do resolution (2026-07-19). ShopWorks has NO write-back path —
+ * dashboard rep-assignments are provisional until Erik keys them into ShopWorks
+ * by hand. When the bandit agent posts a customer that has a PENDING dashboard
+ * assignment (latest Account_Assignment_History row is non-SYNC), record the
+ * outcome: ShopWorks agrees → confirm row (clears the to-do); ShopWorks says a
+ * different rep → ⚠ revert row (surfaces on the house page's to-do as needing
+ * re-keying). Fire-and-forget — never blocks or fails the sync itself.
+ */
+async function resolvePendingAssignments(rows) {
+    if (!Array.isArray(rows) || !rows.length) return;
+    const { computeShopWorksTodo, logAssignmentRow } = require('./assignment-history').helpers;
+    const todo = await computeShopWorksTodo();
+    if (!todo.pending.length) return;
+    const pendingById = new Map(todo.pending.map((p) => [String(p.customerId), p]));
+    for (const row of rows) {
+        const p = pendingById.get(String(parseInt(row.ID_Customer, 10)));
+        if (!p) continue;
+        const swRep = String(row.CustomerServiceRep || '').trim();
+        if (!swRep) continue;
+        const matches = swRep === String(p.newRep || '').trim();
+        await logAssignmentRow({
+            Customer_ID: p.customerId,
+            Customer_Name: p.customerName,
+            Previous_Rep: p.newRep,
+            New_Rep: swRep,
+            Notes: matches
+                ? `ShopWorks confirmed: ${swRep} (keyed in — to-do cleared)`
+                : `⚠ ShopWorks REVERTED a dashboard assignment: dashboard set ${p.newRep}, ShopWorks says ${swRep}. Re-key in ShopWorks or accept.`,
+        });
+        console.log(`[odbc-reps-sync] pending assignment ${p.customerId} (${p.customerName}): ${matches ? 'CONFIRMED' : 'REVERTED to ' + swRep}`);
+    }
+}
+
 /** POST /api/shopworks-odbc/sync-sales-reps — body { rows:[{ID_Customer, CompanyName, CustomerServiceRep, Account_Tier, Inksoft_Store, date_LastOrdered}] }. ?dryRun=true validates only. */
-router.post('/shopworks-odbc/sync-sales-reps', (req, res) =>
-    runBatchSync(req, res, { keyField: 'ID_Customer', sanitize: sanitizeRepRow, upsertOne: upsertRep, syncName: SYNC_NAME_REPS, tag: 'odbc-reps-sync' }));
+router.post('/shopworks-odbc/sync-sales-reps', (req, res) => {
+    if (req.query.dryRun !== 'true') {
+        resolvePendingAssignments(req.body && req.body.rows)
+            .catch((e) => console.warn('[odbc-reps-sync] pending-assignment resolution failed (sync unaffected):', e.message));
+    }
+    return runBatchSync(req, res, { keyField: 'ID_Customer', sanitize: sanitizeRepRow, upsertOne: upsertRep, syncName: SYNC_NAME_REPS, tag: 'odbc-reps-sync' });
+});
 
 /** GET /api/shopworks-odbc/reps-health — watchdog view for the sales-reps sync. */
 router.get('/shopworks-odbc/reps-health', async (req, res) => {
