@@ -542,6 +542,15 @@ const customerProfileRoutes = require('./src/routes/customer-profile');
 app.use('/api/customer-profile', requireCrmApiSecret, customerProfileRoutes);
 console.log('✓ Customer Profile 10yr routes loaded (1,642 SanMar-buyer profiles) [CRM-gated]');
 
+// Command Search (2026-07-20) — the staff dashboard's Ctrl+K "Everything Bar":
+// one q fans out to CompanyContactsMerge2026 + ORDER_ODBC + quote_sessions +
+// Design_Lookup_2026 (parallel, 5/category, 60s cache, per-source fault isolation).
+// CRM data (companies/reps) → requireCrmApiSecret; browser reaches it via the
+// main app's SAML forwarder GET /api/staff/command-search.
+const commandSearchRoutes = require('./src/routes/command-search');
+app.use('/api/command-search', requireCrmApiSecret, commandSearchRoutes);
+console.log('✓ Command Search routes loaded (Ctrl+K everything bar) [CRM-gated]');
+
 // Customer Portal Access — magic-link invite registry (Customer_Portal_Access table:
 // Email → id_Customer + Enabled). The front-end calls this SERVER-SIDE during the customer
 // magic-link request/verify (with the CRM secret). requireCrmApiSecret-gated; no browser caller.
