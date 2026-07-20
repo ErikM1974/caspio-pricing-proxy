@@ -549,6 +549,15 @@ const customerPortalAccessRoutes = require('./src/routes/customer-portal-access'
 app.use('/api/customer-portal-access', requireCrmApiSecret, customerPortalAccessRoutes);
 console.log('✓ Customer Portal Access routes loaded (magic-link invite registry) [CRM-gated]');
 
+// Vendor Portal Access — magic-link invite registry for SUBCONTRACTOR portals
+// (Vendor_Portal_Access table: Email → Vendor_Name + Enabled; Vendor_Name matches
+// Transfer_Orders.SP_Vendor, e.g. 'L&P Printing' for Ed Lacey). The front-end calls
+// this SERVER-SIDE during the vendor magic-link request/verify (with the CRM secret).
+// requireCrmApiSecret-gated; no browser caller.
+const vendorPortalAccessRoutes = require('./src/routes/vendor-portal-access');
+app.use('/api/vendor-portal-access', requireCrmApiSecret, vendorPortalAccessRoutes);
+console.log('✓ Vendor Portal Access routes loaded (subcontractor magic-link invite registry) [CRM-gated]');
+
 // Customer Portal Phase 4 — catalog request-to-rep re-order + curated recommendations.
 const portalReorderRoutes = require('./src/routes/portal-reorder');
 app.use('/api/portal-reorder', requireCrmApiSecret, portalReorderRoutes);
