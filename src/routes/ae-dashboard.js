@@ -531,6 +531,9 @@ function chunk(arr, n) {
     return out;
 }
 
+// rep = null → company-wide "Purchasing Portal" view (every request to
+// Bradley, with the requester attached). rep = an AE_REGISTRY entry → just
+// that rep's requests (the Mission Control card).
 async function buildPurchasing(rep) {
     const { fetchJotformSubmissions } = require('../utils/jotform');
     const sinceStr = new Date(Date.now() - PURCHASING_WINDOW_DAYS * 86400000)
@@ -541,7 +544,7 @@ async function buildPurchasing(rep) {
         orderby: 'id',
     });
 
-    // Parse + filter to this rep (the "Your Email" field).
+    // Parse + (optionally) filter to one rep (the "Your Email" field).
     const mine = [];
     for (const s of subs) {
         const answers = s.answers || {};
@@ -561,18 +564,21 @@ async function buildPurchasing(rep) {
                 if (Number.isInteger(num) && num > 1000) orders.push(num);
             } else if (name === 'typeOf' || /type of order/i.test(text)) orderType = String(val).trim();
         }
-        if (email !== rep.email) continue;
+        if (rep && email !== rep.email) continue;
         if (!orders.length) continue;
+        const reg = AE_REGISTRY[email];
         mine.push({
             submissionId: s.id,
             submittedAt: s.created_at,
             orderType,
             bradleyPo: poNum,
+            requestedBy: email,
+            requestedByName: reg ? reg.fullName : (email || 'Unknown'),
             orders: [...new Set(orders)],
         });
     }
     mine.sort((a, b) => String(b.submittedAt).localeCompare(String(a.submittedAt)));
-    const recent = mine.slice(0, 20);
+    const recent = mine.slice(0, rep ? 20 : 250);
 
     // Cross-reference ShopWorks: PurchaseOrders (blanks POs per work order) +
     // ORDER_ODBC (company + production flags). Chunked IN() reads.
@@ -635,7 +641,7 @@ async function buildPurchasing(rep) {
     items.forEach((m) => m.orders.forEach((o) => { counts[o.status] = (counts[o.status] || 0) + 1; }));
 
     return {
-        rep: { email: rep.email, fullName: rep.fullName, firstName: rep.firstName },
+        rep: rep ? { email: rep.email, fullName: rep.fullName, firstName: rep.firstName } : null,
         generatedAt: new Date().toISOString(),
         windowDays: PURCHASING_WINDOW_DAYS,
         submissionCount: mine.length,
@@ -644,6 +650,24 @@ async function buildPurchasing(rep) {
         truncated: mine.length > recent.length ? mine.length - recent.length : 0,
     };
 }
+
+// GET /purchasing-all — company-wide Purchasing Portal feed (every request to
+// Bradley in the window, requester attached). Secret-gated at the mount;
+// browsers come through the main app's requireStaff forwarder (any staff).
+router.get('/purchasing-all', async (req, res) => {
+    const entry = purchasingCache.get('__all__');
+    if (entry && Date.now() - entry.fetchedAt < PURCHASING_CACHE_TTL_MS) {
+        return res.json({ ...entry.data, cacheHit: true });
+    }
+    try {
+        const data = await buildPurchasing(null);
+        purchasingCache.set('__all__', { data, fetchedAt: Date.now() });
+        res.json({ ...data, cacheHit: false });
+    } catch (error) {
+        console.error('[ae-dashboard] purchasing portal failed:', error.message);
+        res.status(500).json({ error: 'Failed to build purchasing portal', details: error.message });
+    }
+});
 
 // GET /purchasing?email=  (mounted at /api/ae-dashboard, secret-gated)
 router.get('/purchasing', async (req, res) => {
