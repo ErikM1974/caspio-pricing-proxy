@@ -21,7 +21,6 @@ const express = require('express');
 const router = express.Router();
 const { fetchAllCaspioPages } = require('../utils/caspio');
 const { buildDigestModel, todayPT, TERMINAL_STATUSES } = require('../utils/lead-followup-digest');
-const commissionHelpers = require('./online-store-commissions').helpers;
 
 // Email → display names. Full names match Sales_Reps_2026.CustomerServiceRep /
 // NW_Daily_Sales_By_Rep.RepName / Form_Submissions.Sales_Rep ("Taneisha Clark",
@@ -225,22 +224,45 @@ async function fetchSales(rep) {
     };
 }
 
-async function fetchCommission(rep) {
-    const quarter = commissionHelpers.getCurrentQuarter();
-    const year = commissionHelpers.getCurrentYear();
-    const dateRange = commissionHelpers.getQuarterDateRange(quarter, year);
-    const orders = await commissionHelpers.fetchInkSoftOrders(quarter, year);
-    const byRep = commissionHelpers.aggregateOrders(orders);
-    const repData = byRep[rep.fullName] || { totalRevenue: 0, orderCount: 0, companies: {} };
-    const result = commissionHelpers.calculateRepCommission(rep.fullName, repData, dateRange.end);
+// Bonus & commission — read straight from Commission_Payouts, the PAYROLL
+// system of record (the daily sync-commissions cron keeps the current
+// quarter's rows fresh; Approved/Paid rows are locked snapshots of what was
+// actually paid). One cheap Caspio read covers all three components (Online
+// Store + Garment Spiff + Win-Back Bounty) with status + paycheck metadata —
+// no need to recompute a quarter of InkSoft orders per dashboard load.
+async function fetchPayouts(rep) {
+    const year = new Date().getFullYear();
+    const rows = await fetchAllCaspioPages('/tables/Commission_Payouts/records', {
+        'q.where': `Year=${year} AND Rep='${escWhere(rep.fullName)}'`,
+        'q.select': 'Commission_Type,Quarter,Year,Revenue_Base,Rate_Applied,Calculated_Amount,Bonus_Tier,Status,Paid_Date,Paycheck_Date,Payroll_Number,Last_Calculated',
+        'q.pageSize': 200,
+        'q.orderBy': 'PK_ID',
+    }, { maxPages: 1 });
+
+    const qIdx = Math.floor(new Date().getMonth() / 3); // 0-based quarter index
+    const currentQuarter = 'Q' + (qIdx + 1);
+    const previousQuarter = qIdx === 0 ? null : 'Q' + qIdx;
+    const slim = (r) => ({
+        type: r.Commission_Type, quarter: r.Quarter, amount: num(r.Calculated_Amount),
+        base: num(r.Revenue_Base), rate: num(r.Rate_Applied), status: r.Status,
+        paidDate: r.Paid_Date, paycheckDate: r.Paycheck_Date, payrollNumber: r.Payroll_Number,
+        lastCalculated: r.Last_Calculated,
+    });
+    const sum = (list) => Math.round(list.reduce((s, x) => s + x.amount, 0) * 100) / 100;
+
+    const current = rows.filter((r) => r.Quarter === currentQuarter).map(slim);
+    const previous = previousQuarter ? rows.filter((r) => r.Quarter === previousQuarter).map(slim) : [];
     return {
-        quarter, year,
-        totalCommission: result.totalCommission || 0,
-        totalRevenue: result.totalRevenue || 0,
-        baselineMet: !!result.baselineMet,
-        baselineProgress: result.baselineProgress || 0,
-        quarterlyBaseline: result.quarterlyBaseline || 0,
-        shortfall: result.shortfall || 0,
+        year,
+        currentQuarter,
+        previousQuarter,
+        current: { rows: current, total: sum(current) },
+        previous: {
+            rows: previous,
+            total: sum(previous),
+            allPaid: previous.length > 0 && previous.every((r) => r.status === 'Paid'),
+        },
+        paidYtd: sum(rows.filter((r) => r.status === 'Paid').map(slim)),
     };
 }
 
@@ -282,7 +304,7 @@ async function buildSummary(rep) {
         art: fetchArt(rep),
         orders: fetchOrders(rep),
         sales: fetchSales(rep),
-        commission: fetchCommission(rep),
+        payouts: fetchPayouts(rep),
         kits: fetchKits(rep),
     };
     const keys = Object.keys(sources);
@@ -308,12 +330,12 @@ async function buildSummary(rep) {
             salesAsOf: out.sales ? out.sales.lastArchivedDate : null,
             openQuoteCount: out.quotes ? out.quotes.counts.openQuotes : null,
             openQuoteValue: out.quotes ? out.quotes.openQuoteValue : null,
-            commissionQtd: out.commission ? out.commission.totalCommission : null,
-            commissionQuarter: out.commission ? `${out.commission.quarter} ${out.commission.year}` : null,
+            commissionQtd: out.payouts ? out.payouts.current.total : null,
+            commissionQuarter: out.payouts ? `${out.payouts.currentQuarter} ${out.payouts.year}` : null,
             leadWinRate: out.leads ? out.leads.winRate.rate : null,
             leadsWon90: out.leads ? out.leads.winRate.won90 : null,
         },
-        commission: out.commission,
+        bonus: out.payouts,
         actionQueue: {
             overdueLeads: out.leads ? out.leads.queue.overdueLeads : null,
             dueTodayLeads: out.leads ? out.leads.queue.dueTodayLeads : null,

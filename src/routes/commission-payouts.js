@@ -242,13 +242,56 @@ async function getGarmentSpiffs(quarter, year) {
 /**
  * Fetch win-back bounty data from rep account tables.
  * Year-dynamic: uses YTD_Sales_{year} and Order_Count_{year} fields.
+ *
+ * QUARTER-AWARE (2026-07-19 fix): the account tables only carry CUMULATIVE
+ * YTD sales, so the old version reported the same full-year number in every
+ * quarter — paying Q2 as-reported would re-pay Q1's bounty (caught verifying
+ * the Q2-2026 payroll: Q1 paid $129.13 on a $2,582.69 base, and the Q2 row
+ * held the cumulative $9,585.69 base). Now: this quarter's base = cumulative
+ * YTD minus the Revenue_Base already recorded on PRIOR quarters' Win-Back
+ * rows in Commission_Payouts (floored at 0). Prior rows must therefore store
+ * QUARTER-ONLY bases — the /save flow does, going forward.
  */
-async function getWinBackBounty() {
+const QUARTER_ORDER = ['Q1', 'Q2', 'Q3', 'Q4'];
+
+async function getWinBackBounty(quarter, year) {
     try {
-        const year = getCurrentYear();
+        year = parseInt(year) || getCurrentYear();
         const ytdField = `YTD_Sales_${year}`;
         const orderCountField = `Order_Count_${year}`;
         const results = {};
+
+        // Prior quarters' recorded win-back bases + any stored row for the
+        // REQUESTED quarter (one small query, both reps).
+        const qNorm = (quarter || '').toUpperCase();
+        const priorQuarters = QUARTER_ORDER.slice(0, Math.max(0, QUARTER_ORDER.indexOf(qNorm)));
+        const priorBaseByRep = {};
+        const storedRowByRep = {};
+        if (qNorm) {
+            try {
+                const rows = await fetchAllCaspioPages(`/tables/${COMMISSION_TABLE}/records`, {
+                    'q.where': `Year=${year} AND Commission_Type='Win-Back Bounty'`,
+                    'q.select': 'Rep,Quarter,Revenue_Base,Calculated_Amount,Status',
+                });
+                for (const row of rows) {
+                    if (row.Quarter === qNorm) storedRowByRep[row.Rep] = row;
+                    if (!priorQuarters.includes(row.Quarter)) continue;
+                    priorBaseByRep[row.Rep] = (priorBaseByRep[row.Rep] || 0) + (parseFloat(row.Revenue_Base) || 0);
+                }
+            } catch (e) {
+                console.warn('Win-back prior-quarter lookup failed (falling back to cumulative):', e.message);
+            }
+        }
+
+        // Is the requested quarter the one we're living in? Only then can the
+        // live YTD-minus-prior math attribute revenue correctly. For a PAST
+        // quarter the account tables' YTD has moved on (it would smuggle
+        // current-quarter revenue into the old quarter), so the frozen
+        // Commission_Payouts row — written by the daily sync's final run of
+        // that quarter — is the number of record.
+        const nowQ = QUARTER_ORDER[Math.floor(new Date().getMonth() / 3)];
+        const isPastQuarter = qNorm && (year < getCurrentYear()
+            || (year === getCurrentYear() && QUARTER_ORDER.indexOf(qNorm) < QUARTER_ORDER.indexOf(nowQ)));
 
         for (const [rep, table] of [['Nika Lao', NIKA_ACCOUNTS_TABLE], ['Taneisha Clark', TANEISHA_ACCOUNTS_TABLE]]) {
             const accounts = await fetchAllCaspioPages(`/tables/${table}/records`, {
@@ -278,13 +321,36 @@ async function getWinBackBounty() {
 
             topAccounts.sort((a, b) => b.revenue - a.revenue);
 
+            const cumulativeRevenue = Math.round(totalRevenue * 100) / 100;
+            const priorBase = Math.round((priorBaseByRep[rep] || 0) * 100) / 100;
+            const stored = storedRowByRep[rep];
+
+            let quarterRevenue, bountyAmount, source;
+            if (isPastQuarter && stored) {
+                // Number of record for a closed quarter (see comment above).
+                quarterRevenue = Math.round((parseFloat(stored.Revenue_Base) || 0) * 100) / 100;
+                bountyAmount = Math.round((parseFloat(stored.Calculated_Amount) || 0) * 100) / 100;
+                source = 'stored-row';
+            } else {
+                // Live: this quarter's attributable base = cumulative YTD minus
+                // what earlier quarters already recorded (never negative — a
+                // legacy prior row holding a cumulative base can overshoot
+                // until refreshed).
+                quarterRevenue = Math.max(0, Math.round((cumulativeRevenue - priorBase) * 100) / 100);
+                bountyAmount = Math.round(quarterRevenue * 0.05 * 100) / 100;
+                source = 'live';
+            }
+
             results[rep] = {
-                totalRevenue: Math.round(totalRevenue * 100) / 100,
-                bountyAmount: Math.round(totalRevenue * 0.05 * 100) / 100,
+                totalRevenue: quarterRevenue,                 // THIS quarter's base (what the bounty pays on)
+                cumulativeRevenue,                            // full-year YTD across win-back accounts
+                priorQuartersBase: priorBase,                 // already recorded on earlier quarters' rows
+                bountyAmount,
+                source,                                       // 'stored-row' (closed quarter) or 'live'
                 rate: 0.05,
                 totalAccounts: accountCount,
                 accountsWithSales,
-                topAccounts: topAccounts.slice(0, 20),
+                topAccounts: topAccounts.slice(0, 20),        // note: revenues here are YTD-cumulative per account
             };
         }
 
@@ -584,7 +650,7 @@ router.get('/commissions/quarterly-report', async (req, res) => {
         const [onlineStore, garmentSpiffs, winBack] = await Promise.all([
             getOnlineStoreCommission(quarter, year),
             getGarmentSpiffs(quarter, year),
-            getWinBackBounty(),
+            getWinBackBounty(quarter, year),
         ]);
 
         // Also fetch payment history for this year (saves a separate API call from frontend)
@@ -695,7 +761,9 @@ router.get('/commissions/win-back', async (req, res) => {
     console.log(`GET /api/commissions/win-back - rep=${repParam || 'all'}`);
 
     try {
-        const winBack = await getWinBackBounty();
+        // Standalone endpoint stays CUMULATIVE (no quarter param) — it's the
+        // "how are my win-back accounts doing this year" view, not a payout line.
+        const winBack = await getWinBackBounty(null, getCurrentYear());
 
         if (repParam) {
             const repMap = { 'nika': 'Nika Lao', 'taneisha': 'Taneisha Clark' };
