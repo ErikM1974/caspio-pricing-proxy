@@ -550,6 +550,22 @@ const DQ_WEBSTORE_ORDER_TYPES = new Set([31, 6, 34]);
 
 function dqBlank(v) { return String(v == null ? '' : v).trim() === ''; }
 
+// Addr.ShipMethod is set on almost EVERY order, and "Customer Pickup" is the
+// single most common value (verified live against Addr, 2026-07-20) — so a
+// blank ship-to on a pickup is normal, not an error. These are the methods that
+// are NOT a real carrier shipment: the pickup family, and not-yet-decided
+// placeholders. Only a real carrier method (UPS Ground, FedEx, …) with a blank
+// ship-to is the "picked a method, never entered the address" gap. Matched
+// case-insensitively; substring for the pickup family (covers "Customer Pickup",
+// "Will Call", "Pick Up", etc.). Erik-tunable as new placeholder values appear.
+const DQ_NONSHIP_PLACEHOLDERS = new Set(['need ship method', 'ask when done', 'tbd', 'n/a', 'na', 'none', '?']);
+function isNonShippingMethod(m) {
+    const s = String(m || '').trim().toLowerCase();
+    if (!s) return true;
+    if (s.includes('pickup') || s.includes('pick up') || s.includes('will call') || s.includes('will-call')) return true;
+    return DQ_NONSHIP_PLACEHOLDERS.has(s);
+}
+
 // One order → list of {field, severity ('err'|'warn'), text} issues.
 function dqOrderIssues(o, cust) {
     const issues = [];
@@ -560,18 +576,21 @@ function dqOrderIssues(o, cust) {
     if (dqBlank(o.ContactPhone)) add('phone', 'err', 'no contact phone');
     if (dqBlank(o.ContactEmail)) add('email', 'err', 'no contact email');
 
-    // Ship-to address block. The hard failure is a ship METHOD chosen
-    // (Addr.ShipMethod, joined onto the order by the bandit sync) with the
-    // ship-to block blank — "UPS Ground picked, address never entered". This is
-    // now the PRIMARY signal; cur_Shipping>0 is demoted to a SECONDARY fallback
+    // Ship-to address block. The hard failure is a real CARRIER ship method
+    // chosen (Addr.ShipMethod, joined onto the order by the bandit sync) with the
+    // ship-to block blank — "UPS Ground picked, address never entered". Pickup /
+    // placeholder methods are NOT real shipments (isNonShippingMethod), so a
+    // blank ship-to on those is a pickup (fine) not an error. This method check
+    // is the PRIMARY signal; cur_Shipping>0 is demoted to a SECONDARY fallback
     // that only catches rows synced before ShipMethod backfilled, or orders
     // charged for shipping with the method field left blank. No digits in the
     // block = no street # / ZIP = not a real address.
     const ship = String(o.Invoice_AddressBlock_Shipping || '').trim();
     const shipMethod = String(o.ShipMethod || '').trim();
+    const realShippingMethod = shipMethod !== '' && !isNonShippingMethod(shipMethod);
     const shippingCharged = num(o.cur_Shipping) > 0;
     if (!ship) {
-        if (shipMethod) {
+        if (realShippingMethod) {
             add('ship-address', 'err', `ship method "${shipMethod}" chosen but NO ship-to address`);
         } else if (shippingCharged) {
             add('ship-address', 'err', 'shipping charged but NO ship-to address');

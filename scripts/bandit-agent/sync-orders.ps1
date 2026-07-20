@@ -64,6 +64,9 @@ try {
     # 33 whitelisted columns. id_Contact aliased to Caspio's ID_Contact casing.
     # Calc fields (ct_/cnCur_) are in the SELECT list only - never in WHERE -
     # and the delta keeps row counts small, so per-row evaluation is cheap.
+    # NOTE: the chosen ship METHOD is NOT on the Orders table - ShopWorks keeps
+    # it on the address row (Addr.ShipMethod). It is pulled by a second bounded
+    # query below and attached as a synthetic ShipMethod column per order.
     $sql = @"
 SELECT ID_Order, id_Contact AS ID_Contact, id_Customer, id_OrderType, id_EmpCreatedBy,
        date_OrderPlaced, date_OrderRequestedToShip, date_OrderDropDead,
@@ -105,8 +108,40 @@ FETCH FIRST $maxRows ROWS ONLY
         }
         [void]$rows.Add($row)
     }
-    $rd.Close(); $conn.Close()
-    Log "pulled $($rows.Count) changed order(s)"
+    $rd.Close()
+
+    # Ship method lives on Addr, not Orders. Pull it for just the orders we
+    # changed (bounded IN-list, chunked at 200, same connection - sequential per
+    # the vendor rule) and attach it as a synthetic ShipMethod column. id_Order
+    # is a plain stored/indexed field on Addr, so the IN filter is cheap; the
+    # delta keeps the id list short. First non-blank method wins if an order has
+    # more than one ship-to row. Powers the data-quality radar's
+    # "method picked but no ship-to address" check.
+    $shipByOrder = @{}
+    $orderIds = @($rows | ForEach-Object { try { [long]$_['ID_Order'] } catch { $null } } |
+        Where-Object { $_ } | Select-Object -Unique)
+    for ($k = 0; $k -lt $orderIds.Count; $k += 200) {
+        $idChunk = $orderIds[$k..([Math]::Min($k + 199, $orderIds.Count - 1))]
+        $inList = ($idChunk -join ', ')
+        $addrCmd = $conn.CreateCommand()
+        $addrCmd.CommandTimeout = 120
+        $addrCmd.CommandText = "SELECT id_Order, ShipMethod FROM Addr WHERE id_Order IN ($inList) AND ShipMethod IS NOT NULL"
+        $ar = $addrCmd.ExecuteReader()
+        while ($ar.Read()) {
+            if ($ar.IsDBNull(0) -or $ar.IsDBNull(1)) { continue }
+            $oid = [string][long]$ar.GetValue(0)
+            $meth = ([string]$ar.GetValue(1)).Trim()
+            if ($meth -ne '' -and -not $shipByOrder.ContainsKey($oid)) { $shipByOrder[$oid] = $meth }
+        }
+        $ar.Close()
+    }
+    $conn.Close()
+
+    foreach ($r in $rows) {
+        $oid = try { [string][long]$r['ID_Order'] } catch { '' }
+        $r['ShipMethod'] = if ($oid -ne '' -and $shipByOrder.ContainsKey($oid)) { $shipByOrder[$oid] } else { $null }
+    }
+    Log "pulled $($rows.Count) changed order(s); attached ship method to $($shipByOrder.Count)"
     if ($rows.Count -ge $maxRows) {
         Log "WARNING: hit MaxRows cap ($maxRows) - state NOT advanced; next run re-pulls from same point"
     }

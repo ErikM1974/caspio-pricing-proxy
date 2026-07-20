@@ -36,15 +36,19 @@ const ALERT_EMAIL = 'erik@nwcustomapparel.com';
 const STALE_MINUTES = 45;          // agent runs every 15 min; 3 misses = stale
 const MAX_ROWS_PER_CALL = 1000;    // agent batches well below this
 
-// The 33 ODBC-sourced columns (Caspio names == FileMaker names, 1:1).
-// ID_Order is the key; the rest are payload.
+// The 34 ODBC-sourced columns. 33 are Orders fields (Caspio names == FileMaker
+// names, 1:1); ID_Order is the key and the rest are payload. ShipMethod is the
+// exception — it is NOT an Orders column (ShopWorks keeps the chosen ship method
+// on the address row, Addr.ShipMethod), so the bandit agent joins it in per
+// order and posts it under this same name. The data-quality radar reads it to
+// flag "ship method chosen but no ship-to address".
 const ODBC_FIELDS = [
     'ID_Order', 'ID_Contact', 'id_Customer', 'id_OrderType', 'id_EmpCreatedBy',
     'date_OrderPlaced', 'date_OrderRequestedToShip', 'date_OrderDropDead',
     'date_OrderInvoiced', 'date_Stamp_Invoiced',
     'CompanyName', 'ct_ContactNameFull', 'ContactEmail', 'ContactLast',
     'ContactFirst', 'ContactPhone', 'ContactTitle',
-    'Invoice_AddressBlock_Billing', 'Invoice_AddressBlock_Shipping',
+    'Invoice_AddressBlock_Billing', 'Invoice_AddressBlock_Shipping', 'ShipMethod',
     'CustomerServiceRep', 'CustomerType', 'CustomerPurchaseOrder', 'TermsName',
     'NotesOnOrder', 'NotesToProduction', 'NotesToAccounting',
     'sts_Invoiced', 'sts_Shipped',
