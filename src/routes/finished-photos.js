@@ -5,6 +5,7 @@
 //   POST  /api/finished-photos            multipart: file + idCustomer (req) + designNumber/designName/
 //                                          idOrder/companyName/caption/uploadedBy → Box + row, Show_To_Customer='No'
 //   GET   /api/finished-photos?idCustomer=  all rows for the customer (staff); add &portal=1 → only Show_To_Customer='Yes'
+//   GET   /api/finished-photos/library     company-wide library w/ rep names (?rep= / ?idCustomer= / ?limit= / ?refresh=1)
 //   PATCH /api/finished-photos/:pkId       { show: true|false } → set Show_To_Customer (staff approve / unpublish)
 //
 // Mounted requireCrmApiSecret (server.js) — every caller is server-side: the portal reads via
@@ -178,6 +179,110 @@ router.get('/finished-photos', async (req, res) => {
 });
 
 /**
+ * GET /api/finished-photos/library — company-wide photo library, newest first, each photo
+ * tagged with the account's sales rep (Sales_Reps_2026.ID_Customer → CustomerServiceRep,
+ * '' = house/unassigned). Feeds the staff library page + the Mission Control "My Finished
+ * Photos" view — one endpoint, filtered per caller:
+ *   ?rep=<CustomerServiceRep full name>  — only that rep's accounts ("Taneisha Clark")
+ *   ?rep=house                           — only accounts with no rep row
+ *   ?idCustomer=<digits>                 — one account
+ *   ?limit=<n>                           — cap AFTER filtering (default 500)
+ *   ?refresh=1                           — bypass the 60s cache
+ * Secret-gated by the mount (non-POST); the app forwards /api/staff/finished-photos/library.
+ * Caspio cost: 60s in-memory cache of the full joined set; rep rows are looked up only for
+ * the distinct customers that actually have photos (chunked IN — never a full-table read).
+ */
+const REPS_TABLE = 'Sales_Reps_2026';
+const LIB_CACHE_TTL_MS = 60 * 1000;
+const LIB_DEFAULT_LIMIT = 500;
+let libCache = { at: 0, photos: null };
+
+function chunkArray(arr, size) {
+  const out = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
+// rep-name join + filters as pure functions (jest-covered).
+function attachRepNames(photos, repByCustomer) {
+  return photos.map((p) => ({ ...p, repName: repByCustomer.get(String(p.idCustomer)) || '' }));
+}
+function applyLibraryFilters(photos, { rep, idCustomer } = {}) {
+  let out = photos;
+  if (idCustomer) out = out.filter((p) => String(p.idCustomer) === String(idCustomer));
+  const repWanted = String(rep == null ? '' : rep).trim().toLowerCase();
+  if (repWanted === 'house' || repWanted === 'unassigned') out = out.filter((p) => !p.repName);
+  else if (repWanted) out = out.filter((p) => p.repName.toLowerCase() === repWanted);
+  return out;
+}
+function repSummary(photos) {
+  const counts = new Map();
+  photos.forEach((p) => {
+    const key = p.repName || 'House / Unassigned';
+    counts.set(key, (counts.get(key) || 0) + 1);
+  });
+  return Array.from(counts, ([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count);
+}
+
+async function buildLibrary() {
+  const rows = await fetchAllCaspioPages(`/tables/${TABLE}/records`, {
+    'q.orderBy': 'PK_ID DESC', // stable column — required for correct pagination
+  });
+  const photos = (rows || []).map(toShape);
+
+  // Rep names only for the customers that have photos — chunked IN, digits-only (injection-safe).
+  const ids = Array.from(new Set(photos.map((p) => String(p.idCustomer)).filter((id) => /^\d{1,12}$/.test(id))));
+  const repByCustomer = new Map();
+  for (const chunk of chunkArray(ids, 50)) {
+    const reps = await fetchAllCaspioPages(`/tables/${REPS_TABLE}/records`, {
+      'q.select': 'ID_Customer,CustomerServiceRep',
+      'q.where': `ID_Customer IN (${chunk.join(',')})`,
+      'q.orderBy': 'PK_ID',
+    });
+    (reps || []).forEach((r) => {
+      if (r.ID_Customer != null && r.CustomerServiceRep) {
+        repByCustomer.set(String(r.ID_Customer), String(r.CustomerServiceRep).trim());
+      }
+    });
+  }
+  return attachRepNames(photos, repByCustomer);
+}
+
+router.get('/finished-photos/library', async (req, res) => {
+  const refresh = ['1', 'true', 'yes'].includes(String(req.query.refresh || '').toLowerCase());
+  const idCustomer = String(req.query.idCustomer || '').trim();
+  if (idCustomer && !isNumericId(idCustomer)) {
+    return res.status(400).json({ success: false, error: 'idCustomer must be numeric', code: 'BAD_CUSTOMER' });
+  }
+  const limitRaw = parseInt(req.query.limit, 10);
+  const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 2000) : LIB_DEFAULT_LIMIT;
+  try {
+    const now = Date.now();
+    const cacheHit = !refresh && libCache.photos && now - libCache.at < LIB_CACHE_TTL_MS;
+    if (!cacheHit) {
+      libCache = { at: now, photos: await buildLibrary() };
+    }
+    const all = libCache.photos;
+    const filtered = applyLibraryFilters(all, { rep: req.query.rep, idCustomer });
+    const photos = filtered.slice(0, limit);
+    return res.json({
+      success: true,
+      generatedAt: new Date(libCache.at).toISOString(),
+      cacheHit: !!cacheHit,
+      totalCount: all.length,
+      count: photos.length,
+      truncated: Math.max(0, filtered.length - photos.length),
+      reps: repSummary(all),
+      photos,
+    });
+  } catch (error) {
+    console.error('[finished-photos] library failed:', error.message);
+    return res.status(500).json({ success: false, error: 'Failed to load the photo library', code: 'LIBRARY_FAILED' });
+  }
+});
+
+/**
  * PATCH /api/finished-photos/:pkId  — set Show_To_Customer (staff approve/unpublish).
  * Body: { show: true|false }  (also accepts { showToCustomer: 'Yes'|'No' }).
  */
@@ -339,3 +444,7 @@ module.exports.toShape = toShape;
 module.exports.sanitizeFilename = sanitizeFilename;
 module.exports.uniqueName = uniqueName;
 module.exports.parseScanCode = parseScanCode;
+module.exports.attachRepNames = attachRepNames;
+module.exports.applyLibraryFilters = applyLibraryFilters;
+module.exports.repSummary = repSummary;
+module.exports.chunkArray = chunkArray;
