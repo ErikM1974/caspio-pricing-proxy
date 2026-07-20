@@ -25,7 +25,7 @@ const express = require('express');
 const axios = require('axios');
 const router = express.Router();
 const config = require('../../config');
-const { getCaspioAccessToken } = require('../utils/caspio');
+const { getCaspioAccessToken, fetchAllCaspioPages } = require('../utils/caspio');
 const { sendSlackDM } = require('../utils/slack-dm-notify');
 
 const caspioApiBaseUrl = config.caspio.apiBaseUrl;
@@ -293,7 +293,12 @@ const SYNC_NAME_POS = 'shopworks-odbc-purchase-orders';
 // Caspio PurchaseOrders columns the agent sends (agent aliases the ODBC field
 // names to these). ID_PO is the key; the rest are payload. PK_ID (auto) and
 // Slack_Notified (enrichment) are intentionally absent.
-const PO_INT_FIELDS = ['ID_PO', 'id_Order', 'id_Vendor', 'sts_Issued', 'sts_Received', 'sts_RelatedToOrder', 'SalesTax', 'Shipping', 'PayablesOutstanding'];
+// PayableExists / PayableMatch (ShopWorks PO calc fields cn_sts_PayableExists /
+// cn_sts_PayableMatch, 0|1) give a per-PO "vendor bill entered / matched" signal.
+// Combined with PayablesOutstanding==0 they answer Imported?/Paid? for the SanMar
+// Payables page WITHOUT the (not-yet-ODBC-exposed) invoice-level Payables table.
+// Coarse for split-invoice POs; the invoice-level sync supersedes when available.
+const PO_INT_FIELDS = ['ID_PO', 'id_Order', 'id_Vendor', 'sts_Issued', 'sts_Received', 'sts_RelatedToOrder', 'SalesTax', 'Shipping', 'PayablesOutstanding', 'PayableExists', 'PayableMatch'];
 const PO_NUM_FIELDS = ['Subtotal', 'TotalInvoice'];
 const PO_DATE_FIELDS = ['date_POIssued', 'date_PORequestedToShip', 'date_Received', 'date_Modification'];
 const PO_TEXT_FIELDS = ['VendorName', 'ConfirmationNumber', 'date_PODropDead']; // date_PODropDead is TEXT255 in Caspio
@@ -682,6 +687,109 @@ router.post('/shopworks-odbc/sync-designs', (req, res) =>
 router.get('/shopworks-odbc/designs-health', async (req, res) => {
     try { res.json({ success: true, sync: SYNC_NAME_DESIGNS, ...(await computeHealth(SYNC_NAME_DESIGNS)) }); }
     catch (error) { res.status(500).json({ success: false, ok: false, error: 'Health check failed: ' + error.message }); }
+});
+
+// ============================================================================
+// PAYABLES — direct ShopWorks accounts-payable → Caspio ShopWorks_Payables sync
+// ----------------------------------------------------------------------------
+// Invoice-level AP mirror (ID_Payable / InvoiceNumber / date_Paid / cur_Payable /
+// cnCur_PayableOutstanding …) so the SanMar Payables page can auto-compute
+// Imported?/Paid? WITHOUT the manual ShopWorks-CSV upload. Populated by the bandit
+// agent scripts/bandit-agent/sync-payables.ps1.
+//   POST /api/shopworks-odbc/sync-payables   (x-crm-api-secret) — batch upsert
+//   GET  /api/shopworks-odbc/payables         (x-crm-api-secret) — read for the page
+//   GET  /api/shopworks-odbc/payables-health                     — watchdog
+// ⚠ PREREQUISITE: the ShopWorks AP table must be exposed in the bandit ODBC DSN.
+//   Run scripts/bandit-agent/probe-payables.ps1 to confirm the table + columns
+//   before the agent can pull rows.
+const TABLE_PAYABLES = 'ShopWorks_Payables';
+const SYNC_NAME_PAYABLES = 'shopworks-odbc-payables';
+
+const PAY_INT_FIELDS = ['ID_Payable', 'id_PO', 'id_Order', 'id_Vendor', 'sts_ToPay'];
+const PAY_NUM_FIELDS = ['cur_Payable', 'cnCur_PayableOutstanding'];
+const PAY_DATE_FIELDS = ['date_Payable', 'date_PayableDue', 'date_Creation', 'date_Paid', 'date_Modification'];
+const PAY_TEXT_FIELDS = ['InvoiceNumber', 'VendorName'];
+const PAY_FIELDS = [...PAY_INT_FIELDS, ...PAY_NUM_FIELDS, ...PAY_DATE_FIELDS, ...PAY_TEXT_FIELDS];
+
+// Coerce to Caspio types: ints rounded, numbers kept, blank dates → null, text ≤255.
+function sanitizePayableRow(raw) {
+    const row = {};
+    for (const f of PAY_FIELDS) {
+        if (!(f in raw)) continue;
+        let v = raw[f];
+        if (v === '') v = null;
+        if (v != null && PAY_INT_FIELDS.includes(f)) { const n = Math.round(Number(v)); v = Number.isFinite(n) ? n : null; }
+        else if (v != null && PAY_NUM_FIELDS.includes(f)) { const n = Number(v); v = Number.isFinite(n) ? n : null; }
+        else if (typeof v === 'string' && PAY_TEXT_FIELDS.includes(f) && v.length > 255) v = v.slice(0, 255);
+        row[f] = v;
+    }
+    return row;
+}
+
+// PUT-by-ID_Payable → 0 affected → INSERT. Mirrors upsertPo.
+async function upsertPayable(token, raw) {
+    const row = sanitizePayableRow(raw);
+    const id = parseInt(row.ID_Payable, 10);
+    if (!Number.isInteger(id)) throw new Error('bad ID_Payable: ' + raw.ID_Payable);
+    const payload = Object.assign({}, row);
+    delete payload.ID_Payable;
+    const putResp = await axios.put(`${caspioApiBaseUrl}/tables/${TABLE_PAYABLES}/records`, payload, {
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        params: { 'q.where': `ID_Payable=${id}` }, timeout: 15000
+    });
+    if (((putResp.data && putResp.data.RecordsAffected) || 0) > 0) return 'updated';
+    await axios.post(`${caspioApiBaseUrl}/tables/${TABLE_PAYABLES}/records`, Object.assign({ ID_Payable: id }, payload),
+        { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, timeout: 15000 });
+    return 'inserted';
+}
+
+router.post('/shopworks-odbc/sync-payables', (req, res) =>
+    runBatchSync(req, res, { keyField: 'ID_Payable', sanitize: sanitizePayableRow, upsertOne: upsertPayable, syncName: SYNC_NAME_PAYABLES, tag: 'odbc-payables-sync' }));
+
+/** GET /api/shopworks-odbc/payables-health — read-only watchdog for the payables sync. */
+router.get('/shopworks-odbc/payables-health', async (req, res) => {
+    try { const result = await computeHealth(SYNC_NAME_PAYABLES); res.json({ success: true, sync: SYNC_NAME_PAYABLES, ...result }); }
+    catch (error) { res.status(500).json({ success: false, ok: false, error: 'Health check failed: ' + error.message }); }
+});
+
+let lastPayAlertAt = 0;
+/** POST /api/shopworks-odbc/payables-health/alert — health + Slack DM when the payables sync is stale. */
+router.post('/shopworks-odbc/payables-health/alert', async (req, res) => {
+    try {
+        const result = await computeHealth(SYNC_NAME_PAYABLES);
+        let notify = { sent: false, skipped: 'ok' };
+        if (!result.ok) {
+            if (Date.now() - lastPayAlertAt > ALERT_TTL_MS) {
+                notify = await sendSlackDM(ALERT_EMAIL,
+                    `:warning: *ShopWorks ODBC payables sync is STALE* — last successful ${result.lastSuccess || 'NEVER'} ` +
+                    `(${result.ageMin == null ? 'n/a' : result.ageMin + ' min ago'}). SanMar Payables page Imported/Paid status ` +
+                    `may be lagging. Health: /api/shopworks-odbc/payables-health`);
+                if (notify.sent) lastPayAlertAt = Date.now();
+            } else notify = { sent: false, skipped: 'deduped-4h' };
+        }
+        res.json({ success: true, sync: SYNC_NAME_PAYABLES, ...result, notify });
+    } catch (error) { res.status(500).json({ success: false, ok: false, error: 'Health alert failed: ' + error.message }); }
+});
+
+/**
+ * GET /api/shopworks-odbc/payables?sinceDays=365 — feed for the SanMar Payables page
+ * Imported?/Paid? cross-check. Returns recent AP rows (invoice# + paid date). Secret-gated.
+ */
+router.get('/shopworks-odbc/payables', async (req, res) => {
+    try {
+        const sinceDays = Math.min(Math.max(parseInt(req.query.sinceDays, 10) || 365, 1), 3650);
+        const since = new Date(Date.now() - sinceDays * 86400000).toISOString().slice(0, 10);
+        const rows = await fetchAllCaspioPages(`/tables/${TABLE_PAYABLES}/records`, {
+            'q.select': 'InvoiceNumber,date_Paid,cur_Payable,cnCur_PayableOutstanding,id_PO,date_Payable',
+            'q.where': `date_Payable>='${since}'`,
+            'q.orderBy': 'ID_Payable',
+            'q.pageSize': 1000
+        });
+        res.json({ success: true, count: rows.length, since, rows });
+    } catch (error) {
+        console.error('[odbc-payables-read]', error.response ? JSON.stringify(error.response.data) : error.message);
+        res.status(500).json({ success: false, error: 'payables read failed: ' + error.message });
+    }
 });
 
 module.exports = router;

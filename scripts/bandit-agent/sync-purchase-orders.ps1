@@ -65,9 +65,10 @@ try {
     }
     $sinceLit = $since.ToString('yyyy-MM-dd HH:mm:ss')
 
-    # 18 whitelisted columns, aliased to the Caspio PurchaseOrders casing. Calc
-    # fields (ct_/cnCur_) are in the SELECT list only - never in WHERE - and the
-    # delta keeps row counts small, so per-row evaluation is cheap.
+    # 20 whitelisted columns, aliased to the Caspio PurchaseOrders casing. Calc
+    # fields (ct_/cnCur_/cn_sts_) are in the SELECT list only - never in WHERE - and
+    # the delta keeps row counts small, so per-row evaluation is cheap. PayableExists/
+    # PayableMatch (cn_sts_) feed the SanMar Payables page's paid/imported signal.
     $sql = @"
 SELECT ID_PO, id_Order, id_Vendor, ct_VendorName AS VendorName,
        ConfirmationNumber, date_POIssued, date_PORequestedToShip, date_PODropDead,
@@ -75,7 +76,8 @@ SELECT ID_PO, id_Order, id_Vendor, ct_VendorName AS VendorName,
        sts_Issued, sts_Received, sts_RelatedToOrder,
        cur_Subtotal AS Subtotal, cnCur_TotalInvoice AS TotalInvoice,
        cnCur_SalesTaxTotal AS SalesTax, cur_Shipping AS Shipping,
-       cnCur_PayablesOutstanding AS PayablesOutstanding
+       cnCur_PayablesOutstanding AS PayablesOutstanding,
+       cn_sts_PayableExists AS PayableExists, cn_sts_PayableMatch AS PayableMatch
 FROM PO
 WHERE timestamp_Modification >= {ts '$sinceLit'}
 FETCH FIRST $maxRows ROWS ONLY

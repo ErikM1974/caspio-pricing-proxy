@@ -721,6 +721,10 @@ console.log('✓ Supacolor Jobs routes loaded');
 const shopworksOdbcSyncRoutes = require('./src/routes/shopworks-odbc-sync');
 app.use('/api/shopworks-odbc/sync-orders', requireCrmApiSecret);
 app.use('/api/shopworks-odbc/sync-purchase-orders', requireCrmApiSecret);
+app.use('/api/shopworks-odbc/sync-payables', requireCrmApiSecret);
+// Read feed for the SanMar Payables page (AP data) — secret-gated. Segment-boundary
+// match: does NOT catch '/payables-health' (its own segment), which stays open for the watchdog.
+app.use('/api/shopworks-odbc/payables', requireCrmApiSecret);
 app.use('/api', shopworksOdbcSyncRoutes);
 console.log('✓ ShopWorks ODBC sync routes loaded (sync-orders + sync-purchase-orders secret-gated)');
 
