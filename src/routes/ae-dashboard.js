@@ -524,15 +524,29 @@ router.get('/growth', async (req, res) => {
 // terms, incomplete address, tax-exempt without an exemption number.
 // "This is the order — this is the customer that needs field updates."
 //
-// Known limit: ship METHOD is not in the 33-column ORDER_ODBC sync, so
-// "UPS Ground chosen but no address" is approximated by the address checks
-// (shipping charged + no ship-to = error). Add ShipMethod to sync-orders.ps1
-// + the Caspio table if we ever want the literal check.
+// Only OPEN / in-process orders are flagged — once an order is invoiced or
+// shipped the entry is closed and re-keying missing fields no longer helps the
+// AE (Erik, 2026-07-20). WEBSTORE order types are excluded entirely: those
+// orders are created by the InkSoft / online-store integration, where the
+// contact + ship-to data lives on the storefront platform and is never keyed
+// into ShopWorks — flagging them as "missing fields" is noise, not a to-do.
+//
+// Ship METHOD is joined into ORDER_ODBC by the bandit order-sync (pulled from
+// Addr.ShipMethod — it is NOT an Orders-table column), so the literal check is
+// live: a ship method chosen with a blank ship-to block is a hard error.
+// cur_Shipping>0 is kept only as a secondary fallback. (2026-07-20)
 const DQ_CACHE_TTL_MS = 10 * 60 * 1000;
 const dqCache = new Map(); // email → { data, fetchedAt }
 const DQ_WINDOW_DAYS = 30;
-const DQ_ORDER_LIMIT = 20;
-const DQ_CUSTOMER_LIMIT = 15;
+// Return everything flagged — the Mission Control card paginates ("show 5 +
+// expand"). A 30-day window per rep never approaches these caps in practice.
+const DQ_ORDER_LIMIT = 100;
+const DQ_CUSTOMER_LIMIT = 100;
+// id_OrderType values whose contact/ship data lives on an external storefront,
+// not in ShopWorks: 31 Inksoft (the Python-Inksoft push default), 6 Online
+// Store, 34 Shopify. Verified against the OnSite Order-Types map (2026-07-20;
+// only 31 currently appears in either AE's recent orders). Erik-editable.
+const DQ_WEBSTORE_ORDER_TYPES = new Set([31, 6, 34]);
 
 function dqBlank(v) { return String(v == null ? '' : v).trim() === ''; }
 
@@ -546,14 +560,24 @@ function dqOrderIssues(o, cust) {
     if (dqBlank(o.ContactPhone)) add('phone', 'err', 'no contact phone');
     if (dqBlank(o.ContactEmail)) add('email', 'err', 'no contact email');
 
-    // Ship-to address block. No digits = no street number / ZIP = not a real
-    // address. Shipping dollars charged with no address is the hard failure
-    // ("UPS Ground picked, address never entered").
+    // Ship-to address block. The hard failure is a ship METHOD chosen
+    // (Addr.ShipMethod, joined onto the order by the bandit sync) with the
+    // ship-to block blank — "UPS Ground picked, address never entered". This is
+    // now the PRIMARY signal; cur_Shipping>0 is demoted to a SECONDARY fallback
+    // that only catches rows synced before ShipMethod backfilled, or orders
+    // charged for shipping with the method field left blank. No digits in the
+    // block = no street # / ZIP = not a real address.
     const ship = String(o.Invoice_AddressBlock_Shipping || '').trim();
+    const shipMethod = String(o.ShipMethod || '').trim();
     const shippingCharged = num(o.cur_Shipping) > 0;
     if (!ship) {
-        add('ship-address', shippingCharged ? 'err' : 'warn',
-            shippingCharged ? 'shipping charged but NO ship-to address' : 'no ship-to address (OK only if pickup)');
+        if (shipMethod) {
+            add('ship-address', 'err', `ship method "${shipMethod}" chosen but NO ship-to address`);
+        } else if (shippingCharged) {
+            add('ship-address', 'err', 'shipping charged but NO ship-to address');
+        } else {
+            add('ship-address', 'warn', 'no ship-to address (OK only if pickup)');
+        }
     } else if (!/\d/.test(ship)) {
         add('ship-address', 'warn', 'ship-to address looks incomplete (no street # or ZIP)');
     }
@@ -593,8 +617,8 @@ function dqCustomerIssues(c) {
 async function buildDataQuality(rep) {
     const rows = await fetchAllCaspioPages('/tables/ORDER_ODBC/records', {
         'q.where': `CustomerServiceRep='${escWhere(rep.fullName)}' AND date_OrderPlaced>='${isoDaysAgo(DQ_WINDOW_DAYS)}'`,
-        'q.select': 'ID_Order,id_Customer,CompanyName,date_OrderPlaced,date_OrderRequestedToShip,' +
-            'ContactFirst,ContactLast,ContactPhone,ContactEmail,Invoice_AddressBlock_Shipping,' +
+        'q.select': 'ID_Order,id_Customer,id_OrderType,CompanyName,date_OrderPlaced,date_OrderRequestedToShip,' +
+            'ContactFirst,ContactLast,ContactPhone,ContactEmail,Invoice_AddressBlock_Shipping,ShipMethod,' +
             'TermsName,cur_Shipping,cur_Taxable01,cnCur_SalesTaxTotal,sts_Invoiced,sts_Shipped',
         'q.pageSize': 1000,
         'q.orderBy': 'PK_ID',
@@ -606,9 +630,20 @@ async function buildDataQuality(rep) {
         if (!orders.has(r.ID_Order)) orders.set(r.ID_Order, r);
     }
 
-    // Customer records behind these orders (chunked IN() reads on the Cust
-    // mirror). Multiple contact rows per customer — first non-blank value wins.
-    const custIds = [...new Set([...orders.values()]
+    // Only OPEN, non-webstore orders are actionable: once invoiced or shipped
+    // the entry is closed, and webstore/online-store orders keep their contact
+    // + ship data on the storefront platform, never in ShopWorks. Both are
+    // dropped BEFORE the customer join so the customer section stays scoped to
+    // customers behind orders the AE can actually still fix.
+    const isActionable = (o) =>
+        !DQ_WEBSTORE_ORDER_TYPES.has(parseInt(o.id_OrderType, 10)) &&
+        parseInt(o.sts_Invoiced, 10) !== 1 &&
+        parseInt(o.sts_Shipped, 10) !== 1;
+    const openOrders = [...orders.values()].filter(isActionable);
+
+    // Customer records behind the ACTIONABLE orders (chunked IN() reads on the
+    // Cust mirror). Multiple contact rows per customer — first non-blank wins.
+    const custIds = [...new Set(openOrders
         .map((o) => parseInt(o.id_Customer, 10)).filter((n) => Number.isInteger(n) && n > 0))];
     const custById = new Map();
     for (const ids of chunk(custIds, 40)) {
@@ -647,9 +682,10 @@ async function buildDataQuality(rep) {
     // pickup orders) ride along as context but never flag an order alone.
     // Verified live 2026-07-19: without this, blank-ship-to warns on pickup
     // orders drowned the real gaps (80/125 of Nika's orders "flagged").
-    // Open (un-shipped) orders first, most errors first, newest first.
+    // Most errors first, then newest entered first. (All are open/in-process —
+    // invoiced & shipped orders were filtered out above.)
     const flaggedOrders = [];
-    for (const o of orders.values()) {
+    for (const o of openOrders) {
         const cust = custById.get(parseInt(o.id_Customer, 10)) || null;
         const issues = dqOrderIssues(o, cust);
         if (!issues.some((i) => i.severity === 'err')) continue;
@@ -659,14 +695,12 @@ async function buildDataQuality(rep) {
             company: o.CompanyName || (cust && cust.company) || '',
             placedDate: String(o.date_OrderPlaced || '').slice(0, 10),
             requestedShipDate: String(o.date_OrderRequestedToShip || '').slice(0, 10),
-            invoiced: parseInt(o.sts_Invoiced, 10) === 1,
-            shipped: parseInt(o.sts_Shipped, 10) === 1,
             errCount: issues.filter((i) => i.severity === 'err').length,
             issues,
         });
     }
     flaggedOrders.sort((a, b) =>
-        (a.shipped - b.shipped) || (b.errCount - a.errCount) || String(b.placedDate).localeCompare(String(a.placedDate)));
+        (b.errCount - a.errCount) || String(b.placedDate).localeCompare(String(a.placedDate)));
 
     // Customer findings — only customers who actually ordered in the window.
     const flaggedCustomers = [];
@@ -688,7 +722,8 @@ async function buildDataQuality(rep) {
         rep: { email: rep.email, fullName: rep.fullName, firstName: rep.firstName },
         generatedAt: new Date().toISOString(),
         windowDays: DQ_WINDOW_DAYS,
-        ordersScanned: orders.size,
+        ordersScanned: openOrders.length,
+        ordersExcluded: orders.size - openOrders.length,
         customersScanned: custById.size,
         counts: {
             ordersFlagged: flaggedOrders.length,
