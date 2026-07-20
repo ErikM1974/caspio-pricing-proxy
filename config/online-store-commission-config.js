@@ -80,7 +80,9 @@ const ONLINE_STORE_COMMISSION_CONFIG = {
             rep: 'Nika Lao',
             type: 'newLocation',        // 3% rate — new location of existing Stella Jones
             startDate: '2026-01-01',    // First invoiced order in 2026 (no pre-2026 history)
-            setupBonusPaid: false,      // $100 bonus at $2,500 revenue (within 12 months)
+            // $100 bonus recorded on the Q2-2026 payout (Commission_Payouts
+            // 'Setup Bonus' row, Erik-approved 2026-07-19, paycheck 7/24).
+            setupBonusPaid: true,
         },
     ],
 
