@@ -38,7 +38,9 @@ const EMB_BASE_URL = 'https://manageordersapi.com/onsite';
 const SALES_REP_MAP = {
   'taylar@nwcustomapparel.com': 'Taylar Hanson',
   'nika@nwcustomapparel.com': 'Nika Lao',
-  'taneisha@nwcustomapparel.com': 'Taneisha Jones',
+  // 'Taneisha Clark' confirmed by Erik 2026-07-19 (was wrongly 'Jones' — pushed a
+  // CustomerServiceRep that matched nothing in ShopWorks/ORDER_ODBC/Sales_Reps_2026).
+  'taneisha@nwcustomapparel.com': 'Taneisha Clark',
   'erik@nwcustomapparel.com': 'Erik Mickelson',
   'ruth@nwcustomapparel.com': 'Ruthie Nhoung',
 };
