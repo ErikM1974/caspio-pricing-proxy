@@ -19,7 +19,7 @@ const {
   makeSoapRequest, checkSoapError,
   parseInvoiceResponse
 } = require('../utils/sanmar-soap');
-const { makeCaspioRequest } = require('../utils/caspio');
+const { makeCaspioRequest, fetchAllCaspioPages } = require('../utils/caspio');
 
 const invoiceCache = new NodeCache({ stdTTL: 1800, checkperiod: 300 }); // 30 min cache
 
@@ -584,5 +584,79 @@ async function runInvoiceBackfill(daysBack) {
     invoiceBackfillStatus.running = false;
   }
 }
+
+// ============================================================================
+// PAYABLE IMPORT LOG — self-managed "imported to ShopWorks" date-stamps
+// ----------------------------------------------------------------------------
+// The SanMar Payables page stamps each invoice/credit when Erik imports it into
+// ShopWorks (Caspio SanMar_Payable_Imports, keyed by InvoiceNumber). The page
+// reads the log to show Imported? + filter the "to import" worklist — no ShopWorks
+// ODBC/upload needed (unstamped = still to import). Same pattern as the old Caspio
+// payables table's Date_Imported_SW that ran for 5 years.
+const IMPORTS_TABLE = 'SanMar_Payable_Imports';
+
+// GET /api/sanmar-invoices/imports[?since=YYYY-MM-DD] — the import-stamp log.
+router.get('/imports', async (req, res) => {
+  try {
+    const params = {
+      'q.select': 'InvoiceNumber,Date_Imported,Imported_By,PayableDate,Amount,PONumber,Vendor',
+      'q.orderBy': 'Date_Imported DESC', 'q.pageSize': 1000
+    };
+    const since = String(req.query.since || '').trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(since)) params['q.where'] = `Date_Imported>='${since}'`;
+    const rows = await fetchAllCaspioPages(`/tables/${IMPORTS_TABLE}/records`, params);
+    res.json({ success: true, count: rows.length, imports: rows });
+  } catch (error) {
+    console.error('[sanmar-imports:read]', error.message);
+    res.status(500).json({ success: false, error: 'imports read failed: ' + error.message });
+  }
+});
+
+// POST /api/sanmar-invoices/mark-imported — stamp invoices imported (secret-gated).
+// body { invoices:[{invoiceNumber, payableDate, amount, poNumber, vendor}], importedBy?, date? }
+router.post('/mark-imported', async (req, res) => {
+  const secret = req.headers['x-api-secret'] || req.query.secret;
+  if (secret !== process.env.CRM_API_SECRET) return res.status(403).json({ error: 'Unauthorized' });
+  const invoices = (req.body && req.body.invoices) || [];
+  if (!Array.isArray(invoices) || !invoices.length) return res.status(400).json({ error: 'body.invoices [] required' });
+  const importedBy = String(req.body.importedBy || '').slice(0, 255);
+  const when = /^\d{4}-\d{2}-\d{2}/.test(String(req.body.date || '')) ? String(req.body.date).slice(0, 10) : new Date().toISOString().slice(0, 10);
+  let stamped = 0, errored = 0; const errors = [];
+  for (const inv of invoices) {
+    const invNo = String(inv.invoiceNumber || '').trim();
+    if (!invNo) { errored++; continue; }
+    const data = {
+      Date_Imported: when, Imported_By: importedBy, PayableDate: String(inv.payableDate || ''),
+      Amount: (inv.amount == null ? null : Number(inv.amount)), PONumber: String(inv.poNumber || ''), Vendor: String(inv.vendor || '')
+    };
+    try {
+      const existing = await makeCaspioRequest('GET', `/tables/${IMPORTS_TABLE}/records`, { 'q.where': `InvoiceNumber='${xmlEscape(invNo)}'` });
+      if (Array.isArray(existing) && existing.length > 0) {
+        await makeCaspioRequest('PUT', `/tables/${IMPORTS_TABLE}/records`, { 'q.where': `InvoiceNumber='${xmlEscape(invNo)}'` }, data);
+      } else {
+        await makeCaspioRequest('POST', `/tables/${IMPORTS_TABLE}/records`, {}, Object.assign({ InvoiceNumber: invNo }, data));
+      }
+      stamped++;
+    } catch (e) { errored++; errors.push({ invoiceNumber: invNo, error: String(e.message).slice(0, 200) }); }
+  }
+  res.json({ success: errored === 0, stamped, errored, date: when, errors });
+});
+
+// POST /api/sanmar-invoices/unmark-imported — remove stamps (corrections; secret-gated).
+// body { invoiceNumbers:[...] }
+router.post('/unmark-imported', async (req, res) => {
+  const secret = req.headers['x-api-secret'] || req.query.secret;
+  if (secret !== process.env.CRM_API_SECRET) return res.status(403).json({ error: 'Unauthorized' });
+  const nums = (req.body && req.body.invoiceNumbers) || [];
+  if (!Array.isArray(nums) || !nums.length) return res.status(400).json({ error: 'body.invoiceNumbers [] required' });
+  let removed = 0, errored = 0;
+  for (const n of nums) {
+    const invNo = String(n || '').trim();
+    if (!invNo) continue;
+    try { await makeCaspioRequest('DELETE', `/tables/${IMPORTS_TABLE}/records`, { 'q.where': `InvoiceNumber='${xmlEscape(invNo)}'` }); removed++; }
+    catch (e) { errored++; }
+  }
+  res.json({ success: errored === 0, removed, errored });
+});
 
 module.exports = router;
