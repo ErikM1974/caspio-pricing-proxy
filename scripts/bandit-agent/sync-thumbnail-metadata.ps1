@@ -1,157 +1,236 @@
-# sync-thumbnail-metadata.ps1 — ShopWorks "Thumbnails Report" xlsx -> proxy -> Caspio.
+# sync-thumbnail-metadata.ps1 -- ShopWorks Thumbnails (ODBC) -> proxy -> Caspio.
 #
-# Runs ON BANDIT (Task Scheduler, every 30 min, SYSTEM). Reads the newest
-# "Thumbnails Report*.xlsx" that Erik exports into C:\SWF and upserts the
-# metadata into Caspio Shopworks_Thumbnail_Report via
-# POST /api/thumbnails/metadata-sync.
+# Runs ON BANDIT (Task Scheduler \NWCA\Thumbnail Metadata Sync, every 30 min,
+# SYSTEM). Pulls thumbnail metadata DIRECTLY from the OnSite FileMaker "Thumbnails"
+# table via ODBC and upserts it into Caspio Shopworks_Thumbnail_Report through
+# POST /api/thumbnails/metadata-sync (see src/routes/thumbnails.js).
 #
-# Replaces the old desktop chain (build_caspio_import_csv.py 3-way join ->
-# OneDrive Thumb.csv -> Caspio Thumbnail_Import file-import). Writes ONLY the
-# metadata columns; the image columns (ExternalKey/FileUrl) are owned by the
-# image sync (upload-with-stub).
+# 2026-07-21 CUTOVER: replaces the old xlsx path (read Erik's manual
+# "Thumbnails Report*.xlsx" from C:\SWF via ImportExcel). ShopWorks ticket 386060
+# (Ryan Gaul) exposed the Thumbnails + DesignLocations tables in Data_ODBCMapping,
+# so the whole report is now derivable by direct query -- no manual export, no
+# \\BANDIT\SWF drop, no ImportExcel dependency.
 #
-# RATE-LIMIT SAFE + RESUMABLE (Caspio 429s on big bursts, 2026-07-17):
-#  - MAX_ROWS_PER_RUN caps each run; the 30-min schedule drains a big backlog
-#    (e.g. the 27k first load) over several runs. Steady-state = seconds.
-#  - Snapshot (ID_Serial -> content hash) saved AFTER EVERY CHUNK, so an
-#    interrupted/aborted run never loses progress and never re-does confirmed rows.
-#  - Errored rows are left OUT of the snapshot so they retry next run.
-#  - 429 -> back off 90s and retry the chunk (3x) before yielding to next run.
+# WHAT IT SENDS (identical row shape to the retired xlsx path, so the proxy
+# endpoint is UNCHANGED -- it upserts by ID_Serial, writes metadata columns only,
+# and never touches the image-side columns owned by upload-with-stub):
+#   ID_Serial, FileName, FileWidth, FileHeight, FileSizeDisplay, timestamp_Added,
+#   Thumb_DesLocid_Design, Thumb_DesLoc_DesDesignName, Thumb_ProdPartNumber,
+#   Thumb_ProdDescription
 #
-# Master copy: caspio-pricing-proxy/scripts/bandit-agent/ — edit here, recopy to bandit.
-# Deps on bandit: ImportExcel module. Reuses odbc-sync config.json (ProxyBase + CrmApiSecret).
+# SCOPE FILTER = FileName IS NOT NULL. The ODBC Thumbnails table has ~105k rows;
+# only ~27.3k carry an actual image file (the other ~78k are metadata-only shells).
+# FileName IS NOT NULL reproduces the old xlsx report's row set (~27.3k) and keeps
+# junk shells out of Caspio.
+#
+# id_Design + DesignName are resolved in-SQL via LEFT JOINs (FileMaker matches the
+# decimal keys internally -- the driver returns them as Double, so an app-side
+# IN-list literal would be float-fragile). PartNumber/Description apply only to the
+# ~30 product thumbnails (id_Design NULL); enriched from Prod on integer keys, only
+# when such rows appear in a delta -- so their cosmetic values are never blanked.
+#
+# DELTA on timestamp_Modification (the only reliably-populated stamp; timestamp_Added
+# and timestamp_Creation are frequently NULL). Bounded query, one connection,
+# explicit column list -- per the vendor rules in the pricing-index repo memory
+# (SHOPWORKS_ODBC_INTEGRATION.md).
+#
+# Files (on bandit):
+#   C:\NWCA\thumb-sync\sync-thumbnail-metadata.ps1   this script
+#   C:\NWCA\odbc-sync\config.json                    { ProxyBase, CrmApiSecret, Dsn, OverlapMinutes }
+#   C:\NWCA\thumb-sync\last-sync-thumb-meta.txt      local wall-clock of last successful run start
+#   C:\NWCA\thumb-sync\sync-thumbnail-metadata.log   append-only run log (auto-trimmed)
+#
+# -DryRun    : pull + build rows, log a sample, POST nothing.
+# -SeedState : write the state file to NOW without syncing (adopt-current baseline).
+#
+# Master copy: caspio-pricing-proxy/scripts/bandit-agent/ -- edit HERE, recopy to bandit.
 
-# -CsvOut <path> : write the transformed metadata rows to a CSV for a one-time bulk
-#   Caspio import (Add+Update on ID_Serial) instead of POSTing. Uses the Data
-#   import/export quota, NOT the Integrations API budget — works even when capped.
-param([string]$CsvOut)
+param([switch]$DryRun, [switch]$SeedState)
 
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-Import-Module ImportExcel
 
-$Root            = 'C:\NWCA\thumb-sync'
-$ConfigPath      = 'C:\NWCA\odbc-sync\config.json'
-$SwfFolder       = 'C:\SWF'
-$SnapshotPath    = Join-Path $Root 'last-snapshot.json'
-$LogPath         = Join-Path $Root 'sync-thumbnail-metadata.log'
-$ChunkSize       = 50
-$MaxRowsPerRun   = 3000     # bound each run; big backlogs drain across scheduled runs
+$Root       = 'C:\NWCA\thumb-sync'
+$ConfigPath = 'C:\NWCA\odbc-sync\config.json'
+$StatePath  = Join-Path $Root 'last-sync-thumb-meta.txt'
+$LogPath    = Join-Path $Root 'sync-thumbnail-metadata.log'
+$MaxRows    = 1500     # safety backstop; the delta is tiny in steady state
+$ChunkSize  = 50       # endpoint caps at 500/call and throttles internally
 New-Item -ItemType Directory -Force -Path $Root | Out-Null
 
-function Log($m){ $line = '{0:yyyy-MM-dd HH:mm:ss}  {1}' -f (Get-Date), $m; Add-Content -Path $LogPath -Value $line -Encoding UTF8; Write-Output $line }
+function Log([string]$msg) {
+    $line = ('{0:yyyy-MM-dd HH:mm:ss}  {1}' -f (Get-Date), $msg)
+    Add-Content -Path $LogPath -Value $line -Encoding UTF8
+    Write-Output $line
+}
 
-function Convert-Row($r){
-    $tsStr = $null; $d = 0.0
-    if ($null -ne $r.timestamp_Added -and [double]::TryParse([string]$r.timestamp_Added, [ref]$d)) {
-        $tsStr = ([DateTime]::FromOADate($d)).ToString('MM/dd/yyyy hh:mm:ss tt')
-    }
-    [ordered]@{
-        ID_Serial                  = $r.ID_Serial
-        FileName                   = $r.FileName
-        FileWidth                  = $r.FileWidth
-        FileHeight                 = $r.FileHeight
-        FileSizeDisplay            = $r.FileSizeDisplay
-        timestamp_Added            = $tsStr
-        Thumb_DesLocid_Design      = $r.'Thumb_DesLoc::id_Design'
-        Thumb_DesLoc_DesDesignName = $r.'Thumb_DesLoc_Des::DesignName'
-        Thumb_ProdPartNumber       = $r.'Thumb_Prod::PartNumber'
-        Thumb_ProdDescription      = $r.'Thumb_Prod::Description'
-    }
+# Faithfully render a numeric design id (Double) as text: whole -> "38548",
+# fractional variant -> "39845.02" (trim float noise to 4 dp, no trailing zeros).
+function FmtId($v) {
+    if ($null -eq $v -or $v -is [System.DBNull]) { return $null }
+    $d = [double]$v
+    if ([math]::Floor($d) -eq $d) { return ([long]$d).ToString([Globalization.CultureInfo]::InvariantCulture) }
+    return $d.ToString('0.####', [Globalization.CultureInfo]::InvariantCulture)
 }
 
 try {
     if ((Test-Path $LogPath) -and ((Get-Item $LogPath).Length -gt 1MB)) {
-        Set-Content -Path $LogPath -Value (Get-Content $LogPath -Tail 250) -Encoding UTF8
+        Set-Content -Path $LogPath -Value (Get-Content $LogPath -Tail 200) -Encoding UTF8
     }
+
     $cfg = Get-Content $ConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    $proxy = $cfg.ProxyBase; $secret = $cfg.CrmApiSecret
-    $headers = @{ 'x-crm-api-secret' = $secret }
-    $uri = "$proxy/api/thumbnails/metadata-sync"
+    $overlap = if ($cfg.OverlapMinutes) { [int]$cfg.OverlapMinutes } else { 30 }
+    $headers = @{ 'x-crm-api-secret' = $cfg.CrmApiSecret }
+    $uri = "$($cfg.ProxyBase)/api/thumbnails/metadata-sync"
 
-    $f = Get-ChildItem (Join-Path $SwfFolder 'Thumbnails Report*.xlsx') -File -ErrorAction SilentlyContinue |
-         Sort-Object LastWriteTime -Descending | Select-Object -First 1
-    if (-not $f) { Log 'no "Thumbnails Report*.xlsx" in C:\SWF - nothing to do'; exit 0 }
-    Log ('reading ' + $f.Name)
-    $data = Import-Excel -Path $f.FullName
+    # Captured BEFORE the query: anything modified while we run falls after this
+    # stamp and is picked up next cycle. Never lost.
+    $runStart = Get-Date
 
-    $all = New-Object System.Collections.ArrayList
-    $newHash = @{}
-    foreach ($r in $data) {
-        if ($null -eq $r.ID_Serial -or $r.ID_Serial -eq '') { continue }
-        $row = Convert-Row $r
-        [void]$all.Add($row)
-        $newHash[[string]$row.ID_Serial] = ($row.Values -join '|')
-    }
-    Log ('rows in export: ' + $all.Count)
-
-    if ($CsvOut) {
-        # Serial-prefix FileName ({id}_{orig}) to match the endpoint's insert + keep it
-        # UNIQUE; the image sync overwrites FileName later when it attaches the image.
-        ($all | ForEach-Object {
-            $o = [ordered]@{}
-            foreach ($k in $_.Keys) { $o[$k] = $_[$k] }
-            $o['FileName'] = "$($_.ID_Serial)_$($_.FileName)"
-            [pscustomobject]$o
-        }) | Export-Csv -Path $CsvOut -NoTypeInformation -Encoding UTF8
-        Log "CSV written: $CsvOut ($($all.Count) rows)"
+    if ($SeedState) {
+        Set-Content -Path $StatePath -Value $runStart.ToString('yyyy-MM-dd HH:mm:ss') -Encoding UTF8
+        Log "SEEDED state to $($runStart.ToString('yyyy-MM-dd HH:mm:ss')) (no sync; only future changes will pull)"
         exit 0
     }
 
-    # confirmed snapshot (what Caspio already has, by our record)
-    $confirmed = @{}
-    if (Test-Path $SnapshotPath) {
-        try { (Get-Content $SnapshotPath -Raw -Encoding UTF8 | ConvertFrom-Json).psobject.Properties | ForEach-Object { $confirmed[$_.Name] = $_.Value } } catch { Log 'snapshot unreadable - treating as first run' }
+    if (Test-Path $StatePath) {
+        $since = ([datetime](Get-Content $StatePath -Raw).Trim()).AddMinutes(-$overlap)
+    } else {
+        # No state: look back 24h (safe default). Full history is already in
+        # Shopworks_Thumbnail_Report from the completed backfill, so no deep re-pull.
+        $since = $runStart.AddHours(-24)
+        Log "no state file - first run, since = $since"
     }
-    $pending = @($all | Where-Object { $k = [string]$_.ID_Serial; -not $confirmed.ContainsKey($k) -or $confirmed[$k] -ne $newHash[$k] })
-    Log ('pending (new/changed): ' + $pending.Count)
+    $sinceLit = $since.ToString('yyyy-MM-dd HH:mm:ss')
 
-    if ($pending.Count -eq 0) {
-        Invoke-RestMethod -Method Post -Uri $uri -Headers $headers -Body (ConvertTo-Json @{ rows = @() } -Compress) -ContentType 'application/json' -TimeoutSec 60 | Out-Null
-        Log 'nothing pending - heartbeat sent'
-        exit 0
+    # Query 1: delta on Thumbnails (image-bearing only), JOIN-resolving id_Design
+    # + DesignName. Calc fields are never referenced; timestamp_Modification is a
+    # plain stored/indexed field.
+    $sql = @"
+SELECT T.ID_Serial, T.id_DesignLoc, T.id_ProductSerial, T.FileName, T.FileWidth,
+       T.FileHeight, T.FileSizeDisplay, T.timestamp_Added, DL.id_Design, D.DesignName
+FROM Thumbnails T
+LEFT JOIN DesignLocations DL ON T.id_DesignLoc = DL.ID_DesignLoc
+LEFT JOIN Des D ON DL.id_Design = D.ID_Design
+WHERE T.timestamp_Modification >= {ts '$sinceLit'} AND T.FileName IS NOT NULL
+FETCH FIRST $MaxRows ROWS ONLY
+"@
+
+    Log "query since $sinceLit (overlap ${overlap}m)"
+
+    $conn = New-Object System.Data.Odbc.OdbcConnection
+    $conn.ConnectionString = "DSN=$($cfg.Dsn);UID=extro;PWD=extro"
+    $conn.ConnectionTimeout = 30
+    $conn.Open()
+    $cmd = $conn.CreateCommand()
+    $cmd.CommandTimeout = 180
+    $cmd.CommandText = $sql
+    $rd = $cmd.ExecuteReader()
+
+    $rows = New-Object System.Collections.ArrayList
+    $prodSerials = New-Object System.Collections.Generic.HashSet[long]
+    while ($rd.Read()) {
+        $idSerial = [long]$rd.GetValue(0)
+        $idDesign = FmtId $rd.GetValue(8)
+        $prodSer = $null
+        if (-not $rd.IsDBNull(2)) { try { $prodSer = [long]$rd.GetValue(2) } catch { $prodSer = $null } }
+        $tsAdded = $null
+        if (-not $rd.IsDBNull(7)) { $v = $rd.GetValue(7); if ($v -is [datetime]) { $tsAdded = $v.ToString('yyyy-MM-ddTHH:mm:ss') } }
+
+        $row = [ordered]@{
+            ID_Serial                  = $idSerial
+            FileName                   = $(if ($rd.IsDBNull(3)) { $null } else { [string]$rd.GetValue(3) })
+            FileWidth                  = $(if ($rd.IsDBNull(4)) { $null } else { [int][double]$rd.GetValue(4) })
+            FileHeight                 = $(if ($rd.IsDBNull(5)) { $null } else { [int][double]$rd.GetValue(5) })
+            FileSizeDisplay            = $(if ($rd.IsDBNull(6)) { $null } else { [string]$rd.GetValue(6) })
+            timestamp_Added            = $tsAdded
+            Thumb_DesLocid_Design      = $idDesign
+            Thumb_DesLoc_DesDesignName = $(if ($rd.IsDBNull(9)) { $null } else { [string]$rd.GetValue(9) })
+            Thumb_ProdPartNumber       = $null
+            Thumb_ProdDescription      = $null
+            _prodSerial                = $prodSer   # internal; removed before POST
+        }
+        [void]$rows.Add($row)
+        if ($null -ne $prodSer -and $null -eq $idDesign) { [void]$prodSerials.Add($prodSer) }
     }
+    $rd.Close()
 
-    $batch = @($pending | Select-Object -First $MaxRowsPerRun)
-    Log ('processing this run: ' + $batch.Count + ' of ' + $pending.Count + ' pending (cap ' + $MaxRowsPerRun + ')')
-
-    $ins = 0; $upd = 0; $err = 0; $sent = 0
-    while ($sent -lt $batch.Count) {
-        $chunk = @($batch | Select-Object -Skip $sent -First $ChunkSize)
-        $body = ConvertTo-Json @{ rows = $chunk } -Depth 5 -Compress
-
-        # POST with 429 backoff
-        $resp = $null; $attempt = 0
-        while ($true) {
-            try {
-                $resp = Invoke-RestMethod -Method Post -Uri $uri -Headers $headers -Body ([System.Text.Encoding]::UTF8.GetBytes($body)) -ContentType 'application/json; charset=utf-8' -TimeoutSec 180
-                break
-            } catch {
-                $msg = $_.Exception.Message
-                $is429 = ($msg -match '429|Too Many|rate') -or ($_.Exception.Response -and $_.Exception.Response.StatusCode.value__ -eq 429)
-                $attempt++
-                if ($is429 -and $attempt -le 3) { Log "  rate limited - backing off 90s (attempt $attempt/3)"; Start-Sleep -Seconds 90; continue }
-                Log "  chunk POST failed ($msg) - stopping run, will resume next run"
-                Log ("DONE(partial): $ins inserted, $upd updated, $err errored; " + ($pending.Count - $sent) + " still pending")
-                exit 0   # snapshot already persisted per-chunk; resume next run
+    # Query 2 (conditional): PartNumber/Description for product thumbnails only.
+    # Integer keys -> clean IN-list; same connection, sequential; chunked at 200.
+    if ($prodSerials.Count -gt 0) {
+        $prodMap = @{}
+        $serialArr = @($prodSerials)
+        for ($k = 0; $k -lt $serialArr.Count; $k += 200) {
+            $idChunk = $serialArr[$k..([Math]::Min($k + 199, $serialArr.Count - 1))]
+            $inList = ($idChunk -join ', ')
+            $pcmd = $conn.CreateCommand()
+            $pcmd.CommandTimeout = 120
+            $pcmd.CommandText = "SELECT ID_ProductSerial, PartNumber, Description FROM Prod WHERE ID_ProductSerial IN ($inList)"
+            $pr = $pcmd.ExecuteReader()
+            while ($pr.Read()) {
+                $ps = [long]$pr.GetValue(0)
+                $prodMap[$ps] = @{
+                    Part = $(if ($pr.IsDBNull(1)) { $null } else { [string]$pr.GetValue(1) })
+                    Desc = $(if ($pr.IsDBNull(2)) { $null } else { [string]$pr.GetValue(2) })
+                }
+            }
+            $pr.Close()
+        }
+        foreach ($row in $rows) {
+            $ps = $row['_prodSerial']
+            if ($null -ne $ps -and $prodMap.ContainsKey($ps)) {
+                $row['Thumb_ProdPartNumber']  = $prodMap[$ps].Part
+                $row['Thumb_ProdDescription'] = $prodMap[$ps].Desc
             }
         }
+        Log "enriched $($prodMap.Count) product thumbnail(s) with PartNumber/Description"
+    }
+    $conn.Close()
 
-        $s = $resp.summary; $ins += $s.inserted; $upd += $s.updated; $err += $s.errored
-        # mark confirmed for rows that did NOT error
-        $erroredIds = @{}
-        if ($resp.errors) { foreach ($e in $resp.errors) { $erroredIds[[string]$e.ID_Serial] = $true } }
-        foreach ($row in $chunk) { $k = [string]$row.ID_Serial; if (-not $erroredIds.ContainsKey($k)) { $confirmed[$k] = $newHash[$k] } }
-        ($confirmed | ConvertTo-Json -Compress) | Set-Content -Path $SnapshotPath -Encoding UTF8   # persist progress EVERY chunk
+    foreach ($row in $rows) { $row.Remove('_prodSerial') }
 
-        $sent += $chunk.Count
-        Log ('  {0}/{1}: {2} ins, {3} upd, {4} err' -f $sent, $batch.Count, $s.inserted, $s.updated, $s.errored)
-        if ($s.errored -gt 0 -and $resp.errors) { $resp.errors | Select-Object -First 2 | ForEach-Object { Log ('    err: ' + (ConvertTo-Json $_ -Compress)) } }
-        Start-Sleep -Milliseconds 800
+    Log "pulled $($rows.Count) changed thumbnail(s) with a file"
+    if ($rows.Count -ge $MaxRows) {
+        Log "WARNING: hit MaxRows cap ($MaxRows) - state NOT advanced; next run re-pulls from same point"
     }
 
-    $remaining = $pending.Count - $sent
-    Log ("DONE: $ins inserted, $upd updated, $err errored this run; $remaining still pending (next run continues)")
+    if ($DryRun) {
+        Log "DRY-RUN: would upsert $($rows.Count) row(s); sample:"
+        $rows | Select-Object -First 5 | ForEach-Object { Log ('  ' + (ConvertTo-Json $_ -Compress)) }
+        exit 0
+    }
+
+    # POST in chunks (rows:[] when nothing changed = heartbeat ping).
+    $ins = 0; $upd = 0; $err = 0; $sent = 0
+    if ($rows.Count -eq 0) {
+        Invoke-RestMethod -Method Post -Uri $uri -Headers $headers -Body (ConvertTo-Json @{ rows = @() } -Compress) -ContentType 'application/json' -TimeoutSec 60 | Out-Null
+        Log 'nothing changed - heartbeat sent'
+    } else {
+        do {
+            $chunk = @($rows | Select-Object -Skip $sent -First $ChunkSize)
+            $body = ConvertTo-Json @{ rows = $chunk } -Depth 5 -Compress
+            $resp = Invoke-RestMethod -Method Post -Uri $uri -Headers $headers `
+                -Body ([System.Text.Encoding]::UTF8.GetBytes($body)) `
+                -ContentType 'application/json; charset=utf-8' -TimeoutSec 180
+            $s = $resp.summary
+            $ins += $s.inserted; $upd += $s.updated; $err += $s.errored
+            Log "posted $($chunk.Count): $($s.inserted) ins, $($s.updated) upd, $($s.errored) err"
+            if ($s.errored -gt 0) {
+                $resp.errors | Select-Object -First 5 | ForEach-Object { Log ('  row-error: ' + (ConvertTo-Json $_ -Compress)) }
+                throw "proxy reported $($s.errored) row error(s) - state not advanced"
+            }
+            $sent += $chunk.Count
+            Start-Sleep -Milliseconds 500
+        } while ($sent -lt $rows.Count)
+    }
+
+    # Advance state only when we did NOT hit the cap.
+    if ($rows.Count -lt $MaxRows) {
+        Set-Content -Path $StatePath -Value $runStart.ToString('yyyy-MM-dd HH:mm:ss') -Encoding UTF8
+        Log "OK - state advanced to $($runStart.ToString('yyyy-MM-dd HH:mm:ss')); $ins inserted, $upd updated this run"
+    } else {
+        Log "OK - capped run, state held for re-pull"
+    }
     exit 0
 }
 catch {
