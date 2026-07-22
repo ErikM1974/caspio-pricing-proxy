@@ -15,6 +15,7 @@
 'use strict';
 const express = require('express');
 const router = express.Router();
+const Anthropic = require('@anthropic-ai/sdk');
 const { fetchAllCaspioPages, makeCaspioRequest, putWithRecordsAffected } = require('../utils/caspio');
 const { S, nowIso } = require('../utils/form-submission-helpers');
 
@@ -129,6 +130,89 @@ router.delete('/:id', async (req, res) => {
   } catch (e) {
     console.error('[jim-mailing-list] delete failed:', e.message);
     res.status(502).json({ error: 'Mailing list delete failed' });
+  }
+});
+
+// ── AI capture — paste text and/or a screenshot; Claude extracts the fields ──
+// Lazy Anthropic client (same pattern as src/routes/vision.js). Haiku is plenty
+// for a directory-listing extraction and keeps the per-use cost tiny; bump the
+// model if extraction quality on messy pages isn't good enough.
+let anthropicClient = null;
+function getAnthropic() {
+  if (!anthropicClient) {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) throw new Error('ANTHROPIC_API_KEY not configured');
+    anthropicClient = new Anthropic({ apiKey });
+  }
+  return anthropicClient;
+}
+const EXTRACT_MODEL = 'claude-haiku-4-5-20251001';
+const EXTRACT_FIELDS = ['company', 'contact_name', 'address', 'city', 'state', 'zip', 'phone', 'email', 'website', 'category', 'notes'];
+const EXTRACT_PROMPT = `You are helping an office assistant add a business PROSPECT to a mailing list. You are given text copied from a web page / directory listing and/or a screenshot of one. Extract the company's contact details.
+
+Return ONLY valid JSON (no markdown fencing, no commentary) with this EXACT shape:
+{
+  "company": "",       // the business / company name
+  "contact_name": "",  // a person's name if shown (owner, manager, rep). Add their title in parentheses if given, e.g. "Justin Kasarda (General Manager)"
+  "address": "",       // street address only, e.g. "2106 Tacoma Ave S"
+  "city": "",
+  "state": "",         // 2-letter state code when possible, e.g. "WA"
+  "zip": "",
+  "phone": "",         // main phone number
+  "email": "",         // email address if shown
+  "website": "",       // website URL if shown
+  "category": "",      // type of business / industry if shown, e.g. "Printing Services"
+  "notes": ""          // anything else useful and short: a fax or cell number, a second contact, hours, a tagline
+}
+
+Rules:
+- Use an empty string "" for anything you cannot find. NEVER guess or invent a phone, email, or address.
+- The company name matters most. If you genuinely cannot find one, return "company": "".
+- If the input is clearly not about a business, return every field as "".`;
+
+// POST /api/jim-mailing-list/extract — { text?, image? (data URI) } → { fields }
+// Does NOT write anything: it only returns extracted fields for the page to
+// pre-fill so Jim can review and then Save through the normal POST.
+router.post('/extract', async (req, res) => {
+  const b = req.body || {};
+  const text = typeof b.text === 'string' ? b.text.trim().slice(0, 12000) : '';
+  const image = typeof b.image === 'string' ? b.image.trim() : '';
+  if (!text && !image) return res.status(400).json({ error: 'Paste some text or a screenshot first.' });
+
+  const content = [];
+  if (image) {
+    let mediaType = 'image/jpeg', data = image;
+    if (image.startsWith('data:')) {
+      const m = image.match(/^data:(image\/\w+);base64,(.+)$/);
+      if (!m) return res.status(400).json({ error: 'That image could not be read — try copying it again.' });
+      mediaType = m[1]; data = m[2];
+    }
+    content.push({ type: 'image', source: { type: 'base64', media_type: mediaType, data } });
+  }
+  if (text) content.push({ type: 'text', text: 'Copied text:\n\n' + text });
+  content.push({ type: 'text', text: EXTRACT_PROMPT });
+
+  let client;
+  try { client = getAnthropic(); }
+  catch (e) { return res.status(503).json({ error: 'The Claude helper is not set up on the server yet.' }); }
+
+  try {
+    const resp = await client.messages.create({ model: EXTRACT_MODEL, max_tokens: 1024, messages: [{ role: 'user', content }] });
+    const rawText = (resp.content[0] && resp.content[0].text || '').trim();
+    let parsed;
+    try {
+      parsed = JSON.parse(rawText.replace(/^```json?\s*\n?/i, '').replace(/\n?```\s*$/i, ''));
+    } catch (e) {
+      console.error('[jim-mailing-list] extract parse failed:', rawText.slice(0, 200));
+      return res.status(502).json({ error: 'Claude could not read that. Try pasting the company info again.' });
+    }
+    const fields = {};
+    EXTRACT_FIELDS.forEach((k) => { fields[k] = typeof parsed[k] === 'string' ? parsed[k].trim() : ''; });
+    console.log(`[jim-mailing-list] extracted "${fields.company || '(no company found)'}"`);
+    res.json({ fields });
+  } catch (e) {
+    console.error('[jim-mailing-list] extract failed:', e.message);
+    res.status(502).json({ error: 'The Claude helper had a problem — please try again.' });
   }
 });
 
