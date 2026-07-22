@@ -1251,6 +1251,14 @@ const marketingShipmentsRoutes = require('./src/routes/marketing-shipments');
 app.use('/api/marketing-shipments', requireCrmApiSecret, marketingShipmentsRoutes);
 console.log('✓ Marketing shipments routes loaded [CRM-gated]');
 
+// Jim's Mailing List (Prospect_Mailing_List) — the owner's manual prospect list
+// (add/edit/delete companies he finds in magazines / around Milton). Holds contact
+// info → secret-only at the mount; staff reach it via the main app's
+// /api/crm-proxy/jim-mailing-list* forwarder (requireStaff). NOT the Leads CRM.
+const jimMailingListRoutes = require('./src/routes/jim-mailing-list');
+app.use('/api/jim-mailing-list', requireCrmApiSecret, jimMailingListRoutes);
+console.log('✓ Jim mailing list routes loaded [CRM-gated]');
+
 // Blog Posts (Blog_Posts table) — the main site's /blog SSR + homepage teaser
 // read Published posts publicly; drafts and all writes need the CRM secret
 // (staff Blog Editor via the main app's /api/crm-proxy/blog-posts forwarder).
