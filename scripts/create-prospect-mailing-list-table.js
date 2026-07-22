@@ -27,7 +27,9 @@ const TABLES = [
     Name: 'Prospect_Mailing_List',
     Fields: [
       { Name: 'Company', Type: 'STRING' },       // the one required field
-      { Name: 'Contact_Name', Type: 'STRING' },
+      { Name: 'Contact_Name', Type: 'STRING' },  // legacy combined "First Last (Title)" — kept for display
+      { Name: 'First_Name', Type: 'STRING' },    // split for Mailchimp FNAME + sort/search by name
+      { Name: 'Last_Name', Type: 'STRING' },     // split for Mailchimp LNAME
       { Name: 'Address', Type: 'STRING' },        // street
       { Name: 'City', Type: 'STRING' },
       { Name: 'State', Type: 'STRING' },
@@ -39,6 +41,13 @@ const TABLES = [
       { Name: 'Category', Type: 'STRING' },       // segment / mailing list (Bigin Tag: "Fire Dept Prospect" etc.)
       { Name: 'Notes', Type: 'TEXT' },            // free-form (TEXT — can exceed 255)
       { Name: 'Bigin_Id', Type: 'STRING' },       // source Bigin Company Id — traceability + future de-dupe (read-only)
+      // Outreach tracking (any channel — physical mail or email)
+      { Name: 'Status', Type: 'STRING' },          // Not contacted / Mailed / Responded / Customer / Do not mail
+      { Name: 'Last_Mailed_At', Type: 'STRING' },  // ISO date of the last time we reached out
+      // Mailchimp send tracking (stamped when a campaign send is recorded)
+      { Name: 'Mailchimp_Status', Type: 'STRING' },    // subscribed / unsubscribed / cleaned / '' (from Mailchimp)
+      { Name: 'Mailchimp_Last_Sent', Type: 'STRING' }, // ISO datetime of the last Mailchimp campaign sent to them
+      { Name: 'Mailchimp_Sent_Count', Type: 'STRING' },// how many Mailchimp emails they've been sent
       { Name: 'Added_By', Type: 'STRING' },       // staff email, stamped server-side at create
       { Name: 'Created_At', Type: 'STRING' },     // ISO datetime (STRING avoids Caspio tz pitfalls)
       { Name: 'Updated_At', Type: 'STRING' },
