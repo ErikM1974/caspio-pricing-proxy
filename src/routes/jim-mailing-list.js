@@ -16,8 +16,12 @@
 const express = require('express');
 const router = express.Router();
 const Anthropic = require('@anthropic-ai/sdk');
+const mailchimp = require('../utils/mailchimp-client');
 const { fetchAllCaspioPages, makeCaspioRequest, putWithRecordsAffected } = require('../utils/caspio');
 const { S, nowIso } = require('../utils/form-submission-helpers');
+
+// Which Mailchimp audience Jim's prospects sync into (resolved by NAME → List ID).
+const MAILCHIMP_AUDIENCE = process.env.MAILCHIMP_AUDIENCE || "Jim's Prospects";
 
 const TABLE_PATH = '/tables/Prospect_Mailing_List/records';
 const FIELDS = 'PK_ID,Company,Contact_Name,First_Name,Last_Name,Address,City,State,Zip,Phone,Email,Source,Website,Category,Notes,Bigin_Id,Status,Last_Mailed_At,Mailchimp_Status,Mailchimp_Last_Sent,Mailchimp_Sent_Count,Added_By,Created_At,Updated_At,Updated_By';
@@ -214,6 +218,100 @@ router.post('/extract', async (req, res) => {
   } catch (e) {
     console.error('[jim-mailing-list] extract failed:', e.message);
     res.status(502).json({ error: 'The Claude helper had a problem — please try again.' });
+  }
+});
+
+// ── Mailchimp (Phase 2) ───────────────────────────────────────────────────
+// All three are reached (staff-gated) through the app's /api/crm-proxy forwarder.
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+function nameParts(r) {
+  var first = (r.First_Name || '').trim(), last = (r.Last_Name || '').trim();
+  if (!first && !last && r.Contact_Name) {
+    var nm = r.Contact_Name.replace(/\s*\(.*\)\s*$/, '').trim().split(/\s+/);
+    first = nm.shift() || '';
+    last = nm.join(' ');
+  }
+  return { first: first, last: last };
+}
+function mcErr(e) {
+  return e.response ? (e.response.status + ' ' + ((e.response.data && (e.response.data.detail || e.response.data.title)) || '')) : e.message;
+}
+
+// GET /mailchimp/status — connection test + audience summary (the "Test connection" button)
+router.get('/mailchimp/status', async (req, res) => {
+  if (!process.env.MAILCHIMP_API_KEY) return res.json({ ok: false, configured: false, error: 'No Mailchimp API key is set on the server yet.' });
+  try {
+    await mailchimp.ping();
+    const aud = await mailchimp.findAudience(MAILCHIMP_AUDIENCE);
+    res.json({ ok: true, configured: true, dc: mailchimp.cfg().dc, audience: { name: aud.displayName || MAILCHIMP_AUDIENCE, members: aud.members } });
+  } catch (e) {
+    console.warn('[jim-mailing-list] mailchimp status:', mcErr(e));
+    res.json({ ok: false, configured: true, error: mcErr(e), audiences: e.audiences || undefined });
+  }
+});
+
+// POST /mailchimp/sync — push every prospect that has an email into the audience,
+// tagged by segment, staged as 'transactional' (nobody is emailed until subscribed).
+router.post('/mailchimp/sync', async (req, res) => {
+  if (!process.env.MAILCHIMP_API_KEY) return res.status(503).json({ error: 'No Mailchimp API key is set on the server yet.' });
+  try {
+    const aud = await mailchimp.findAudience(MAILCHIMP_AUDIENCE);
+    await mailchimp.ensureMergeFields(aud.id);
+    const rows = await fetchAllCaspioPages(TABLE_PATH, { 'q.select': FIELDS, 'q.where': "Email IS NOT NULL AND Email<>''", 'q.orderBy': 'PK_ID', 'q.pageSize': 500 }, { maxPages: 30 });
+    const members = [];
+    let noEmail = 0, doNotMail = 0;
+    (rows || []).forEach((r) => {
+      if ((r.Status || '') === 'Do not mail') { doNotMail++; return; }
+      const email = String(r.Email || '').trim();
+      if (!EMAIL_RE.test(email)) { noEmail++; return; }
+      const nm = nameParts(r);
+      members.push({ email: email, first: nm.first, last: nm.last, company: r.Company || '', address: r.Address || '', city: r.City || '', state: r.State || '', zip: r.Zip || '', phone: r.Phone || '', tag: (r.Category || '').trim() });
+    });
+    if (!members.length) return res.json({ ok: true, audience: aud.displayName || MAILCHIMP_AUDIENCE, attempted: 0, created: 0, updated: 0, errors: 0, skippedNoEmail: noEmail, skippedDoNotMail: doNotMail, message: 'No prospects with a valid email to sync.' });
+    const result = await mailchimp.upsertMembers(aud.id, members);
+    console.log(`[jim-mailing-list] mailchimp sync → ${members.length} sent (${result.created} new, ${result.updated} updated, ${result.errors} err); skipped ${doNotMail} do-not-mail`);
+    res.json({ ok: (result.created + result.updated) > 0 || result.errors === 0, audience: aud.displayName || MAILCHIMP_AUDIENCE, attempted: members.length, created: result.created, updated: result.updated, errors: result.errors, errorSamples: result.errorSamples, skippedNoEmail: noEmail, skippedDoNotMail: doNotMail });
+  } catch (e) {
+    console.error('[jim-mailing-list] mailchimp sync failed:', mcErr(e));
+    res.status(502).json({ error: 'Mailchimp sync failed: ' + mcErr(e) });
+  }
+});
+
+// POST /mailchimp/record-sends — read who recent SENT campaigns went to and stamp
+// each matching prospect (last-mailed date, count, Status='Mailed'). Idempotent:
+// the count is SET to how many campaigns Mailchimp shows them in, never incremented.
+router.post('/mailchimp/record-sends', async (req, res) => {
+  if (!process.env.MAILCHIMP_API_KEY) return res.status(503).json({ error: 'No Mailchimp API key is set on the server yet.' });
+  try {
+    const aud = await mailchimp.findAudience(MAILCHIMP_AUDIENCE);
+    const campaigns = await mailchimp.recentSentCampaigns(aud.id, 50);
+    const sent = {}; // email -> { day, count }
+    for (const c of campaigns) {
+      const emails = await mailchimp.campaignSentTo(c.id);
+      const day = (c.send_time || '').slice(0, 10);
+      emails.forEach((em) => {
+        if (!sent[em]) sent[em] = { day: day, count: 0 };
+        sent[em].count += 1;
+        if (day > sent[em].day) sent[em].day = day;
+      });
+    }
+    if (!Object.keys(sent).length) return res.json({ ok: true, campaigns: campaigns.length, recipients: 0, updated: 0, message: 'No sent campaigns for this audience yet.' });
+    const rows = await fetchAllCaspioPages(TABLE_PATH, { 'q.select': 'PK_ID,Email,Status', 'q.where': "Email IS NOT NULL AND Email<>''", 'q.orderBy': 'PK_ID', 'q.pageSize': 500 }, { maxPages: 30 });
+    let updated = 0;
+    for (const r of (rows || [])) {
+      const em = String(r.Email || '').trim().toLowerCase();
+      const info = sent[em];
+      if (!info) continue;
+      const upd = { Mailchimp_Last_Sent: info.day, Last_Mailed_At: info.day, Mailchimp_Sent_Count: String(info.count), Updated_At: nowIso() };
+      if ((r.Status || '') !== 'Customer' && (r.Status || '') !== 'Responded') upd.Status = 'Mailed';
+      try { const rr = await putWithRecordsAffected(TABLE_PATH, `PK_ID=${r.PK_ID}`, upd); if (rr.RecordsAffected) updated++; }
+      catch (e) { /* skip individual failures */ }
+    }
+    console.log(`[jim-mailing-list] mailchimp record-sends → ${campaigns.length} campaigns, ${Object.keys(sent).length} recipients, ${updated} prospects stamped`);
+    res.json({ ok: true, campaigns: campaigns.length, recipients: Object.keys(sent).length, updated: updated });
+  } catch (e) {
+    console.error('[jim-mailing-list] record-sends failed:', mcErr(e));
+    res.status(502).json({ error: 'Could not read Mailchimp activity: ' + mcErr(e) });
   }
 });
 
