@@ -20,17 +20,17 @@ const { fetchAllCaspioPages, makeCaspioRequest, putWithRecordsAffected } = requi
 const { S, nowIso } = require('../utils/form-submission-helpers');
 
 const TABLE_PATH = '/tables/Prospect_Mailing_List/records';
-const FIELDS = 'PK_ID,Company,Contact_Name,Address,City,State,Zip,Phone,Email,Source,Website,Category,Notes,Bigin_Id,Added_By,Created_At,Updated_At,Updated_By';
+const FIELDS = 'PK_ID,Company,Contact_Name,First_Name,Last_Name,Address,City,State,Zip,Phone,Email,Source,Website,Category,Notes,Bigin_Id,Status,Last_Mailed_At,Mailchimp_Status,Mailchimp_Last_Sent,Mailchimp_Sent_Count,Added_By,Created_At,Updated_At,Updated_By';
 
 // Field length caps — Notes is TEXT (64K) so it gets a generous cap; the rest are
 // Caspio STRING (255). Company is the only required field.
 const CAPS = {
-  Company: 150, Contact_Name: 120, Address: 200, City: 100, State: 40,
+  Company: 150, Contact_Name: 120, First_Name: 80, Last_Name: 80, Address: 200, City: 100, State: 40,
   Zip: 20, Phone: 40, Email: 150, Source: 120, Website: 200, Category: 120,
-  Notes: 8000, Added_By: 120, Updated_By: 120,
+  Notes: 8000, Status: 40, Last_Mailed_At: 40, Added_By: 120, Updated_By: 120,
 };
-// Bigin_Id is intentionally NOT editable — it's read-only import provenance.
-const EDITABLE = ['Company', 'Contact_Name', 'Address', 'City', 'State', 'Zip', 'Phone', 'Email', 'Source', 'Website', 'Category', 'Notes'];
+// Bigin_Id + Mailchimp_* are NOT editable from the page — provenance / set by the Mailchimp sync.
+const EDITABLE = ['Company', 'Contact_Name', 'First_Name', 'Last_Name', 'Address', 'City', 'State', 'Zip', 'Phone', 'Email', 'Source', 'Website', 'Category', 'Notes', 'Status', 'Last_Mailed_At'];
 
 // PK_ID is a positive integer autonumber. Guard before embedding in q.where.
 function parseId(raw) {
@@ -147,13 +147,14 @@ function getAnthropic() {
   return anthropicClient;
 }
 const EXTRACT_MODEL = 'claude-haiku-4-5-20251001';
-const EXTRACT_FIELDS = ['company', 'contact_name', 'address', 'city', 'state', 'zip', 'phone', 'email', 'website', 'category', 'notes'];
+const EXTRACT_FIELDS = ['company', 'first_name', 'last_name', 'address', 'city', 'state', 'zip', 'phone', 'email', 'website', 'category', 'notes'];
 const EXTRACT_PROMPT = `You are helping an office assistant add a business PROSPECT to a mailing list. You are given text copied from a web page / directory listing and/or a screenshot of one. Extract the company's contact details.
 
 Return ONLY valid JSON (no markdown fencing, no commentary) with this EXACT shape:
 {
   "company": "",       // the business / company name
-  "contact_name": "",  // a person's name if shown (owner, manager, rep). Add their title in parentheses if given, e.g. "Justin Kasarda (General Manager)"
+  "first_name": "",    // a contact person's first name if shown (owner, manager, rep)
+  "last_name": "",     // that person's last name
   "address": "",       // street address only, e.g. "2106 Tacoma Ave S"
   "city": "",
   "state": "",         // 2-letter state code when possible, e.g. "WA"
@@ -162,7 +163,7 @@ Return ONLY valid JSON (no markdown fencing, no commentary) with this EXACT shap
   "email": "",         // email address if shown
   "website": "",       // website URL if shown
   "category": "",      // type of business / industry if shown, e.g. "Printing Services"
-  "notes": ""          // anything else useful and short: a fax or cell number, a second contact, hours, a tagline
+  "notes": ""          // anything else useful and short: a job title, a fax or cell number, a second contact, hours, a tagline
 }
 
 Rules:
