@@ -291,15 +291,16 @@ router.post('/mailchimp/engagement', async (req, res) => {
   if (!emails || !emails.length) return res.status(400).json({ error: 'No emails to check — pick a group first.' });
   if (emails.length > 3000) return res.status(400).json({ error: 'Too many at once (max 3,000) — filter to a smaller group.' });
   try {
-    const map = await mailchimp.engagementMap();
+    const map = mailchimp.getEngagementMap();
+    if (!map) return res.json({ ok: false, building: true, message: 'Reading your Mailchimp history for the first time — click “Check engagement” again in about a minute.' });
     const byEmail = {};
     let inMailchimp = 0, opened = 0;
     emails.forEach((e) => {
       const em = String(e || '').toLowerCase().trim();
       if (!em) return;
       const hit = map[em];
-      if (hit) { inMailchimp++; if (hit.opened) opened++; byEmail[em] = { inMailchimp: true, opened: !!hit.opened, rating: hit.rating || 0 }; }
-      else byEmail[em] = { inMailchimp: false, opened: false, rating: 0 };
+      if (hit) { inMailchimp++; if (hit.opened) opened++; byEmail[em] = { inMailchimp: true, opened: !!hit.opened }; }
+      else byEmail[em] = { inMailchimp: false, opened: false };
     });
     console.log(`[jim-mailing-list] engagement: ${emails.length} checked → ${inMailchimp} in Mailchimp, ${opened} opened`);
     res.json({ ok: true, checked: emails.length, inMailchimp: inMailchimp, opened: opened, byEmail: byEmail });

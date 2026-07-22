@@ -119,38 +119,50 @@ async function campaignSentTo(campaignId) {
   return out;
 }
 
-// Engagement map across ALL audiences: email (lowercased) → { opened, rating }.
-// "opened" = the member has a non-zero average open rate (they've opened ≥1 email
-// ever). Cached 10 min — the first build pulls every audience's members once.
-let _engCache = null;
-async function engagementMap() {
-  if (_engCache && Date.now() - _engCache.at < 600000) return _engCache.map;
+// Engagement map across ALL audiences: email (lowercased) → { opened }. "opened" =
+// the member has opened ≥1 email ever (avg open rate > 0). Pulling every audience's
+// members can take ~30-60s — past Heroku's 30s request cap — so the build runs in
+// the BACKGROUND: getEngagementMap() returns null (and kicks a build off) until the
+// build finishes and caches the map for 10 min; the request never blocks on it.
+let _engCache = null;    // { at, map }
+let _engBuilding = null; // Promise while a build is running
+
+async function buildEngagementMap() {
   const cl = client();
   const listsResp = await cl.get('/lists', { params: { count: 100, fields: 'lists.id' } });
   const lists = (listsResp.data && listsResp.data.lists) || [];
   const map = Object.create(null);
   for (const l of lists) {
     let offset = 0;
-    for (let page = 0; page < 60; page++) { // cap ~60k members/list
+    for (let page = 0; page < 100; page++) { // cap ~100k members/list
       const r = await cl.get('/lists/' + l.id + '/members', {
-        params: { count: 1000, offset: offset, fields: 'members.email_address,members.member_rating,members.stats,total_items' },
+        params: { count: 1000, offset: offset, fields: 'members.email_address,members.stats.avg_open_rate,total_items' },
       });
       const members = (r.data && r.data.members) || [];
       members.forEach((m) => {
         const em = String(m.email_address || '').toLowerCase();
         if (!em) return;
         const opened = !!(m.stats && m.stats.avg_open_rate > 0);
-        const rating = m.member_rating || 0;
-        const prev = map[em];
-        if (prev) { prev.opened = prev.opened || opened; prev.rating = Math.max(prev.rating, rating); }
-        else map[em] = { opened: opened, rating: rating };
+        if (map[em]) { map[em].opened = map[em].opened || opened; }
+        else map[em] = { opened: opened };
       });
       offset += members.length;
       if (!members.length || offset >= (r.data.total_items || 0)) break;
     }
   }
-  _engCache = { at: Date.now(), map: map };
   return map;
 }
 
-module.exports = { cfg, ping, findAudience, ensureMergeFields, upsertMembers, recentSentCampaigns, campaignSentTo, engagementMap };
+// Returns the cached map, or null while a build runs (kicking one off if needed).
+function getEngagementMap() {
+  if (_engCache && Date.now() - _engCache.at < 600000) return _engCache.map;
+  if (!_engBuilding) {
+    _engBuilding = buildEngagementMap()
+      .then((map) => { _engCache = { at: Date.now(), map: map }; return map; })
+      .catch((e) => { console.error('[mailchimp] engagement build failed:', e.response ? JSON.stringify(e.response.data).slice(0, 140) : e.message); return null; })
+      .finally(() => { _engBuilding = null; });
+  }
+  return null;
+}
+
+module.exports = { cfg, ping, findAudience, ensureMergeFields, upsertMembers, recentSentCampaigns, campaignSentTo, getEngagementMap };
