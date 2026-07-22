@@ -119,4 +119,38 @@ async function campaignSentTo(campaignId) {
   return out;
 }
 
-module.exports = { cfg, ping, findAudience, ensureMergeFields, upsertMembers, recentSentCampaigns, campaignSentTo };
+// Engagement map across ALL audiences: email (lowercased) → { opened, rating }.
+// "opened" = the member has a non-zero average open rate (they've opened ≥1 email
+// ever). Cached 10 min — the first build pulls every audience's members once.
+let _engCache = null;
+async function engagementMap() {
+  if (_engCache && Date.now() - _engCache.at < 600000) return _engCache.map;
+  const cl = client();
+  const listsResp = await cl.get('/lists', { params: { count: 100, fields: 'lists.id' } });
+  const lists = (listsResp.data && listsResp.data.lists) || [];
+  const map = Object.create(null);
+  for (const l of lists) {
+    let offset = 0;
+    for (let page = 0; page < 60; page++) { // cap ~60k members/list
+      const r = await cl.get('/lists/' + l.id + '/members', {
+        params: { count: 1000, offset: offset, fields: 'members.email_address,members.member_rating,members.stats,total_items' },
+      });
+      const members = (r.data && r.data.members) || [];
+      members.forEach((m) => {
+        const em = String(m.email_address || '').toLowerCase();
+        if (!em) return;
+        const opened = !!(m.stats && m.stats.avg_open_rate > 0);
+        const rating = m.member_rating || 0;
+        const prev = map[em];
+        if (prev) { prev.opened = prev.opened || opened; prev.rating = Math.max(prev.rating, rating); }
+        else map[em] = { opened: opened, rating: rating };
+      });
+      offset += members.length;
+      if (!members.length || offset >= (r.data.total_items || 0)) break;
+    }
+  }
+  _engCache = { at: Date.now(), map: map };
+  return map;
+}
+
+module.exports = { cfg, ping, findAudience, ensureMergeFields, upsertMembers, recentSentCampaigns, campaignSentTo, engagementMap };

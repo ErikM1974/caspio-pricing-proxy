@@ -250,30 +250,62 @@ router.get('/mailchimp/status', async (req, res) => {
   }
 });
 
-// POST /mailchimp/sync — push every prospect that has an email into the audience,
-// tagged by segment, staged as 'transactional' (nobody is emailed until subscribed).
+// POST /mailchimp/sync — add ONLY the contacts the page sends (the group Erik is
+// filtered to), so he controls how many land in Mailchimp (it's billed per contact).
+// Each must have a valid email; staged as 'transactional' (not emailable until
+// subscribed); tagged by segment. Body: { members: [{email,first,last,company,...,tag}] }.
 router.post('/mailchimp/sync', async (req, res) => {
   if (!process.env.MAILCHIMP_API_KEY) return res.status(503).json({ error: 'No Mailchimp API key is set on the server yet.' });
+  const incoming = Array.isArray(req.body && req.body.members) ? req.body.members : null;
+  if (!incoming || !incoming.length) return res.status(400).json({ error: 'No contacts to sync — pick a group first.' });
+  if (incoming.length > 2000) return res.status(400).json({ error: 'That is a lot at once (max 2,000) — filter to a smaller group so you do not blow past your Mailchimp plan.' });
   try {
+    const members = [];
+    let noEmail = 0;
+    incoming.forEach((m) => {
+      const email = S(m && m.email, 150);
+      if (!EMAIL_RE.test(email)) { noEmail++; return; }
+      members.push({
+        email: email, first: S(m.first, 80), last: S(m.last, 80), company: S(m.company, 150),
+        address: S(m.address, 200), city: S(m.city, 100), state: S(m.state, 40), zip: S(m.zip, 20),
+        phone: S(m.phone, 40), tag: S(m.tag, 120),
+      });
+    });
+    if (!members.length) return res.status(400).json({ error: 'None of those had a valid email address.' });
     const aud = await mailchimp.findAudience(MAILCHIMP_AUDIENCE);
     await mailchimp.ensureMergeFields(aud.id);
-    const rows = await fetchAllCaspioPages(TABLE_PATH, { 'q.select': FIELDS, 'q.where': "Email IS NOT NULL AND Email<>''", 'q.orderBy': 'PK_ID', 'q.pageSize': 500 }, { maxPages: 30 });
-    const members = [];
-    let noEmail = 0, doNotMail = 0;
-    (rows || []).forEach((r) => {
-      if ((r.Status || '') === 'Do not mail') { doNotMail++; return; }
-      const email = String(r.Email || '').trim();
-      if (!EMAIL_RE.test(email)) { noEmail++; return; }
-      const nm = nameParts(r);
-      members.push({ email: email, first: nm.first, last: nm.last, company: r.Company || '', address: r.Address || '', city: r.City || '', state: r.State || '', zip: r.Zip || '', phone: r.Phone || '', tag: (r.Category || '').trim() });
-    });
-    if (!members.length) return res.json({ ok: true, audience: aud.displayName || MAILCHIMP_AUDIENCE, attempted: 0, created: 0, updated: 0, errors: 0, skippedNoEmail: noEmail, skippedDoNotMail: doNotMail, message: 'No prospects with a valid email to sync.' });
     const result = await mailchimp.upsertMembers(aud.id, members);
-    console.log(`[jim-mailing-list] mailchimp sync → ${members.length} sent (${result.created} new, ${result.updated} updated, ${result.errors} err); skipped ${doNotMail} do-not-mail`);
-    res.json({ ok: (result.created + result.updated) > 0 || result.errors === 0, audience: aud.displayName || MAILCHIMP_AUDIENCE, attempted: members.length, created: result.created, updated: result.updated, errors: result.errors, errorSamples: result.errorSamples, skippedNoEmail: noEmail, skippedDoNotMail: doNotMail });
+    console.log(`[jim-mailing-list] mailchimp sync → ${members.length} sent (${result.created} new, ${result.updated} updated, ${result.errors} err)`);
+    res.json({ ok: (result.created + result.updated) > 0 || result.errors === 0, audience: aud.displayName || MAILCHIMP_AUDIENCE, attempted: members.length, created: result.created, updated: result.updated, errors: result.errors, errorSamples: result.errorSamples, skippedNoEmail: noEmail });
   } catch (e) {
     console.error('[jim-mailing-list] mailchimp sync failed:', mcErr(e));
     res.status(502).json({ error: 'Mailchimp sync failed: ' + mcErr(e) });
+  }
+});
+
+// POST /mailchimp/engagement — for the given emails, report which are already in
+// Mailchimp and which have opened an email (avg open rate > 0). Body: { emails: [] }.
+router.post('/mailchimp/engagement', async (req, res) => {
+  if (!process.env.MAILCHIMP_API_KEY) return res.status(503).json({ error: 'No Mailchimp API key is set on the server yet.' });
+  const emails = Array.isArray(req.body && req.body.emails) ? req.body.emails : null;
+  if (!emails || !emails.length) return res.status(400).json({ error: 'No emails to check — pick a group first.' });
+  if (emails.length > 3000) return res.status(400).json({ error: 'Too many at once (max 3,000) — filter to a smaller group.' });
+  try {
+    const map = await mailchimp.engagementMap();
+    const byEmail = {};
+    let inMailchimp = 0, opened = 0;
+    emails.forEach((e) => {
+      const em = String(e || '').toLowerCase().trim();
+      if (!em) return;
+      const hit = map[em];
+      if (hit) { inMailchimp++; if (hit.opened) opened++; byEmail[em] = { inMailchimp: true, opened: !!hit.opened, rating: hit.rating || 0 }; }
+      else byEmail[em] = { inMailchimp: false, opened: false, rating: 0 };
+    });
+    console.log(`[jim-mailing-list] engagement: ${emails.length} checked → ${inMailchimp} in Mailchimp, ${opened} opened`);
+    res.json({ ok: true, checked: emails.length, inMailchimp: inMailchimp, opened: opened, byEmail: byEmail });
+  } catch (e) {
+    console.error('[jim-mailing-list] engagement check failed:', mcErr(e));
+    res.status(502).json({ error: 'Could not read Mailchimp engagement: ' + mcErr(e) });
   }
 });
 
