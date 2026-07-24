@@ -744,7 +744,8 @@ router.get('/products/search', async (req, res) => {
       size,                 // Filter by size (can be array)
       minPrice,             // Minimum price filter
       maxPrice,             // Maximum price filter
-      status = 'Active',    // Product status filter (default to Active)
+      status,               // Product status filter (default: everything except Discontinued)
+      styleNumbers: styleNumbersParam, // CSV of exact style numbers (max 60) — curated-list hydration
       isTopSeller,          // Filter for top sellers only
       sort = 'name_asc',    // Sort order (default to name ascending)
       page = 1,             // Page number (default: 1)
@@ -753,7 +754,7 @@ router.get('/products/search', async (req, res) => {
     } = req.query;
 
     // Check cache (parameter-aware)
-    const cacheKey = JSON.stringify({ q, category, subcategory, brand, color, size, minPrice, maxPrice, status, isTopSeller, sort, page, limit, includeFacets });
+    const cacheKey = JSON.stringify({ q, category, subcategory, brand, color, size, minPrice, maxPrice, status, styleNumbers: styleNumbersParam, isTopSeller, sort, page, limit, includeFacets });
     const now = Date.now();
     const cached = productSearchCache.get(cacheKey);
     const forceRefresh = req.query.refresh === 'true';
@@ -767,9 +768,29 @@ router.get('/products/search', async (req, res) => {
     // Build WHERE clause
     let whereConditions = [];
 
-    // Status filter (hide discontinued unless specified)
+    // Status filter (2026-07-23): default = everything except Discontinued —
+    // parity with /api/search and /api/products-by-*. The old default
+    // PRODUCT_STATUS='Active' (exact equality) silently hid every
+    // PRODUCT_STATUS='New' row — all ~495 Fall-2026 arrivals were invisible to
+    // catalog search while stylesearch/product-colors (no status filter) found
+    // them. Explicit ?status=X still filters exactly; ?status=all disables.
     if (status && status !== 'all') {
-      whereConditions.push(`PRODUCT_STATUS='${status}'`);
+      whereConditions.push(`PRODUCT_STATUS='${String(status).replace(/'/g, "''")}'`);
+    } else if (!status) {
+      whereConditions.push(`PRODUCT_STATUS<>'Discontinued'`);
+    }
+
+    // Exact style-list filter (2026-07-23 — Fall Catalog '26 card hydration):
+    // ?styleNumbers=NF0A8JEV,FF6277,… (max 60/request). Tokens are
+    // whitelist-sanitized (alphanumeric . _ / -) — never interpolated raw.
+    if (styleNumbersParam) {
+      const styleTokens = String(styleNumbersParam).split(',')
+        .map((s) => s.trim().toUpperCase())
+        .filter((s) => s && /^[A-Z0-9._/-]{1,20}$/.test(s))
+        .slice(0, 60);
+      if (styleTokens.length > 0) {
+        whereConditions.push(`STYLE IN (${styleTokens.map((s) => `'${s}'`).join(',')})`);
+      }
     }
 
     // Text search across multiple fields
@@ -1040,8 +1061,14 @@ router.get('/products/search', async (req, res) => {
       // rounding 100% Caspio-sourced. Missing cost or config => null (no price — never wrong).
       const sizeCosts = sizeCostsByStyle.get(product.styleNumber);
       const baseCost = (sizeCosts && sizeCosts.size > 0) ? Math.min(...sizeCosts.values()) : null;
+      // Cap detection (2026-07-23): PRODUCT_STATUS='New' rows ship with an EMPTY
+      // CATEGORY_NAME, so category==='Caps' alone would price new caps with the
+      // garment embroidery config (wrong estimate — Erik's iron rule). When the
+      // category is blank, fall back to a \bcap\b title test ("Cape" won't match).
+      const isCap = product.category === 'Caps' ||
+        (!product.category && /\bcap\b/i.test(product.productName || ''));
       const methodConfig = decoratedPricingConfig
-        ? (product.category === 'Caps' ? decoratedPricingConfig.cap : decoratedPricingConfig.garment)
+        ? (isCap ? decoratedPricingConfig.cap : decoratedPricingConfig.garment)
         : null;
       const displayPrice = methodConfig
         ? computeDisplayPrice(baseCost, methodConfig.marginDenominator, methodConfig.roundingMethod, methodConfig.embCost)
@@ -1102,7 +1129,9 @@ router.get('/products/search', async (req, res) => {
     // table error logs and skips (SanMar results are never blocked).
     let nonSanmarCount = 0;
     try {
-      const skipNonSanmar = isTopSeller === 'true' || color || size || minPrice || maxPrice;
+      // styleNumbers = an exact curated list — appending unrelated non-SanMar
+      // rows to it would pollute style-keyed hydration callers (2026-07-23).
+      const skipNonSanmar = isTopSeller === 'true' || color || size || minPrice || maxPrice || styleNumbersParam;
       if (!skipNonSanmar) {
         const nsRows = await getNonSanmarCatalogRows();
         const matched = nsRows.filter((r) => nonSanmarMatches(r, { q, category, brand }));
@@ -1154,7 +1183,8 @@ router.get('/products/search', async (req, res) => {
             color: color || null,
             size: size || null,
             priceRange: (minPrice || maxPrice) ? [minPrice || 0, maxPrice || 999999] : null,
-            status: status
+            status: status || 'not-discontinued',
+            styleNumbers: styleNumbersParam || null
           }
         }
       }
