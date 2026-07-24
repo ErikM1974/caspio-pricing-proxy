@@ -928,7 +928,12 @@ router.get('/products/search', async (req, res) => {
     if (styleNumbers.length > 0) {
       const styleList = styleNumbers.map(s => `'${s.replace(/'/g, "''")}'`).join(',');
       allRecords = await fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
-        'q.where': `STYLE IN (${styleList})`
+        'q.where': `STYLE IN (${styleList})`,
+        // Stable orderBy REQUIRED on any >1-page query (memory 2026-07-12):
+        // 50 styles × ~40 variants spans Caspio pages; without it, rows drop
+        // silently and whole styles vanish from results (caught 2026-07-23:
+        // 50-style styleNumbers batches returned 42-43 products).
+        'q.orderBy': 'PK_ID'
       });
       console.log(`Fetched ${allRecords.length} variant records for ${styleNumbers.length} styles (avg ${Math.round(allRecords.length / styleNumbers.length)} variants per style)`);
     }
