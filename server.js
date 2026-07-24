@@ -1141,9 +1141,24 @@ console.log('✓ Contract DTG AI route loaded (public, Claude Sonnet 4.6 + promp
 // quote drafts for /calculators/sticker-manual-pricing.html. Unlike CEMB/CDTG
 // which read a pre-filled calculator state, this bot drives the inputs via
 // the quote_sticker_price tool (bounding-box + qty round-up rules).
+//
+// 🔒 SECRET-ONLY as of 2026-07-24. This bot's lookup_customer tool returns
+// company, contact name, email, phone, street address, sales rep, payment terms
+// and last-ordered date — five matches for any 2-character query — and it was
+// mounted with NO authentication, so the customer list was readable by anyone
+// with curl. The rate limiter's own comment admitted it ("unauthenticated …
+// true protection is auth — TODO").
+//
+// The ONLY caller is now the Pricing Index app's session-gated forwarder
+// (POST /api/sticker-ai/chat → here, with X-CRM-API-Secret). Verified by grep
+// across both repos before flipping: shared_components/js/sticker-pricing-page.js
+// was the sole direct caller and has been repointed.
+//
+// ⚠️ DEPLOY ORDER: the app must ship BEFORE this gate. Reversed, the staff
+// sticker page 401s until the app catches up.
 const contractStickerAIRoute = require('./src/routes/contract-sticker-ai');
-app.use('/api/contract-sticker-ai', aiChatLimiter, contractStickerAIRoute);
-console.log('✓ Contract Sticker AI route loaded (public, Claude Sonnet 4.6 + prompt caching)');
+app.use('/api/contract-sticker-ai', aiChatLimiter, requireCrmApiSecret, contractStickerAIRoute);
+console.log('✓ Contract Sticker AI route loaded (SECRET-ONLY, Claude Sonnet 4.6 + prompt caching)');
 
 // Contract Emblem AI (2026-05-16) — mirrors sticker pattern. Streams Claude
 // quote drafts for /calculators/embroidered-emblem/index.html. Single
