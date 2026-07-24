@@ -144,6 +144,33 @@ describe('GET /api/products/search — styleNumbers list filter', () => {
     expect(where).not.toContain('1=1');
   });
 
+  test('multi-price styles do not paginate real styles away (dedupe by STYLE)', async () => {
+    // Phase-1 groupBy emits one row per style × piece-price. Two styles with
+    // 3 price rows each = 6 rows; limit=2 must still return BOTH styles.
+    const rowsA = [97, 99, 101].map((pp, i) => bulkRow({ PK_ID: 10 + i, PIECE_PRICE: pp, SIZE: ['S', 'M', 'L'][i] }));
+    const rowsB = [10, 12, 14].map((pp, i) => bulkRow({ PK_ID: 20 + i, STYLE: 'FF6277', PRODUCT_TITLE: 'Flexfit Wooly Combed Cap FF6277', CASE_PRICE: 8.35, PIECE_PRICE: pp, SIZE: ['S/M', 'L/XL', 'X/2X'][i] }));
+    const all = rowsA.concat(rowsB);
+    // Mock honors the WHERE clause enough to distinguish Phase 1 (full set)
+    // from Phase 2 (STYLE IN list of the paginated styles).
+    fetchAllCaspioPages.mockImplementation((path, params) => {
+      if (String(path).includes('Non_SanMar_Products')) return Promise.resolve([]);
+      const where = (params && params['q.where']) || '';
+      const inMatch = where.match(/STYLE IN \(([^)]*)\)/);
+      if (inMatch && !where.includes('PRODUCT_STATUS')) {
+        // Phase-2 variant fetch: only the styles the route paginated down to
+        const wanted = inMatch[1].split(',').map(s => s.replace(/'/g, '').trim());
+        return Promise.resolve(all.filter(r => wanted.includes(r.STYLE)));
+      }
+      return Promise.resolve(all);
+    });
+
+    const res = await axios.get(`${baseUrl}/api/products/search?styleNumbers=NF0A8JEV,FF6277&limit=2&refresh=true`, { validateStatus: () => true });
+
+    const styles = res.data.data.products.map(p => p.styleNumber).sort();
+    expect(styles).toEqual(['FF6277', 'NF0A8JEV']);
+    expect(res.data.data.pagination.total).toBe(2);
+  });
+
   test('styleNumbers request skips the non-SanMar page-1 merge', async () => {
     mockBulk([bulkRow()]);
 

@@ -903,11 +903,22 @@ router.get('/products/search', async (req, res) => {
 
     console.log(`Found ${stylesQuery.length} unique styles matching filters`);
 
+    // styleNumbers callers need EXACT per-style results: the Phase-1 groupBy
+    // emits one row per (style × piece-price), so a 50-style list can exceed
+    // the page size in ROWS and silently paginate real styles away
+    // (2026-07-23). Dedupe to one row per STYLE for list requests only —
+    // general searches keep the longstanding row-based pagination.
+    let styleRows = stylesQuery;
+    if (styleNumbersParam) {
+      const seenStyles = new Set();
+      styleRows = stylesQuery.filter(r => !seenStyles.has(r.STYLE) && seenStyles.add(r.STYLE));
+    }
+
     // Calculate total count for pagination
-    let totalProducts = stylesQuery.length; // let: non-SanMar merge adds to it below
+    let totalProducts = styleRows.length; // let: non-SanMar merge adds to it below
 
     // Apply pagination to get only the styles we need for this page
-    const paginatedStyles = stylesQuery.slice(skip, skip + pageSize);
+    const paginatedStyles = styleRows.slice(skip, skip + pageSize);
     const styleNumbers = paginatedStyles.map(s => s.STYLE);
 
     console.log(`Page ${pageNum}: Need detailed data for ${styleNumbers.length} styles:`, styleNumbers.join(', '));
