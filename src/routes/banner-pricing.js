@@ -20,6 +20,13 @@
 const express = require('express');
 const router = express.Router();
 const { fetchAllCaspioPages } = require('../utils/caspio');
+const { createTtlCache, shouldBypass } = require('../utils/ttl-cache');
+
+// 15-min rate-card cache. This one carries extra load: the RUSH-25PCT row lives
+// here and is read by the sticker AND decal routes on every rush quote, so an
+// uncached banner table is three routes' worth of Caspio calls.
+const bannerCache = createTtlCache({ name: 'banner-rates', ttlMs: 15 * 60 * 1000, maxEntries: 4 });
+const BANNER_CACHE_KEY = 'banner-rates-v1';
 
 // Inline fallback — keep in sync with C:\Users\erik\Downloads\banner-pricing-caspio-import.csv.
 const INLINE_RATES = [
@@ -90,7 +97,11 @@ const SETUP_FEE_AMOUNT = 50.00;
  * Load rate-card rows. Tries Caspio first; falls back to INLINE_RATES.
  * Returns { rates: [...], source: 'caspio' | 'inline' }.
  */
-async function loadBannerRates() {
+async function loadBannerRates({ bypassCache = false } = {}) {
+  if (!bypassCache) {
+    const hit = bannerCache.get(BANNER_CACHE_KEY);
+    if (hit) return { rates: hit.map(r => ({ ...r })), source: 'caspio' };
+  }
   try {
     const rows = await fetchAllCaspioPages('/tables/Banner_Pricing/records', {
       'q.select': 'PartNumber,Description,PriceType,Rate,Unit,IsDefault,Notes',
@@ -110,7 +121,12 @@ async function loadBannerRates() {
           Notes: String(r.Notes || '').trim(),
         }))
         .filter(r => r.PartNumber && r.PriceType);
-      if (rates.length) return { rates, source: 'caspio' };
+      if (rates.length) {
+        // Cache verified-complete Caspio reads only — never INLINE_RATES below
+        // (a pinned fallback is a silent stale price, Erik's Rule 4).
+        bannerCache.set(BANNER_CACHE_KEY, rates.map(r => ({ ...r })));
+        return { rates, source: 'caspio' };
+      }
     }
   } catch (err) {
     console.warn('[banner-pricing] Caspio fetch failed, falling back to inline:', err.message);
@@ -250,8 +266,9 @@ function round2(n) {
 
 // --- Routes ------------------------------------------------------------------
 
-router.get('/banner-pricing', async (_req, res) => {
-  const { rates, source } = await loadBannerRates();
+router.get('/banner-pricing', async (req, res) => {
+  const { rates, source } = await loadBannerRates({ bypassCache: shouldBypass(req) });
+  res.set('Cache-Control', 'no-cache');
   res.json({
     rates,
     setupFee: {

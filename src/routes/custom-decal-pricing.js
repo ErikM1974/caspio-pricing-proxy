@@ -28,6 +28,11 @@
 const express = require('express');
 const router = express.Router();
 const { fetchAllCaspioPages } = require('../utils/caspio');
+const { createTtlCache, shouldBypass } = require('../utils/ttl-cache');
+
+// 15-min rate-card cache; verified-complete Caspio reads only (see loadDecalRates).
+const decalCache = createTtlCache({ name: 'decal-rates', ttlMs: 15 * 60 * 1000, maxEntries: 4 });
+const DECAL_CACHE_KEY = 'decal-rates-v1';
 
 // Inline fallback — KEEP IN SYNC with Custom_Decal_Pricing Caspio rows + the CSV.
 // Tier rows: declining $/sqft by total finished sq ft. The DECAL-MIN row carries
@@ -50,7 +55,17 @@ const DEFAULT_MIN_MATERIAL = 90.00;
  * Load the decal rate card. Tries Caspio `Custom_Decal_Pricing` first; falls back
  * to INLINE_RATES. Returns { tiers: [...], minMaterial, source }.
  */
-async function loadDecalRates() {
+async function loadDecalRates({ bypassCache = false } = {}) {
+  if (!bypassCache) {
+    const hit = decalCache.get(DECAL_CACHE_KEY);
+    if (hit) {
+      return {
+        tiers: hit.tiers.map(t => ({ ...t })),
+        minMaterial: hit.minMaterial,
+        source: 'caspio',
+      };
+    }
+  }
   let rows = null;
   try {
     const fetched = await fetchAllCaspioPages('/tables/Custom_Decal_Pricing/records', {
@@ -77,6 +92,14 @@ async function loadDecalRates() {
   const tiers = raw
     .filter(r => r.RatePerSqFt > 0 && r.MaxSqFt > 0)
     .sort((a, b) => a.MaxSqFt - b.MaxSqFt);
+
+  // Cache verified-complete Caspio reads only — never the inline ladder.
+  if (source === 'caspio') {
+    decalCache.set(DECAL_CACHE_KEY, {
+      tiers: tiers.map(t => ({ ...t })),
+      minMaterial,
+    });
+  }
 
   return { tiers, minMaterial, source };
 }
@@ -226,9 +249,10 @@ async function computeDecalQuote(args = {}) {
 
 // Rate card (for the frontend reference panel). Each tier carries its derived
 // cliff-protection floor so the page can show the "never less than" column.
-router.get('/custom-decal-pricing', async (_req, res) => {
-  const { tiers, minMaterial, source } = await loadDecalRates();
+router.get('/custom-decal-pricing', async (req, res) => {
+  const { tiers, minMaterial, source } = await loadDecalRates({ bypassCache: shouldBypass(req) });
   const tiersWithFloor = tiers.map((t, i) => ({ ...t, floor: tierFloor(tiers, i, minMaterial) }));
+  res.set('Cache-Control', 'no-cache');
   res.json({
     tiers: tiersWithFloor,
     minMaterial,

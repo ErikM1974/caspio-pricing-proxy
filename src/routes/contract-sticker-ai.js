@@ -29,7 +29,13 @@ const express = require('express');
 const router = express.Router();
 const { Anthropic, APIError } = require('@anthropic-ai/sdk');
 const { CONTRACT_STICKER_AI_SYSTEM_PROMPT } = require('../../lib/contract-sticker-ai-prompt');
-const { loadGrid, STANDARD_SIZES, STANDARD_QTYS, SETUP_FEE_PART, SETUP_FEE_AMOUNT } = require('./sticker-pricing');
+const {
+    loadGrid,
+    quoteStickerFromGrid,
+    resolveRushMultiplier,
+    SETUP_FEE_PART,
+    SETUP_FEE_AMOUNT,
+} = require('./sticker-pricing');
 const { computeBannerQuote } = require('./banner-pricing');
 const { computeDecalQuote } = require('./custom-decal-pricing');
 
@@ -237,94 +243,83 @@ function shape(contacts) {
  * (the part_number + size + quantity drives table-row highlighting on the page).
  */
 async function quoteStickerPrice(input) {
-    const widthRaw = Number(input?.width);
-    const heightRaw = Number(input?.height);
-    const qtyRaw = Math.trunc(Number(input?.qty));
+    const rushRequested = input?.rush === true;
+    const [{ grid }, rushMultiplier] = await Promise.all([
+        loadGrid(),
+        rushRequested ? resolveRushMultiplier() : Promise.resolve(null),
+    ]);
 
-    if (!Number.isFinite(widthRaw) || widthRaw <= 0
-        || !Number.isFinite(heightRaw) || heightRaw <= 0
-        || !Number.isFinite(qtyRaw) || qtyRaw <= 0) {
-        return {
-            error: 'bad_input',
-            message: 'width, height, qty must all be positive numbers',
-            received: { width: input?.width, height: input?.height, qty: input?.qty },
-        };
-    }
+    // ONE engine, shared with GET /api/sticker-pricing/quote — the bot and the
+    // route can never quote different numbers for the same ask. Only the wire
+    // shape below is ours (the useTool/escalation hand-off is AI-only; the HTTP
+    // route 400s where we return an {error} object).
+    const q = quoteStickerFromGrid({
+        width: input?.width,
+        height: input?.height,
+        qty: input?.qty,
+        grid,
+        rushMultiplier,
+    });
 
-    const maxDim = Math.max(widthRaw, heightRaw);
-    const boundingSize = STANDARD_SIZES.find(s => parseInt(s.split('x')[0], 10) >= maxDim);
-    if (!boundingSize) {
-        return {
-            offGrid: true,
-            reason: 'oversize_dimension',
-            detail: `${widthRaw}"×${heightRaw}" — larger dimension ${maxDim}" exceeds the standard 6×6 grid.`,
-            requested: { width: widthRaw, height: heightRaw, qty: qtyRaw },
-            useTool: 'quote_custom_decal',
-            escalation: 'This is an oversize decal — re-quote it with the quote_custom_decal tool (square-foot pricing). Do NOT escalate to a manual quote.',
-        };
-    }
-
-    const roundedQty = STANDARD_QTYS.find(q => q >= qtyRaw);
-    if (!roundedQty) {
+    if (!q.ok) {
+        if (q.kind === 'bad_input') {
+            return {
+                error: 'bad_input',
+                message: 'width, height, qty must all be positive numbers',
+                received: q.received,
+            };
+        }
+        if (q.kind === 'lookup_failed') {
+            return {
+                error: 'pricing_lookup_failed',
+                message: `No grid row for ${q.boundingSize} @ qty ${q.roundedQty}`,
+            };
+        }
+        if (q.kind === 'oversize_dimension') {
+            return {
+                offGrid: true,
+                reason: 'oversize_dimension',
+                detail: `${q.requested.width}"×${q.requested.height}" — larger dimension ${q.maxDim}" exceeds the standard 6×6 grid.`,
+                requested: q.requested,
+                // 🔴 Load-bearing: the system prompt routes oversize → the decal
+                // tool on these two fields. Dropping them silently kills the
+                // sticker→decal hand-off and the bot escalates to a manual quote.
+                useTool: 'quote_custom_decal',
+                escalation: 'This is an oversize decal — re-quote it with the quote_custom_decal tool (square-foot pricing). Do NOT escalate to a manual quote.',
+            };
+        }
         return {
             offGrid: true,
             reason: 'oversize_quantity',
-            detail: `${qtyRaw} pcs exceeds our largest standard quantity (10,000).`,
-            requested: { width: widthRaw, height: heightRaw, qty: qtyRaw },
+            detail: `${q.requested.qty} pcs exceeds our largest standard quantity (10,000).`,
+            requested: q.requested,
             escalation: 'Collect specs and tell the user a custom quote will be returned within 1 business day.',
         };
     }
 
-    const { grid } = await loadGrid();
-    const match = grid.find(row => row.Size === boundingSize && row.Quantity === roundedQty);
-    if (!match) {
-        return {
-            error: 'pricing_lookup_failed',
-            message: `No grid row for ${boundingSize} @ qty ${roundedQty}`,
-        };
-    }
-
-    const requestedSizeIsSquareStandard = widthRaw === heightRaw
-        && STANDARD_SIZES.includes(`${widthRaw}x${heightRaw}`);
-    const sizeRule = requestedSizeIsSquareStandard
-        ? null
-        : `${widthRaw}"×${heightRaw}" rounds up to our ${match.Size} tier (bounding box).`;
-    const qtyRule = roundedQty === qtyRaw
-        ? null
-        : `${qtyRaw} rounds up to our ${match.Quantity}-piece tier (next standard quantity).`;
-
-    // Rush production fee — pulled from RUSH-25PCT row in Banner_Pricing
-    // (shared modifier home). Falls back to 1.25 hardcoded if Caspio's down.
-    let totalPrice = match.TotalPrice;
-    let pricePerSticker = match.PricePerSticker;
-    let rushMultiplier = null;
-    if (input?.rush === true) {
-        try {
-            const { loadBannerRates } = require('./banner-pricing');
-            const { rates } = await loadBannerRates();
-            const rushRow = rates.find(r => r.PartNumber === 'RUSH-25PCT');
-            rushMultiplier = rushRow ? Number(rushRow.Rate) : 1.25;
-        } catch (e) {
-            rushMultiplier = 1.25;
-        }
-        totalPrice = Math.round(match.TotalPrice * rushMultiplier * 100) / 100;
-        pricePerSticker = Math.round(match.PricePerSticker * rushMultiplier * 10000) / 10000;
-    }
-
     return {
         offGrid: false,
-        partNumber: match.PartNumber,
-        size: match.Size,
-        quantity: match.Quantity,
-        totalPrice,
-        pricePerSticker,
-        isBestValue: !!match.IsBestValue,
+        partNumber: q.partNumber,
+        size: q.size,
+        quantity: q.quantity,
+        totalPrice: q.totalPrice,
+        unitPrice: q.unitPrice,
+        // Derived from totalPrice, never the truncated Caspio column — so a quote
+        // email can't state a per-sticker price that multiplies to a different total.
+        pricePerSticker: Math.round(q.unitPrice * 10000) / 10000,
+        isBestValue: q.isBestValue,
         appliedRules: {
-            boundingBox: sizeRule,
-            quantityRoundUp: qtyRule,
-            rush: rushMultiplier ? `${rushMultiplier}× multiplier applied for rush production (under 5 working days)` : null,
+            boundingBox: q.sizeWasRounded
+                ? `${q.requested.width}"×${q.requested.height}" rounds up to our ${q.size} tier (bounding box).`
+                : null,
+            quantityRoundUp: q.qtyWasRounded
+                ? `${q.requested.qty} rounds up to our ${q.quantity}-piece tier (next standard quantity).`
+                : null,
+            rush: q.rushMultiplier
+                ? `${q.rushMultiplier}× multiplier applied for rush production (under 5 working days)`
+                : null,
         },
-        requested: { width: widthRaw, height: heightRaw, qty: qtyRaw, rush: !!input?.rush },
+        requested: { ...q.requested, rush: rushRequested },
         setupFee: {
             partNumber: SETUP_FEE_PART,
             amount: SETUP_FEE_AMOUNT,
@@ -536,3 +531,8 @@ router.post('/chat', express.json({ limit: '256kb' }), async (req, res) => {
 });
 
 module.exports = router;
+
+// Exposed for tests/jest/sticker-quote-single-path.test.js, which proves this
+// tool and GET /api/sticker-pricing/quote are the same implementation (Rule 9).
+// Not part of the HTTP surface.
+module.exports.__testables = { quoteStickerPrice };

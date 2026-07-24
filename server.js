@@ -598,22 +598,38 @@ const stylePerformanceRoutes = require('./src/routes/style-performance');
 app.use('/api/style-performance', stylePerformanceRoutes);
 console.log('✓ SanMar Style Performance 10yr routes loaded (2,162 styles, full margin data)');
 
+// Read limiter for the three published rate cards (2026-07-24). These are
+// deliberately anonymous — they back a customer-facing price page, so they must
+// stay open — but they were previously mounted with NO limiter at all. Generous
+// enough that a real visitor tabbing through sizes never notices (the page reads
+// the whole grid in one boot call and re-prices from memory), tight enough that
+// a scraper hits a wall. The 15-min TTL cache in each route means most of these
+// never touch Caspio.
+const pricingReadLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  trustProxy: true,
+  message: { error: 'Too many pricing requests — please slow down and try again shortly.' }
+});
+
 // Sticker pricing route — backs Order Form sticker method (Caspio Sticker_Pricing + inline fallback)
 const stickerPricingRoutes = require('./src/routes/sticker-pricing');
-app.use('/api', stickerPricingRoutes);
+app.use('/api', pricingReadLimiter, stickerPricingRoutes);
 
 // Banner pricing (2026-05-15) — rate card for continuous-sized banners.
 // $10/sqft + $40 minimum + optional finishing add-ons. Used by the contract
 // sticker AI bot's quote_banner_price tool.
 const bannerPricingRoutes = require('./src/routes/banner-pricing');
-app.use('/api', bannerPricingRoutes);
+app.use('/api', pricingReadLimiter, bannerPricingRoutes);
 
 // Custom / oversize decal pricing (2026-06-18) — square-foot rate ladder for
 // decals larger than the 6x6 grid or odd/custom dimensions in small qtys.
 // Backs the AI bot's quote_custom_decal tool + the rate card on the sticker page.
 const customDecalPricingRoutes = require('./src/routes/custom-decal-pricing');
-app.use('/api', customDecalPricingRoutes);
-console.log('✓ Sticker + banner + custom-decal pricing routes loaded');
+app.use('/api', pricingReadLimiter, customDecalPricingRoutes);
+console.log('✓ Sticker + banner + custom-decal pricing routes loaded (rate-limited, 15min TTL cache)');
 
 // Emblem pricing route — backs Order Form emblem method (Caspio Emblem_Pricing + inline fallback)
 const emblemPricingRoutes = require('./src/routes/emblem-pricing');
