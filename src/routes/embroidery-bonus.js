@@ -175,13 +175,20 @@ function round2(n) {
  * ⚠️ fetchAllCaspioPages defaults to maxPages 20 (20k rows) and truncates SILENTLY — pass it.
  */
 async function pullOrders(where, select, { maxPages = 60 } = {}) {
+    // ⚠️ Use fetchAllCaspioPages, NEVER makeCaspioRequest, for bulk reads.
+    // makeCaspioRequest is @deprecated and logs `JSON.stringify(response.data)` on EVERY
+    // response (caspio.js:77) — on 1,000-row pages that is megabytes of serialization per
+    // call, and because it is an argument expression you cannot silence it by stubbing
+    // console.log. It also already unwraps `.Result`, so a `resp.Result` keyset loop reads
+    // undefined and silently returns zero rows. Both bit here on 2026-07-25.
     const rows = await fetchAllCaspioPages(`/tables/${ORDER_ODBC_TABLE}/records`, {
         'q.where': where,
         'q.select': select,
-        'q.orderBy': 'PK_ID',
+        'q.orderBy': 'PK_ID',   // stable sort — unordered multi-page reads DROP rows
         'q.limit': 1000,
     }, { maxPages, totalTimeout: 180000 });
 
+    // ORDER_ODBC repeats a row per design block — dedupe or dollars double-count.
     const seen = new Set();
     const out = [];
     for (const r of rows) {
@@ -212,11 +219,52 @@ async function loadEmbHistory(beforeDate, historyTypes) {
         const ms = new Date(r.date_OrderInvoiced).getTime();
         if (!Number.isFinite(ms)) continue;
         let e = map.get(custId);
-        if (!e) { e = { firstMs: ms, lastMs: ms, lifetime: 0, orders: 0 }; map.set(custId, e); }
+        // `dates` powers the target roadmap (reorder cadence + "is Q3 their season").
+        // ~7k embroidery orders total, so holding the timestamps is cheap.
+        if (!e) { e = { firstMs: ms, lastMs: ms, lifetime: 0, orders: 0, dates: [] }; map.set(custId, e); }
         if (ms < e.firstMs) e.firstMs = ms;
         if (ms > e.lastMs) e.lastMs = ms;
         e.lifetime += num(r.cur_Subtotal);
         e.orders++;
+        e.dates.push(ms);
+    }
+    setCache(key, map);
+    return map;
+}
+
+/**
+ * Non-embroidery order activity per customer, for the "first embroidery program" list —
+ * accounts that already buy from us (DTG, transfers, screen print…) but have never
+ * embroidered. Windowed to `sinceDate` because a customer who last bought 5 years ago
+ * isn't a warm lead; that also keeps this well under the pagination cap.
+ * Type 16 "Wow Embroidery" excluded here too — it's $0.00 internal redo work.
+ */
+async function loadOtherActivity(sinceDate, beforeDate, embTypes) {
+    const key = `other:${sinceDate}:${beforeDate}`;
+    const hit = getCached(key, TTL_HISTORY);
+    if (hit) return hit;
+
+    // ⚡ Plain date range, types filtered in JS. Caspio is ~4.5x SLOWER with
+    // `id_OrderType<>21 AND <>1 AND <>16` in the WHERE than without it (16.8s vs 3.7s
+    // measured 2026-07-25 on this same window) — and it returns fewer rows for the extra
+    // cost. Never push a multi-term `<>` filter into a Caspio WHERE on a big table; pull
+    // the range and exclude in memory.
+    const skip = new Set([...embTypes, 16]);
+    const where = `sts_Invoiced=1 `
+        + `AND date_OrderInvoiced>='${sinceDate}' AND date_OrderInvoiced<'${beforeDate}'`;
+    const rows = await pullOrders(where, 'PK_ID,ID_Order,id_Customer,id_OrderType,date_OrderInvoiced,cur_Subtotal');
+
+    const map = new Map();
+    for (const r of rows) {
+        if (skip.has(Number(r.id_OrderType))) continue;
+        const custId = cid(r.id_Customer);
+        const ms = new Date(r.date_OrderInvoiced).getTime();
+        if (!Number.isFinite(ms)) continue;
+        let e = map.get(custId);
+        if (!e) { e = { lifetime: 0, orders: 0, lastMs: ms }; map.set(custId, e); }
+        e.lifetime += num(r.cur_Subtotal);
+        e.orders++;
+        if (ms > e.lastMs) e.lastMs = ms;
     }
     setCache(key, map);
     return map;
@@ -627,6 +675,151 @@ async function computeDormant(quarter, year, repFilter) {
     };
 }
 
+/**
+ * The target roadmap — three ranked lists per rep answering "who do I call to earn more".
+ *
+ *   A. Win back      — embroidered before, quiet 12+ months. Ranked by what they're
+ *                      actually worth: typical order size × how reliably they used to
+ *                      buy × whether Q3 is historically their season × how cold they've gone.
+ *   B. First program — buys other decoration from us but has NEVER embroidered. Warm
+ *                      relationship, no embroidery yet: the $75 bounty.
+ *   C. Almost there  — already embroidering this quarter but under the minimum.
+ *
+ * 🔴 List C MUST exclude repeat customers. An account that ordered embroidery within the
+ * dormancy window earns NOTHING at the threshold, so listing it as "$34 more → $50" is a
+ * lie that burns the rep the first time they chase it. Measured on real data: 23 of Nika's
+ * 26 under-threshold accounts were repeats — the naive list overstated her available
+ * bounties by 5x. Only New and Reactivated qualify.
+ */
+function median(arr) {
+    if (!arr.length) return 0;
+    const s = arr.slice().sort((a, b) => a - b);
+    const m = Math.floor(s.length / 2);
+    return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}
+
+async function computeTargets(quarter, year, repFilter) {
+    const cfg = await loadConfig(quarter, year);
+    const reps = repFilter
+        ? [repFilter]
+        : (Object.keys(cfg.reps).length ? Object.keys(cfg.reps) : TRACKED_REPS);
+
+    const startMs = new Date(cfg.dateStart).getTime();
+    const since = new Date(startMs - 548 * DAY_MS).toISOString().slice(0, 10); // ~18 months
+
+    const [ownership, history, quarterMap, otherAct] = await Promise.all([
+        loadOwnership(reps),
+        loadEmbHistory(cfg.dateStart, cfg.historyOrderTypeIds),
+        loadQuarterEmbroidery(cfg.dateStart, cfg.dateEnd, cfg.orderTypeIds),
+        loadOtherActivity(since, cfg.dateStart, cfg.historyOrderTypeIds),
+    ]);
+
+    const dormantCutoff = startMs - (cfg.dormancyMonths * 30.44 * DAY_MS);
+    const excluded = new Set((cfg.excludedCustomerIds || []).map(cid));
+    const out = {};
+
+    for (const rep of reps) {
+        const own = ownership[rep];
+        const winBack = [];
+        const firstProgram = [];
+        const almostThere = [];
+        if (!own) { out[rep] = { winBack, firstProgram, almostThere }; continue; }
+
+        for (const custId of own.customerIds) {
+            if (excluded.has(custId)) continue;
+            const meta = own.meta.get(custId) || {};
+            const company = meta.company || `Customer ${custId}`;
+            const h = history.get(custId);
+            const q = quarterMap.get(custId);
+            const qRev = q ? q.revenue : 0;
+
+            // --- C. Almost there: already ordering, under the bar, and WOULD earn ---
+            if (qRev > 0 && qRev < cfg.minAccountRevenue) {
+                const isNew = !h;
+                const isReact = h && h.lastMs < dormantCutoff;
+                if (isNew || isReact) {
+                    almostThere.push({
+                        idCustomer: custId, company, tier: meta.tier || '',
+                        quarterRevenue: round2(qRev),
+                        gapToBounty: round2(cfg.minAccountRevenue - qRev),
+                        category: isNew ? 'New' : 'Reactivated',
+                        bounty: isNew ? cfg.newAccountBounty : cfg.reactivatedBounty,
+                    });
+                }
+                continue;
+            }
+            if (qRev > 0) continue;   // already qualified, or a repeat — nothing to chase
+
+            // --- A. Win back ---
+            if (h && h.lastMs < dormantCutoff) {
+                const ds = (h.dates || []).slice().sort((a, b) => a - b);
+                const gaps = [];
+                for (let i = 1; i < ds.length; i++) gaps.push((ds[i] - ds[i - 1]) / DAY_MS);
+                const medianGap = Math.round(median(gaps));
+                let q3Orders = 0;
+                for (const d of ds) { const m = new Date(d).getUTCMonth(); if (m >= 6 && m <= 8) q3Orders++; }
+                const q3Share = ds.length ? q3Orders / ds.length : 0;
+                const avgOrder = h.orders ? h.lifetime / h.orders : 0;
+                const monthsDormant = Math.floor((startMs - h.lastMs) / DAY_MS / 30.44);
+
+                // Score = typical order size, weighted by loyalty, Q3-season fit, and recency.
+                const loyalty = Math.min(h.orders / 6, 1);
+                const seasonal = 1 + q3Share;
+                const recency = monthsDormant <= 24 ? 1 : (monthsDormant <= 36 ? 0.6 : 0.3);
+                winBack.push({
+                    idCustomer: custId, company, tier: meta.tier || '',
+                    lifetimeEmbroidery: round2(h.lifetime), embroideryOrders: h.orders,
+                    avgOrderValue: round2(avgOrder), monthsDormant,
+                    medianReorderDays: medianGap,
+                    q3SharePct: Math.round(q3Share * 100),
+                    bounty: cfg.reactivatedBounty,
+                    score: round2(avgOrder * loyalty * seasonal * recency),
+                });
+                continue;
+            }
+
+            // --- B. First embroidery program (no embroidery history at all) ---
+            if (!h) {
+                const o = otherAct.get(custId);
+                if (!o) continue;                       // no orders with us = not a warm lead
+                const monthsSinceOrder = Math.floor((startMs - o.lastMs) / DAY_MS / 30.44);
+                firstProgram.push({
+                    idCustomer: custId, company, tier: meta.tier || '',
+                    otherSpend: round2(o.lifetime), otherOrders: o.orders,
+                    monthsSinceOrder,
+                    bounty: cfg.newAccountBounty,
+                    score: round2(o.lifetime),
+                });
+            }
+        }
+
+        winBack.sort((a, b) => b.score - a.score);
+        firstProgram.sort((a, b) => b.score - a.score);
+        almostThere.sort((a, b) => a.gapToBounty - b.gapToBounty);
+
+        out[rep] = {
+            winBack, firstProgram, almostThere,
+            summary: {
+                winBackCount: winBack.length,
+                winBackLifetime: round2(winBack.reduce((s, x) => s + x.lifetimeEmbroidery, 0)),
+                firstProgramCount: firstProgram.length,
+                firstProgramSpend: round2(firstProgram.reduce((s, x) => s + x.otherSpend, 0)),
+                almostThereCount: almostThere.length,
+                almostThereGap: round2(almostThere.reduce((s, x) => s + x.gapToBounty, 0)),
+                almostThereBounty: round2(almostThere.reduce((s, x) => s + x.bounty, 0)),
+            },
+        };
+    }
+
+    return {
+        quarter, year, asOf: cfg.dateStart,
+        minAccountRevenue: cfg.minAccountRevenue,
+        dormancyMonths: cfg.dormancyMonths,
+        configSource: cfg.configSource,
+        reps: out,
+    };
+}
+
 // ── Routes ──────────────────────────────────────────────────────────────
 
 /** GET /api/embroidery-bonus/config?quarter&year */
@@ -639,6 +832,20 @@ router.get('/embroidery-bonus/config', async (req, res) => {
     } catch (err) {
         console.error('[embroidery-bonus] config error:', err.message);
         res.status(500).json({ success: false, error: 'Failed to load embroidery bonus config', details: err.message });
+    }
+});
+
+/** GET /api/embroidery-bonus/targets?quarter&year&email|rep — the "who to call" roadmap. */
+router.get('/embroidery-bonus/targets', async (req, res) => {
+    const quarter = (req.query.quarter || currentQuarter()).toUpperCase();
+    const year = parseInt(req.query.year, 10) || new Date().getFullYear();
+    const rep = resolveRep(req.query);
+    try {
+        const data = await computeTargets(quarter, year, rep);
+        res.json({ success: true, ...data });
+    } catch (err) {
+        console.error('[embroidery-bonus] targets error:', err.message);
+        res.status(500).json({ success: false, error: 'Failed to build target roadmap', details: err.message });
     }
 });
 
@@ -763,6 +970,7 @@ module.exports = router;
 module.exports.helpers = {
     computeEmbroideryBonus,
     computeDormant,
+    computeTargets,
     loadConfig,
     FALLBACK_CONFIG,
 };
