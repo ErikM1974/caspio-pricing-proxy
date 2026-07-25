@@ -10,11 +10,46 @@ const config = require('../../config');
 // Allowed upload mimetypes — the art formats real callers send (designer PNG,
 // tees/caps logos, vector art). EPS/AI/DST often arrive as octet-stream, so it's
 // included. Anything else is rejected (multer drops the file → handler 400s).
+//
+// 2026-07-24: added image/tiff for the public sticker/banner artwork step
+// (customers send TIFFs from scanners and older design tools).
 const ALLOWED_UPLOAD_MIME = [
     'image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp', 'image/svg+xml',
+    'image/tiff',
     'application/pdf', 'image/vnd.adobe.photoshop', 'application/postscript',
     'application/octet-stream'
 ];
+
+// 🔒 EXTENSION GUARD (2026-07-24). `application/octet-stream` above is a
+// wildcard — it has to be there because .ai/.eps/.dst genuinely arrive with it,
+// but on its own it means ANY file passes the mimetype filter by declaring that
+// content-type. Now that this endpoint backs a PUBLIC, unauthenticated artwork
+// step on /custom-stickers and /custom-banners, a browser-declared mimetype is
+// not something to trust alone.
+//
+// So: a file whose mimetype is a SPECIFIC allowed type is accepted on that
+// basis, and a file arriving as octet-stream must ALSO have a recognised art
+// extension. Deliberately generous — it must not break the existing garment-art,
+// Send-to-Steve or embroidery (.dst/.emb/.exp) callers.
+const ALLOWED_UPLOAD_EXT = [
+    'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'svgz', 'tif', 'tiff',
+    'pdf', 'psd', 'ai', 'eps', 'ps',
+    'dst', 'emb', 'dsb', 'exp', 'pxf', 'u01'   // embroidery machine formats
+];
+
+function extensionOf(name) {
+    const m = String(name || '').toLowerCase().match(/\.([a-z0-9]+)$/);
+    return m ? m[1] : '';
+}
+
+function isUploadAllowed(file) {
+    const mime = String(file.mimetype || '').toLowerCase();
+    if (!ALLOWED_UPLOAD_MIME.includes(mime)) return false;
+    // A specific, non-wildcard mimetype is trusted on its own.
+    if (mime !== 'application/octet-stream') return true;
+    // The wildcard has to be corroborated by the filename.
+    return ALLOWED_UPLOAD_EXT.includes(extensionOf(file.originalname));
+}
 
 // External file-key validation — see src/utils/where-guards.js.
 const { isValidFileKey } = require('../utils/where-guards');
@@ -26,7 +61,7 @@ const upload = multer({
         fileSize: 20 * 1024 * 1024 // 20MB max
     },
     fileFilter: (req, file, cb) => {
-        cb(null, ALLOWED_UPLOAD_MIME.includes((file.mimetype || '').toLowerCase()));
+        cb(null, isUploadAllowed(file));
     }
 });
 
