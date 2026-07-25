@@ -621,11 +621,56 @@ async function calcNewBusinessBonus(year, rep) {
 }
 
 
+/**
+ * Q3 2026+ Embroidery Bonus — activation bounties + growth ladder + team kicker.
+ * Replaces the Garment Spiff from Q3 2026 on. Computed in-process (no HTTP hop),
+ * same pattern as getOnlineStoreCommission's require() of its config.
+ *
+ * Returns null on failure so a broken embroidery bonus can never take down the whole
+ * quarterly report — the other three types still render.
+ */
+async function getEmbroideryBonus(quarter, year) {
+    try {
+        const { helpers } = require('./embroidery-bonus');
+        const data = await helpers.computeEmbroideryBonus(quarter, year);
+        const byRep = {};
+        for (const [rep, r] of Object.entries(data.reps || {})) {
+            byRep[rep] = {
+                newAccounts: r.counts.new,
+                reactivatedAccounts: r.counts.reactivated,
+                repeatAccounts: r.counts.repeat,
+                bountyAmount: r.bounties.payout,
+                newAccountBounty: r.bounties.newAccountBounty,
+                reactivatedBounty: r.bounties.reactivatedBounty,
+                minAccountRevenue: data.minAccountRevenue,
+                dormancyMonths: data.dormancyMonths,
+                ladder: r.ladder,
+                teamKicker: data.teamKicker,
+                accounts: {
+                    new: r.accounts.new,
+                    reactivated: r.accounts.reactivated,
+                },
+                totalBonus: r.totalBonus,
+            };
+        }
+        return {
+            reps: byRep,
+            teamKicker: data.teamKicker,
+            dateRange: data.dateRange,
+            configSource: data.configSource,
+            warning: data.warning,
+        };
+    } catch (err) {
+        console.error('[commissions] embroidery bonus failed:', err.message);
+        return null;
+    }
+}
+
 // ── Routes ──────────────────────────────────────────────────────────────
 
 /**
  * GET /api/commissions/quarterly-report
- * Unified quarterly commission report — all 3 types for both reps.
+ * Unified quarterly commission report — all 4 quarterly types for both reps.
  *
  * Query params:
  *   quarter — "Q1", "Q2", "Q3", "Q4" (default: current)
@@ -646,11 +691,12 @@ router.get('/commissions/quarterly-report', async (req, res) => {
     }
 
     try {
-        // Fetch all 3 commission types in parallel
-        const [onlineStore, garmentSpiffs, winBack] = await Promise.all([
+        // Fetch all 4 commission types in parallel
+        const [onlineStore, garmentSpiffs, winBack, embroidery] = await Promise.all([
             getOnlineStoreCommission(quarter, year),
             getGarmentSpiffs(quarter, year),
             getWinBackBounty(quarter, year),
+            getEmbroideryBonus(quarter, year),
         ]);
 
         // Also fetch payment history for this year (saves a separate API call from frontend)
@@ -668,17 +714,23 @@ router.get('/commissions/quarterly-report', async (req, res) => {
             const online = onlineStore?.reps?.[repName] || { totalCommission: 0, totalRevenue: 0 };
             const spiffs = garmentSpiffs?.[repName] || { totalBonus: 0 };
             const winBackData = winBack?.[repName] || { bountyAmount: 0, totalRevenue: 0 };
+            const emb = embroidery?.reps?.[repName] || null;
 
+            // ⚠️ Any type added here MUST also be added to COMPUTED_TYPES in BOTH
+            // Python Inksoft web/templates/commissions.html AND dashboards/js/ae-mission-control.js,
+            // or the two surfaces disagree by exactly this amount (the 2026-07-21 bug).
             const quarterlyTotal = Math.round((
                 online.totalCommission +
                 spiffs.totalBonus +
-                winBackData.bountyAmount
+                winBackData.bountyAmount +
+                (emb?.totalBonus || 0)
             ) * 100) / 100;
 
             reps[repName] = {
                 onlineStore: online,
                 garmentSpiffs: spiffs,
                 winBack: winBackData,
+                embroideryBonus: emb,
                 quarterlyTotal,
             };
         }
@@ -688,6 +740,9 @@ router.get('/commissions/quarterly-report', async (req, res) => {
             year,
             generatedAt: new Date().toISOString(),
             totalInkSoftOrders: onlineStore?.totalOrders || 0,
+            embroideryTeamKicker: embroidery?.teamKicker || null,
+            embroideryConfigSource: embroidery?.configSource || null,
+            embroideryWarning: embroidery?.warning || undefined,
             reps,
             paymentHistory,
         };

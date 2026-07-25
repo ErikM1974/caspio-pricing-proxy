@@ -215,6 +215,36 @@ async function main() {
             },
         ];
 
+        // Embroidery Bonus (Q3 2026+). Only written when the report actually returned it, so
+        // historical quarters aren't backfilled with $0 rows for a program that didn't exist.
+        // Revenue_Base is QUARTER-ONLY by construction (the computation windows on the quarter)
+        // — the win-back bug where a cumulative base made Q2 re-pay Q1 hit four surfaces.
+        const emb = repData.embroideryBonus;
+        if (emb) {
+            commissions.push({
+                type: 'Embroidery Bonus',
+                revenueBase: emb.ladder?.revenue || 0,
+                rateApplied: 0,
+                calculatedAmount: emb.totalBonus || 0,
+                bonusTier: emb.ladder?.rungReached
+                    ? `Rung ${emb.ladder.rungReached.pct}% of baseline`
+                    : 'Below first rung',
+                details: {
+                    newAccounts: emb.newAccounts,
+                    reactivatedAccounts: emb.reactivatedAccounts,
+                    repeatAccounts: emb.repeatAccounts,
+                    bountyAmount: emb.bountyAmount,
+                    ladderPayout: emb.ladder?.payout || 0,
+                    ladderBaseline: emb.ladder?.baseline || 0,
+                    ladderPctOfBaseline: emb.ladder?.pctOfBaseline || 0,
+                    teamKickerPayout: emb.teamKicker?.payoutEach || 0,
+                    teamKickerCompanyRevenue: emb.teamKicker?.companyRevenue || 0,
+                    newAccountNames: (emb.accounts?.new || []).map(a => a.company),
+                    reactivatedAccountNames: (emb.accounts?.reactivated || []).map(a => a.company),
+                },
+            });
+        }
+
         for (const comm of commissions) {
             const key = `${repName}|${comm.type}`;
             const existing = existingMap[key];
@@ -280,6 +310,15 @@ async function main() {
         console.log(`    Online Store: $${repData.onlineStore?.totalCommission || 0}`);
         console.log(`    Garment Spiffs: $${repData.garmentSpiffs?.totalBonus || 0}`);
         console.log(`    Win-Back: $${repData.winBack?.bountyAmount || 0}`);
+        const e = repData.embroideryBonus;
+        if (e) {
+            console.log(`    Embroidery Bonus: $${e.totalBonus || 0}`
+                + ` (${e.newAccounts} new + ${e.reactivatedAccounts} reactivated = $${e.bountyAmount}`
+                + `, ladder $${e.ladder?.payout || 0}, kicker $${e.teamKicker?.payoutEach || 0})`);
+        }
+    }
+    if (reportData.embroideryConfigSource === 'fallback') {
+        console.warn(`  ⚠️  EMBROIDERY BONUS USED FALLBACK CONFIG — ${reportData.embroideryWarning || 'Rep_Bonus_Config unreadable'}`);
     }
 
     // ── Step 4: Annual Bonus Calculations ──────────────────────────────

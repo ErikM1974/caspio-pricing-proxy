@@ -998,9 +998,19 @@ app.use('/api', rostersLimiter, rostersRoutes);
 console.log('✓ Rosters routes loaded (rate limited: 30 req/min)');
 
 // Garment Tracker Routes (staff dashboard tracking optimization)
+// NOTE (2026-07-25): superseded for Q3 2026+ by the Embroidery Bonus below. Kept mounted so
+// the Q2 2026 GarmentTrackerArchive stays readable — do not delete.
 const garmentTrackerRoutes = require('./src/routes/garment-tracker');
 app.use('/api', garmentTrackerRoutes);
 console.log('✓ Garment Tracker routes loaded');
+
+// Embroidery Bonus Routes (Q3 2026 quarterly bonus — replaces the garment spiff)
+// SECRET-ONLY: exposes per-account customer names + revenue and drives payroll. Browsers
+// reach it through the main app's session-gated forwarders, same as ae-dashboard.
+const embroideryBonusRoutes = require('./src/routes/embroidery-bonus');
+app.use('/api/embroidery-bonus', requireCrmApiSecret);
+app.use('/api', embroideryBonusRoutes);
+console.log('✓ Embroidery Bonus routes loaded (CRM-gated)');
 
 // Online Store Commission Routes (InkSoft webstore commission tracking)
 // SECURITY (2026-06-30): no live HTTP caller (the quarterly-report route reuses this logic
