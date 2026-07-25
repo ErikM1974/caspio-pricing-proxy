@@ -500,12 +500,31 @@ router.get('/products-by-subcategory', async (req, res) => {
 // Feeds the masthead Brands mega dropdown. Each call ran a 5-page Caspio
 // groupBy over the 251k-row bulk table (~1-3.7s) for a ~6KB result that only
 // changes on the daily SanMar sync — so the dropdown took seconds to populate
-// on a fresh page (2026-07-13). Now cached 24h in-memory + a 6h browser/CDN
+// on a fresh page (2026-07-13). Cached 24h in-memory + a browser/CDN
 // Cache-Control, so it's instant after the first request per window.
-let allBrandsCache = { at: 0, data: null };
+//
+// 🔴 2026-07-25 — NEVER CACHE AN EMPTY LIST. The old guard was
+// `if (!allBrandsCache.data || …)` on a plain `{at, data}` object, and `[]` is
+// TRUTHY: one bad Caspio read (stale token / maxPages truncation / transient
+// failure) pinned an empty array for 24h here AND shipped `max-age=21600`, so
+// every visitor's browser held "no brands" for 6h with no revalidation. The
+// homepage Brands dropdown went blank and `catch` never fired, so nothing
+// logged. Three fixes, all load-bearing:
+//   1. createTtlCache (not a bare object) → the cache joins the registry, so
+//      /api/product-cache/clear actually flushes it and ?refresh=true bypasses.
+//      Previously only a dyno restart could clear it.
+//   2. set() ONLY when brands.length > 0 — the ttl-cache "only cache
+//      verified-complete responses" rule. An empty read is never pinned.
+//   3. An empty read with no cached list returns 503 + no-store (never a
+//      cacheable 200), so the front end shows its static fallback tier and the
+//      next request retries instead of inheriting a poisoned cache.
+const allBrandsCache = createTtlCache({ name: 'all-brands', ttlMs: 24 * 60 * 60 * 1000, maxEntries: 1 });
+const ALL_BRANDS_KEY = 'all';
 router.get('/all-brands', async (req, res) => {
   try {
-    if (!allBrandsCache.data || Date.now() - allBrandsCache.at > 24 * 60 * 60 * 1000) {
+    let brands = shouldBypass(req) ? undefined : allBrandsCache.get(ALL_BRANDS_KEY);
+
+    if (!brands) {
       const records = await fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
         'q.select': 'BRAND_NAME, BRAND_LOGO_IMAGE, STYLE',
         'q.groupBy': 'BRAND_NAME, BRAND_LOGO_IMAGE, STYLE',
@@ -522,17 +541,31 @@ router.get('/all-brands', async (req, res) => {
         }
       });
 
-      const brands = Array.from(brandMap.entries()).map(([brand, data]) => ({
+      brands = Array.from(brandMap.entries()).map(([brand, data]) => ({
         brand: brand,
         logo: data.logo,
         sampleStyles: data.styles.slice(0, 3)
       }));
 
-      allBrandsCache = { at: Date.now(), data: brands };
+      if (brands.length === 0) {
+        // Surface it — do NOT cache, do NOT let a browser/CDN cache it.
+        console.error(`[all-brands] EMPTY brand list from Caspio (${records.length} raw row(s)) — not caching, returning 503`);
+        res.set('Cache-Control', 'no-store');
+        return res.status(503).json({
+          error: 'Brand list temporarily unavailable',
+          details: 'Upstream returned no usable brand rows; not cached so the next request retries.'
+        });
+      }
+
+      allBrandsCache.set(ALL_BRANDS_KEY, brands);
       console.log(`[all-brands] cache refreshed: ${brands.length} brand(s)`);
     }
-    res.set('Cache-Control', 'public, max-age=21600'); // 6h
-    res.json(allBrandsCache.data);
+
+    // Short max-age + stale-while-revalidate: still instant from cache, but a
+    // bad window self-heals in ~10min instead of being frozen into browsers for
+    // 6h. Express's ETag makes the revalidation a cheap 304.
+    res.set('Cache-Control', 'public, max-age=600, stale-while-revalidate=86400');
+    res.json(brands);
   } catch (error) {
     console.error('Error fetching all brands:', error.message);
     res.status(500).json({ error: 'Failed to fetch brands', details: error.message });
@@ -541,23 +574,39 @@ router.get('/all-brands', async (req, res) => {
 
 // GET /api/all-categories — feeds the Products mega dropdown. Same cache
 // treatment as /all-brands (2026-07-13): a groupBy over the bulk table for a
-// tiny, rarely-changing list; cached 24h in-memory + 6h browser Cache-Control.
-let allCategoriesCache = { at: 0, data: null };
+// tiny, rarely-changing list.
+// 🔴 Carried the identical truthy-`[]` poison-cache bug as /all-brands (fixed
+// together 2026-07-25) — see the long note on that route for why an empty
+// collection must never be cached and never returned as a cacheable 200.
+const allCategoriesCache = createTtlCache({ name: 'all-categories', ttlMs: 24 * 60 * 60 * 1000, maxEntries: 1 });
+const ALL_CATEGORIES_KEY = 'all';
 router.get('/all-categories', async (req, res) => {
   try {
-    if (!allCategoriesCache.data || Date.now() - allCategoriesCache.at > 24 * 60 * 60 * 1000) {
+    let categories = shouldBypass(req) ? undefined : allCategoriesCache.get(ALL_CATEGORIES_KEY);
+
+    if (!categories) {
       const records = await fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
         'q.select': 'CATEGORY_NAME',
         'q.groupBy': 'CATEGORY_NAME'
       });
-      const categories = records
+      categories = records
         .map(r => r.CATEGORY_NAME)
         .filter(cat => cat && cat.trim() !== '');
-      allCategoriesCache = { at: Date.now(), data: categories };
+
+      if (categories.length === 0) {
+        console.error(`[all-categories] EMPTY category list from Caspio (${records.length} raw row(s)) — not caching, returning 503`);
+        res.set('Cache-Control', 'no-store');
+        return res.status(503).json({
+          error: 'Category list temporarily unavailable',
+          details: 'Upstream returned no usable category rows; not cached so the next request retries.'
+        });
+      }
+
+      allCategoriesCache.set(ALL_CATEGORIES_KEY, categories);
       console.log(`[all-categories] cache refreshed: ${categories.length} categories`);
     }
-    res.set('Cache-Control', 'public, max-age=21600'); // 6h
-    res.json(allCategoriesCache.data);
+    res.set('Cache-Control', 'public, max-age=600, stale-while-revalidate=86400');
+    res.json(categories);
   } catch (error) {
     console.error('Error fetching categories:', error.message);
     res.status(500).json({ error: 'Failed to fetch categories', details: error.message });
