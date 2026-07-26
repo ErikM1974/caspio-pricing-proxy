@@ -101,6 +101,9 @@ function periodWindow(now) {
 function computePacing({
   now,
   rollupPeriodToDate = null,
+  // How many distinct days in the window actually have rollup rows. This, NOT
+  // the summed total, is what says whether the rollup has data — see below.
+  rollupDaysWithData = null,
   dynoDailyRate = 0,
   dynoCallsSinceStart = 0,
   dynoUptimeMs = Infinity,
@@ -110,8 +113,31 @@ function computePacing({
   const budgetPerDay = Math.round(MONTHLY_LIMIT / period.daysInPeriod);
 
   let mode = rollupPeriodToDate === null ? 'dyno' : 'rollup';
+  let insufficientNote = null;
+
   if (mode === 'dyno' && dynoUptimeMs < MIN_UPTIME_FOR_RATE_MS) {
     mode = 'insufficient';
+    insufficientNote =
+      'Dyno restarted less than an hour ago — too little history to project a rate. ' +
+      'Not judging, and deliberately not alerting. Set API_USAGE_ROLLUP_TABLE for a ' +
+      'projection that survives dyno cycling.';
+  }
+
+  // An EMPTY rollup table also sums to 0, and 0 renders as "0% of limit — you're
+  // fine". That is the same falsy-reads-as-healthy failure that cost $358: the
+  // old meter reported 4% while Caspio billed 138%. A live dyno cannot make zero
+  // Caspio calls in a period — the rollup writer itself makes them — so "no rows
+  // yet" is the only real explanation for an empty window.
+  //
+  // Discriminate on ROW COUNT, not on the sum. A window that genuinely has rows
+  // adding to 0 is still reported as a real 0 (callers that can't supply
+  // rollupDaysWithData keep the old behaviour and pass null).
+  if (mode === 'rollup' && rollupDaysWithData === 0) {
+    mode = 'insufficient';
+    insufficientNote =
+      'The rollup table is configured but has no rows for this period yet, so there is ' +
+      'nothing to project from. Reporting "unknown" rather than 0% — an empty table is ' +
+      'not the same as zero usage. It writes hourly; check again within the hour.';
   }
 
   if (mode === 'insufficient') {
@@ -119,7 +145,7 @@ function computePacing({
       mode,
       period,
       budgetPerDay,
-      periodToDate: dynoCallsSinceStart,
+      periodToDate: rollupPeriodToDate === null ? dynoCallsSinceStart : rollupPeriodToDate,
       projected: null,
       monthlyLimit: MONTHLY_LIMIT,
       percentOfLimit: null,
@@ -127,21 +153,39 @@ function computePacing({
       shouldAlert: false,
       alertAtPercent: ALERT_AT_PERCENT,
       dynoUptimeMs,
-      note: 'Dyno restarted less than an hour ago — too little history to project a rate. ' +
-            'Not judging, and deliberately not alerting. Set API_USAGE_ROLLUP_TABLE for a ' +
-            'projection that survives dyno cycling.',
+      note: insufficientNote,
       topTables: topTables.slice(0, 3)
     };
   }
 
   let periodToDate;
   let projected;
+  let partialCoverage = null;
 
   if (mode === 'rollup') {
     periodToDate = rollupPeriodToDate;
-    // Extrapolate the observed average across the remaining days.
-    const avgPerDay = periodToDate / period.daysElapsed;
+
+    // Average over the days that actually HAVE data, not every calendar day
+    // elapsed. The rollup can start mid-period (it did — switched on 2026-07-26,
+    // day 30 of 30), and dividing one day of calls by 30 elapsed days would
+    // under-report the rate ~30x and read as comfortably under budget. Same
+    // false-confidence failure as an empty table, just quieter.
+    const daysCounted = rollupDaysWithData > 0
+      ? Math.min(rollupDaysWithData, period.daysElapsed)
+      : period.daysElapsed;
+
+    const avgPerDay = periodToDate / daysCounted;
     projected = Math.round(avgPerDay * period.daysInPeriod);
+
+    if (rollupDaysWithData !== null && daysCounted < period.daysElapsed) {
+      partialCoverage = {
+        daysWithData: daysCounted,
+        daysElapsed: period.daysElapsed,
+        note: `Rollup covers ${daysCounted} of ${period.daysElapsed} elapsed days. ` +
+              `periodToDate is therefore a LOWER BOUND for the period; the projection ` +
+              `is extrapolated from the days that do have data.`
+      };
+    }
   } else {
     // No period history — the best we can say is "if this dyno's current rate
     // held for a whole period". Deliberately NOT multiplied by a guessed dyno
@@ -162,6 +206,7 @@ function computePacing({
     monthlyLimit: MONTHLY_LIMIT,
     percentOfLimit,
     dynoUptimeMs,
+    partialCoverage,
     // $0.002/call — 1,000 calls/day over = $60/period.
     estimatedOverageUsd: Math.round(overageCalls * 0.002 * 100) / 100,
     shouldAlert: percentOfLimit >= ALERT_AT_PERCENT,

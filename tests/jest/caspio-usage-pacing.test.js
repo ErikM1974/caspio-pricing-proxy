@@ -71,6 +71,32 @@ describe('computePacing — rollup mode (trustworthy)', () => {
       .toBe(16129); // 500k/31
   });
 
+  // The rollup was switched on mid-period (2026-07-26, day 30 of 30). Averaging
+  // one day of calls over 30 elapsed days would under-report the rate ~30x and
+  // read as comfortably under budget — quieter than the empty-table case, same
+  // false confidence.
+  test('averages over days WITH data, not every elapsed day', () => {
+    // 2 days of rollup data at 23K/day, but 14 calendar days elapsed.
+    const p = computePacing({ ...base, rollupPeriodToDate: 46000, rollupDaysWithData: 2 });
+    expect(p.projected).toBe(690000);   // 23,000 x 30 — the true pace
+    expect(p.shouldAlert).toBe(true);
+    // Dividing by daysElapsed instead would give 46,000/14 x 30 = 98,571 (20%),
+    // i.e. "you're fine" while actually 138% of cap.
+    expect(p.projected).not.toBe(98571);
+  });
+
+  test('partial coverage is labelled as a lower bound, not presented as complete', () => {
+    const p = computePacing({ ...base, rollupPeriodToDate: 46000, rollupDaysWithData: 2 });
+    expect(p.partialCoverage).toMatchObject({ daysWithData: 2, daysElapsed: 14 });
+    expect(p.partialCoverage.note).toMatch(/LOWER BOUND/);
+  });
+
+  test('full coverage sets no partial-coverage warning', () => {
+    const p = computePacing({ ...base, rollupPeriodToDate: 140000, rollupDaysWithData: 14 });
+    expect(p.partialCoverage).toBeNull();
+    expect(p.projected).toBe(300000);
+  });
+
   test('reproduces the real overage: ~23K/day pace trips the alert', () => {
     // The actual July shape — ~23K/day against a 16,667 budget.
     const p = computePacing({ ...base, rollupPeriodToDate: 14 * 23000 });
@@ -114,8 +140,27 @@ describe('computePacing — dyno fallback mode is honest about being a lower bou
     expect(p.shouldAlert).toBe(true);
   });
 
-  test('a ZERO rollup total is NOT treated as "no data" — 0 is a real number', () => {
-    // The whole 2026-07 failure was a falsy value reading as "we're fine".
+  test('a ZERO rollup total WITH rows is a real 0, not "no data"', () => {
+    // 0 is a legitimate value when days actually reported it.
+    const p = computePacing({ now, rollupPeriodToDate: 0, rollupDaysWithData: 5, dynoDailyRate: 20000 });
+    expect(p.mode).toBe('rollup');
+    expect(p.projected).toBe(0);
+  });
+
+  // Caught in production 2026-07-26, minutes after switching the rollup on: the
+  // table was empty, summed to 0, and the endpoint reported "0% of limit" —
+  // i.e. "you're fine" — which is the exact falsy-reads-as-healthy failure that
+  // produced the $358 bill in the first place.
+  test('an EMPTY rollup window reports "insufficient", never a reassuring 0%', () => {
+    const p = computePacing({ now, rollupPeriodToDate: 0, rollupDaysWithData: 0, dynoDailyRate: 20000 });
+    expect(p.mode).toBe('insufficient');
+    expect(p.percentOfLimit).toBeNull();
+    expect(p.projected).toBeNull();
+    expect(p.shouldAlert).toBe(false); // refuse to judge, don't cry wolf either
+    expect(p.note).toMatch(/no rows/i);
+  });
+
+  test('callers that cannot supply a row count keep the old behaviour', () => {
     const p = computePacing({ now, rollupPeriodToDate: 0, dynoDailyRate: 20000 });
     expect(p.mode).toBe('rollup');
     expect(p.projected).toBe(0);

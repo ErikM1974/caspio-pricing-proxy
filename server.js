@@ -1442,12 +1442,16 @@ async function computeUsagePacing() {
   let rollupTotal = null;
   let rollupError = null;
   let rollupByDay = null;
+  let rollupDaysWithData = null;
   if (apiUsageRollup.isConfigured()) {
     try {
       const period = await apiUsageRollup.readPeriod(window.startYmd, window.endYmd);
       if (period) {
         rollupTotal = period.total;
         rollupByDay = period.byDay;
+        // Row count, not the sum — an empty table sums to 0 and would otherwise
+        // render as a reassuring "0% of limit". See computePacing.
+        rollupDaysWithData = Object.keys(period.byDay || {}).length;
       }
     } catch (err) {
       // Surface it — a failed read must not silently downgrade to the optimistic
@@ -1464,6 +1468,7 @@ async function computeUsagePacing() {
   const pacing = usagePacing.computePacing({
     now,
     rollupPeriodToDate: rollupTotal,
+    rollupDaysWithData,
     dynoDailyRate,
     dynoCallsSinceStart: summary.totalCallsSinceStart,
     // Guards against a just-cycled dyno projecting nonsense off a few seconds of
