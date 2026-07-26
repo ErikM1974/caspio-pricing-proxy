@@ -97,15 +97,23 @@ const FALLBACK_CONFIG = {
     // percentage achievement pays equally regardless of book size.
     rateStartPct: 85,
     ratePerPoint: 60,
-    newAccountBounty: 75,
-    reactivatedBounty: 50,
+    newAccountBounty: 150,
+    reactivatedBounty: 100,
+    // ⚠️ These mirror the APPROVED Q3 2026 plan, not the pre-2026-07-26 draft. The fallback is
+    // loud (configSource:'fallback' + a visible banner), so a stale number here is never silent —
+    // but it is still a number a rep can read. Against the old $235,000 baseline Nika's live
+    // $24,780 renders as 10.5% instead of 23.8%, which reads as "you are failing" during what is
+    // actually a Caspio outage. Keep these in step with Rep_Bonus_Config whenever the plan moves.
+    //
+    // Kicker targets measure ALL company embroidery (types 21 + retired 1), every account and
+    // every person, webstores included — deliberately wider than the individual bonus.
     teamKickers: [
-        { target: 700000, pay: 250 },       // 2022 Q3 did $704,258
-        { target: 740000, pay: 500 },       // $740,949 = the flat-Q4 $3M requirement
+        { target: 310000, pay: 500 },       // 2025 Q3 did $298,155 — within reach of a normal quarter
+        { target: 340000, pay: 1000 },      // a stretch, but 2024 Q3 reached $380,036
     ],
     reps: {
         'Nika Lao': {
-            baselineRevenue: 235000,
+            baselineRevenue: 104189,
             rungs: [
                 { pct: 85, pay: 150 },
                 { pct: 100, pay: 400 },
@@ -114,7 +122,7 @@ const FALLBACK_CONFIG = {
             ],
         },
         'Taneisha Clark': {
-            baselineRevenue: 100000,
+            baselineRevenue: 89039,
             rungs: [
                 { pct: 85, pay: 150 },
                 { pct: 100, pay: 400 },
