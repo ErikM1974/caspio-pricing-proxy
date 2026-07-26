@@ -89,6 +89,14 @@ const FALLBACK_CONFIG = {
     excludedCustomerIds: [13500],           // Rainier Pure Beef (matches garment tracker)
     minAccountRevenue: 1000,
     dormancyMonths: 12,
+    // Webstore accounts earn the Online Store commission instead — never both (Erik 2026-07-26).
+    excludeOnlineStore: true,
+    // Continuous growth rate: $60 per percentage point above 85% of goal, uncapped, pro-rata.
+    // Replaced the 4-rung ladder because between rungs a rep earned nothing on extra effort —
+    // and near quarter-end was better off deferring orders. Per POINT, not per dollar, so equal
+    // percentage achievement pays equally regardless of book size.
+    rateStartPct: 85,
+    ratePerPoint: 60,
     newAccountBounty: 75,
     reactivatedBounty: 50,
     teamKickers: [
@@ -293,18 +301,51 @@ async function loadQuarterEmbroidery(start, end, orderTypes) {
     return map;
 }
 
-/** Company-wide invoiced subtotal for the quarter, ALL order types — the team kicker basis. */
-async function loadCompanyTotal(start, end) {
-    const key = `company:${start}:${end}`;
+/**
+ * Company-wide EMBROIDERY for the quarter — the team kicker basis (Erik, 2026-07-26).
+ *
+ * Deliberately WIDER than the individual bonus: every account and every person, webstore
+ * customers included. The individual bonus excludes online-store accounts, so if the kicker
+ * used the same scope it would just re-pay the two reps' own work — company eligible Q3
+ * embroidery is $186,214 against their combined baselines of $193,228, i.e. they ARE the
+ * eligible embroidery business. Measuring all embroidery keeps it a genuine team goal.
+ *
+ * Was all-order-types until 2026-07-26; renamed so nobody assumes it is still whole-company
+ * revenue. The shared staff-dashboard strip reads this too.
+ */
+async function loadCompanyEmbroidery(start, end, embTypes) {
+    const key = `companyEmb:${start}:${end}:${embTypes.join(',')}`;
     const hit = getCached(key, TTL_LIVE);
     if (hit) return hit;
 
-    const where = `sts_Invoiced=1 AND date_OrderInvoiced>='${start}' AND date_OrderInvoiced<='${end}'`;
+    const where = `${orderTypeClause(embTypes)} AND sts_Invoiced=1 `
+        + `AND date_OrderInvoiced>='${start}' AND date_OrderInvoiced<='${end}'`;
     const rows = await pullOrders(where, 'PK_ID,ID_Order,cur_Subtotal');
     const total = rows.reduce((s, r) => s + num(r.cur_Subtotal), 0);
     const data = { total: round2(total), orders: rows.length };
     setCache(key, data);
     return data;
+}
+
+/**
+ * Customers that transact through an InkSoft webstore — NOT eligible for this bonus.
+ * They already earn the Online Store commission; counting them here double-pays.
+ *
+ * 🔴 The `Sales_Reps_2026.Inksoft_Store` flag alone is NOT enough. Of the 19 Hops N Drops
+ * locations it catches only 11 — Bonney Lake and Lacey are flagged false while ordering
+ * through the store monthly. The union with actual type-31 order history catches 19 of 19.
+ * Don't try to correct the flag either: Sales_Reps_2026 is re-synced from ShopWorks every
+ * 15 minutes and ShopWorks write-back is off the table.
+ */
+async function loadOnlineStoreCustomers() {
+    const key = 'onlineStoreCustomers';
+    const hit = getCached(key, TTL_HISTORY);
+    if (hit) return hit;
+
+    const rows = await pullOrders(`id_OrderType=31 AND sts_Invoiced=1`, 'PK_ID,ID_Order,id_Customer');
+    const set = new Set(rows.map(r => cid(r.id_Customer)));
+    setCache(key, set);
+    return set;
 }
 
 /**
@@ -322,7 +363,7 @@ async function loadOwnership(reps) {
         const escaped = rep.replace(/'/g, "''");
         const records = await fetchAllCaspioPages(`/tables/${SALES_REPS_TABLE}/records`, {
             'q.where': `CustomerServiceRep='${escaped}'`,
-            'q.select': 'ID_Customer,CompanyName,Account_Tier',
+            'q.select': 'ID_Customer,CompanyName,Account_Tier,Inksoft_Store',
             'q.orderBy': 'PK_ID',
             'q.limit': 1000,
         }, { maxPages: 20 });
@@ -332,7 +373,11 @@ async function loadOwnership(reps) {
         for (const r of records) {
             const custId = cid(r.ID_Customer);
             customerIds.add(custId);
-            meta.set(custId, { company: r.CompanyName || '', tier: r.Account_Tier || '' });
+            meta.set(custId, {
+                company: r.CompanyName || '',
+                tier: r.Account_Tier || '',
+                inksoftStore: String(r.Inksoft_Store).trim().toLowerCase() === 'true',
+            });
         }
         out[rep] = { customerIds, meta };
     }
@@ -417,6 +462,14 @@ async function loadConfig(quarter, year) {
         excludedCustomerIds: parseIdList(first.Excluded_Customer_Ids, FALLBACK_CONFIG.excludedCustomerIds),
         minAccountRevenue: num(first.Min_Account_Revenue) || FALLBACK_CONFIG.minAccountRevenue,
         dormancyMonths: num(first.Dormancy_Months) || FALLBACK_CONFIG.dormancyMonths,
+        // FAIL SAFE: only an explicit "No" turns the exclusion off. A missing column, a blank
+        // cell or a typo all leave webstore accounts excluded — over-paying silently is the
+        // worse failure, and this table is hand-edited.
+        excludeOnlineStore: first.Exclude_Online_Store === undefined
+            ? true
+            : String(first.Exclude_Online_Store).trim().toLowerCase() !== 'no',
+        rateStartPct: num(first.Rate_Start_Pct) || FALLBACK_CONFIG.rateStartPct,
+        ratePerPoint: num(first.Rate_Per_Point) || FALLBACK_CONFIG.ratePerPoint,
         newAccountBounty: num(first.New_Account_Bounty),
         reactivatedBounty: num(first.Reactivated_Bounty),
         teamKickers: [
@@ -454,20 +507,26 @@ async function loadConfig(quarter, year) {
  * REACTIVATED — has embroidery history, but none within `dormancyMonths` before quarter open
  * REPEAT    — ordered embroidery within the dormancy window; earns nothing
  */
-function classifyRep(repName, cfg, ownership, quarterMap, history, quarter, nowMs) {
+function classifyRep(repName, cfg, ownership, quarterMap, history, quarter, nowMs, inkCustomers) {
     const own = ownership[repName];
     const repCfg = cfg.reps[repName] || {};
     const startMs = new Date(cfg.dateStart).getTime();
     const dormantCutoff = startMs - (cfg.dormancyMonths * 30.44 * DAY_MS);
     const excluded = new Set((cfg.excludedCustomerIds || []).map(cid));
+    const isOnlineStore = makeIsOnlineStore(cfg, own, inkCustomers || new Set());
 
     const accounts = { new: [], reactivated: [], repeat: [] };
     let quarterRevenue = 0;
+    let excludedAccounts = 0;
+    let excludedRevenue = 0;
 
     for (const [custId, q] of quarterMap) {
         if (!own || !own.customerIds.has(custId)) continue;  // ownership is the gate
         if (excluded.has(custId)) continue;
-        quarterRevenue += q.revenue;                        // ladder counts ALL owned embroidery
+        // Webstore accounts earn the Online Store commission instead — never both. Excluded
+        // from the revenue AND from bounty eligibility, not just filtered out of the lists.
+        if (isOnlineStore(custId)) { excludedAccounts++; excludedRevenue += q.revenue; continue; }
+        quarterRevenue += q.revenue;                        // counts ALL eligible owned embroidery
 
         if (q.revenue < cfg.minAccountRevenue) continue;    // bounty needs the $ floor
 
@@ -502,30 +561,55 @@ function classifyRep(repName, cfg, ownership, quarterMap, history, quarter, nowM
         + accounts.reactivated.length * cfg.reactivatedBounty
     );
 
-    // Ladder — only the highest rung reached pays.
     const baseline = repCfg.baselineRevenue || 0;
-    const rungs = (repCfg.rungs || []).map(r => ({
-        pct: r.pct,
-        pay: r.pay,
-        threshold: round2(baseline * r.pct / 100),
-    }));
-    let reached = null;
-    let next = null;
-    for (const r of rungs) {
-        if (quarterRevenue >= r.threshold) reached = r;
-        else if (!next) next = r;
-    }
+    const pctExact = baseline ? (quarterRevenue / baseline) * 100 : 0;
 
     const ladder = {
         baseline: round2(baseline),
         revenue: round2(quarterRevenue),
-        pctOfBaseline: baseline ? round2(quarterRevenue / baseline * 100) : 0,
-        rungs,
-        rungReached: reached,
-        nextRung: next,
-        amountToNextRung: next ? round2(Math.max(0, next.threshold - quarterRevenue)) : 0,
-        payout: reached ? reached.pay : 0,
+        pctOfBaseline: round2(pctExact),
+        excludedOnlineStoreAccounts: excludedAccounts,
+        excludedOnlineStoreRevenue: round2(excludedRevenue),
     };
+
+    // Continuous rate is the live mechanic; the rung ladder is kept ONLY as a fallback so the
+    // whole thing reverts from a single Caspio cell (zero Rate_Per_Point) with no deploy.
+    if (cfg.ratePerPoint > 0) {
+        // Pro-rata on the UNROUNDED percentage — no cliffs, no dead zones. Between the old
+        // rungs a rep earned nothing on extra effort and was better off deferring orders into
+        // next quarter; that is exactly what this removes.
+        const points = Math.max(0, pctExact - cfg.rateStartPct);
+        ladder.rate = {
+            startPct: cfg.rateStartPct,
+            perPoint: cfg.ratePerPoint,
+            pointsEarned: Math.round(points * 100) / 100,
+            revenueAtStart: round2(baseline * cfg.rateStartPct / 100),
+            payout: round2(points * cfg.ratePerPoint),
+        };
+        ladder.payout = ladder.rate.payout;
+        ladder.rungs = [];
+        ladder.rungReached = null;
+        ladder.nextRung = null;
+        ladder.amountToNextRung = 0;
+    } else {
+        const rungs = (repCfg.rungs || []).map(r => ({
+            pct: r.pct,
+            pay: r.pay,
+            threshold: round2(baseline * r.pct / 100),
+        }));
+        let reached = null;
+        let next = null;
+        for (const r of rungs) {
+            if (quarterRevenue >= r.threshold) reached = r;
+            else if (!next) next = r;
+        }
+        ladder.rungs = rungs;
+        ladder.rungReached = reached;
+        ladder.nextRung = next;
+        ladder.amountToNextRung = next ? round2(Math.max(0, next.threshold - quarterRevenue)) : 0;
+        ladder.payout = reached ? reached.pay : 0;
+    }
+
     ladder.pace = computePace(quarter, ladder, cfg, nowMs);
 
     return {
@@ -553,11 +637,14 @@ async function computeEmbroideryBonus(quarter, year) {
     const cfg = await loadConfig(quarter, year);
     const reps = Object.keys(cfg.reps).length ? Object.keys(cfg.reps) : TRACKED_REPS;
 
-    const [ownership, quarterMap, history, company] = await Promise.all([
+    const [ownership, quarterMap, history, company, inkCustomers] = await Promise.all([
         loadOwnership(reps),
         loadQuarterEmbroidery(cfg.dateStart, cfg.dateEnd, cfg.orderTypeIds),
         loadEmbHistory(cfg.dateStart, cfg.historyOrderTypeIds),
-        loadCompanyTotal(cfg.dateStart, cfg.dateEnd),
+        // Kicker basis is company EMBROIDERY across every account (webstores included) —
+        // deliberately a wider scope than the individual bonus. See loadCompanyEmbroidery().
+        loadCompanyEmbroidery(cfg.dateStart, cfg.dateEnd, cfg.historyOrderTypeIds),
+        loadOnlineStoreCustomers(),
     ]);
 
     // Team kicker — highest target cleared pays, shared by every tracked rep.
@@ -596,7 +683,7 @@ async function computeEmbroideryBonus(quarter, year) {
 
     const nowMs = Date.now();
     for (const rep of reps) {
-        const r = classifyRep(rep, cfg, ownership, quarterMap, history, quarter, nowMs);
+        const r = classifyRep(rep, cfg, ownership, quarterMap, history, quarter, nowMs, inkCustomers);
         r.totalBonus = round2(r.bounties.payout + r.ladder.payout + teamKicker.payoutEach);
         result.reps[rep] = r;
     }
@@ -616,10 +703,11 @@ async function computeDormant(quarter, year, repFilter) {
         ? [repFilter]
         : (Object.keys(cfg.reps).length ? Object.keys(cfg.reps) : TRACKED_REPS);
 
-    const [ownership, history, quarterMap] = await Promise.all([
+    const [ownership, history, quarterMap, inkCustomers] = await Promise.all([
         loadOwnership(reps),
         loadEmbHistory(cfg.dateStart, cfg.historyOrderTypeIds),
         loadQuarterEmbroidery(cfg.dateStart, cfg.dateEnd, cfg.orderTypeIds),
+        loadOnlineStoreCustomers(),
     ]);
 
     const startMs = new Date(cfg.dateStart).getTime();
@@ -629,10 +717,12 @@ async function computeDormant(quarter, year, repFilter) {
     const out = {};
     for (const rep of reps) {
         const own = ownership[rep];
+        const isOnlineStore = makeIsOnlineStore(cfg, own, inkCustomers);
         const list = [];
         if (own) {
             for (const custId of own.customerIds) {
                 if (excluded.has(custId)) continue;
+                if (isOnlineStore(custId)) continue;   // earns the Online Store commission instead
                 const h = history.get(custId);
                 if (!h) continue;                       // no embroidery history = not reactivatable
                 if (h.lastMs >= dormantCutoff) continue; // ordered recently = not dormant
@@ -736,27 +826,58 @@ function computePace(quarter, ladder, cfg, nowMs) {
     if (elapsed <= 0.02) return null;              // too early to project anything honest
 
     const projected = round2(ladder.revenue / elapsed);
+    const base = {
+        asOf: new Date(nowMs).toISOString().slice(0, 10),
+        pctOfQuarterElapsed: Math.round(elapsed * 1000) / 10,
+        basis: quarter === 'Q3' ? 'seasonal (Jul 30% / Aug 37% / Sep 33%, 2021-25 avg)' : 'elapsed days',
+        projectedRevenue: projected,
+    };
+
+    // Rate mode: there is no "next rung" to clear, so pace reports the projected finish and
+    // what it would pay. Two states only — earning, or not yet at the start line.
+    if (ladder.rate) {
+        const projectedPct = ladder.baseline ? (projected / ladder.baseline) * 100 : 0;
+        const projPoints = Math.max(0, projectedPct - ladder.rate.startPct);
+        const startRevenue = ladder.rate.revenueAtStart;
+        return {
+            ...base,
+            projectedPct: round2(projectedPct),
+            onPaceForPay: round2(projPoints * ladder.rate.perPoint),
+            shortfallToStartAtPace: round2(Math.max(0, startRevenue - projected)),
+            status: projPoints > 0 ? 'earning' : 'below-start',
+        };
+    }
+
     const rungs = ladder.rungs || [];
     let onPace = null;
     for (const r of rungs) if (projected >= r.threshold) onPace = r;
     const nextAtPace = rungs.find(r => projected < r.threshold) || null;
-
-    // Is the CURRENT next rung within reach at this pace?
     const next = ladder.nextRung;
     let status = 'no-rungs';
     if (next) status = projected >= next.threshold ? 'on-pace' : 'behind';
     else if (ladder.rungReached) status = 'topped-out';
 
     return {
-        asOf: new Date(nowMs).toISOString().slice(0, 10),
-        pctOfQuarterElapsed: Math.round(elapsed * 1000) / 10,
-        basis: quarter === 'Q3' ? 'seasonal (Jul 30% / Aug 37% / Sep 33%, 2021-25 avg)' : 'elapsed days',
-        projectedRevenue: projected,
+        ...base,
         onPaceForRungPct: onPace ? onPace.pct : null,
         onPaceForPay: onPace ? onPace.pay : 0,
         nextRungAtPacePct: nextAtPace ? nextAtPace.pct : null,
         shortfallToNextAtPace: next ? round2(Math.max(0, next.threshold - projected)) : 0,
         status,
+    };
+}
+
+/**
+ * The one predicate. An account is out of the bonus if EITHER signal fires — see
+ * loadOnlineStoreCustomers() for why the flag alone misses 8 of 19 Hops N Drops locations.
+ * Used by the ladder revenue, the bounties, the dormant list and all three target lists;
+ * if you add a fourth consumer, route it through here too.
+ */
+function makeIsOnlineStore(cfg, own, inkCustomers) {
+    if (cfg.excludeOnlineStore === false) return () => false;
+    return (custId) => {
+        const meta = own && own.meta.get(custId);
+        return !!(meta && meta.inksoftStore) || inkCustomers.has(custId);
     };
 }
 
@@ -776,11 +897,12 @@ async function computeTargets(quarter, year, repFilter) {
     const startMs = new Date(cfg.dateStart).getTime();
     const since = new Date(startMs - 548 * DAY_MS).toISOString().slice(0, 10); // ~18 months
 
-    const [ownership, history, quarterMap, otherAct] = await Promise.all([
+    const [ownership, history, quarterMap, otherAct, inkCustomers] = await Promise.all([
         loadOwnership(reps),
         loadEmbHistory(cfg.dateStart, cfg.historyOrderTypeIds),
         loadQuarterEmbroidery(cfg.dateStart, cfg.dateEnd, cfg.orderTypeIds),
         loadOtherActivity(since, cfg.dateStart, cfg.historyOrderTypeIds),
+        loadOnlineStoreCustomers(),
     ]);
 
     const dormantCutoff = startMs - (cfg.dormancyMonths * 30.44 * DAY_MS);
@@ -789,6 +911,7 @@ async function computeTargets(quarter, year, repFilter) {
 
     for (const rep of reps) {
         const own = ownership[rep];
+        const isOnlineStore = makeIsOnlineStore(cfg, own, inkCustomers);
         const winBack = [];
         const firstProgram = [];
         const almostThere = [];
@@ -796,6 +919,10 @@ async function computeTargets(quarter, year, repFilter) {
 
         for (const custId of own.customerIds) {
             if (excluded.has(custId)) continue;
+            // Never suggest a webstore account — chasing one earns nothing on this bonus.
+            // This is what wrongly put the whole Hops N Drops chain at the top of Taneisha's
+            // "never embroidered" list.
+            if (isOnlineStore(custId)) continue;
             const meta = own.meta.get(custId) || {};
             const company = meta.company || `Customer ${custId}`;
             const h = history.get(custId);

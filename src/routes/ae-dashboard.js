@@ -113,15 +113,19 @@ async function fetchLeads(rep) {
 async function fetchQuotes(rep) {
     const rows = await fetchAllCaspioPages('/tables/Quote_Sessions/records', {
         'q.where': `SalesRepEmail='${escWhere(rep.email)}' AND CreatedAt>'${isoDaysAgo(90)}'`,
-        'q.select': 'PK_ID,QuoteID,CustomerName,CompanyName,CustomerEmail,TotalQuantity,TotalAmount,Status,CreatedAt,UpdatedAt,PushedToShopWorks',
+        'q.select': 'PK_ID,QuoteID,CustomerName,CompanyName,CustomerEmail,TotalQuantity,TotalAmount,Status,CreatedAt,UpdatedAt,PushedToShopWorks,ShopWorks_Order_Number,ShopWorks_Status',
         'q.pageSize': 500,
         'q.orderBy': 'PK_ID DESC',
     }, { maxPages: 2 });
 
     const now = Date.now();
     const open = [], stale = [];
-    let openValue = 0;
+    let openValue = 0, quotedValue = 0, pushed = 0, pushedValue = 0;
     for (const q of rows) {
+        // FREE: this loop already walks every 90-day row, so the conversion numbers below
+        // cost nothing beyond two counters.
+        quotedValue += num(q.TotalAmount);
+        if (q.PushedToShopWorks) { pushed++; pushedValue += num(q.TotalAmount); }
         const isClosed = QUOTE_CLOSED.has(String(q.Status || '').toLowerCase()) || q.PushedToShopWorks;
         if (isClosed) continue;
         open.push(q);
@@ -136,11 +140,28 @@ async function fetchQuotes(rep) {
     });
     stale.sort((a, b) => String(a.UpdatedAt || a.CreatedAt).localeCompare(String(b.UpdatedAt || b.CreatedAt)));
 
+    let staleValue = 0;
+    for (const q of stale) staleValue += num(q.TotalAmount);
+
     return {
         queue: { staleQuotes: stale.slice(0, QUEUE_LIMIT).map(slim) },
         counts: { openQuotes: open.length, staleQuotes: stale.length },
         openQuoteValue: Math.round(openValue * 100) / 100,
         panel: rows.slice(0, PANEL_LIMIT).map(slim),
+        // Quote → order conversion. ⚠️ ATTRIBUTED quotes only: the builders default
+        // SalesRepEmail to sales@ when the rep isn't picked in the form, so this is a FLOOR,
+        // not the rep's true quoting volume. The UI must word it "quotes with your name on
+        // them" — presenting it as a close rate would understate a rep who forgets the picker.
+        conversion: {
+            windowDays: 90,
+            attributed: rows.length,
+            quotedValue: Math.round(quotedValue * 100) / 100,
+            pushed,
+            pushedValue: Math.round(pushedValue * 100) / 100,
+            ratePct: rows.length ? Math.round((pushed / rows.length) * 100) : null,
+            staleCount: stale.length,
+            staleValue: Math.round(staleValue * 100) / 100,
+        },
     };
 }
 
@@ -197,6 +218,10 @@ async function fetchOrders(rep) {
     };
 }
 
+// Table holds ONE row per (SalesDate, RepName) and we filter to a single rep, so SalesDate
+// is unique within this result set — the DESC ordering is stable and the `rows are DESC`
+// assumption below is safe. (The usual "order by PK_ID or rows silently drop across pages"
+// rule applies to NON-unique sort columns; this isn't one.)
 async function fetchSales(rep) {
     const year = new Date().getFullYear();
     const rows = await fetchAllCaspioPages('/tables/NW_Daily_Sales_By_Rep/records', {
@@ -208,19 +233,115 @@ async function fetchSales(rep) {
 
     const monthPrefix = new Date().toISOString().slice(0, 7); // YYYY-MM
     let ytd = 0, mtd = 0, ytdOrders = 0, lastArchivedDate = null;
+    const byDay = new Map();                       // 'YYYY-MM-DD' → {rev, orders}
+    const byMonth = new Map();                     // 'YYYY-MM'    → rev
     for (const r of rows) {
         const day = String(r.SalesDate || '').slice(0, 10);
         const rev = num(r.Revenue);
+        const orders = parseInt(r.OrderCount, 10) || 0;
         ytd += rev;
-        ytdOrders += parseInt(r.OrderCount, 10) || 0;
+        ytdOrders += orders;
         if (day.startsWith(monthPrefix)) mtd += rev;
         if (!lastArchivedDate) lastArchivedDate = day; // rows are DESC
+        if (day) {
+            byDay.set(day, { rev, orders });
+            const m = day.slice(0, 7);
+            byMonth.set(m, (byMonth.get(m) || 0) + rev);
+        }
     }
+
     return {
         ytdSales: Math.round(ytd * 100) / 100,
         mtdSales: Math.round(mtd * 100) / 100,
         ytdOrders,
         lastArchivedDate,
+        // FREE: every one of these is derived from rows already fetched above. The loop used
+        // to collapse ~140 daily rows into four scalars and throw the rest away, so the
+        // sparkline, the streak and the personal records cost ZERO extra Caspio reads.
+        trend: buildTrend(byDay, byMonth, lastArchivedDate),
+    };
+}
+
+// Daily series + streak + personal records, all off the in-memory day map.
+//
+// ⚠️ 2026 ONLY. NW_Daily_Sales_By_Rep starts 2026-01-05 and there are no 2025 rows, so
+// "record" can only ever mean "best since the archive began" — the payload ships
+// archiveStartsAt so the UI is forced to say so rather than implying an all-time best.
+// ⚠️ Everything here is as of lastArchivedDate (the 6 AM PT archive cron), not today.
+const ARCHIVE_STARTS_AT = '2026-01-05';
+
+function buildTrend(byDay, byMonth, lastArchivedDate) {
+    if (!lastArchivedDate) return null;
+
+    // --- daily series: last 90 calendar days, oldest-first for the sparkline ---
+    const dailySeries = [];
+    const cursor = new Date(`${lastArchivedDate}T12:00:00Z`);
+    const start = new Date(cursor.getTime() - 89 * 86400000);
+    for (let t = start.getTime(); t <= cursor.getTime(); t += 86400000) {
+        const day = new Date(t).toISOString().slice(0, 10);
+        const hit = byDay.get(day);
+        // Absent day = no invoiced sales that day. Emit a zero so the sparkline keeps a real
+        // time axis; a series of only non-zero days would silently compress quiet weeks.
+        dailySeries.push({ d: day, r: hit ? Math.round(hit.rev * 100) / 100 : 0, o: hit ? hit.orders : 0 });
+    }
+
+    // --- streak: consecutive BUSINESS days, ending at lastArchivedDate, with an order ---
+    // Weekends are skipped, not counted and not breaking: nobody invoices on a Saturday and
+    // a streak that dies every Friday night would be worse than no streak at all.
+    let currentDays = 0;
+    for (let t = cursor.getTime(); ; t -= 86400000) {
+        const d = new Date(t);
+        const dow = d.getUTCDay();
+        if (dow === 0 || dow === 6) continue;
+        const hit = byDay.get(d.toISOString().slice(0, 10));
+        if (!hit || hit.orders <= 0) break;
+        currentDays++;
+        if (currentDays > 400) break;              // belt-and-braces bound
+    }
+
+    // --- best business-day streak so far this year (for "your best is N") ---
+    const businessDays = [];
+    for (let t = new Date(`${ARCHIVE_STARTS_AT}T12:00:00Z`).getTime(); t <= cursor.getTime(); t += 86400000) {
+        const d = new Date(t);
+        const dow = d.getUTCDay();
+        if (dow === 0 || dow === 6) continue;
+        businessDays.push(d.toISOString().slice(0, 10));
+    }
+    let bestDays = 0, run = 0;
+    for (const day of businessDays) {
+        const hit = byDay.get(day);
+        if (hit && hit.orders > 0) { run++; if (run > bestDays) bestDays = run; } else { run = 0; }
+    }
+
+    // --- records: best single day, best Mon-start week, best calendar month ---
+    let bestDay = null;
+    byDay.forEach((v, day) => {
+        if (!bestDay || v.rev > bestDay.r) bestDay = { d: day, r: Math.round(v.rev * 100) / 100 };
+    });
+
+    const byWeek = new Map();                      // Monday 'YYYY-MM-DD' → rev
+    byDay.forEach((v, day) => {
+        const d = new Date(`${day}T12:00:00Z`);
+        const dow = d.getUTCDay();
+        const backToMonday = (dow === 0 ? 6 : dow - 1);
+        const monday = new Date(d.getTime() - backToMonday * 86400000).toISOString().slice(0, 10);
+        byWeek.set(monday, (byWeek.get(monday) || 0) + v.rev);
+    });
+    let bestWeek = null;
+    byWeek.forEach((rev, monday) => {
+        if (!bestWeek || rev > bestWeek.r) bestWeek = { weekStart: monday, r: Math.round(rev * 100) / 100 };
+    });
+    let bestMonth = null;
+    byMonth.forEach((rev, m) => {
+        if (!bestMonth || rev > bestMonth.r) bestMonth = { m, r: Math.round(rev * 100) / 100 };
+    });
+
+    return {
+        asOf: lastArchivedDate,
+        archiveStartsAt: ARCHIVE_STARTS_AT,
+        dailySeries,
+        streak: { currentDays, bestDays },
+        records: { bestDay, bestWeek, bestMonth },
     };
 }
 
@@ -358,6 +479,12 @@ async function buildSummary(rep) {
             orders: out.orders ? out.orders.panel : null,
         },
         orders30Total: out.orders ? out.orders.total30 : null,
+        // Daily revenue series + streak + personal records, and quote→order conversion.
+        // Both are derived from rows the sales and quotes reads ALREADY fetch, so they add
+        // zero Caspio calls and ride the same 3-minute cache. null when that source failed
+        // (errors.<key> carries the reason and the page renders a visible per-card error).
+        trend: out.sales ? out.sales.trend : null,
+        quoteConversion: out.quotes ? out.quotes.conversion : null,
         errors: Object.keys(errors).length ? errors : undefined,
     };
 }
