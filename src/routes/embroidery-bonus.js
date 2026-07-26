@@ -454,7 +454,7 @@ async function loadConfig(quarter, year) {
  * REACTIVATED — has embroidery history, but none within `dormancyMonths` before quarter open
  * REPEAT    — ordered embroidery within the dormancy window; earns nothing
  */
-function classifyRep(repName, cfg, ownership, quarterMap, history) {
+function classifyRep(repName, cfg, ownership, quarterMap, history, quarter, nowMs) {
     const own = ownership[repName];
     const repCfg = cfg.reps[repName] || {};
     const startMs = new Date(cfg.dateStart).getTime();
@@ -526,6 +526,7 @@ function classifyRep(repName, cfg, ownership, quarterMap, history) {
         amountToNextRung: next ? round2(Math.max(0, next.threshold - quarterRevenue)) : 0,
         payout: reached ? reached.pay : 0,
     };
+    ladder.pace = computePace(quarter, ladder, cfg, nowMs);
 
     return {
         rep: repName,
@@ -593,8 +594,9 @@ async function computeEmbroideryBonus(quarter, year) {
     };
     if (cfg.warning) result.warning = cfg.warning;
 
+    const nowMs = Date.now();
     for (const rep of reps) {
-        const r = classifyRep(rep, cfg, ownership, quarterMap, history);
+        const r = classifyRep(rep, cfg, ownership, quarterMap, history, quarter, nowMs);
         r.totalBonus = round2(r.bounties.payout + r.ladder.payout + teamKicker.payoutEach);
         result.reps[rep] = r;
     }
@@ -691,6 +693,73 @@ async function computeDormant(quarter, year, repFilter) {
  * 26 under-threshold accounts were repeats — the naive list overstated her available
  * bounties by 5x. Only New and Reactivated qualify.
  */
+/**
+ * How much of a typical quarter's embroidery has landed by `now`.
+ *
+ * NOT straight-line on days. Q3 embroidery is strongly back-loaded — measured across
+ * 2021-2025, July averages 30% of the quarter, August 37%, September 33%. Straight-line
+ * would say 28% elapsed on Jul 26 when only ~25% of the money typically has, which makes
+ * a rep look further behind than they are. Getting this wrong is what made a rung that
+ * was clearing on trajectory read as unreachable.
+ *
+ * Other quarters have no measured curve, so they fall back to elapsed days.
+ */
+const Q3_MONTH_SHARE = { 7: 0.30, 8: 0.37, 9: 0.33 };
+
+function seasonalShareElapsed(quarter, startMs, endMs, nowMs) {
+    if (nowMs <= startMs) return 0;
+    if (nowMs >= endMs) return 1;
+    if (quarter === 'Q3') {
+        const d = new Date(nowMs);
+        const month = d.getUTCMonth() + 1;
+        const dayOfMonth = d.getUTCDate();
+        const daysInMonth = new Date(Date.UTC(d.getUTCFullYear(), month, 0)).getUTCDate();
+        let share = 0;
+        for (const m of [7, 8, 9]) {
+            if (m < month) share += Q3_MONTH_SHARE[m];
+            else if (m === month) share += Q3_MONTH_SHARE[m] * (dayOfMonth / daysInMonth);
+        }
+        return Math.max(0, Math.min(share, 1));
+    }
+    return (nowMs - startMs) / (endMs - startMs);
+}
+
+/**
+ * Pace: what this rep is tracking toward if they carry on as they are. Lets the UI say
+ * "on pace to clear this" instead of showing a big raw gap that reads as hopeless early
+ * in a quarter.
+ */
+function computePace(quarter, ladder, cfg, nowMs) {
+    const startMs = new Date(cfg.dateStart).getTime();
+    const endMs = new Date(cfg.dateEnd + 'T23:59:59').getTime();
+    const elapsed = seasonalShareElapsed(quarter, startMs, endMs, nowMs);
+    if (elapsed <= 0.02) return null;              // too early to project anything honest
+
+    const projected = round2(ladder.revenue / elapsed);
+    const rungs = ladder.rungs || [];
+    let onPace = null;
+    for (const r of rungs) if (projected >= r.threshold) onPace = r;
+    const nextAtPace = rungs.find(r => projected < r.threshold) || null;
+
+    // Is the CURRENT next rung within reach at this pace?
+    const next = ladder.nextRung;
+    let status = 'no-rungs';
+    if (next) status = projected >= next.threshold ? 'on-pace' : 'behind';
+    else if (ladder.rungReached) status = 'topped-out';
+
+    return {
+        asOf: new Date(nowMs).toISOString().slice(0, 10),
+        pctOfQuarterElapsed: Math.round(elapsed * 1000) / 10,
+        basis: quarter === 'Q3' ? 'seasonal (Jul 30% / Aug 37% / Sep 33%, 2021-25 avg)' : 'elapsed days',
+        projectedRevenue: projected,
+        onPaceForRungPct: onPace ? onPace.pct : null,
+        onPaceForPay: onPace ? onPace.pay : 0,
+        nextRungAtPacePct: nextAtPace ? nextAtPace.pct : null,
+        shortfallToNextAtPace: next ? round2(Math.max(0, next.threshold - projected)) : 0,
+        status,
+    };
+}
+
 function median(arr) {
     if (!arr.length) return 0;
     const s = arr.slice().sort((a, b) => a - b);
