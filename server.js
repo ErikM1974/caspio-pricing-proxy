@@ -1484,33 +1484,62 @@ app.get('/api/admin/usage', requireCrmApiSecret, async (req, res) => {
   }
 });
 
+// Compute + dedupe + notify. Shared by the HTTP route and the in-dyno cron below
+// so there is exactly ONE alerting path — a second copy would drift, and the
+// dedupe state (lastUsageAlertAt) has to be common or both paths could fire.
+async function runUsageAlert(force = false) {
+  const pacing = await computeUsagePacing();
+  const shouldAlert = pacing.shouldAlert || force;
+
+  let notify = { sent: false, skipped: shouldAlert ? 'deduped' : 'under-threshold' };
+  if (shouldAlert && Date.now() - lastUsageAlertAt > USAGE_ALERT_TTL_MS) {
+    notify = await sendSlackDM(USAGE_ALERT_EMAIL, usagePacing.formatAlert(pacing));
+    if (notify.sent) lastUsageAlertAt = Date.now();
+  }
+
+  console.log(
+    `[caspio-usage] mode=${pacing.mode} periodToDate=${pacing.periodToDate} ` +
+    `projected=${pacing.projected} (${pacing.percentOfLimit}%) alert=${shouldAlert} ` +
+    `notify=${notify.sent ? 'sent' : (notify.skipped || notify.error)}`
+  );
+
+  return { pacing, alerted: shouldAlert, notify };
+}
+
 app.post('/api/admin/usage/alert', requireCrmApiSecret, async (req, res) => {
   try {
-    const pacing = await computeUsagePacing();
     // ?force=1 for testing the Slack path without waiting to actually go over.
     const force = req.query.force === '1' || req.body?.force === true;
-    const shouldAlert = pacing.shouldAlert || force;
-
-    let notify = { sent: false, skipped: shouldAlert ? 'deduped' : 'under-threshold' };
-    if (shouldAlert) {
-      if (Date.now() - lastUsageAlertAt > USAGE_ALERT_TTL_MS) {
-        notify = await sendSlackDM(USAGE_ALERT_EMAIL, usagePacing.formatAlert(pacing));
-        if (notify.sent) lastUsageAlertAt = Date.now();
-      }
-    }
-
-    console.log(
-      `[caspio-usage] mode=${pacing.mode} periodToDate=${pacing.periodToDate} ` +
-      `projected=${pacing.projected} (${pacing.percentOfLimit}%) alert=${shouldAlert} ` +
-      `notify=${notify.sent ? 'sent' : (notify.skipped || notify.error)}`
-    );
-
-    res.json({ success: true, data: pacing, alerted: shouldAlert, notify });
+    const { pacing, alerted, notify } = await runUsageAlert(force);
+    res.json({ success: true, data: pacing, alerted, notify });
   } catch (error) {
     console.error('[usage-pacing] alert error:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
+
+// Schedule: daily Caspio quota pacing check at 7 AM Pacific.
+//
+// Runs IN-DYNO rather than as a Heroku Scheduler job. Scheduler has no CLI —
+// jobs can only be added through its dashboard — whereas this repo already runs
+// eight daily in-dyno crons (Steve/Ruth digests, CRM sync, lead jobs) on the
+// same node-cron. One web dyno on Basic (always-on, never sleeps), so there is
+// no duplicate-fire risk; if the app is ever scaled past one web dyno, move this
+// to Scheduler or gate it on DYNO === 'web.1', because every dyno would fire it.
+//
+// 7 AM is deliberately offset from the 6 and 8 AM cluster above so the morning
+// jobs don't contend. `npm run check-caspio-usage` still works for a manual run.
+try {
+    const cron = require('node-cron');
+    cron.schedule('0 7 * * *', () => {
+        runUsageAlert().catch(err => {
+            console.error('[caspio-usage] Cron failed:', err.message);
+        });
+    }, { timezone: 'America/Los_Angeles' });
+    console.log('⏰ Caspio usage pacing cron scheduled: daily 7 AM Pacific');
+} catch (err) {
+    console.error('⏰ Failed to schedule Caspio usage pacing cron:', err.message);
+}
 
 console.log('✓ Admin metrics endpoint loaded at /api/admin/metrics (secret-gated; ?full=1 for full breakdown)');
 console.log('✓ Caspio usage pacing loaded at /api/admin/usage + /api/admin/usage/alert');
