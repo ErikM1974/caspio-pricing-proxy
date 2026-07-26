@@ -1386,22 +1386,134 @@ app.use('/api/vision', visionLimiter, visionRoutes);
 console.log('✓ Vision routes loaded (rate limited: 10 req/min)');
 
 // --- Admin Metrics Endpoint ---
+// Caspio quota meter. `?full=1` returns the COMPLETE per-table/per-endpoint
+// breakdown (the top-5 alone was not enough to find the 2026-07 overage).
+// Secret-gated: the breakdown enumerates internal Caspio table names, and this
+// route sat wide open until 2026-07-26 (the /api/admin/products gate above is
+// path-scoped and never covered it).
 const apiTracker = require('./src/utils/api-tracker');
+const apiUsageRollup = require('./src/utils/api-usage-rollup');
+apiUsageRollup.start();
 
-app.get('/api/admin/metrics', (req, res) => {
+app.get('/api/admin/metrics', requireCrmApiSecret, (req, res) => {
   try {
-    const summary = apiTracker.getSummary();
+    const full = req.query.full === '1' || req.query.full === 'true';
+    const summary = apiTracker.getSummary({ full });
+    summary.persistence = apiUsageRollup.status();
     res.json({
       success: true,
       data: summary,
-      message: `Tracking ${summary.todayCount} calls today. Monthly projection: ${summary.monthlyProjection.toLocaleString()} / 500,000 (${summary.percentOfLimit}%)`
+      message: `${summary.totalCallsSinceStart.toLocaleString()} Caspio calls in ` +
+        `${summary.processUptimeHours}h on this dyno (~${summary.callsPerHourSinceStart}/hr). ` +
+        `Period projection: ${summary.monthlyProjection.toLocaleString()} / 500,000 ` +
+        `(${summary.percentOfLimit}%). Single dyno, since process start — ` +
+        `compare against Caspio's own usage page for the billed total.`
     });
   } catch (error) {
     console.error('Error getting metrics:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
-console.log('✓ Admin metrics endpoint loaded at /api/admin/metrics');
+
+// --- Caspio quota pacing watchdog ---
+// GET  /api/admin/usage  → pacing only, never notifies (powers the dashboard)
+// POST /api/admin/usage/alert → compute + maybe DM Erik (driven by Heroku Scheduler
+//   via `npm run check-caspio-usage`, daily)
+//
+// Same idiom as /api/shopworks-odbc/health/alert: the ENDPOINT computes, dedupes
+// and notifies; the scheduler script only reports what came back and exits
+// non-zero. Built 2026-07-26 because the $358 overage arrived with no warning —
+// not because a dashboard was ignored, but because nothing ever looked.
+const usagePacing = require('./src/utils/caspio-usage-pacing');
+const { sendSlackDM } = require('./src/utils/slack-dm-notify');
+
+const USAGE_ALERT_EMAIL = 'erik@nwcustomapparel.com';
+// 20h: suppresses a same-day re-run (or a manual re-fire) while still allowing
+// tomorrow's scheduled check through. Being over budget is worth a daily nudge.
+const USAGE_ALERT_TTL_MS = 20 * 60 * 60 * 1000;
+let lastUsageAlertAt = 0;
+
+async function computeUsagePacing() {
+  const now = new Date();
+  const window = usagePacing.periodWindow(now);
+  const summary = apiTracker.getSummary();
+
+  // Prefer the cross-dyno rollup; fall back to this dyno's counter and SAY SO.
+  let rollupTotal = null;
+  let rollupError = null;
+  let rollupByDay = null;
+  if (apiUsageRollup.isConfigured()) {
+    try {
+      const period = await apiUsageRollup.readPeriod(window.startYmd, window.endYmd);
+      if (period) {
+        rollupTotal = period.total;
+        rollupByDay = period.byDay;
+      }
+    } catch (err) {
+      // Surface it — a failed read must not silently downgrade to the optimistic
+      // single-dyno number without the caller knowing.
+      rollupError = err.message;
+    }
+  }
+
+  const uptimeHours = summary.processUptimeMs / 3600000;
+  const dynoDailyRate = uptimeHours > 0
+    ? (summary.totalCallsSinceStart / uptimeHours) * 24
+    : 0;
+
+  const pacing = usagePacing.computePacing({
+    now,
+    rollupPeriodToDate: rollupTotal,
+    dynoDailyRate,
+    dynoCallsSinceStart: summary.totalCallsSinceStart,
+    // Guards against a just-cycled dyno projecting nonsense off a few seconds of
+    // uptime (a 8-second-old dyno with 6 calls projected 260% of cap in testing).
+    dynoUptimeMs: summary.processUptimeMs,
+    topTables: summary.topTables
+  });
+
+  return { ...pacing, rollupError, rollupByDay, dyno: summary };
+}
+
+app.get('/api/admin/usage', requireCrmApiSecret, async (req, res) => {
+  try {
+    res.json({ success: true, data: await computeUsagePacing() });
+  } catch (error) {
+    console.error('[usage-pacing] error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/admin/usage/alert', requireCrmApiSecret, async (req, res) => {
+  try {
+    const pacing = await computeUsagePacing();
+    // ?force=1 for testing the Slack path without waiting to actually go over.
+    const force = req.query.force === '1' || req.body?.force === true;
+    const shouldAlert = pacing.shouldAlert || force;
+
+    let notify = { sent: false, skipped: shouldAlert ? 'deduped' : 'under-threshold' };
+    if (shouldAlert) {
+      if (Date.now() - lastUsageAlertAt > USAGE_ALERT_TTL_MS) {
+        notify = await sendSlackDM(USAGE_ALERT_EMAIL, usagePacing.formatAlert(pacing));
+        if (notify.sent) lastUsageAlertAt = Date.now();
+      }
+    }
+
+    console.log(
+      `[caspio-usage] mode=${pacing.mode} periodToDate=${pacing.periodToDate} ` +
+      `projected=${pacing.projected} (${pacing.percentOfLimit}%) alert=${shouldAlert} ` +
+      `notify=${notify.sent ? 'sent' : (notify.skipped || notify.error)}`
+    );
+
+    res.json({ success: true, data: pacing, alerted: shouldAlert, notify });
+  } catch (error) {
+    console.error('[usage-pacing] alert error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+console.log('✓ Admin metrics endpoint loaded at /api/admin/metrics (secret-gated; ?full=1 for full breakdown)');
+console.log('✓ Caspio usage pacing loaded at /api/admin/usage + /api/admin/usage/alert');
 
 // --- Enhanced Error Handling Middleware ---
 app.use((err, req, res, next) => {

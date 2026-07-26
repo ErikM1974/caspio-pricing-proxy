@@ -2,7 +2,12 @@
 
 const axios = require('axios');
 const config = require('../config');
-const apiTracker = require('./api-tracker');
+// LOAD-BEARING even though nothing here calls it: requiring api-tracker is what
+// installs the global axios interceptor that meters every Caspio call. This
+// module is required at boot by nearly every route, which is what guarantees the
+// interceptor is attached before the first request. Do NOT drop this as an
+// unused import.
+require('./api-tracker');
 
 // Token cache
 let caspioAccessToken = null;
@@ -76,12 +81,9 @@ async function makeCaspioRequest(method, resourcePath, params = {}, data = null)
     console.log(`Response status: ${response.status}`);
     console.log(`Response data: ${JSON.stringify(response.data)}`);
 
-    // Track API call
-    const tableName = resourcePath.split('/').pop().replace('/records', '');
-    apiTracker.trackCall(resourcePath, tableName, method, {
-      status: response.status,
-      recordCount: response.data?.Result?.length || (response.data ? 1 : 0)
-    });
+    // NOTE: no trackCall here. Metering moved to the global axios interceptor in
+    // utils/api-tracker.js (2026-07-26) so the ~236 direct-axios call sites and
+    // the token fetches get counted too. Counting here as well would double-count.
 
     // Handle different response types based on HTTP method and status
     if (method.toLowerCase() === 'post' && response.status === 201) {
@@ -134,7 +136,10 @@ async function fetchAllCaspioPages(resourcePath, initialParams = {}, options = {
     maxPages: config.pagination.maxPages,
     earlyExitCondition: null,
     pageCallback: null,
-    totalTimeout: config.timeouts.totalPagination
+    totalTimeout: config.timeouts.totalPagination,
+    // strict: throw instead of returning a silently-truncated page cap. See the
+    // truncation guard at the end of this function.
+    strict: false
   };
   const mergedOptions = { ...defaultOptions, ...options };
 
@@ -209,12 +214,9 @@ async function fetchAllCaspioPages(resourcePath, initialParams = {}, options = {
           }
         }
 
-        // Track this API call
-        const tableName = resourcePath.split('/').filter(p => p).pop().replace('/records', '');
-        apiTracker.trackCall(resourcePath, tableName, 'GET', {
-          page: pageCount,
-          recordCount: response.data?.Result?.length || 0
-        });
+        // NOTE: no trackCall here — the global axios interceptor in
+        // utils/api-tracker.js counts every page (and the 400-retry's extra
+        // request, which this spot never saw). See that file's header.
 
         if (response.data && response.data.Result) {
           const resultsThisPage = response.data.Result.length;
@@ -287,6 +289,23 @@ async function fetchAllCaspioPages(resourcePath, initialParams = {}, options = {
 
     if (checkTotalTimeout()) {
       console.log(`Returning ${allResults.length} results collected before timeout for ${resourcePath}`);
+    }
+
+    // Truncation guard (opt-in, 2026-07-26). Hitting the page cap while Caspio
+    // still has more rows returns a SILENTLY INCOMPLETE array — the caller cannot
+    // tell 20,000-of-20,000 from 20,000-of-47,000. That has already bitten twice
+    // (the 27k-row thumbnail table re-uploading "missing" rows; the unfiltered
+    // Quote_Sessions scan). Opt in with { strict: true } on any query whose
+    // correctness depends on completeness; the default stays permissive so the
+    // ~600 existing call sites are unaffected.
+    if (mergedOptions.strict && morePages && pageCount >= mergedOptions.maxPages) {
+      const error = new Error(
+        `Caspio pagination truncated: hit maxPages=${mergedOptions.maxPages} ` +
+        `(${allResults.length} rows) on ${resourcePath} with more rows available. ` +
+        `Raise maxPages or narrow the query — a partial result here would be wrong, not just slow.`
+      );
+      error.code = 'CASPIO_PAGINATION_TRUNCATED';
+      throw error;
     }
 
     console.log(`Total records fetched: ${allResults.length} from ${pageCount} page(s) for ${resourcePath}`);

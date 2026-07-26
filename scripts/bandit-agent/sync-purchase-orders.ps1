@@ -47,7 +47,12 @@ try {
     }
 
     $cfg = Get-Content $ConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    $overlap = if ($cfg.OverlapMinutes) { [int]$cfg.OverlapMinutes } else { 30 }
+    # OrdersOverlapMinutes — shared with sync-orders.ps1 (same 15-min cadence).
+    # See the note there: 20 min halves the duplicate PUTs without risking a gap.
+    # Do NOT repoint this at the shared OverlapMinutes key; sync-thumbnail-metadata
+    # runs every 30 min and needs the larger value.
+    # Deliberately does NOT fall back to $cfg.OverlapMinutes — see sync-orders.ps1.
+    $overlap = if ($cfg.OrdersOverlapMinutes) { [int]$cfg.OrdersOverlapMinutes } else { 20 }
     $maxRows = if ($cfg.MaxRows) { [int]$cfg.MaxRows } else { 900 }
 
     # Run start captured BEFORE the query: anything modified while we run falls

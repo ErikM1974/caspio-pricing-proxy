@@ -1,12 +1,21 @@
 // Shared route-level TTL response cache (2026-07-18, Caspio quota reduction).
 //
 // Replaces the hand-rolled per-route `new Map()` caches (pattern origin:
-// pricing.js pricing-bundle cache). Semantics preserved exactly:
+// pricing.js pricing-bundle cache). Semantics:
 //   - entries stored as { data, timestamp }
-//   - FIFO-bounded (insertion order, NOT LRU) — matches pricing-bundle eviction
+//   - LRU-bounded (see below) — a read refreshes an entry's position
 //   - an expired entry is NEVER returned (Erik's Rule 4: never serve stale data;
 //     on Caspio failure the route must surface the error, not an old payload)
 //   - `?refresh=true` bypasses the cache for that request (shouldBypass)
+//
+// LRU, not FIFO (changed 2026-07-26 after the $358 Caspio overage). Eviction
+// used to drop the oldest-INSERTED entry regardless of how hot it was. The PDP
+// inserts ~5 product-details entries per view (the related-products fan-out), so
+// with maxEntries=100 roughly 20 page views flushed the entire cache — including
+// the styles people were actually looking at. Every one of those evictions costs
+// a multi-page scan of the 251k-row Sanmar_Bulk table on the next request, and
+// Sanmar_Bulk was 26% of all measured Caspio calls. Promoting on read keeps hot
+// styles resident and lets the cold one-offs churn instead.
 //
 // RULE FOR CALLERS (Rule 4 corollary): only cache verified-complete responses.
 // If any sub-query degraded (e.g. a `.catch(() => [])` fallback fired), skip
@@ -41,15 +50,24 @@ function createTtlCache({ name, ttlMs, maxEntries }) {
         console.log(`[CACHE MISS] ${name} - ${key} (expired)`);
         return undefined;
       }
+      // LRU touch: re-insert to move this key to the most-recent end of the Map's
+      // insertion order. The stored timestamp is NOT refreshed — a read must
+      // never extend an entry's TTL, or a hot key could serve indefinitely stale
+      // pricing (Rule 4).
+      store.delete(key);
+      store.set(key, entry);
       console.log(`[CACHE HIT] ${name} - ${key}`);
       return entry.data;
     },
 
     set(key, value) {
+      // Delete-then-set so an overwrite also counts as "most recently used".
+      store.delete(key);
       store.set(key, { data: value, timestamp: Date.now() });
-      if (store.size > maxEntries) {
-        const firstKey = store.keys().next().value;
-        store.delete(firstKey);
+      while (store.size > maxEntries) {
+        // Map iteration order is insertion order, so the first key is the
+        // least-recently used/inserted one.
+        store.delete(store.keys().next().value);
       }
       console.log(`[CACHE SET] ${name} - ${key} - size: ${store.size}`);
     },

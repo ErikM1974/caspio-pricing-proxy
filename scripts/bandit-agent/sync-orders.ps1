@@ -44,7 +44,19 @@ try {
     }
 
     $cfg = Get-Content $ConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    $overlap = if ($cfg.OverlapMinutes) { [int]$cfg.OverlapMinutes } else { 30 }
+    # OrdersOverlapMinutes (2026-07-26): this task runs every 15 min, so the old
+    # shared 30-min overlap put every changed row in 3 consecutive runs — and the
+    # proxy PUTs unconditionally, so each change was written to Caspio ~3x.
+    # 20 min = 2 runs, a third fewer writes, still 5 min of slack over the cadence.
+    #
+    # ⚠️ DO NOT lower the shared OverlapMinutes instead. That key is also read by
+    # sync-thumbnail-metadata.ps1, which runs on a 30-MINUTE cadence — an overlap
+    # below its cadence opens a window where modified rows are never seen again.
+    # Overlap must always exceed (cadence + run duration + clock skew).
+    # Deliberately does NOT fall back to $cfg.OverlapMinutes: that key stays 30 for
+    # the 30-min thumbnail-metadata task. Copying this script is enough to apply the
+    # change; set OrdersOverlapMinutes in config.json only to override.
+    $overlap = if ($cfg.OrdersOverlapMinutes) { [int]$cfg.OrdersOverlapMinutes } else { 20 }
     $maxRows = if ($cfg.MaxRows) { [int]$cfg.MaxRows } else { 900 }
 
     # Run start is captured BEFORE the query: anything modified while we run

@@ -68,6 +68,35 @@ router.get('/artrequests', async (req, res) => {
             if (req.query.id_design && _idDesign !== null) {
                 whereConditions.push(`ID_Design=${_idDesign}`);
             }
+            // id_designs=1,2,3 — batch form of id_design (2026-07-26 Caspio quota
+            // reduction). The Art Invoices dashboard was resolving design numbers
+            // one HTTP request at a time (its "batches of 10" was concurrency
+            // chunking, not query batching), so ~100 designs on screen meant ~100
+            // uncached Caspio reads, every 5 minutes, on an unguarded poll.
+            //
+            // Each element goes through the same reqInt() guard as the single form,
+            // so a non-integer is DROPPED, never interpolated. Capped at 200 ids so
+            // one request can't build an unbounded IN(...) clause; the caller chunks.
+            if (req.query.id_designs) {
+                const ids = String(req.query.id_designs)
+                    .split(',')
+                    .map(v => reqInt(v))
+                    .filter(v => v !== null);
+                const unique = [...new Set(ids)];
+                if (unique.length === 0) {
+                    return res.status(400).json({
+                        error: 'id_designs contained no valid ids',
+                        hint: 'Comma-separated positive integers, e.g. id_designs=1234,1235'
+                    });
+                }
+                if (unique.length > 200) {
+                    return res.status(400).json({
+                        error: `id_designs accepts at most 200 ids (got ${unique.length})`,
+                        hint: 'Chunk the list client-side.'
+                    });
+                }
+                whereConditions.push(`ID_Design IN (${unique.join(',')})`);
+            }
             if (req.query.companyName) {
                 whereConditions.push(`CompanyName LIKE '%${escWhere(req.query.companyName)}%'`);
             }

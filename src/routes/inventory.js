@@ -14,6 +14,13 @@ const SANMAR_TABLE = '/tables/Sanmar_Bulk_251816_Feb2024/records';
 // data only changes on the nightly SanMar sync; `?refresh=true` bypasses.
 // inventory rows are full-width (no q.select), so that cache stays small —
 // the bound is a memory cap, not a hit-rate target.
+//
+// ⚠️ DELIBERATELY NOT RAISED in the 2026-07-26 quota pass. Measured payloads:
+// PC54 3.08 MB, PC61 2.31 MB, K500 1.52 MB per style. 50 entries is already
+// ~100–150 MB of dyno heap; the 200 originally proposed would be ~400–600 MB and
+// would OOM the dyno. The ttl-cache LRU change (same date) improves the hit rate
+// here without costing memory. To actually raise this bound, first add a
+// `q.select` so these rows stop coming back full-width.
 const inventoryCache = createTtlCache({ name: 'inventory', ttlMs: 10 * 60 * 1000, maxEntries: 50 });
 const sizeRunCache = createTtlCache({ name: 'size-run', ttlMs: 15 * 60 * 1000, maxEntries: 300 });
 

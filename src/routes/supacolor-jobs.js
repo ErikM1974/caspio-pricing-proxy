@@ -37,6 +37,7 @@ const supacolorApi = require('../utils/supacolor-api');
 const { mirrorShippedToTransfer } = require('../utils/transfer-status-mirror');
 const { linkPendingSteveSubmissions } = require('../utils/transfer-auto-link');
 const { notifySupacolorHealth } = require('../utils/slack-supacolor-health-notify');
+const { createTtlCache, shouldBypass } = require('../utils/ttl-cache');
 const config = require('../../config');
 
 const caspioApiBaseUrl = config.caspio.apiBaseUrl;
@@ -385,12 +386,34 @@ router.get('/supacolor-jobs', async (req, res) => {
     }
 });
 
+// Status-chip counters. Single-entry cache — the route takes no parameters, so
+// one key covers every caller.
+//
+// TTL is 120s against a 60s poll ON PURPOSE. A TTL equal to the poll interval is
+// useless for a single tab: the entry expires exactly as the next poll arrives,
+// so every poll is still a miss. 120s makes every other poll a hit (~50% fewer
+// scans) on top of deduping across tabs. Cost: status chips can lag up to 2 min,
+// which is fine for counters — the job list itself is not cached.
+const statsCache = createTtlCache({ name: 'supacolor-stats', ttlMs: 120 * 1000, maxEntries: 1 });
+const STATS_CACHE_KEY = 'all';
+
 /**
  * GET /api/supacolor-jobs/stats
  * Count per status. Used by dashboard chips.
  */
 router.get('/supacolor-jobs/stats', async (req, res) => {
     try {
+        // 60s cache (2026-07-26 Caspio quota reduction). The shop-floor dashboard
+        // polls this every 60s per open tab, and each miss is a FULL paginated scan
+        // of Supacolor_Jobs (>1,000 rows = 2+ Caspio calls) just to produce three
+        // counters. The TTL matches the poll interval, so a tab left open all day
+        // costs one scan per minute instead of one per poll per tab.
+        // `?refresh=true` bypasses.
+        if (!shouldBypass(req)) {
+            const cached = statsCache.get(STATS_CACHE_KEY);
+            if (cached) return res.json(cached);
+        }
+
         const resource = `/tables/${TABLE_JOBS}/records`;
         const records = await fetchAllCaspioPages(resource, {
             'q.select': 'Status',
@@ -405,7 +428,9 @@ router.get('/supacolor-jobs/stats', async (req, res) => {
             else if (r.Status === 'Cancelled') stats.Cancelled++;
             else stats.Active++;
         });
-        res.json({ success: true, stats, total: records.length });
+        const payload = { success: true, stats, total: records.length };
+        statsCache.set(STATS_CACHE_KEY, payload);
+        res.json(payload);
     } catch (error) {
         console.error('Error fetching supacolor stats:', error.response ? JSON.stringify(error.response.data) : error.message);
         res.status(500).json({ success: false, error: 'Failed to fetch stats: ' + error.message });
@@ -421,14 +446,26 @@ router.get('/supacolor-jobs/stats', async (req, res) => {
  * timestamp only fires on inserts, not patches — quiet weekends with no new
  * Supacolor jobs would falsely flag as stale.
  *
- * Dyno cycles wipe `lastSyncAtMs`. The cron runs every 10 min, so the next
- * cron tick refreshes it. Watchdog runs every 30+ min, so it always sees a
- * fresh value after a dyno cycle (unless the cron itself is broken — which
- * is exactly what we want to detect).
+ * Dyno cycles wipe `lastSyncAtMs`. The Heroku Scheduler fires every 10 min, so
+ * the next cron tick refreshes it. Watchdog runs every 30+ min, so it always
+ * sees a fresh value after a dyno cycle (unless the cron itself is broken —
+ * which is exactly what we want to detect).
  */
 let lastSyncAtMs = 0;
 let lastSyncStats = null; // last /sync/all summary {fetched, patched, enriched, ...}
-const HEALTH_STALE_AFTER_MIN = 25;
+
+// Effective full-sync cadence (2026-07-26 Caspio quota reduction). Heroku
+// Scheduler only offers 10-min / hourly / daily, and hourly was too coarse for
+// Supacolor status mirroring — so the scheduler keeps firing every 10 min and
+// this guard collapses it to one real sync per 30 min. See /sync/all.
+const MIN_FULL_SYNC_INTERVAL_MS = 30 * 60 * 1000;
+
+// MUST stay comfortably above MIN_FULL_SYNC_INTERVAL_MS. `lastSyncAtMs` only
+// advances on a REAL sync, so with a 30-min effective cadence a healthy system
+// legitimately reads up to ~30 min stale; the old 25 would have fired a false
+// "sync is broken" alert on every quiet cycle. 45 = 30 + a 15-min cushion for a
+// slow run or a dyno cycle.
+const HEALTH_STALE_AFTER_MIN = 45;
 const HEALTH_STUCK_OPEN_THRESHOLD = 5;
 const HEALTH_STUCK_OPEN_AGE_DAYS = 30;
 
@@ -1418,6 +1455,33 @@ async function syncOneJobFromApi(token, jobNumber, { force = false } = {}) {
 router.post('/supacolor-jobs/sync/all', async (req, res) => {
     const started = Date.now();
     const force = req.query.force === 'true';
+
+    // Cadence guard (2026-07-26 Caspio quota reduction). Heroku Scheduler fires
+    // this every 10 min = 144 runs/day, and each run does a FULL paginated scan of
+    // Supacolor_Jobs (>1,000 rows = 2+ Caspio calls) before it can diff anything.
+    // Heroku Scheduler has no 30-min option, so the cadence is enforced here.
+    //
+    // NOT gated on `?force=` — that already means "overwrite existing Caspio
+    // fields with API values" on this route, a different concern entirely.
+    // `?bypassCadence=true` is the escape hatch for a manual/debug run.
+    //
+    // ⚠️ Coupled to HEALTH_STALE_AFTER_MIN above: `lastSyncAtMs` only advances on
+    // a real sync, so raising this interval past that threshold makes the health
+    // watchdog cry wolf. Change both together.
+    const bypassCadence = req.query.bypassCadence === 'true';
+    const sinceLastMs = Date.now() - lastSyncAtMs;
+    if (!bypassCadence && lastSyncAtMs > 0 && sinceLastMs < MIN_FULL_SYNC_INTERVAL_MS) {
+        const nextDueInMin = Math.ceil((MIN_FULL_SYNC_INTERVAL_MS - sinceLastMs) / 60_000);
+        console.log(`[Supacolor sync/all] skipped — last real sync ${Math.round(sinceLastMs / 60_000)}m ago (min ${MIN_FULL_SYNC_INTERVAL_MS / 60_000}m)`);
+        return res.json({
+            success: true,
+            skipped: 'cadence',
+            lastSyncAgoMin: Math.round(sinceLastMs / 60_000),
+            nextDueInMin,
+            minIntervalMin: MIN_FULL_SYNC_INTERVAL_MS / 60_000,
+            hint: 'Add ?bypassCadence=true to force a sync now.'
+        });
+    }
     // Default to active-only (non-closed) for fast dashboard refreshes.
     // Closed jobs rarely change, so skipping them keeps Caspio write pressure low.
     // Pass ?includeClosed=true for a full historical resync (slower, ~900+ jobs).

@@ -1,9 +1,106 @@
 # API Usage Tracking & Optimization
 
-**Version**: 1.2.0
-**Deployed**: 2025-11-29 (Heroku v201) · wave 2 2026-07-18
-**Updated**: 2026-07-18
+**Version**: 1.3.0
+**Deployed**: 2025-11-29 (Heroku v201) · wave 2 2026-07-18 · wave 3 2026-07-26
+**Updated**: 2026-07-26
 **Status**: Production
+
+## Wave 3 — 2026-07-26 (the $358 overage: fix the METER first)
+
+Invoice **AI-334269-26072026** billed **178,874 calls over the 500K cap**
+(689.8K used, **$0.002/call** ⇒ **1,000 calls/day saved = $60/period**). Wave 2's
+fixes landed, but the daily rate never came down — ~20-23K/day against a budget
+of **16,667/day**, because new dashboards shipped 7/19–7/25 absorbed the savings.
+
+**The meter had been lying, which is why this recurred.** Three blind spots:
+
+1. Only `makeCaspioRequest`/`fetchAllCaspioPages` counted — the **~236
+   direct-axios call sites across 41 route files** (every write),
+   `putWithRecordsAffected`, and all **four** OAuth token caches were invisible.
+2. `path.split('/').pop().replace('/records','')` returns the literal
+   `"records"` for every `/tables/X/records` URL, so the whole breakdown was one
+   row named `records`. **Per-table attribution had never worked.**
+3. Only a top-5 was exposed; counters are in-memory **per-dyno** and reset on
+   every cycle.
+
+**Now**: a global **axios request interceptor** on `*.caspio.com` is the single
+counting path (`src/utils/api-tracker.js`) — a new route cannot bypass it by
+using axios directly. Counts at request time (Caspio bills 400s and the
+400-retry's extra request). `GET /api/admin/metrics?full=1` returns the complete
+`callsByTable`/`callsByEndpoint`/`callsByMethod` plus `processUptimeMs`, and the
+route is now behind `requireCrmApiSecret` (it was **unauthenticated**).
+Optional hourly rollup to Caspio via `API_USAGE_ROLLUP_TABLE`
+(`src/utils/api-usage-rollup.js`) — off unless the env var is set.
+
+**Measured 2026-07-26 (hard row counts, not estimates):**
+
+| Table | Rows | Pages @1000 | Note |
+|---|---|---|---|
+| `Shopworks_Thumbnail_Report` | 27,613 | 28 | scanned **twice per run**, every 20 min |
+| `Sanmar_Bulk_251816_Feb2024` | 251k | — | ~22-26% of all calls |
+| `Supacolor_Jobs` | 1,035 | 2 | full scan every 10 min |
+| `ArtRequests` | 2,694 | 3 | was queried **once per design id** |
+| `Quote_Sessions` | **8** | 1 | ← far smaller than assumed; see below |
+
+Changes: `ttl-cache` **FIFO → LRU** (a read now protects an entry; ~20 PDP views
+used to flush the whole `product-details` cache); `products/search` moved onto
+the shared cache, **50 → 400** entries, and is finally in the `clearAll()`
+registry (`/product-cache/clear` never flushed it); `/supacolor-jobs/stats`
+cached 120 s; `/supacolor-jobs/sync/all` capped to one real sync per 30 min
+(`?bypassCadence=true` to force); `/api/artrequests?id_designs=1,2,3` batch
+filter replaces an N+1; `/api/quote_sessions` gained named cron filters and now
+**rejects** `q.where` instead of silently ignoring it.
+
+⚠️ **Do NOT raise `product-details` / `inventory` maxEntries without measuring.**
+Responses are **0.8–1.5 MB** and **1.5–3.1 MB per style** respectively (PC54
+alone: 1.54 MB / 3.08 MB). `product-details` at 400 entries would be ~500 MB and
+would OOM the dyno — it is capped at 150, `inventory` stays at 50. Real headroom
+needs a `q.select` so those rows stop coming back full-width.
+
+**Correction to the wave-2 note below**: it tells you to verify via
+`GET /api/admin/metrics` (`callsByTable`). **That field did not exist** until
+wave 3 — use `?full=1` (and the secret header) now.
+
+### Wave 3b — the alert and the attribution page (2026-07-26)
+
+Repairing the meter fixed *measurability*. It did not fix the reason the $358
+bill was a **surprise**: for 30 days nothing looked at the number. A dashboard
+alone would not have either — it needs someone to remember to open it, which is
+exactly what failed. So the alert came first.
+
+**Pacing alert** — `POST /api/admin/usage/alert` (secret-gated), driven by
+`scripts/check-caspio-usage.js` via **Heroku Scheduler, daily**
+(`npm run check-caspio-usage`). Same idiom as the ODBC watchdog: the *endpoint*
+computes, dedupes (20 h) and DMs Erik; the script only reports and exits 1.
+`GET /api/admin/usage` returns the same pacing without notifying (powers the page).
+
+Maths lives in `src/utils/caspio-usage-pacing.js` — pure, clock-injected, 24 tests.
+
+- **Caspio's period is the 27th → the 26th, and its LENGTH VARIES (28–31 days)
+  while the 500K cap does not.** Daily budget is `500000 ÷ daysInPeriod`
+  (16,667 in a 30-day period, 16,129 in a 31-day one) — never hardcode 16,667.
+- **Fires at 90%, not 100%** — at 100% the overage is already being billed.
+- **Three modes, and the message always says which:**
+  - `rollup` — summed across dynos from `API_Usage_Daily`. Trustworthy.
+  - `dyno` — one dyno since its last restart. Labelled a **LOWER BOUND**.
+  - `insufficient` — **uptime < 1 h ⇒ refuses to project at all.** Found in
+    testing: a dyno 8 seconds old with 6 calls extrapolated to 1,300,661
+    (260% of cap). A daily cron can easily land on a just-cycled dyno, so
+    without this guard the alert would cry wolf. Saying "I can't tell yet" is
+    the honest output.
+
+**Attribution page** — `/dashboards/api-usage.html` (pricing-index repo),
+admin-only via a `Staff_Page_Access` row. Reads through the app's
+`/api/crm-proxy/admin/{metrics,usage}` forwarders so the secret stays server-side.
+Shows the budget meter, top tables/endpoints with share bars (≥20% flagged),
+calls by method, and the daily trend. It states its own scope on the page and
+names **Caspio → Plan and billing → Usage** as the billing authority — it is an
+attribution tool, deliberately not a billing gauge.
+
+Render harness (no SAML needed): `/tests/ui/test-api-usage.html?scenario=rollup|dyno|insufficient|error`.
+⚠️ That harness stubs `fetch` wholesale, so it **cannot** catch an unregistered
+route. Probe those live instead — `401/403 = registered, 404 = not`, checked
+against a deliberately fake path so the probe is proven to discriminate.
 
 ## Wave 2 — July 2026 (per-style endpoint caching)
 
@@ -32,11 +129,12 @@ product endpoints were never cached — a PDP view cost ~13 Caspio calls. Fix
   in products.js/inventory.js.
 - Tests: `tests/jest/{ttl-cache,pricing-cache-routes,product-colors-cache,sizes-by-style-color-route}.test.js` (hermetic, mocked Caspio).
 
-Verify impact via `GET /api/admin/metrics` (`callsByTable`): expect Sanmar_Bulk
-sharply down, Standard_Size_Upcharges + Size_Display_Order → ~24-50/day,
-`/tables/Inventory` → 0. Companion frontend work (same date, pricing-index
-repo): dashboard pollers pause when tab hidden; hourly quote bulk-sync got
-age-based backoff + cancelled-row exclusion.
+Verify impact via `GET /api/admin/metrics?full=1` (secret-gated; the bare
+`callsByTable` this line originally referenced never existed — see wave 3):
+expect Sanmar_Bulk sharply down, Standard_Size_Upcharges + Size_Display_Order →
+~24-50/day, `/tables/Inventory` → 0. Companion frontend work (same date,
+pricing-index repo): dashboard pollers pause when tab hidden; hourly quote
+bulk-sync got age-based backoff + cancelled-row exclusion.
 
 ## Results Summary (December 2025)
 

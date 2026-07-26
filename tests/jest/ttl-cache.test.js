@@ -25,8 +25,8 @@ describe('ttl-cache', () => {
     expect(cache.size).toBe(0);
   });
 
-  test('FIFO eviction past maxEntries drops the oldest entry', () => {
-    const cache = createTtlCache({ name: 'test-fifo', ttlMs: 60000, maxEntries: 2 });
+  test('eviction past maxEntries drops the least-recently-used entry', () => {
+    const cache = createTtlCache({ name: 'test-lru', ttlMs: 60000, maxEntries: 2 });
     cache.set('first', 1);
     cache.set('second', 2);
     cache.set('third', 3);
@@ -34,6 +34,42 @@ describe('ttl-cache', () => {
     expect(cache.get('first')).toBeUndefined();
     expect(cache.get('second')).toBe(2);
     expect(cache.get('third')).toBe(3);
+  });
+
+  // The PDP-eviction regression: under the old FIFO policy a hot key was
+  // evicted purely because it was inserted first, no matter how often it was
+  // read. That is what let ~20 product views flush the whole product-details
+  // cache and send Sanmar_Bulk to 26% of all Caspio calls.
+  test('reading an entry protects it from eviction (LRU, not FIFO)', () => {
+    const cache = createTtlCache({ name: 'test-lru-touch', ttlMs: 60000, maxEntries: 2 });
+    cache.set('hot', 1);
+    cache.set('cold', 2);
+    expect(cache.get('hot')).toBe(1); // touch — 'cold' is now least-recently-used
+    cache.set('new', 3);
+
+    expect(cache.get('hot')).toBe(1);
+    expect(cache.get('cold')).toBeUndefined();
+    expect(cache.get('new')).toBe(3);
+  });
+
+  test('an LRU touch does NOT extend the TTL (Rule 4: no indefinitely stale entry)', () => {
+    jest.useFakeTimers();
+    const cache = createTtlCache({ name: 'test-lru-ttl', ttlMs: 1000, maxEntries: 5 });
+    cache.set('k', 'v');
+    jest.advanceTimersByTime(600);
+    expect(cache.get('k')).toBe('v');   // touch at t=600
+    jest.advanceTimersByTime(500);      // t=1100 > ttl from the ORIGINAL set
+    expect(cache.get('k')).toBeUndefined();
+  });
+
+  test('overwriting a key does not grow the cache past maxEntries', () => {
+    const cache = createTtlCache({ name: 'test-overwrite', ttlMs: 60000, maxEntries: 2 });
+    cache.set('a', 1);
+    cache.set('a', 2);
+    cache.set('b', 3);
+    expect(cache.size).toBe(2);
+    expect(cache.get('a')).toBe(2);
+    expect(cache.get('b')).toBe(3);
   });
 
   test('clear() empties the cache and reports the dropped count', () => {

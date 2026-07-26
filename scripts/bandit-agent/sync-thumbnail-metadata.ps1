@@ -79,7 +79,17 @@ try {
     }
 
     $cfg = Get-Content $ConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    $overlap = if ($cfg.OverlapMinutes) { [int]$cfg.OverlapMinutes } else { 30 }
+    # ⚠️ ZERO SLACK: this task runs every 30 min and OverlapMinutes is 30, so a row
+    # is caught by exactly one run with no margin — a late or slow run can drop it.
+    # Deliberately left as-is on 2026-07-26: on a 30-min cadence any overlap >30
+    # doubles the rows re-pulled (and the proxy PUTs unconditionally), which works
+    # against the quota fix. Raise to ~45 only if rows are observed going missing.
+    #
+    # This is ALSO why the shared OverlapMinutes key must not be lowered to 20 for
+    # the 15-min order/PO tasks — those now read OrdersOverlapMinutes instead.
+    $overlap = if ($cfg.ThumbMetaOverlapMinutes) { [int]$cfg.ThumbMetaOverlapMinutes }
+               elseif ($cfg.OverlapMinutes)      { [int]$cfg.OverlapMinutes }
+               else { 30 }
     $headers = @{ 'x-crm-api-secret' = $cfg.CrmApiSecret }
     $uri = "$($cfg.ProxyBase)/api/thumbnails/metadata-sync"
 

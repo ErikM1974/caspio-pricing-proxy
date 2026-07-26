@@ -682,6 +682,17 @@ router.get('/transfer-orders', async (req, res) => {
             whereConditions.push(`Design_Number='${escapeSQL(req.query.designNumber)}'`);
         }
 
+        // Supacolor job number → the transfers linked to it (2026-07-26).
+        // Added because pages/js/supacolor-job-detail.js had no server-side way to
+        // ask this question: it fetched the table UNFILTERED at pageSize=500 (up to
+        // 20 pages / 10,000 rows on EVERY job-detail view) and matched client-side.
+        // Worse, a row past the page cap made the panel render "no linked transfers"
+        // with no error — a silent wrong answer, not just a slow one.
+        // Allowlisted + escapeSQL like every other filter here; never a raw q.where.
+        if (req.query.supacolorOrderNumber) {
+            whereConditions.push(`Supacolor_Order_Number='${escapeSQL(req.query.supacolorOrderNumber)}'`);
+        }
+
         if (req.query.salesRep) {
             whereConditions.push(`Sales_Rep_Email='${escapeSQL(req.query.salesRep)}'`);
         }
@@ -726,7 +737,15 @@ router.get('/transfer-orders', async (req, res) => {
             params['q.where'] = whereConditions.join(' AND ');
         }
 
-        params['q.orderBy'] = req.query.orderBy || 'Requested_At DESC';
+        // Requested_At is NOT unique, so it cannot order a multi-page read on its
+        // own — Caspio paginates unordered/tied rows non-deterministically and
+        // silently drops or duplicates rows across page boundaries. PK_ID is the
+        // tiebreak (2026-07-26). Caller-supplied orderBy is still honoured, with
+        // the same tiebreak appended.
+        const requestedOrderBy = req.query.orderBy || 'Requested_At DESC';
+        params['q.orderBy'] = /\bPK_ID\b/i.test(requestedOrderBy)
+            ? requestedOrderBy
+            : `${requestedOrderBy}, PK_ID DESC`;
 
         if (req.query.pageNumber) params['q.pageNumber'] = parseInt(req.query.pageNumber, 10);
         params['q.pageSize'] = parseInt(req.query.pageSize, 10) || parseInt(req.query.limit, 10) || 100;

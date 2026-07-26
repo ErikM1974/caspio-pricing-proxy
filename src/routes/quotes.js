@@ -477,6 +477,57 @@ router.get('/quote_sessions', async (req, res) => {
       whereConditions.push(`SalesRepName='${sanitizedRepName}'`);
     }
 
+    // syncCandidates / shipstationPending — named server-side filters for the two
+    // hourly crons in the app repo (server.js bulk-sync-from-shopworks and the
+    // ShipStation tracking sweep). Added 2026-07-26.
+    //
+    // WHY NAMED FILTERS AND NOT A q.where PASSTHROUGH: both crons were already
+    // SENDING `?q.where=...&q.pageSize=...`, and this route has never read either
+    // one. The params were silently dropped, so `whereConditions` stayed empty and
+    // every run fell through to a FULL, UNCACHED, UNORDERED scan of Quote_Sessions
+    // — 48x/day, up to 20 pages each, and silently truncating at the maxPages cap.
+    // A q.where passthrough would fix the quota cost but hand callers a raw Caspio
+    // WHERE clause; the CLAUDE.md security checklist calls for allowlisted filters
+    // instead. These two encode the exact predicates the crons need, so they are
+    // injection-free AND cacheable.
+    if (req.query.syncCandidates === 'true') {
+      // DTG order-form flow flips Status to 'Processed'; the EMB/SCP/DTF push
+      // handlers instead stamp PushedToShopWorks and leave Status='Open' — hence
+      // the OR. Cancelled rows are excluded at the source: re-syncing one every
+      // hour re-stamped ShopWorks_Last_Synced, which reset its 30-day purge
+      // countdown daily (2026-07-18).
+      whereConditions.push(
+        "(Status='Processed' OR PushedToShopWorks IS NOT NULL) AND Status<>'Cancelled_in_ShopWorks'"
+      );
+    }
+
+    if (req.query.shipstationPending === 'true') {
+      // ShipStation_Order_ID is a Number column, so > 0 means "set".
+      whereConditions.push(
+        "ShipStation_Order_ID>0 AND (ShipStation_Status IS NULL OR ShipStation_Status<>'shipped')"
+      );
+    }
+
+    // Soft-deleted rows awaiting the 30-day hard purge. Cannot go through the
+    // generic `status` param: sanitizeStatus only allows the five lifecycle
+    // values (active/pending/completed/abandoned/expired), and this is a
+    // ShopWorks-deletion marker, not a quote lifecycle state.
+    if (req.query.cancelledInShopWorks === 'true') {
+      whereConditions.push("Status='Cancelled_in_ShopWorks'");
+    }
+
+    // Reject the silently-dropped params rather than serving a full-table scan
+    // that looks like it honoured them. Failing loudly here is what would have
+    // caught the two crons years earlier (Rule 4: never a quiet wrong answer).
+    if (req.query['q.where'] && whereConditions.length === 0) {
+      return res.status(400).json({
+        error: 'q.where is not supported on /api/quote_sessions',
+        hint: 'Use a named filter: quoteID, sessionID, customerEmail, status, createdAfter, ' +
+              'salesRepEmail, salesRepName, syncCandidates=true, shipstationPending=true, ' +
+              'or cancelledInShopWorks=true'
+      });
+    }
+
     // Warn if no filters
     if (whereConditions.length === 0) {
       console.warn('WARNING: No filters provided to /api/quote_sessions - returning all records');
@@ -498,14 +549,27 @@ router.get('/quote_sessions', async (req, res) => {
     const params = {};
     if (whereConditions.length > 0) {
       params['q.where'] = whereConditions.join(' AND ');
-      // [A2] (audit 2026-06-06): newest row first, so a duplicate-QuoteID read (builder loadQuote / sync)
-      // binds the SAME PK_ID that push/preview stamp — else the read picks an oldest/unpushed duplicate
-      // row → split-brain → a second ShopWorks order. (Cache key is whereConditions-only → order-safe.)
-      params['q.orderBy'] = 'PK_ID DESC';
     }
+    // [A2] (audit 2026-06-06): newest row first, so a duplicate-QuoteID read (builder loadQuote / sync)
+    // binds the SAME PK_ID that push/preview stamp — else the read picks an oldest/unpushed duplicate
+    // row → split-brain → a second ShopWorks order. (Cache key is whereConditions-only → order-safe.)
+    //
+    // Set UNCONDITIONALLY as of 2026-07-26. This used to live inside the
+    // `whereConditions.length > 0` branch, so the unfiltered path paged through
+    // Quote_Sessions with NO orderBy — and an unordered multi-page Caspio read
+    // drops rows silently. The most expensive query on this route was also the
+    // only one that could quietly return an incomplete set.
+    params['q.orderBy'] = 'PK_ID DESC';
 
     console.log('Caspio query params:', JSON.stringify(params));
-    const records = await fetchAllCaspioPages('/tables/Quote_Sessions/records', params);
+    // strict: the two cron filters drive ShopWorks sync + ShipStation tracking.
+    // A quietly truncated candidate list there means orders just never sync, with
+    // no error anywhere — strictly worse than a failed run that gets retried.
+    const records = await fetchAllCaspioPages(
+      '/tables/Quote_Sessions/records',
+      params,
+      { strict: true }
+    );
     console.log(`Quote sessions: ${records.length} record(s) found`);
 
     // Store in cache

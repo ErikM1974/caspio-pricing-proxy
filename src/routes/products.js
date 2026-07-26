@@ -9,9 +9,18 @@ const { computeDisplayPrice, formatDisplayPriceLabel, getDecoratedDisplayPricing
 const { createTtlCache, shouldBypass, makeKey, clearAll } = require('../utils/ttl-cache');
 const { clearStaticTableCaches } = require('../utils/caspio-static-tables');
 
-// Cache for product search (5 minute TTL)
-const productSearchCache = new Map();
-const PRODUCT_SEARCH_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+// Cache for product search (5 minute TTL).
+// Migrated off a bespoke Map onto the shared TTL cache 2026-07-26 for three
+// reasons: it gains LRU eviction, and it was NOT in the ttl-cache registry — so
+// GET /api/product-cache/clear silently never flushed it. 50 -> 400 entries is
+// safe here (measured ~35 KB/response ≈ 14 MB at the bound), unlike
+// product-details/inventory whose responses are 1–3 MB each. Misses are two
+// fetchAllCaspioPages passes over the 251k-row Sanmar_Bulk table.
+const productSearchCache = createTtlCache({
+  name: 'products-search',
+  ttlMs: 5 * 60 * 1000,
+  maxEntries: 400
+});
 
 // Sanitize style number input to prevent Caspio WHERE clause injection.
 // Mirrors sanitizeStyleNumber in pricing.js / inventory.js.
@@ -25,8 +34,20 @@ function sanitizeStyleNumber(input) {
 // only changes on the nightly SanMar sync; `?refresh=true` bypasses. Responses
 // that degraded (SanMar active-color filter unavailable) are served but never
 // cached — see ttl-cache.js Rule-4 note.
+// product-details 100 -> 150 (2026-07-26). Each PDP view inserts ~5 entries (the
+// related-products fan-out at product-2026.js:813), so ~20 page views used to
+// flush all 100 slots — including the style being viewed — and every miss is a
+// multi-page scan of the 251k-row Sanmar_Bulk table (26% of all Caspio calls).
+//
+// ⚠️ MEASURE BEFORE RAISING THIS FURTHER. Measured 2026-07-26: a product-details
+// response is 0.8–1.5 MB per style (PC54 1.54 MB, PC61 1.22 MB, K500 0.78 MB),
+// so 150 entries is already ~150–200 MB of dyno heap. The obvious "just make it
+// 400" would be ~500 MB and would OOM the dyno. The LRU change in ttl-cache.js
+// is what actually fixes the eviction problem here; the bound stays a memory cap.
+// Real headroom needs a `q.select` on this route to stop returning full-width
+// rows for every colour/size variant — deliberately out of scope for this pass.
 const styleSearchCache = createTtlCache({ name: 'stylesearch', ttlMs: 60 * 1000, maxEntries: 200 });
-const productDetailsCache = createTtlCache({ name: 'product-details', ttlMs: 10 * 60 * 1000, maxEntries: 100 });
+const productDetailsCache = createTtlCache({ name: 'product-details', ttlMs: 10 * 60 * 1000, maxEntries: 150 });
 const colorSwatchesCache = createTtlCache({ name: 'color-swatches', ttlMs: 15 * 60 * 1000, maxEntries: 200 });
 const productColorsCache = createTtlCache({ name: 'product-colors', ttlMs: 15 * 60 * 1000, maxEntries: 200 });
 
@@ -804,15 +825,12 @@ router.get('/products/search', async (req, res) => {
 
     // Check cache (parameter-aware)
     const cacheKey = JSON.stringify({ q, category, subcategory, brand, color, size, minPrice, maxPrice, status, styleNumbers: styleNumbersParam, isTopSeller, sort, page, limit, includeFacets });
-    const now = Date.now();
-    const cached = productSearchCache.get(cacheKey);
-    const forceRefresh = req.query.refresh === 'true';
+    const forceRefresh = shouldBypass(req);
 
-    if (!forceRefresh && cached && (now - cached.timestamp) < PRODUCT_SEARCH_CACHE_TTL) {
-      console.log('[CACHE HIT] products/search');
-      return res.json(cached.data);
+    if (!forceRefresh) {
+      const cached = productSearchCache.get(cacheKey);
+      if (cached) return res.json(cached);
     }
-    console.log('[CACHE MISS] products/search');
 
     // Build WHERE clause
     let whereConditions = [];
@@ -1343,19 +1361,10 @@ router.get('/products/search', async (req, res) => {
     // Cache the response — but NOT when the decorated pricing config was unavailable, so a
     // transient Caspio failure doesn't pin null displayPrices for the full cache TTL.
     if (decoratedPricingConfig) {
-      productSearchCache.set(cacheKey, {
-        data: response,
-        timestamp: now
-      });
-      console.log(`[CACHE SET] products/search - Cache size: ${productSearchCache.size}`);
+      // Bounding/eviction is handled by the shared TTL cache (LRU, maxEntries).
+      productSearchCache.set(cacheKey, response);
     } else {
       console.warn('[products/search] Response NOT cached (BLANK pricing config unavailable) — next request retries');
-    }
-
-    // Limit cache size (keep last 50 entries)
-    if (productSearchCache.size > 50) {
-      const firstKey = productSearchCache.keys().next().value;
-      productSearchCache.delete(firstKey);
     }
 
     res.json(response);
