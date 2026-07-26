@@ -38,19 +38,42 @@ const state = {
   consecutiveFailures: 0
 };
 
+// How much of THIS process's count has already been written, per UTC day.
+// Load-bearing for restart safety — see pushRollup.
+const contributed = new Map();
+
 async function pushRollup() {
   const day = new Date().toISOString().slice(0, 10);
-  const count = tracker.stats.callsByDay.get(day) || 0;
-  if (count === 0) return;
+  const sinceStart = tracker.stats.callsByDay.get(day) || 0;
+
+  // ACCUMULATE, never overwrite. `callsByDay` counts since THIS PROCESS started,
+  // so writing it directly meant every dyno restart reset the counter and the
+  // PUT walked the stored total BACKWARDS. Observed 2026-07-26: four restarts in
+  // a day left the row reading 1,650 while Caspio billed 15,951 — a 10x
+  // under-report, from the component whose entire job is to be the trustworthy
+  // number. Same failure family as an empty table reading as 0%.
+  //
+  // Writing a DELTA against the stored value makes restarts additive: a fresh
+  // process has contributed 0, so it adds its whole count to whatever is there.
+  const delta = sinceStart - (contributed.get(day) || 0);
+  if (delta <= 0) return;
 
   const token = await getCaspioAccessToken();
   const url = `${config.caspio.apiBaseUrl}/tables/${TABLE}/records`;
   const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
   const where = `Usage_Date='${day}' AND Dyno_Id='${DYNO}'`;
+
+  const existing = await fetchAllCaspioPages(
+    `/tables/${TABLE}/records`,
+    { 'q.where': where, 'q.select': 'Call_Count', 'q.orderBy': 'PK_ID' },
+    { maxPages: 1 }
+  );
+  const priorTotal = existing.length ? (Number(existing[0].Call_Count) || 0) : 0;
+
   const body = {
     Usage_Date: day,
     Dyno_Id: DYNO,
-    Call_Count: count,
+    Call_Count: priorTotal + delta,
     Updated_At: new Date().toISOString()
   };
 
@@ -64,6 +87,15 @@ async function pushRollup() {
   // no-op, not a success. Insert the row instead of silently losing the day.
   if ((put.data?.RecordsAffected ?? 0) === 0) {
     await axios.post(url, body, { headers, timeout: config.timeouts.perRequest });
+  }
+
+  // Only advance the watermark once the write actually landed, so a failed
+  // write is retried next tick rather than silently skipped.
+  contributed.set(day, sinceStart);
+
+  // Yesterday's watermark is dead weight after a UTC rollover.
+  for (const k of contributed.keys()) {
+    if (k < day) contributed.delete(k);
   }
 }
 
@@ -102,6 +134,25 @@ function start() {
   }
   const timer = setInterval(runOnce, INTERVAL_MS);
   if (timer.unref) timer.unref();
+
+  // Flush on the way down. Heroku SIGTERMs before every dyno cycle (deploy,
+  // config change, daily recycle), and on 2026-07-26 that happened four times
+  // in one day — without this, up to an hour of calls is lost per restart even
+  // with the accumulate fix, because they were never written at all.
+  let flushed = false;
+  const flush = async () => {
+    if (flushed) return;
+    flushed = true;
+    try {
+      await runOnce();
+      console.log('[API USAGE ROLLUP] flushed on shutdown');
+    } catch (err) {
+      console.error('[API USAGE ROLLUP] shutdown flush failed:', err.message);
+    }
+  };
+  process.once('SIGTERM', flush);
+  process.once('SIGINT', flush);
+
   console.log(`✓ API usage rollup ON → Caspio table "${TABLE}" (hourly, dyno ${DYNO})`);
 }
 
