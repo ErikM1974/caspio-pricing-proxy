@@ -1,3 +1,7 @@
+## v2026.07.27.2 (2026.07.27)
+
+- Pre-push guard: production ships through /deploy, not by hand
+
 ## v2026.07.27.1 (2026-07-27)
 
 **Catch-up release.** Tagging lapsed after `v2026.07.01.1` and CHANGELOG entries after
