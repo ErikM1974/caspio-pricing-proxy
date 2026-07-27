@@ -1,0 +1,60 @@
+#!/bin/sh
+#
+# NWCA pre-push guard — production ships through /deploy, not by hand.
+#
+# WHY THIS EXISTS (2026-07-27)
+# Both repos have a /deploy skill that does develop → main → Heroku with real gates:
+# the full test suite, a boot probe, a foreign-hunk check, a --no-ff release marker,
+# a CHANGELOG of actual commits, a tag, and Heroku release verification.
+#
+# It stopped being used on caspio-pricing-proxy. Tagging lapsed after v2026.07.01.1
+# and 181 commits went straight onto main and out to Heroku untagged — including a
+# SanMar inbound fix on 2026-07-27 that was pushed with `git push heroku main` by
+# hand, skipping the 889-test gate entirely. Nothing objected, because nothing could.
+#
+# Documentation didn't hold the line, so this does. The workflow was never wrong —
+# it just wasn't enforced.
+#
+# WHAT IT BLOCKS
+# A push to `main` (any remote) whose tip is not a release commit created by the
+# deploy skill — i.e. the `Release vX` merge or the `Changelog vX` commit that
+# follows it. Pushing `develop` is always fine; that's where work belongs.
+#
+# ESCAPE HATCH
+#   git push --no-verify ...
+# Deliberately loud rather than locked. Use it for a genuine emergency, then run
+# /deploy afterwards so the tag and CHANGELOG catch up.
+#
+# INSTALL (per clone — .git/hooks is not version-controlled)
+#   cp scripts/git-hooks/pre-push .git/hooks/pre-push && chmod +x .git/hooks/pre-push
+
+RED='\033[0;31m'; YELLOW='\033[1;33m'; GREEN='\033[0;32m'; CYAN='\033[0;36m'; NC='\033[0m'
+
+# stdin: <local ref> <local sha> <remote ref> <remote sha>, one line per ref pushed.
+while read -r LOCAL_REF LOCAL_SHA REMOTE_REF REMOTE_SHA; do
+  [ "$REMOTE_REF" = "refs/heads/main" ] || continue          # only main is guarded
+  [ "$LOCAL_SHA" = "0000000000000000000000000000000000000000" ] && continue  # branch delete
+
+  SUBJECT=$(git log -1 --pretty=%s "$LOCAL_SHA" 2>/dev/null)
+
+  # The deploy skill lands main on one of these two, in this order:
+  #   1. "Release vYYYY.MM.DD.N"   — the --no-ff merge marker
+  #   2. "Changelog vYYYY.MM.DD.N" — the changelog commit pushed with it
+  case "$SUBJECT" in
+    "Release v"*|"Changelog v"*) continue ;;
+  esac
+
+  printf "\n${RED}✗ Push to main blocked.${NC}\n\n"
+  printf "  Tip commit: ${CYAN}%s${NC}\n" "$(git log -1 --pretty='%h %s' "$LOCAL_SHA")"
+  printf "  Expected a deploy-skill release commit (${GREEN}Release v…${NC} or ${GREEN}Changelog v…${NC}).\n\n"
+  printf "  ${YELLOW}Production ships through /deploy${NC} — it runs the test suite, boot-probes the\n"
+  printf "  server, checks for other sessions' hunks, tags the release, writes the CHANGELOG,\n"
+  printf "  and verifies Heroku actually served the new slug. A hand push skips all of it.\n\n"
+  printf "  Do this instead:\n"
+  printf "    ${CYAN}git checkout develop${NC}   # commit your work here\n"
+  printf "    ${CYAN}/deploy${NC}                # handles main, the tag, and Heroku\n\n"
+  printf "  Real emergency? ${CYAN}git push --no-verify${NC} — then run /deploy after to catch up.\n\n"
+  exit 1
+done
+
+exit 0
