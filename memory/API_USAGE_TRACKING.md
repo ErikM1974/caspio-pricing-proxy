@@ -36,7 +36,7 @@ Optional hourly rollup to Caspio via `API_USAGE_ROLLUP_TABLE`
 
 | Table | Rows | Pages @1000 | Note |
 |---|---|---|---|
-| `Shopworks_Thumbnail_Report` | 27,613 | 28 | scanned **twice per run**, every 20 min |
+| `Shopworks_Thumbnail_Report` | 27,613 | 27 + 28 | scanned **twice per run**, every 20 min — see the cost model below |
 | `Sanmar_Bulk_251816_Feb2024` | 251k | — | ~22-26% of all calls |
 | `Supacolor_Jobs` | 1,035 | 2 | full scan every 10 min |
 | `ArtRequests` | 2,694 | 3 | was queried **once per design id** |
@@ -60,6 +60,46 @@ needs a `q.select` so those rows stop coming back full-width.
 **Correction to the wave-2 note below**: it tells you to verify via
 `GET /api/admin/metrics` (`callsByTable`). **That field did not exist** until
 wave 3 — use `?full=1` (and the secret header) now.
+
+## Thumbnail sync cost model (measured 2026-07-26) — the single biggest line item
+
+`Shopworks_Thumbnail_Report` was **48% of ALL Caspio traffic**: 909 of 1,883 calls
+in a 4.3-hour window (~211/hr). Two bandit tasks touch it, and the split is not
+what the name suggests:
+
+| Task | Cadence | Runs/day | Caspio calls/day |
+|---|---|---|---|
+| **Thumbnail Box Sync** (images → Box) | 20 min | 72 | **3,960** |
+| Thumbnail Metadata Sync (ODBC → rows) | 30 min | 48 | ~48 (mostly heartbeats) |
+
+**The Box sync is effectively the whole cost.** It pays **55 calls before moving a
+single byte** — `/thumbnails/uploaded-ids` (27 pages; the `FileUrl IS NOT NULL`
+filter drops ~674 imageless rows) + `/thumbnails/all-ids` (28 pages). Variable cost
+is 2 calls per image uploaded (existence GET + `FileUrl` PUT), capped at
+`MaxFilesPerRun 200`. Steady state is **~5 changed thumbnails/day**, so this is
+**~800 Caspio calls per image actually synced**.
+
+**The metadata sync is nearly free — its delta read is ODBC against FileMaker, 0
+Caspio calls.** Per run it costs 1 heartbeat PUT on `Sync_Heartbeats` (per HTTP
+chunk of 50, not per run), plus 1 PUT per changed row / 2 for a new one. Do not
+"optimise" it: it is the **record-creator** (`upload-with-stub` 404s
+`RECORD_NOT_FOUND` because `Thumb_DesLocid_Design` is UNIQUE NOT NULL), so it must
+run ahead of the image sync, and its overlap already has zero slack at 30/30.
+
+**Fix (pending on bandit): `schtasks /Change /TN "\NWCA\Thumbnail Box Sync" /RI 240`**
+→ 6 runs/day, 330 calls/day, saving ~3,630/day ≈ $218/period. Cost is *fixed per
+run*, so 72→6 captures 92% of the available saving and going to once-daily adds
+only ~$16/period more — not worth a 24-hour worst case. After the change expect
+**~14 calls/hour** on this table instead of ~211.
+
+🔴 **Never "delta-filter" `uploaded-ids` or `all-ids` to shrink them.** Both are
+consumed as **completeness/existence sets** — the agent skips a file only when its
+ID is present in the returned set. Truncate either and every older row reads as
+un-uploaded, re-uploading ~27k images to Box. This already happened once from
+silent `maxPages:20` truncation (2026-07-18: ~6,900 rows re-uploaded, Box dupes +
+`FileUrl` churn). The safe delta signal the script already has for free is **file
+mtime on the share** — narrow the file list first, then ask Caspio about only
+those IDs.
 
 ### Wave 3b — the alert and the attribution page (2026-07-26)
 
