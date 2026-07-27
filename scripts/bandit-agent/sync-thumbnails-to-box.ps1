@@ -33,7 +33,13 @@ param(
     [string]$ThumbShare     = '\\NCA-FS01\Thumbnails',
     [int]   $MaxFilesPerRun = 200,
     [int]   $PaceMs         = 300,
-    [string]$CsvOut         = ''
+    [string]$CsvOut         = '',
+    # MUST match multer's limits.fileSize in caspio-pricing-proxy
+    # src/routes/thumbnails.js (20 MB). Anything larger can only ever come back
+    # as an opaque HTTP 500 — multer rejects it before the route handler runs, so
+    # it costs 0 Caspio calls but re-uploads the whole file every run to be
+    # refused. If the server cap changes, change this in the same commit.
+    [int64] $MaxUploadBytes = 20MB
 )
 
 $ErrorActionPreference = 'Stop'
@@ -112,7 +118,8 @@ try {
     Log ("image files on share: {0}" -f $files.Count)
 
     # 3) Pending = not-yet-uploaded, or on-disk size differs from the stored size.
-    $pending = New-Object System.Collections.ArrayList
+    $pending  = New-Object System.Collections.ArrayList
+    $tooLarge = New-Object System.Collections.ArrayList
     foreach ($f in $files) {
         $id = ([regex]::Match($f.Name, '^(\d+)_')).Groups[1].Value
         if ((-not $CsvOut) -and (-not $existing.ContainsKey($id))) { continue }   # API mode skips no-row files (404); CSV mode includes all (import matches by ID_Serial)
@@ -123,9 +130,20 @@ try {
             # (legacy rows have no FileSizeNumber — churning them would re-upload ~12k images).
             if ($storedSize -le 0 -or $storedSize -eq [int64]$f.Length) { continue }
         }
+        # Over the server's multer cap -> it can only ever 500. Skip deliberately
+        # instead of re-uploading ~26 MB to be rejected on every single run.
+        # Erik's call 2026-07-27: 4 files out of ~27,600 stay without a thumbnail.
+        # The point of skipping is SIGNAL, not the bandwidth: these 4 had failed
+        # 643-644 times each and their 2,575 error lines buried ~22 genuinely
+        # transient failures. A permanent failure must not look like a new one.
+        if ([int64]$f.Length -gt $MaxUploadBytes) { [void]$tooLarge.Add($f); continue }
         [void]$pending.Add($f)
     }
     Log ("pending (new/changed): {0}" -f $pending.Count)
+    if ($tooLarge.Count -gt 0) {
+        Log ("skipped, over the {0} MB server cap: {1}" -f [math]::Round($MaxUploadBytes/1MB,0), $tooLarge.Count)
+        foreach ($f in $tooLarge) { Log ("    {0} ({1} MB)" -f $f.Name, [math]::Round($f.Length/1MB,1)) }
+    }
 
     if ($CsvOut) {
         # Upload each pending image to Box (0 Caspio calls via ?csv=1) and emit an
@@ -197,8 +215,13 @@ try {
         $client.Dispose()
     }
 
+    # `still pending` counts only what this run did NOT attempt. Errored files are
+    # NOT pending — they were attempted and failed, and they retry next run. Keeping
+    # them out of this number is why "0 still pending" used to sit next to 4 errors
+    # every run and read as healthy. `too large` is broken out separately so a
+    # permanent skip never looks like a transient failure.
     $remaining = $pending.Count - $batch.Count
-    Log ("DONE: {0} uploaded to Box, {1} skipped(no metadata row yet), {2} errored this run; {3} still pending" -f $ok, $skip, $err, $remaining)
+    Log ("DONE: {0} uploaded to Box, {1} skipped(no metadata row yet), {2} skipped(too large), {3} errored this run; {4} not attempted this run" -f $ok, $skip, $tooLarge.Count, $err, $remaining)
     exit 0
 }
 catch {

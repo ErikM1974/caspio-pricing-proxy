@@ -1334,6 +1334,16 @@ const adminRbacRoutes = require('./src/routes/admin-rbac');
 app.use('/api/admin-rbac', requireCrmApiSecret, adminRbacRoutes);
 console.log('✓ RBAC admin CRUD loaded [CRM-gated]');
 
+// Payroll — the most sensitive data in the account. requireCrmApiSecret here; the
+// front-end reaches it ONLY through createCrmProxy('payroll', ['admin']), so a call needs
+// the secret AND an admin session. Read endpoints never return pay rates or salaries.
+// The parse route carries a base64 PDF, so it gets its own larger body parser (the global
+// one is 10mb) — scoped to that single path, not raised app-wide.
+const payrollRoutes = require('./src/routes/payroll');
+app.use('/api/payroll/parse', express.json({ limit: '40mb' }));
+app.use('/api/payroll', requireCrmApiSecret, payrollRoutes);
+console.log('✓ Payroll routes loaded [CRM-gated, admin-only via crm-proxy]');
+
 // DTG Print-Area Calibration (Custom T-Shirts storefront, 2026-06-10)
 // Staff-laid print-envelope placements per style/view/color → Caspio
 // DTG_Calibration; the storefront designer anchors to these (no-deploy edits).
