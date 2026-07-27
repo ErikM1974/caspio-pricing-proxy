@@ -1,3 +1,48 @@
+## v2026.07.27.1 (2026-07-27)
+
+**Catch-up release.** Tagging lapsed after `v2026.07.01.1` and CHANGELOG entries after
+`v2026.07.19.3`, while work continued straight onto `main` and shipped to Heroku untagged.
+This tag marks the slug currently live (`84fa367`, Heroku v1014) and records the 36
+commits deployed since the last CHANGELOG entry. A pre-push guard now blocks direct `main`
+pushes so the deploy skill can't be bypassed again.
+
+- fix(ae-dashboard): data-quality radar flags only OPEN, non-webstore orders
+- feat(ae-dashboard): flag orders with a carrier ship method but no ship-to address
+- feat: /api/command-search — staff dashboard Ctrl+K Everything Bar backend
+- feat(shopworks-odbc): payables sync → Caspio ShopWorks_Payables + read feed for SanMar Payables page
+- feat(sanmar-invoices): payable import-stamp log (mark-imported / imports / unmark)
+- bandit-agent: rewrite sync-thumbnail-metadata.ps1 for direct ODBC
+- Jim's Mailing List: Prospect_Mailing_List table + CRUD route
+- Jim's Mailing List: AI capture endpoint (paste text/screenshot -> fields)
+- Prospect_Mailing_List: add First/Last name, outreach status, Mailchimp tracking fields
+- Jim's Mailing List: First/Last fields + status/mailed columns on route; AI returns First/Last
+- Jim's Mailing List Phase 2: Mailchimp client + status/sync/record-sends endpoints
+- Jim's Mailing List: controlled + engagement-aware Mailchimp sync
+- Jim's Mailing List: build the Mailchimp engagement map in the background
+- products/search: surface PRODUCT_STATUS='New' styles + styleNumbers list filter
+- products/search: dedupe styles before pagination on styleNumbers requests
+- products/search: stable q.orderBy on Phase-2 variant fetch (silent row drops)
+- Sticker pricing: one engine, derived unit prices, TTL cache, first tests
+- Security: /api/contract-sticker-ai is now secret-only
+- Sticker durability: one number, and it's 3 years
+- Sticker AI: never quote an outdoor lifespan
+- Uploads: allow TIFF, and stop trusting octet-stream alone
+- fix(products): never cache an empty brand/category list
+- Q3 2026 Embroidery Bonus: computation, config table, scoped access
+- Embroidery bonus: target roadmap endpoint, and stop using a deprecated bulk helper
+- Embroidery bonus: pace context on the seasonal curve, not elapsed days
+- Caspio quota: fix the meter first, then cut the calls
+- Embroidery bonus: exclude webstore accounts, and replace the ladder with a rate
+- Re-baseline the bonus harness, and stop the fallback config lying
+- Caspio quota: create the rollup table so the meter survives dyno cycling
+- Caspio quota: schedule the pacing check in-dyno, not on Heroku Scheduler
+- Caspio pacing: an empty rollup table is "unknown", not 0% of limit
+- Rollup: accumulate across dyno restarts instead of overwriting
+- Memory: thumbnail sync cost model, measured
+- Call list: one ranked order of work, and a CRM write that can't vanish
+- SanMar inbound: reconcile against the freight manifest, per carton
+- Product copy: CSV407 dual-color safety vest (autopilot 2026-07-27)
+
 ## v2026.07.19.3 (2026-07-19)
 
 - feat(leads-crm): live Claude lead qualification. `src/utils/lead-classify-ai.js` — Anthropic Messages API (`claude-opus-4-8`, override `LEAD_CLASSIFY_MODEL`; structured-output JSON) categorizes newly-arrived uncategorized `New` leads as spam/unqualified/qualified and applies (spam+unqualified → Status='Archived'+Lead_Category, qualified → tag; logs a `system` activity). Routes `GET /api/lead-classify/scan` (CRM-secret dry-run) + `POST /api/lead-classify/run` (CRM-secret; powers the "Rescan with Claude" button). Cron: daily 6:30 AM PT, env-guarded on `ANTHROPIC_API_KEY` (no-op if unset). Bounded/idempotent — only touches blank-category New leads. Adds `@anthropic-ai/sdk`.
