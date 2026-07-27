@@ -585,6 +585,12 @@ router.put('/nika-accounts/:id/crm', express.json(), async (req, res) => {
     if (!id) {
         return res.status(400).json({ success: false, error: 'Missing required parameter: id' });
     }
+    // `id` is interpolated straight into q.where below. Session-gated, but the Call List is the
+    // first thing to send browser-controlled input down this path, so it gets a real gate.
+    const custId = parseInt(id, 10);
+    if (!Number.isInteger(custId) || custId <= 0 || String(custId) !== String(id).trim()) {
+        return res.status(400).json({ success: false, error: 'id must be a positive integer' });
+    }
 
     try {
         console.log(`Updating CRM fields for Nika account ID_Customer: ${id}`);
@@ -606,9 +612,16 @@ router.put('/nika-accounts/:id/crm', express.json(), async (req, res) => {
         }
 
         const token = await getCaspioAccessToken();
-        const url = `${caspioApiBaseUrl}/tables/${TABLE_NAME}/records?q.where=${PRIMARY_KEY}=${id}`;
+        // `&response=rows` makes Caspio hand back the records it actually updated, which is the
+        // only way to answer "did this hit a row?". Caspio answers 200 for a PUT that matched
+        // NOTHING — the same trap as DELETE (MEMORY.md: "no-match = 200 RecordsAffected:0 —
+        // ALWAYS check the count"). This route used to discard the response entirely and reply
+        // success unconditionally, so a call logged against a customer with no row here was
+        // reported as saved and silently lost.
+        const url = `${caspioApiBaseUrl}/tables/${TABLE_NAME}/records`
+            + `?q.where=${PRIMARY_KEY}=${custId}&response=rows`;
 
-        await axios({
+        const caspioResp = await axios({
             method: 'put',
             url: url,
             headers: {
@@ -619,10 +632,28 @@ router.put('/nika-accounts/:id/crm', express.json(), async (req, res) => {
             timeout: 15000
         });
 
+        const body = (caspioResp && caspioResp.data) || {};
+        const affected = Array.isArray(body.Result) ? body.Result.length
+            : (typeof body.RecordsAffected === 'number' ? body.RecordsAffected : null);
+
+        if (affected === 0) {
+            return res.status(404).json({
+                success: false,
+                error: 'no_row',
+                message: `No row in ${TABLE_NAME} for ${PRIMARY_KEY}=${custId}`,
+                idCustomer: custId
+            });
+        }
+        if (affected === null) {
+            // Shape we don't recognise — say so rather than claim a write we can't confirm.
+            console.warn(`[nika-accounts] CRM update for ${custId}: unrecognised Caspio response shape`);
+        }
+
         res.json({
             success: true,
             message: 'CRM fields updated successfully',
-            updatedFields: Object.keys(updateData)
+            updatedFields: Object.keys(updateData),
+            recordsAffected: affected
         });
     } catch (error) {
         console.error('Error updating CRM fields:',

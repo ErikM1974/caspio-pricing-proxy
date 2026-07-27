@@ -1024,6 +1024,342 @@ async function computeTargets(quarter, year, repFilter) {
     };
 }
 
+// ── Call list ───────────────────────────────────────────────────────────
+/**
+ * The three target lists merged into ONE order of work, with a phone number attached.
+ *
+ * WHY A SEPARATE ROUTE, not a bigger /targets: that path feeds "The One Thing" on the
+ * dashboard's default tab and shouldn't carry contact + CRM reads it never uses; a
+ * CompanyContactsMerge2026 outage must not take The One Thing down with it; and
+ * mark-as-called state must never be served from a stale cache.
+ *
+ * The 20s cold cost is NOT paid twice — computeTargets' loaders are individually cached
+ * (history 6h, ownership/quarter 5min), so a second call inside those windows re-runs only
+ * the in-memory loop.
+ */
+const CONTACTS_TABLE = 'CompanyContactsMerge2026';
+const REP_ACCOUNT_TABLES = {
+    'Nika Lao': 'Nika_All_Accounts_Caspio',
+    'Taneisha Clark': 'Taneisha_All_Accounts_Caspio',
+};
+const HYDRATE_TOP_N = 15;            // matches the frontend's "15 then See more"
+const TTL_CONTACT = 6 * 60 * 60 * 1000;   // phone/email barely move
+const TTL_CRM = 15 * 60 * 1000;           // call state moves when a rep logs one
+
+/**
+ * Per-customer cache, so "See more" only pays for the ids it newly reveals and a
+ * re-mount inside the window costs nothing. Keyed by customer id, two independent
+ * timestamps because contact details and call state age at very different rates.
+ */
+const custCache = new Map();
+
+function chunk(arr, n) {
+    const out = [];
+    for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n));
+    return out;
+}
+
+/** Caspio joins want ints; the targets payload carries ids as strings. */
+function intIds(ids) {
+    return [...new Set(ids.map((v) => parseInt(v, 10)).filter(Number.isInteger))];
+}
+
+/**
+ * Phone/email/contact-name for a set of customers.
+ *
+ * Chunked IN() at 40, mirroring ae-dashboard.js's buildDataQuality — never per-customer,
+ * which would be 250 round trips for one page view. Several contact rows can share a
+ * customer, so it is first-non-blank-wins across them.
+ *
+ * Measured coverage 2026-07-27: phone 98% (Nika) / 96% (Taneisha), email ~100%. Only 3
+ * accounts across both books have neither, which is why there is no ORDER_ODBC phone
+ * backfill here — it would be an extra read per hydration to rescue 0.7% of rows. If
+ * coverage ever degrades, customer-history.js:53-64 has the normPhone/isDefaultPhone
+ * helpers to do it properly.
+ */
+async function hydrateContacts(custIds) {
+    const now = Date.now();
+    const need = custIds.filter((id) => {
+        const e = custCache.get(String(id));
+        return !e || !e.contactTs || now - e.contactTs > TTL_CONTACT;
+    });
+    for (const c of chunk(intIds(need), 40)) {
+        if (!c.length) continue;
+        const rows = await fetchAllCaspioPages(`/tables/${CONTACTS_TABLE}/records`, {
+            'q.where': `id_Customer IN (${c.join(',')})`,
+            'q.select': 'id_Customer,Phone_Best,Company_Phone,Email,Company_Email,ct_NameFull',
+            'q.orderBy': 'PK_ID',
+            'q.pageSize': 1000,
+        }, { maxPages: 4 });
+        for (const id of c) {
+            const e = custCache.get(String(id)) || {};
+            e.contact = e.contact || { phone: '', email: '', name: '' };
+            e.contactTs = now;                       // stamp even on no rows, so we don't re-ask every load
+            custCache.set(String(id), e);
+        }
+        for (const r of rows) {
+            const key = cid(r.id_Customer);
+            const e = custCache.get(key) || { contactTs: now };
+            const c0 = e.contact || { phone: '', email: '', name: '' };
+            c0.phone = c0.phone || cid(r.Phone_Best) || cid(r.Company_Phone);
+            c0.email = c0.email || cid(r.Email) || cid(r.Company_Email);
+            c0.name = c0.name || cid(r.ct_NameFull);
+            e.contact = c0;
+            custCache.set(key, e);
+        }
+    }
+}
+
+/**
+ * Call state from the rep's own account table — what powers "✓ Called today", the
+ * cooldown decay, and the follow-up pin.
+ *
+ * Read for EVERY item, not just the hydrated ones, because cooldown changes the ORDER
+ * and the order decides which 15 get shown.
+ */
+async function hydrateCrmState(rep, custIds, force) {
+    const table = REP_ACCOUNT_TABLES[rep];
+    if (!table) return;
+    const now = Date.now();
+    const need = force ? custIds : custIds.filter((id) => {
+        const e = custCache.get(String(id));
+        return !e || !e.crmTs || now - e.crmTs > TTL_CRM;
+    });
+    for (const c of chunk(intIds(need), 40)) {
+        if (!c.length) continue;
+        const rows = await fetchAllCaspioPages(`/tables/${table}/records`, {
+            'q.where': `ID_Customer IN (${c.join(',')})`,
+            'q.select': 'ID_Customer,Last_Contact_Date,Contact_Status,Next_Follow_Up',
+            'q.orderBy': 'PK_ID',
+            'q.pageSize': 1000,
+        }, { maxPages: 4 });
+        // Absent from the read = no row in the rep's table. That is the inRepTable signal,
+        // and it is why the frontend can warn that a logged call would only live on-device.
+        for (const id of c) {
+            const e = custCache.get(String(id)) || {};
+            e.crm = { inRepTable: false, lastContactDate: '', contactStatus: '', nextFollowUp: '' };
+            e.crmTs = now;
+            custCache.set(String(id), e);
+        }
+        for (const r of rows) {
+            const key = cid(r.ID_Customer);
+            const e = custCache.get(key) || { crmTs: now };
+            e.crm = {
+                inRepTable: true,
+                lastContactDate: cid(r.Last_Contact_Date).slice(0, 10),
+                contactStatus: cid(r.Contact_Status),
+                nextFollowUp: cid(r.Next_Follow_Up).slice(0, 10),
+            };
+            custCache.set(key, e);
+        }
+    }
+}
+
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+/**
+ * How likely is one call to produce an order, and what is that worth to the rep?
+ *
+ * 🔑 pQualify is the honest term. A bounty pays only when the account crosses
+ * minAccountRevenue ($1,000) FOR THE QUARTER. The old card printed "$100 bounty" beside a
+ * win-back whose typical order is $180 — that bounty was never going to be earned on one
+ * call. Discounting by likely order size stops the list overpromising.
+ *
+ * 🔑 The rate term is real but tiny, and saying so is better than implying otherwise: at a
+ * ~$104K baseline and $60/point a dollar of embroidery is worth $0.0006 of rate money, so a
+ * $2,400 order earns $1.44. Bounties are ~99% of the score. It is wired up so the day
+ * someone clears 85% it is simply correct.
+ *
+ * BOOK_VALUE (5c on the dollar of likely order) stands in for everything the bonus does not
+ * pay: the team kicker, next quarter's baseline, the commission. Without it a $6,000
+ * win-back ranks below a $150 almost-there forever and the rep rightly stops trusting the
+ * list. One constant — set it to 0 for pure-bonus ranking.
+ */
+const BOOK_VALUE = 0.05;
+
+function recencyFactor(months) {
+    if (months <= 18) return 1;
+    if (months <= 24) return 0.85;
+    if (months <= 36) return 0.6;
+    return 0.35;
+}
+
+function scoreItem(item, cfg, rateDollarsPerOrderDollar) {
+    let pWin;
+    let expectedOrder;
+    let pQualify;
+
+    if (item.play === 'almostThere') {
+        // Already ordering this quarter — by far the most likely to convert, and the gap is
+        // the whole remaining ask rather than a fresh order.
+        pWin = 0.40 + 0.35 * (1 - clamp(item.gapToBounty / cfg.minAccountRevenue, 0, 1));
+        expectedOrder = item.gapToBounty;
+        pQualify = 1;
+    } else if (item.play === 'winBack') {
+        const loyalty = clamp(item.embroideryOrders / 6, 0, 1);
+        const season = 1 + clamp((item.q3SharePct || 0) / 100, 0, 1);
+        pWin = 0.18 * loyalty * recencyFactor(item.monthsDormant) * season;
+        expectedOrder = item.avgOrderValue;
+        pQualify = clamp(item.avgOrderValue / cfg.minAccountRevenue, 0.15, 1);
+    } else {
+        const warmth = clamp(item.otherOrders / 6, 0, 1);
+        const recencyOther = item.monthsSinceOrder <= 6 ? 1 : (item.monthsSinceOrder <= 12 ? 0.7 : 0.45);
+        pWin = 0.08 * warmth * recencyOther;
+        expectedOrder = Math.min(item.otherOrders ? item.otherSpend / item.otherOrders : 0, 1000);
+        pQualify = clamp(expectedOrder / cfg.minAccountRevenue, 0.10, 0.90);
+    }
+
+    const rateDollars = expectedOrder * rateDollarsPerOrderDollar;
+    const raw = pWin * (item.bounty * pQualify + rateDollars + BOOK_VALUE * expectedOrder);
+    return { score: round2(raw), expectedOrder: round2(expectedOrder) };
+}
+
+function confidenceOf(score) {
+    if (score >= 60) return 'Strong';
+    if (score >= 15) return 'Fair';
+    return 'Long shot';
+}
+
+/** One sentence, in the order the numbers actually mattered. */
+function whyFor(item, cfg) {
+    const m0 = (n) => '$' + Math.round(Number(n) || 0).toLocaleString('en-US');
+    if (item.play === 'almostThere') {
+        return `${m0(item.gapToBounty)} more embroidery pays you ${m0(item.bounty)}. `
+            + `Already ordering — at ${m0(item.quarterRevenue)} this quarter.`;
+    }
+    if (item.play === 'winBack') {
+        // ⚠️ medianReorderDays is 0 for a single-order account. Saying "due for a reorder"
+        // there would be inventing a pattern from one data point.
+        const once = item.embroideryOrders <= 1;
+        const season = (item.q3SharePct || 0) >= 25 ? ' — and Jul-Sep is historically their season' : '';
+        if (once) {
+            return `Embroidered once, ${m0(item.avgOrderValue)}, ${item.monthsDormant} months ago — `
+                + `one order only, so there's no reorder pattern to go on.`;
+        }
+        return `Embroidered ${item.embroideryOrders} times, typically ${m0(item.avgOrderValue)}, `
+            + `quiet ${item.monthsDormant} months${season}.`;
+    }
+    const per = item.otherOrders ? item.otherSpend / item.otherOrders : 0;
+    return `Spends about ${m0(per)} an order with you on other decoration, last order `
+        + `${item.monthsSinceOrder} months ago — has never bought embroidery.`;
+}
+
+/** Local YYYY-MM-DD. toISOString() would roll to tomorrow after 5pm Pacific. */
+function localDay(d) {
+    const dt = d || new Date();
+    const p = (n) => String(n).padStart(2, '0');
+    return `${dt.getFullYear()}-${p(dt.getMonth() + 1)}-${p(dt.getDate())}`;
+}
+
+async function computeCallList(quarter, year, rep, opts) {
+    const options = opts || {};
+    const hydrateAll = options.hydrate === 'all';
+    const force = !!options.refresh;
+    const cacheKey = `callList:${rep || 'all'}:${quarter}:${year}:${hydrateAll ? 'all' : 'top'}`;
+    if (!force) {
+        const hit = getCached(cacheKey, TTL_LIVE);
+        if (hit) return hit;
+    }
+
+    const cfg = await loadConfig(quarter, year);
+    const targets = await computeTargets(quarter, year, rep);
+    const today = localDay();
+
+    const out = {};
+    for (const [repName, d] of Object.entries(targets.reps || {})) {
+        const baseline = (cfg.reps[repName] || {}).baselineRevenue || 0;
+        // Dollars of rate earned per dollar of embroidery sold, once past the start.
+        const rateLive = !!(cfg.ratePerPoint > 0 && baseline > 0);
+        const ratePerOrderDollar = rateLive ? (cfg.ratePerPoint / (baseline * 0.01)) : 0;
+
+        const merged = []
+            .concat((d.almostThere || []).map((x) => ({ ...x, play: 'almostThere', playLabel: 'Almost there' })))
+            .concat((d.winBack || []).map((x) => ({ ...x, play: 'winBack', playLabel: 'Win back' })))
+            .concat((d.firstProgram || []).map((x) => ({ ...x, play: 'firstProgram', playLabel: 'Never embroidered' })));
+
+        // Call state first — it changes the ORDER, and the order decides which rows get a
+        // phone number. Read for every item, not just the visible ones.
+        const allIds = merged.map((x) => cid(x.idCustomer));
+        await hydrateCrmState(repName, allIds, force);
+
+        const items = merged.map((x) => {
+            const st = (custCache.get(cid(x.idCustomer)) || {}).crm || {};
+            const s = scoreItem(x, cfg, ratePerOrderDollar);
+            // Decay a recently-called account instead of hiding it: the list manages itself
+            // over a quarter without the rep ever wondering where someone went.
+            let cooldown = 1;
+            if (st.lastContactDate) {
+                const days = (Date.now() - new Date(st.lastContactDate + 'T12:00:00').getTime()) / DAY_MS;
+                cooldown = days < 7 ? 0.1 : (days < 21 ? 0.5 : 1);
+            }
+            const followUpDue = !!(st.nextFollowUp && st.nextFollowUp <= today);
+            return {
+                idCustomer: cid(x.idCustomer),
+                company: x.company,
+                play: x.play,
+                playLabel: x.playLabel,
+                tier: x.tier || '',
+                bounty: x.bounty,
+                expectedOrder: s.expectedOrder,
+                callScore: round2(s.score * cooldown),
+                confidence: confidenceOf(s.score * cooldown),
+                why: whyFor(x, cfg),
+                calledToday: st.lastContactDate === today,
+                lastContactDate: st.lastContactDate || '',
+                contactStatus: st.contactStatus || '',
+                nextFollowUp: st.nextFollowUp || '',
+                followUpDue,
+                inRepTable: st.inRepTable !== false,
+            };
+        });
+
+        // A promise the rep made outranks the algorithm; a call already made today sinks.
+        items.sort((a, b) => {
+            if (a.followUpDue !== b.followUpDue) return a.followUpDue ? -1 : 1;
+            if (a.calledToday !== b.calledToday) return a.calledToday ? 1 : -1;
+            return b.callScore - a.callScore;
+        });
+
+        const hydrateCount = hydrateAll ? items.length : Math.min(HYDRATE_TOP_N, items.length);
+        await hydrateContacts(items.slice(0, hydrateCount).map((x) => x.idCustomer));
+        for (let i = 0; i < hydrateCount; i++) {
+            const c = (custCache.get(items[i].idCustomer) || {}).contact || {};
+            items[i].contactName = c.name || '';
+            items[i].email = c.email || '';
+            items[i].phone = c.phone || '';
+            items[i].phoneDisplay = c.phone || '';
+            items[i].hydrated = true;
+        }
+
+        out[repName] = {
+            items,
+            hydratedThrough: hydrateCount,
+            counts: {
+                total: items.length,
+                almostThere: (d.almostThere || []).length,
+                winBack: (d.winBack || []).length,
+                firstProgram: (d.firstProgram || []).length,
+                withPhone: items.slice(0, hydrateCount).filter((x) => x.phone).length,
+                noPhone: items.slice(0, hydrateCount).filter((x) => !x.phone).length,
+                notInRepTable: items.filter((x) => !x.inRepTable).length,
+            },
+        };
+    }
+
+    const payload = {
+        quarter, year, asOf: targets.asOf,
+        minAccountRevenue: cfg.minAccountRevenue,
+        dormancyMonths: cfg.dormancyMonths,
+        today,
+        configSource: cfg.configSource,
+        // computeTargets drops cfg.warning; carry the real message so the banner isn't a guess.
+        configWarning: cfg.warning || null,
+        reps: out,
+    };
+    setCache(cacheKey, payload);
+    return payload;
+}
+
 // ── Routes ──────────────────────────────────────────────────────────────
 
 /** GET /api/embroidery-bonus/config?quarter&year */
@@ -1050,6 +1386,31 @@ router.get('/embroidery-bonus/targets', async (req, res) => {
     } catch (err) {
         console.error('[embroidery-bonus] targets error:', err.message);
         res.status(500).json({ success: false, error: 'Failed to build target roadmap', details: err.message });
+    }
+});
+
+/**
+ * GET /api/embroidery-bonus/call-list?quarter&year&email|rep&hydrate=top|all&refresh=1
+ * The three target lists as ONE ranked order of work, with a phone number attached.
+ *
+ * ⚠️ `refresh` is honoured HERE deliberately. Every other route in this file ignores it —
+ * the param is forwarded faithfully by server.js and then dropped, so the dashboard's
+ * Refresh button has never re-pulled bonus data. That is survivable for a scoreboard and
+ * disqualifying for a call list: log a call, press Refresh, see the same list.
+ */
+router.get('/embroidery-bonus/call-list', async (req, res) => {
+    const quarter = (req.query.quarter || currentQuarter()).toUpperCase();
+    const year = parseInt(req.query.year, 10) || new Date().getFullYear();
+    const rep = resolveRep(req.query);
+    try {
+        const data = await computeCallList(quarter, year, rep, {
+            hydrate: req.query.hydrate === 'all' ? 'all' : 'top',
+            refresh: req.query.refresh === '1' || req.query.refresh === 'true',
+        });
+        res.json({ success: true, ...data });
+    } catch (err) {
+        console.error('[embroidery-bonus] call-list error:', err.message);
+        res.status(500).json({ success: false, error: 'Failed to build call list', details: err.message });
     }
 });
 
@@ -1175,6 +1536,7 @@ module.exports.helpers = {
     computeEmbroideryBonus,
     computeDormant,
     computeTargets,
+    computeCallList,
     loadConfig,
     FALLBACK_CONFIG,
 };
