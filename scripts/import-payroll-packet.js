@@ -87,10 +87,10 @@ const ROWS = [
     fed: 417.00, ss: 192.68, med: 45.06, so: 7.40, fml: 25.17, cares: 18.03, ded: 705.34, net: 2402.42,
     vac: ['80:00', '40:00', '40:00'], sick: ['52:30', '16:00', '36:30'] },
 
-  // ⚠ Caspio First_Name is "Sreynai" but its own Employee_Full_Name says "Sreyani Meang",
-  // and the payroll packet says SREYANI — i.e. First_Name is a transposition typo. Matching
-  // the stored value so the import works; flagged for Erik rather than renaming a person here.
-  { id: 6376, first: 'Sreynai', last: 'Meang', payType: 'Hourly', rate: 18.00, paid: true,
+  // Erik 2026-07-27: "Sreyani" is canonical (roster list + Employee_Full_Name + packet all agree);
+  // Caspio First_Name held a transposition, corrected via CORRECTIONS below. `alsoMatch` keeps
+  // resolution working both before and after that fix, so re-runs stay idempotent.
+  { id: 6376, first: 'Sreyani', last: 'Meang', alsoMatch: [['Sreynai', 'Meang']], payType: 'Hourly', rate: 18.00, paid: true,
     hrsReg: 80.00, wReg: 1440.00, gross: 1440.00,
     fed: 70.00, ss: 89.28, med: 20.88, so: 12.62, fml: 11.66, cares: 8.35, ded: 212.79, net: 1227.21,
     vac: ['80:00', '80:00', '00:00'], sick: ['33:56', '32:00', '01:56'] },
@@ -134,10 +134,24 @@ const ROWS = [
   { id: 6331, first: 'Taylar', last: 'Hanson', paid: false, vac: ['00:00', '00:00', '00:00'], sick: ['00:00', '00:00', '00:00'] },
   { id: 6380, first: 'Antonio', last: 'Massey', paid: false, vac: ['00:00', '00:00', '00:00'], sick: ['02:55', '00:00', '02:55'] },
   { id: 6383, first: 'Sanou', last: 'Pon', paid: false, vac: ['00:00', '00:00', '00:00'], sick: ['34:13', '00:00', '34:13'] },
-  // ⚠ Caspio Last_Name "Khiev" (matches the payroll packet) but Employee_Full_Name says
-  // "Sothida Khieve" — one of the two carries a stray 'e'. Flagged, not guessed.
+  // Erik 2026-07-27: Sothida Khiev does NOT work here (a distinct record from Sothea Tann —
+  // PK 27, hired 2024-03-01, Pay never set). Deactivated via CORRECTIONS. Her register row is
+  // still written as a faithful record of what the packet reported, so no history is lost.
   { id: 6384, first: 'Sothida', last: 'Khiev', paid: false, vac: ['00:00', '00:00', '00:00'], sick: ['00:49', '00:00', '00:49'] },
   { id: 6390, first: 'Adriyella', last: 'Trujillo', paid: false, vac: ['00:00', '00:00', '00:00'], sick: ['05:42', '00:00', '05:42'] },
+];
+
+/**
+ * Roster/data corrections Erik confirmed 2026-07-27. Keyed by PAYROLL ID and applied through the
+ * resolved ID_Record_Employee, so they never depend on name matching.
+ * Deliberately NOT applied: Hanson / Massey / Pon / Trujillo stay active pending Erik's check, and
+ * Nhoung keeps "Ruthie" (preferred) though payroll and the roster carry her legal name, Ruth.
+ */
+const CORRECTIONS = [
+  { payrollId: 6376, fields: { First_Name: 'Sreyani' },
+    why: 'roster list + Employee_Full_Name + packet all say Sreyani; First_Name held a transposition' },
+  { payrollId: 6384, fields: { Status: false },
+    why: 'Sothida Khiev no longer works here (not the same person as Sothea Tann)' },
 ];
 
 // Packet's own printed totals — the extraction must reproduce these EXACTLY or we abort.
@@ -203,7 +217,13 @@ async function main() {
   const unresolved = [];
   const seenIds = new Set();
   for (const row of ROWS) {
-    const hits = index.get(key(row.first, row.last)) || [];
+    // Try the canonical spelling, then any known prior spelling, so a run before the name
+    // correction and a run after it both resolve to the same record.
+    let hits = index.get(key(row.first, row.last)) || [];
+    for (const [f, l] of (row.alsoMatch || [])) {
+      if (hits.length === 1) break;
+      hits = index.get(key(f, l)) || hits;
+    }
     if (hits.length !== 1) { unresolved.push(`  ✗ ${row.first} ${row.last} (payroll #${row.id}) matched ${hits.length} Employees rows`); continue; }
     if (seenIds.has(row.id)) { unresolved.push(`  ✗ duplicate payroll id ${row.id}`); continue; }
     seenIds.add(row.id);
@@ -211,6 +231,21 @@ async function main() {
   }
   if (unresolved.length) { console.error('ABORT — cannot map payroll to Employees:\n' + unresolved.join('\n')); process.exit(1); }
   console.log(`  ✓ all ${ROWS.length} payroll employees resolved to a unique Employees record\n`);
+
+  // ---- Roster/data corrections (Erik-confirmed) ----
+  console.log(`=== Roster corrections (${CORRECTIONS.length}) ===`);
+  for (const c of CORRECTIONS) {
+    const row = ROWS.find(r => r.id === c.payrollId);
+    if (!row || !row._emp) { console.log(`  ⚠ payroll #${c.payrollId} not resolved — skipping`); continue; }
+    const shown = Object.entries(c.fields).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(', ');
+    const who = row._emp.Employee_Full_Name || `${row._emp.First_Name} ${row._emp.Last_Name}`;
+    if (!APPLY) { console.log(`  would set ${shown} on ${who} — ${c.why}`); continue; }
+    try {
+      await axios.put(`${BASE}/tables/${EMPLOYEES}/records?q.where=${encodeURIComponent(`ID_Record_Employee='${row._emp.ID_Record_Employee}'`)}`, c.fields, H);
+      console.log(`  ✓ ${who}: ${shown}`);
+    } catch (e) { console.log(`  ❌ ${who}: ${e.response ? JSON.stringify(e.response.data) : e.message}`); }
+  }
+  console.log('');
 
   // ---- Write register rows ----
   console.log(`=== ${REGISTER}: ${ROWS.length} rows (upsert by Register_Key) ===`);
