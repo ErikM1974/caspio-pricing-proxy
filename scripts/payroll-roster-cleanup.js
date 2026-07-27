@@ -37,6 +37,9 @@ const DEACTIVATE = [
   { first: 'Antonio', last: 'Massey' },
   { first: 'Sanou', last: 'Pon' },
   { first: 'Adriyella', last: 'Trujillo' },
+  // Erik 2026-07-27: the last unexplained active record — hired 2020-12-01, no payroll ID, on
+  // neither Erik's roster nor NW Regional's leave report. Confirmed not employed.
+  { first: 'UT Thi', last: 'Tran' },
 ];
 
 // Payroll is the most sensitive data in the account — admin only, no accountant.
