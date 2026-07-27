@@ -1,3 +1,13 @@
+## v2026.07.27.3 (2026.07.27)
+
+- Thumbnail sync: skip files over the server's upload cap instead of failing them
+- Payroll tracking: Payroll_Register schema + reconciled packet importer
+- Payroll import: Erik-confirmed roster corrections + spelling-tolerant matcher
+- Payroll follow-ups: vacation eligibility, ex-staff deactivation, admin-only gate
+- Payroll API: admin-gated reads + packet upload with reconciliation gate
+- Payroll cleanup: deactivate UT Thi Tran (last unexplained active record)
+- Payroll: repair employee drift found by auditing a Caspio CSV export
+
 ## v2026.07.27.2 (2026.07.27)
 
 - Pre-push guard: production ships through /deploy, not by hand
