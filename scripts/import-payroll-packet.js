@@ -294,7 +294,12 @@ async function main() {
     const upd = {
       Payroll_Employee_ID: x.id,
       Vacation_Hours_Available: hm(x.vac[0]),          // Caspio "Available" == packet "Accum."
-      Vacation_Hours_Used: hm(x.vac[1]),               // Vacation_Hours_Remaining is a formula off these two
+      Vacation_Hours_Used: hm(x.vac[1]),
+      // Vacation_Hours_Remaining WAS a Caspio formula off the two fields above and became a
+      // plain editable Number on 2026-07-27 — so it no longer recomputes and must be written.
+      // (If it is ever converted back to a formula this PUT will 400: drop this line then.
+      // The dashboard's import route probes field editability instead of assuming.)
+      Vacation_Hours_Remaining: r2(hm(x.vac[0]) - hm(x.vac[1])),
       Sick_Accum_Hours_Available: hm(x.sick[0]),
       Sick_Hours_Used: hm(x.sick[1]),
       Sick_Hours_Remaining: r2(hm(x.sick[0]) - hm(x.sick[1])),

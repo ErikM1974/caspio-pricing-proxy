@@ -375,6 +375,20 @@ router.post('/import', async (req, res) => {
       });
     }
 
+    // Vacation_Hours_Remaining WAS a Caspio formula (accrued - used) and became a plain
+    // editable Number on 2026-07-27. A formula field is read-only, so blindly writing it
+    // would 400 the whole record update if it were ever converted back — probe once and
+    // include it only when it's actually writable. Values are otherwise frozen and go
+    // stale the first time a packet changes someone's vacation.
+    let vacRemainingWritable = false;
+    try {
+      const fields = (await axios.get(`${BASE}/tables/${EMPLOYEES}/fields`, { headers: { Authorization: H.headers.Authorization } })).data.Result;
+      const vr = (fields || []).find(f => f.Name === 'Vacation_Hours_Remaining');
+      vacRemainingWritable = !!vr && vr.Editable !== false && !vr.IsFormula;
+    } catch (e) {
+      console.warn('[payroll] could not probe Vacation_Hours_Remaining editability:', e.message);
+    }
+
     const stamp = `${p.checkDate} 00:00:00`;
     const dateKey = p.checkDate.replace(/-/g, '');
     let written = 0;
@@ -426,6 +440,7 @@ router.post('/import', async (req, res) => {
           Sick_Hours_Remaining: r2((x.sickAccrued || 0) - (x.sickUsed || 0)),
           Leave_Balances_As_Of: p.checkDate,
         };
+        if (vacRemainingWritable) upd.Vacation_Hours_Remaining = r2((x.vacationAccrued || 0) - (x.vacationUsed || 0));
         if (x.paid && x.payRate > 0) { upd.Pay = x.payRate; upd.Pay_Rate_Effective_Date = p.checkDate; }
         await axios.put(`${BASE}/tables/${EMPLOYEES}/records?q.where=${encodeURIComponent(`ID_Record_Employee='${esc(emp.ID_Record_Employee)}'`)}`, upd, H);
         written++;
