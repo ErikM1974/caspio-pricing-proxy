@@ -1,3 +1,7 @@
+## v2026.07.27.4 (2026.07.27)
+
+- Payroll: write Vacation_Hours_Remaining now that it is no longer a Caspio formula
+
 ## v2026.07.27.3 (2026.07.27)
 
 - Thumbnail sync: skip files over the server's upload cap instead of failing them
