@@ -108,7 +108,14 @@ async function syncRecentCompleted() {
     if (!d.running) {
       const r = d.lastResult || {};
       if (r.error) console.log(`  Catch-up error: ${r.error}`);
-      else console.log(`  Catch-up: ingested ${r.ingested || 0} order(s), +${r.shipmentsAdded || 0} tracking (discovered ${r.discovered || 0}, errors ${r.errors || 0}). Status: SUCCESS`);
+      else {
+        // Phase 0 first — this is the shipment-FIRST view (SanMar's manifest), so a PO listed
+        // under newPos shipped without us holding an order row for it. Worth reading daily.
+        const s = r.sweep;
+        if (s && s.error) console.log(`  ⚠ Shipment sweep FAILED: ${s.error} — completeness NOT guaranteed this run`);
+        else if (s) console.log(`  Shipment sweep (${s.window}): ${s.cartons} carton(s) across ${s.posSeen} PO(s), +${s.added} new${s.newPos && s.newPos.length ? `, ${s.newPos.length} PO(s) with no order row: ${s.newPos.join(', ')}` : ''}`);
+        console.log(`  Catch-up: ingested ${r.ingested || 0} order(s), +${r.shipmentsAdded || 0} tracking (discovered ${r.discovered || 0}, stale ${r.staleDiscovered || 0}, deferred ${r.deferred || 0}, errors ${r.errors || 0}). Status: SUCCESS`);
+      }
       return;
     }
     const p = d.progress || {};

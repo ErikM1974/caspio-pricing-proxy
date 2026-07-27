@@ -16,7 +16,7 @@
 //   GET  /api/sanmar-orders/inbound-today   — Detailed POs arriving on a day (line items + color), for the detail view + PDF
 //   POST /api/sanmar-orders/link            — Save ShopWorks↔SanMar PO mapping
 //   POST /api/sanmar-orders/sync            — Daily sync (Heroku Scheduler)
-//   POST /api/sanmar-orders/sync-recent-completed — Catch-up (ASYNC 202): ingest fast-completing orders missed by allOpen/lastUpdate (lastUpdate-wide + invoice discovery)
+//   POST /api/sanmar-orders/sync-recent-completed — Catch-up (ASYNC 202): ingest fast-completing orders missed by allOpen/lastUpdate (lastUpdate-wide + invoice + stale-order discovery)
 //   GET  /api/sanmar-orders/sync-recent-completed-status — poll the background catch-up
 //   POST /api/sanmar-orders/backfill        — Fire-and-forget backfill with progress
 //   POST /api/sanmar-orders/match-manageorders — Match SanMar orders to ManageOrders by style+date
@@ -162,6 +162,127 @@ async function pullAndStoreShipments(po) {
     }
   }
   return added;
+}
+
+// ── Shipment-FIRST sweep (Erik 2026-07-27) ───────────────────────────────────────
+// Everything else here is PO-first: it asks SanMar "what shipped for the POs I know about",
+// which can confirm what we already hold but can never prove we hold everything. SanMar's
+// OSN queryType=3 inverts that — "everything you shipped since <timestamp>" — which is the
+// same content as the freight manifest (PSST) they send us, straight from the API. One SOAP
+// call covers the whole window regardless of which POs we'd have thought to ask about, so a
+// carton for a PO we never ingested still lands in our shipment table and shows on the
+// inbound report (unmatched POs deliberately still print — never silently dropped).
+//
+// SanMar caps the window at 7 days and returns error 303 for a timestamp older than that.
+//
+// Caspio cost is the reason this reads the window ONCE instead of per-carton like
+// pullAndStoreShipments does: one paged read builds a `PO|tracking` seen-set, then we POST
+// only genuinely new cartons. A quiet day costs a single read.
+// An OSN response nests PO → salesOrder → location → package. Flatten to one row per CARTON,
+// keeping each package's ship-from/ship-to (they differ per location on a multi-warehouse PO).
+// A package with no tracking number is skipped — it isn't a shippable carton we can reconcile.
+function flattenShipmentCartons(parsedShipments) {
+  const cartons = [];
+  for (const shipment of (parsedShipments || [])) {
+    const po = shipment && shipment.purchaseOrderNumber;
+    if (!po) continue;
+    for (const so of (shipment.salesOrders || [])) {
+      for (const loc of (so.locations || [])) {
+        for (const pkg of (loc.packages || [])) {
+          if (!pkg || !pkg.trackingNumber) continue;
+          cartons.push({ po, pkg, shipFrom: loc.shipFrom || {}, shipTo: loc.shipTo || {} });
+        }
+      }
+    }
+  }
+  return cartons;
+}
+
+// Dedupe identity for a carton — a tracking number is only unique WITHIN a PO.
+function cartonKey(po, trackingNumber) {
+  return `${po}|${String(trackingNumber || '').trim().toUpperCase()}`;
+}
+
+// Does this SOAP error mean "the window was empty" (fine) or "the call failed" (loud)?
+// Getting this backwards is how a silent-empty starts: a failed sweep that returns quietly is
+// indistinguishable from a day SanMar genuinely shipped nothing.
+function isEmptyWindowError(soapErr) {
+  if (!soapErr) return false;
+  return soapErr.code === 160 || /data not found/i.test(soapErr.message || '');
+}
+
+async function sweepRecentShipments(daysBack) {
+  const days = Math.min(Math.max(parseInt(daysBack, 10) || 3, 1), 7); // SanMar hard-caps at 7
+  const since = new Date(Date.now() - days * 86400000);
+  const result = { window: `${days}d`, cartons: 0, added: 0, posSeen: 0, newPos: [], errors: 0 };
+
+  const xml = await makeSoapRequest(ENDPOINTS.shipmentNotification,
+    buildShipmentRequest(3, { shipmentDateTimeStamp: since.toISOString() }),
+    { timeout: 60000, namespaces: { ns: NS.shipment, shar: NS.shipmentShared } });
+  const soapErr = checkSoapError(xml);
+  if (soapErr) {
+    // An empty window is fine; anything else (auth, unauthorized, 303 stale-timestamp, a SOAP
+    // fault) is a real failure and must be LOUD — see isEmptyWindowError.
+    if (isEmptyWindowError(soapErr)) return result;
+    throw new Error(`OSN queryType=3 failed (code ${soapErr.code}): ${soapErr.message || 'unknown'}`);
+  }
+
+  // Flatten to one row per carton first, so the Caspio dedupe read can be a single query.
+  const cartons = flattenShipmentCartons(parseShipmentResponse(xml));
+  result.cartons = cartons.length;
+  if (!cartons.length) return result;
+
+  const pos = [...new Set(cartons.map(c => c.po))];
+  result.posSeen = pos.length;
+
+  // What we already have, for just these POs — one read per 100-PO chunk, not one per carton.
+  const seen = new Set();
+  const knownPos = new Set();
+  for (let i = 0; i < pos.length; i += 100) {
+    const where = pos.slice(i, i + 100).map(p => `SanMar_PO='${xmlEscape(p)}'`).join(' OR ');
+    const rows = await fetchAllCaspioPages(`/tables/${TABLES.shipments}/records`, {
+      'q.where': where, 'q.select': 'SanMar_PO,Tracking_Number', 'q.orderBy': 'PK_ID', 'q.limit': 1000,
+    }) || [];
+    for (const r of rows) seen.add(cartonKey(r.SanMar_PO, r.Tracking_Number));
+  }
+  // Which of these POs we have an ORDER row for — the ones we don't are the real finds.
+  for (let i = 0; i < pos.length; i += 100) {
+    const where = pos.slice(i, i + 100).map(p => `SanMar_PO='${xmlEscape(p)}'`).join(' OR ');
+    const rows = await fetchAllCaspioPages(`/tables/${TABLES.orders}/records`, {
+      'q.where': where, 'q.select': 'SanMar_PO', 'q.orderBy': 'PK_ID', 'q.limit': 1000,
+    }) || [];
+    for (const r of rows) knownPos.add(r.SanMar_PO);
+  }
+  result.newPos = pos.filter(p => !knownPos.has(p));
+
+  for (const { po, pkg, shipFrom, shipTo } of cartons) {
+    if (seen.has(cartonKey(po, pkg.trackingNumber))) continue;
+    try {
+      await makeCaspioRequest('POST', `/tables/${TABLES.shipments}/records`, {}, {
+        SanMar_PO: po,
+        Tracking_Number: pkg.trackingNumber,
+        Carrier: pkg.carrier || '',
+        Ship_Method: pkg.shipmentMethod || '',
+        Ship_Date: pkg.shipmentDate ? pkg.shipmentDate.split('T')[0] : '',
+        Ship_From_Warehouse: shipFrom.city || '',
+        Ship_From_City: shipFrom.city || '',
+        Ship_From_State: shipFrom.region || '',
+        Ship_From_Zip: shipFrom.postalCode || '',
+        Ship_From_Address: shipFrom.address1 || '',
+        Ship_To_Address: shipTo.address1 || '',
+        Package_Weight: pkg.weight || '',
+        Package_Dimensions: pkg.dimensions || '',
+        Package_Class: pkg.packageClass || '',
+      });
+      seen.add(cartonKey(po, pkg.trackingNumber)); // guard dup cartons in one response
+      result.added++;
+    } catch (e) {
+      result.errors++;
+      console.error(`[shipment-sweep] ${po} / ${pkg.trackingNumber}:`, e.message);
+    }
+  }
+  console.log('[shipment-sweep]', JSON.stringify(result));
+  return result;
 }
 
 // ── GET /open — All open SanMar orders ──
@@ -655,6 +776,31 @@ function addBusinessDays(isoDate, n) {
   return cur;
 }
 
+// Which of a PO's boxes are actually landing in THIS arrival window. SanMar's live shipment feed
+// returns every box the PO ever shipped, so without this a split shipment reports its whole history
+// on the first carton's arrival day (PO 113682 showed 70 pcs / 3 boxes when 6 pcs / 1 box was
+// inbound — the other two had been on the shelf since the 17th). arrivingTracking holds the tracking
+// numbers whose Caspio shipment row passed the arrival band. No overlap (OSN tracking missing or
+// formatted differently) ⇒ keep ALL boxes rather than render an empty-but-confident list; Rule #4
+// says never hide an inbound box, and over-reporting is recoverable where a silent drop is not.
+function scopeBoxesToArrival(allBoxes, arrivingTracking) {
+  const boxes = allBoxes || [];
+  if (!arrivingTracking || !arrivingTracking.size) return boxes;
+  const scoped = boxes.filter(b => arrivingTracking.has(String(b.trackingNumber || '').trim().toUpperCase()));
+  return scoped.length ? scoped : boxes;
+}
+
+// Receiving records a count-in per PO, but SanMar ships per CARTON — so a PO counted in on the 21st
+// can still have a carton that only shipped on the 24th. Those pieces are NOT on the shelf, so the
+// PO has to stay on the arriving list, the receiving checklist and the box labels instead of
+// collapsing to "✓ Received". True when the newest arriving carton shipped AFTER the count-in date.
+// No count-in date (sts_Received flag alone) ⇒ nothing to compare, so the flag is honoured as before.
+function isFollowOnShipment(receivedDate, lastShipDate) {
+  const r = String(receivedDate || '').slice(0, 10), s = String(lastShipDate || '').slice(0, 10);
+  if (!r || !s) return false;
+  return s > r;
+}
+
 router.get('/daily-inbound', async (req, res) => {
   try {
     const today = new Date().toISOString().slice(0, 10);
@@ -880,17 +1026,22 @@ router.get('/inbound-today', async (req, res) => {
     // Candidate band: estimate within ±3 days of the target (UPS rarely differs by more). Fetch UPS for
     // these, then keep only POs whose EFFECTIVE arrival (UPS date when known, else estimate) == date.
     const bandLo = addDaysISO(date, -3), bandHi = addDaysISO(date, 3);
-    const poShip = new Map(); // po -> { boxes, shipDate, carrier, tracking, fromCity, fromState, estArrival, upsDelivery }
+    const poShip = new Map(); // po -> { boxes, shipDate, lastShipDate, carrier, tracking, arrivingTracking, fromCity, fromState, estArrival, upsDelivery }
     for (const s of shipRows) {
       const po = s.SanMar_PO; const sd = (s.Ship_Date || '').slice(0, 10);
       if (!po || !sd) continue;
       const estArrival = addBusinessDays(sd, transitDaysFor(s.Ship_Method, s.Ship_From_State));
       if (!estArrival || estArrival < bandLo || estArrival > bandHi) continue; // outside the candidate band
-      const cur = poShip.get(po) || { boxes: 0, shipDate: sd, carrier: s.Carrier || '', tracking: s.Tracking_Number || '', fromCity: s.Ship_From_City || '', fromState: s.Ship_From_State || '', estArrival };
+      const cur = poShip.get(po) || { boxes: 0, shipDate: sd, lastShipDate: sd, carrier: s.Carrier || '', tracking: s.Tracking_Number || '', arrivingTracking: new Set(), fromCity: s.Ship_From_City || '', fromState: s.Ship_From_State || '', estArrival };
       cur.boxes += 1;
       if (sd < cur.shipDate) cur.shipDate = sd;
+      if (sd > cur.lastShipDate) cur.lastShipDate = sd; // newest arriving box — drives the follow-on-shipment check
       if (estArrival < cur.estArrival) cur.estArrival = estArrival; // earliest box's estimate
       if (!cur.tracking && s.Tracking_Number) cur.tracking = s.Tracking_Number;
+      // Exactly which cartons are landing in this window. SanMar's live box feed returns EVERY box a
+      // PO ever shipped, so without this a split shipment reports its whole history on the first
+      // arrival day (PO 113682: 70 pcs / 3 boxes shown when only 6 pcs / 1 box was inbound).
+      if (s.Tracking_Number) cur.arrivingTracking.add(String(s.Tracking_Number).trim().toUpperCase());
       poShip.set(po, cur);
     }
 
@@ -1033,8 +1184,15 @@ router.get('/inbound-today', async (req, res) => {
     }
 
     // 6b. Per-box contents with color/size resolved (one box block per package).
+    //     SCOPED TO THIS DAY: SanMar's shipment feed returns every box the PO ever shipped, so we keep
+    //     only the cartons whose Caspio shipment row landed in this arrival window (see arrivingTracking).
+    //     A PO that shipped 7/17 and again 7/24 must show ONLY the 7/24 carton on the 7/24 carton's day —
+    //     otherwise pieces/boxes/cost all count the already-received half again.
+    //     If nothing matches (OSN tracking missing or formatted differently), keep ALL boxes rather than
+    //     rendering an empty-but-confident box list — Rule #4: never hide an inbound box.
     const boxDetailByPo = new Map();
-    for (const [po, bs] of boxesByPo) {
+    for (const [po, allBoxes] of boxesByPo) {
+      const bs = scopeBoxesToArrival(allBoxes, (poShip.get(po) || {}).arrivingTracking);
       boxDetailByPo.set(po, bs.map((b, i) => {
         const items = b.items.map(it => {
           const c = colorMap.get(it.partId) || null;
@@ -1075,6 +1233,14 @@ router.get('/inbound-today', async (req, res) => {
       const cost = usingBox
         ? Math.round((_bd || []).reduce((t, b) => t + (b.cost || 0), 0) * 100) / 100
         : Math.round(lines.reduce((t, l) => t + (l.lineCost || 0), 0) * 100) / 100;
+      // Received (ShopWorks count-in) is recorded per PO, but SanMar ships per CARTON — so a PO counted
+      // in on the 21st can still have a carton that only shipped on the 24th. Treat it as received ONLY
+      // when the boxes arriving now shipped on or before the count-in date; a later carton is genuinely
+      // still inbound and must stay on the list, the checklist and the box labels (Rule #4). No
+      // count-in date (sts_Received flag alone) ⇒ can't compare, so honour the flag as before.
+      const recvRow = receivedByPo.get(extractPONumber(po));
+      const receivedDate = (recvRow || {}).receivedDate || '';
+      const followOnShipment = !!recvRow && isFollowOnShipment(receivedDate, sh.lastShipDate);
       const idOrderStr = woFor(po); // effective WO: SanMar_Orders.id_Order, else PurchaseOrders fallback
       const method = ORDER_TYPE_LABEL[idOrderStr ? typeByIdOrder.get(idOrderStr) : 0] || 'Other';
       const mo = idOrderStr ? moByIdOrder.get(idOrderStr) : null;
@@ -1100,8 +1266,10 @@ router.get('/inbound-today', async (req, res) => {
         boxes: (boxDetailByPo.get(po) || []).length || sh.boxes,
         boxDetail: boxDetailByPo.get(po) || null,
         boxDetailAvailable: boxesByPo.has(po),
-        received: receivedByPo.has(extractPONumber(po)),
-        receivedDate: (receivedByPo.get(extractPONumber(po)) || {}).receivedDate || '',
+        received: !!recvRow && !followOnShipment,
+        receivedDate,
+        followOnShipment, // PO already counted in, but THIS carton shipped after that — still inbound
+
         cost, piecesShipped, piecesOrdered, lines,
       };
     }).sort((a, b) => (a.received ? 1 : 0) - (b.received ? 1 : 0)
@@ -1449,10 +1617,19 @@ router.post('/sync-shipments', async (req, res) => {
 // placed→shipped→Complete between sync windows is never ingested at all — no order row,
 // no items, no tracking — invisible to the quote-view "Blank Goods" panel, the inbound
 // dot, and the daily shipments list (real case: PO 113470 / WO 142292, shipped+complete in
-// ~1 day). This sweep DISCOVERS such orders two ways for robustness — a WIDE OSS lastUpdate
-// window AND recently-INVOICED POs (SanMar's authoritative "shipped" signal) — and fully
-// ingests any not already synced: order + items (poSearch only when the order object isn't
-// already in hand) → pullAndStoreShipments (OSN tracking) → runQuickMatch (link to WO#).
+// ~1 day). This sweep DISCOVERS such orders FOUR ways for robustness and fully ingests any not
+// already synced: order + items (poSearch only when the order object isn't already in hand) →
+// pullAndStoreShipments (OSN tracking) → runQuickMatch (link to WO#). The four, and why each
+// exists — every one of them is blind to something the others catch:
+//   0. SHIPMENT-FIRST (`sweepRecentShipments`, OSN queryType=3) — "everything SanMar shipped in
+//      the last 3 days", i.e. the freight-manifest/PSST view. The ONLY path that can find a
+//      carton for a PO we hold no row for, because it never has to name a PO to ask.
+//   A. OSS lastUpdate over a WIDE window — cheap, but only reports what SanMar says changed.
+//   B. Recently-INVOICED POs — authoritative "shipped", but blind to orders that never invoice
+//      (marketing-fund / no-charge).
+//   C. Our OWN stale non-terminal order rows — the only one that works when SanMar stops
+//      reporting a PO at all (real case: PO 113781 / WO 142568, shipped 7/24 and still sitting
+//      on 'confirmed' with zero tracking three syncs later, on no inbound day at all).
 //
 // Runs ASYNC (202 + background runner + status endpoint) like /backfill: invoice discovery
 // + per-PO SOAP can exceed Heroku's 30s WEB limit, so a synchronous version H12s for BOTH
@@ -1465,12 +1642,28 @@ async function runRecentCompletedBackground(daysBack) {
   const MAX_INGEST = 50; // backstop so one run can't churn forever
   recentCompletedStatus = {
     running: true, startedAt: Date.now(), lastRun: new Date().toISOString(), lastResult: null,
-    progress: { phase: 'discovering', discovered: 0, pending: 0, ingested: 0, shipmentsAdded: 0, errors: 0 },
+    progress: { phase: 'sweeping shipments', discovered: 0, pending: 0, ingested: 0, shipmentsAdded: 0, errors: 0 },
   };
   try {
+    const byPo = new Map(); // SanMar_PO → order object | null (null = needs poSearch)
+
+    // Phase 0 — SHIPMENT-FIRST sweep. Runs before the PO-first discoveries below because it is
+    // the only one that can find a carton for a PO nobody knew to ask about; the POs it turns up
+    // then flow into the same ingest pipeline. Failure is logged loudly and recorded in the
+    // result, but does not abort A/B/C — a SanMar OSN hiccup shouldn't cost us the whole catch-up.
+    let sweep = null;
+    try {
+      sweep = await sweepRecentShipments(3);
+      recentCompletedStatus.progress.shipmentsAdded = sweep.added;
+      for (const po of sweep.newPos) byPo.set(po, null); // shipped, but we hold no order row
+    } catch (e) {
+      sweep = { error: e.message };
+      console.error('[sync-recent-completed] shipment-first sweep FAILED:', e.message);
+    }
+
+    recentCompletedStatus.progress.phase = 'discovering';
     // Discovery A: OSS lastUpdate over a WIDE window (one SOAP call). Returns full order
     // objects, so these need no per-PO poSearch.
-    const byPo = new Map(); // SanMar_PO → order object | null (null = discovered via invoice, needs poSearch)
     try {
       const since = new Date(Date.now() - daysBack * 86400000).toISOString().replace('Z', '');
       const xml = await makeSoapRequest(ENDPOINTS.orderStatus,
@@ -1485,6 +1678,36 @@ async function runRecentCompletedBackground(daysBack) {
     try {
       for (const po of await discoverPOsFromInvoices(daysBack)) if (!byPo.has(po)) byPo.set(po, null);
     } catch (e) { console.warn('[sync-recent-completed] invoice discovery failed:', e.message); }
+
+    // Discovery C: STALE orders we already hold (Erik 2026-07-27). A and B both ask SanMar what
+    // changed — so a PO SanMar stops reporting is invisible to them. Once allOpen drops an order
+    // (it completed) its Last_Sync_Date freezes, and if it never gets invoiced (marketing-fund /
+    // no-charge orders) invoice discovery never names it either. The order then sits forever on a
+    // pre-shipment status with ZERO tracking rows and lands on no inbound day at all — receiving
+    // gets a box nobody expected. Real case: PO 113781 / WO 142568, shipped 7/24, still 'confirmed'
+    // with no shipments three syncs later. This asks OUR OWN table instead: any non-terminal order
+    // the daily sync has stopped touching. A genuinely-open order is re-touched by allOpen every
+    // run, so its Last_Sync_Date stays fresh and it never qualifies. Cheap: one Caspio read of a
+    // handful of rows, filtered in JS (Caspio date comparisons on these columns are unreliable).
+    const STALE_DAYS = 2;
+    const staleCandidates = [];
+    try {
+      const openish = ['confirmed', 'shipped', 'partiallyShipped', 'new', ''];
+      const rows = await fetchAllCaspioPages(`/tables/${TABLES.orders}/records`, {
+        'q.where': openish.map(s => `SanMar_Status='${xmlEscape(s)}'`).join(' OR '),
+        'q.select': 'SanMar_PO,SanMar_Status,Last_Sync_Date',
+        'q.orderBy': 'PK_ID', 'q.limit': 1000,
+      }) || [];
+      const cutoff = Date.now() - STALE_DAYS * 86400000;
+      for (const r of rows) {
+        if (!r.SanMar_PO) continue;
+        const t = Date.parse(r.Last_Sync_Date || '');
+        // Never synced (unparseable) counts as stale — that PO has no fresher signal either.
+        if (!Number.isNaN(t) && t > cutoff) continue;
+        if (!byPo.has(r.SanMar_PO)) { byPo.set(r.SanMar_PO, null); staleCandidates.push(r.SanMar_PO); }
+      }
+      console.log(`[sync-recent-completed] stale-order discovery: ${staleCandidates.length} non-terminal order(s) untouched for ${STALE_DAYS}+ days`);
+    } catch (e) { console.warn('[sync-recent-completed] stale-order discovery failed:', e.message); }
 
     const candidates = [...byPo.keys()];
     recentCompletedStatus.progress.discovered = candidates.length;
@@ -1503,9 +1726,19 @@ async function runRecentCompletedBackground(daysBack) {
       const haveShip = new Set((shipRows || []).map(r => r.SanMar_PO));
       fullySynced = new Set(candidates.filter(p => haveStatus.has(p) && haveShip.has(p)));
     }
-    const pending = candidates.filter(p => !fullySynced.has(p)).slice(0, MAX_INGEST);
+    // SanMar-reported changes (A/B) take the ingest budget first; the stale-order sweep (C) rides on
+    // whatever is left, so adding C can never starve the day's real updates.
+    const staleSet = new Set(staleCandidates);
+    const notSynced = candidates.filter(p => !fullySynced.has(p));
+    const queued = [...notSynced.filter(p => !staleSet.has(p)), ...notSynced.filter(p => staleSet.has(p))];
+    const pending = queued.slice(0, MAX_INGEST);
+    // Never truncate silently — a dropped PO is a box receiving won't be expecting.
+    if (queued.length > pending.length) {
+      console.warn(`[sync-recent-completed] MAX_INGEST=${MAX_INGEST} reached — ${queued.length - pending.length} PO(s) deferred to the next run: ${queued.slice(MAX_INGEST).join(', ')}`);
+    }
     recentCompletedStatus.progress.phase = 'ingesting';
     recentCompletedStatus.progress.pending = pending.length;
+    recentCompletedStatus.progress.deferred = queued.length - pending.length;
 
     let ingested = 0, shipmentsAdded = 0, errors = 0;
     for (const po of pending) {
@@ -1529,8 +1762,10 @@ async function runRecentCompletedBackground(daysBack) {
       try { quickMatch = await runQuickMatch(); } catch (e) { quickMatch = { error: e.message }; }
     }
     recentCompletedStatus.lastResult = {
-      daysBack, discovered: candidates.length, pending: pending.length,
-      ingested, shipmentsAdded, errors, quickMatch, completedAt: new Date().toISOString(),
+      daysBack, sweep, discovered: candidates.length, staleDiscovered: staleCandidates.length,
+      pending: pending.length, deferred: queued.length - pending.length,
+      ingested, shipmentsAdded: shipmentsAdded + ((sweep && sweep.added) || 0),
+      errors, quickMatch, completedAt: new Date().toISOString(),
     };
     console.log('[sync-recent-completed]', JSON.stringify(recentCompletedStatus.lastResult));
   } catch (error) {
@@ -2905,3 +3140,10 @@ async function runManageOrdersMatch() {
 }
 
 module.exports = router;
+// Inbound-accuracy rules — exported for tests/jest/sanmar-inbound-arrival-scope.test.js. Both decide
+// whether a physically-inbound box shows up on the receiving worklist, so they are pinned by tests.
+module.exports.scopeBoxesToArrival = scopeBoxesToArrival;
+module.exports.isFollowOnShipment = isFollowOnShipment;
+module.exports.flattenShipmentCartons = flattenShipmentCartons;
+module.exports.cartonKey = cartonKey;
+module.exports.isEmptyWindowError = isEmptyWindowError;
