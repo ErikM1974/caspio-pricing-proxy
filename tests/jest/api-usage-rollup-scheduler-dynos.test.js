@@ -216,6 +216,37 @@ describe('rollup: write failures and reads', () => {
     expect(mod.status().consecutiveFailures).toBe(3);
   });
 
+  // THE RUNAWAY, 2026-07-28. The rollup's own POST was being counted by the
+  // metering interceptor, so every flush left a fresh non-zero delta, which
+  // triggered another flush. With an unguarded beforeExit that fed itself until
+  // Caspio's per-second limit stopped it — ~1,893 junk rows in the table.
+  test('the flush POST is marked _skipMeter so it cannot feed itself', async () => {
+    const seen = [];
+    axios.post.mockImplementation(async (_u, _b, cfg) => { seen.push(cfg); return { data: {} }; });
+
+    const { mod, tracker } = bootProcess('web.1');
+    record(tracker, 250);
+    await mod.runOnce();
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]._skipMeter).toBe(true);
+  });
+
+  test('the interceptor ignores a _skipMeter request', () => {
+    const { tracker } = bootProcess('web.1');
+    const handlers = [];
+    const stub = { interceptors: { request: { use: fn => handlers.push(fn) } } };
+    tracker.installOn(stub);
+    const fire = cfg => handlers.forEach(fn => fn(cfg));
+
+    const url = 'https://nwcustom.caspio.com/integrations/rest/v3/tables/API_Usage_Daily/records';
+    fire({ url, method: 'post', _skipMeter: true });
+    expect(tracker.stats.totalCalls).toBe(0);        // metering overhead, not traffic
+
+    fire({ url, method: 'post' });                    // a normal write still counts
+    expect(tracker.stats.totalCalls).toBe(1);
+  });
+
   test('status() reports the table and dyno it writes as', () => {
     const { mod } = bootProcess('scheduler.42');
     expect(mod.status()).toMatchObject({
