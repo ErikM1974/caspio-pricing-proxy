@@ -1,3 +1,8 @@
+## v2026.07.28.3 (2026.07.28)
+
+- Rollup: rate limits retry with backoff instead of tripping the circuit breaker
+- Rollup: beforeExit flush fires once, not on every loop drain
+
 ## v2026.07.28.2 (2026.07.28)
 
 - Rollup: record scheduler dynos — the table only ever held web.1
