@@ -1,3 +1,9 @@
+## v2026.07.28.6 (2026.07.28)
+
+- daily-sales-by-rep: abort the date on a failed read instead of INSERTing duplicate archive rows
+- sanmar-orders: fix two truncated/unordered reads that caused nightly PO re-ingestion
+- check-transfers-received: fail loudly when the Slack_Notified flag does not stick
+
 ## v2026.07.28.5 (2026.07.28)
 
 - Rollup: flush POST is no longer metered (self-feeding flush loop)
