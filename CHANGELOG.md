@@ -1,3 +1,8 @@
+## v2026.07.28.8 (2026.07.28)
+
+- DTG product-bundle: cache it, merge its two Sanmar scans, stop pricing on partial data
+- Meter the 3 blind scheduler scripts; stop ~619 no-op PUTs/day in sync-manageorders
+
 ## v2026.07.28.7 (2026.07.28)
 
 - Memory: check-transfers-received cadence 10 min -> hourly at :20
