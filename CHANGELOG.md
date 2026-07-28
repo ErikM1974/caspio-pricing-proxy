@@ -1,3 +1,7 @@
+## v2026.07.28.4 (2026.07.28)
+
+- Meter, rollup and pacing now key days on the Caspio account clock (Pacific), matching how Caspio buckets its usage bars
+
 ## v2026.07.28.3 (2026.07.28)
 
 - Rollup: rate limits retry with backoff instead of tripping the circuit breaker
