@@ -61,6 +61,26 @@ needs a `q.select` so those rows stop coming back full-width.
 `GET /api/admin/metrics` (`callsByTable`). **That field did not exist** until
 wave 3 — use `?full=1` (and the secret header) now.
 
+## Scheduler cadence: check-transfers-received 10 min → Hourly at :20 (2026-07-28)
+
+144 one-off dynos/day → 24. Each run costs a FIXED 2 Caspio calls (a cold OAuth
+token + one filtered `PurchaseOrders` read) whether or not a transfer arrived, so
+288 → 48 calls/day, **saving ~240/day ≈ $14.40/period**.
+
+Why hourly and not daily (Erik was happy with daily): the cost is fixed *per
+run*, so hourly already captures **84%** of the available saving and daily adds
+only ~$2.76/period more while making the alert **20× slower** (≈75 min worst case
+→ ≈24 h). Same flat-savings-curve arithmetic as the thumbnail sync.
+
+Why **:20** specifically: `:00` and `:30` each already carry two hourly jobs, and
+Caspio's per-second burst limit is the hard one — don't stack them. `:20` also
+lands ~5 min after bandit's :15 PO sync, so it reads fresh data. The old 10-min
+cadence was pointless anyway: `date_Received` only reaches Caspio via that
+15-minute bandit sync, so ~1 poll in 3 could not possibly see anything new.
+
+⚠️ Heroku Scheduler has **no CLI** — jobs are dashboard-only, and its minute
+picker offers only :00/:10/:20/:30/:40/:50.
+
 ## 🔴 Two things that made this meter under-report (both fixed 2026-07-28)
 
 Reconciling against Caspio's own chart showed a persistent 30-40% shortfall
