@@ -61,6 +61,43 @@ needs a `q.select` so those rows stop coming back full-width.
 `GET /api/admin/metrics` (`callsByTable`). **That field did not exist** until
 wave 3 — use `?full=1` (and the secret header) now.
 
+## 🔴 Two things that made this meter under-report (both fixed 2026-07-28)
+
+Reconciling against Caspio's own chart showed a persistent 30-40% shortfall
+(23,959 billed vs 16,055 measured on 27 Jul). It was **not** an unknown
+integration — it was two of our own bugs. Ruled out along the way, so nobody
+re-treads it: Caspio DataPages consume **no** Integrations calls; Python
+Inksoft's Caspio endpoints are not being hit; the main app's runtime goes
+through the proxy; nothing uses `fetch`/raw HTTP to reach Caspio; Caspio has
+**no per-request REST log** (its "Integrations" log is webhook deliveries,
+newest entry 08 May, all dead Zapier hooks returning 410); and the account has
+exactly **ONE active API profile** (`ProdDetailsAPI`), so there is no second
+consumer with its own credentials.
+
+**1. Heroku Scheduler jobs are ONE-OFF DYNOS.** Every `npm run sync-*` job runs
+in its own dyno that lives for seconds and exits via `process.exit(0)`. The
+rollup flushed on a 60-minute `setInterval`, so it never fired there and SIGTERM
+never arrived — `API_Usage_Daily` held `web.1` rows and **nothing else**, hiding
+~30% of all traffic. Fixed by flushing on a **call-count threshold**
+(`FLUSH_EVERY_CALLS = 250`) instead of a timer, making writes **append-only
+deltas** (no read, and no read-modify-write race between concurrent dynos), and
+auto-starting the rollup from `api-tracker` so any process that talks to Caspio
+records — scheduler scripts never load `server.js`, which is why `start()` was
+never called there.
+
+**2. Caspio buckets usage on the ACCOUNT CLOCK, not UTC.** Its Integrations log
+column header reads literally `Log date (UTC-07:00)`. We keyed days on UTC, so
+our "28 Jul" began at **5 PM Pacific on the 27th** — every day-to-day comparison
+against their chart was apples-to-oranges, and the offset was large enough to
+look like thousands of missing calls. `src/utils/account-time.js` is now the one
+definition of "what day is it" (DST-aware `America/Los_Angeles`), used by the
+tracker, the rollup **and** the period window. They must agree: the rollup looks
+days up by the tracker's own key, so a mismatch silently reads a day that was
+never written.
+
+**Rule for next time: before reconciling your number against a vendor's, match
+their clock — check the timezone on their own log/report headers first.**
+
 ## Thumbnail sync cost model (measured 2026-07-26) — the single biggest line item
 
 `Shopworks_Thumbnail_Report` was **48% of ALL Caspio traffic**: 909 of 1,883 calls
