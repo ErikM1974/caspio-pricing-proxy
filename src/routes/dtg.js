@@ -4,9 +4,40 @@ const express = require('express');
 const router = express.Router();
 const { fetchAllCaspioPages } = require('../utils/caspio');
 const { priceLines, ALL_LOCATION_CODES } = require('../../lib/dtg-canonical-pricing');
+const { createTtlCache, shouldBypass, makeKey } = require('../utils/ttl-cache');
+const {
+  getSizeUpchargeRows,
+  getDtgPricingTierRows,
+  getDtgCostRows
+} = require('../utils/caspio-static-tables');
 
 const INTERNAL_API_BASE = process.env.PROXY_PUBLIC_URL
     || 'https://caspio-pricing-proxy-ab30a049961a.herokuapp.com';
+
+// Sanitize style number input to prevent Caspio WHERE clause injection.
+// Copied verbatim from src/routes/pricing.js:32 (same helper also in products.js,
+// inventory.js, quotes.js). This route interpolated raw req.query into q.where
+// until 2026-07-28.
+function sanitizeStyleNumber(input) {
+  if (!input || typeof input !== 'string') return null;
+  // Allow alphanumeric, hyphens, and periods only (valid SanMar style format)
+  const sanitized = input.replace(/[^a-zA-Z0-9\-\.]/g, '').trim();
+  return (sanitized.length > 0 && sanitized.length <= 30) ? sanitized : null;
+}
+
+// Per-style bundle cache. Keyed on the sanitized style ONLY — never on color.
+// The Caspio read is per-style, and the colour view is derived in memory below,
+// so one entry serves every ?color= variant instead of caching up to 82
+// near-identical copies of the same ~23 KB payload.
+// 15 min matches /api/pricing-bundle so the two routes cannot disagree about a
+// price for longer than one window. Worst-case staleness is 15 min, NOT 30:
+// the price tables are read through their own 15-min cache, but an entry here is
+// built from whatever those held at build time and expires on its own clock.
+const dtgBundleCache = createTtlCache({
+  name: 'dtg-product-bundle',
+  ttlMs: 15 * 60 * 1000,
+  maxEntries: 300
+});
 
 // GET /api/dtg/product-bundle
 // Optimized endpoint that combines product, pricing, and DTG data in a single request
@@ -18,75 +49,112 @@ router.get('/product-bundle', async (req, res) => {
     return res.status(400).json({ error: 'styleNumber is required' });
   }
 
+  const safeStyle = sanitizeStyleNumber(styleNumber);
+  if (!safeStyle) {
+    return res.status(400).json({ error: 'styleNumber is invalid' });
+  }
+  const styleKey = safeStyle.toUpperCase();
+
   try {
-    // Start all data fetches in parallel for performance
-    const fetchPromises = [];
-    
-    // 1. Fetch product colors and details
-    let whereClause = `STYLE='${styleNumber}'`;
-    if (color) {
-      whereClause += ` AND COLOR_NAME='${color}'`;
-    }
-    
-    fetchPromises.push(
-      fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
-        'q.where': whereClause,
-        'q.select': 'STYLE,PRODUCT_TITLE,PRODUCT_DESCRIPTION,COLOR_NAME,CATALOG_COLOR,COLOR_SQUARE_IMAGE,FRONT_MODEL,FRONT_FLAT',
-        'q.limit': 200
-      })
-    );
+    const forceRefresh = shouldBypass(req);
+    const cacheKey = makeKey({ style: styleKey });
 
-    // 2. Fetch DTG pricing tiers
-    fetchPromises.push(
-      fetchAllCaspioPages('/tables/Pricing_Tiers/records', {
-        'q.where': "DecorationMethod='DTG'",
-        'q.select': 'TierLabel,MinQuantity,MaxQuantity,MarginDenominator,TargetMargin,LTM_Fee',
-        'q.limit': 100
-      })
-    );
+    // Cache holds the ALL-COLORS bundle; the per-request colour view is derived
+    // from it below, so a ?color= request can still be served from a warm entry.
+    let response = forceRefresh ? undefined : dtgBundleCache.get(cacheKey);
 
-    // 3. Fetch DTG costs
-    fetchPromises.push(
-      fetchAllCaspioPages('/tables/DTG_Costs/records', {
-        'q.select': 'PrintLocationCode,TierLabel,PrintCost',
-        'q.limit': 200
-      })
-    );
-
-    // 4. Fetch max prices by style (size-based pricing)
-    fetchPromises.push(
-      fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
-        'q.where': `STYLE='${styleNumber}'`,
-        'q.select': 'SIZE,CASE_PRICE',
+    if (!response) {
+      // ONE Sanmar_Bulk read, not two. This endpoint used to scan the 251k-row
+      // table twice per request — once for colours/images (page size 200, so PC54
+      // paid 4 billed pages) and again for SIZE/CASE_PRICE. The union select at
+      // page size 1000 makes PC54 a single billed call: 8 -> 1.
+      // q.orderBy is mandatory on a multi-page read (unordered Caspio pagination
+      // silently drops and duplicates rows); strict:true turns a maxPages
+      // truncation into a throw instead of a short, plausible-looking result.
+      const productPromise = fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
+        'q.where': `STYLE='${safeStyle}'`,
+        'q.select': 'STYLE,PRODUCT_TITLE,PRODUCT_DESCRIPTION,COLOR_NAME,CATALOG_COLOR,'
+          + 'COLOR_SQUARE_IMAGE,FRONT_MODEL,FRONT_FLAT,SIZE,CASE_PRICE',
+        'q.orderBy': 'PK_ID',
         'q.limit': 1000
-      })
-    );
+      }, { strict: true });
 
-    // 5. Fetch size upcharges
-    fetchPromises.push(
-      fetchAllCaspioPages('/tables/Standard_Size_Upcharges/records', {
-        'q.select': 'SizeDesignation,StandardAddOnAmount',
-        'q.orderby': 'SizeDesignation ASC',
-        'q.limit': 200
-      })
-    );
+      // Tiers / costs / upcharges are style-INDEPENDENT and now come from the
+      // shared 15-min table caches, so they cost 0 Caspio calls on a warm process
+      // instead of 3 per request. getSizeUpchargeRows already existed — this
+      // route was bypassing it with its own copy of the query.
+      const [productRows, pricingTiers, dtgCosts, upchargeData] = await Promise.all([
+        productPromise,
+        getDtgPricingTierRows({ force: forceRefresh }),
+        getDtgCostRows({ force: forceRefresh }),
+        getSizeUpchargeRows({ force: forceRefresh })
+      ]);
 
+      // Rule 4: a DTG price built on a missing pricing table is a silently WRONG
+      // price, which is worse than an error. The old code ran Promise.allSettled
+      // and substituted [] for any rejected leg, so a Caspio blip produced a
+      // well-formed 200 carrying nonsense. Note that "not rejected" is NOT the
+      // same as "complete" — caspio.js resolves with PARTIAL results on a
+      // mid-pagination failure — so test the data, not the promise state.
+      const missing = [];
+      if (!Array.isArray(pricingTiers) || pricingTiers.length === 0) missing.push('Pricing_Tiers');
+      if (!Array.isArray(dtgCosts) || dtgCosts.length === 0) missing.push('DTG_Costs');
+      if (!Array.isArray(upchargeData) || upchargeData.length === 0) missing.push('Standard_Size_Upcharges');
+      if (!Array.isArray(productRows) || productRows.length === 0) missing.push('Sanmar_Bulk');
+      if (missing.length > 0) {
+        console.error(`[DTG BUNDLE] incomplete pricing source for ${styleKey}: ${missing.join(', ')}`);
+        return res.status(502).json({
+          error: 'pricing_source_unavailable',
+          details: `Missing or empty: ${missing.join(', ')}`
+        });
+      }
 
-    // Execute all fetches in parallel
-    const results = await Promise.allSettled(fetchPromises);
-    
-    // Process results
-    const productData = results[0].status === 'fulfilled' ? results[0].value : [];
-    const pricingTiers = results[1].status === 'fulfilled' ? results[1].value : [];
-    const dtgCosts = results[2].status === 'fulfilled' ? results[2].value : [];
-    const sizeData = results[3].status === 'fulfilled' ? results[3].value : [];
-    const upchargeData = results[4].status === 'fulfilled' ? results[4].value : [];
+      response = buildBundle(productRows, pricingTiers, dtgCosts, upchargeData);
+
+      // Only pin a verified-complete payload (ttl-cache.js caller contract).
+      // `sizes` is derived from CASE_PRICE and can legitimately be empty for a
+      // style with no priced sizes, so it gates the cache but not the response.
+      if (response.product && response.pricing.sizes.length > 0) {
+        dtgBundleCache.set(cacheKey, response);
+      }
+    }
+
+    // Derive the colour view. Preserves the pre-2026-07-28 wire shape exactly:
+    // with ?color=, `colors` held only the matching entry and `selectedColor`
+    // was set. The Caspio read is no longer colour-filtered, so do it here.
+    res.json(withSelectedColor(response, color));
+
+  } catch (error) {
+    console.error('Error fetching DTG product bundle:', error.message);
+    res.status(500).json({
+      error: 'Failed to fetch DTG product bundle',
+      details: error.message
+    });
+  }
+});
+
+// Narrow an all-colours bundle to the requested colour, reproducing the shape the
+// colour-filtered Caspio query used to return. No colour -> unchanged.
+function withSelectedColor(bundle, color) {
+  if (!color || !bundle || !bundle.product) return bundle;
+  const match = bundle.product.colors.find(c => c.COLOR_NAME === color);
+  return {
+    ...bundle,
+    product: {
+      ...bundle.product,
+      colors: match ? [match] : [],
+      ...(match && { selectedColor: match })
+    }
+  };
+}
+
+function buildBundle(productData, pricingTiers, dtgCosts, upchargeData) {
+    const sizeData = productData;
 
     // Build product section
     const uniqueColors = new Map();
     let productInfo = null;
-    let selectedColorData = null;
-    
+
     productData.forEach(item => {
       if (!productInfo) {
         productInfo = {
@@ -105,10 +173,6 @@ router.get('/product-bundle', async (req, res) => {
           MAIN_IMAGE_URL: item.FRONT_MODEL || item.FRONT_FLAT
         };
         uniqueColors.set(colorKey, colorObj);
-        
-        if (color && item.COLOR_NAME === color) {
-          selectedColorData = colorObj;
-        }
       }
     });
 
@@ -188,32 +252,26 @@ router.get('/product-bundle', async (req, res) => {
     });
 
 
-    // Build response
+    // Build response. `selectedColor` is NOT set here — the bundle is cached
+    // colour-agnostic and withSelectedColor() adds it per request.
     const response = {
       product: productInfo ? {
         ...productInfo,
-        colors: Array.from(uniqueColors.values()),
-        ...(selectedColorData && { selectedColor: selectedColorData })
+        colors: Array.from(uniqueColors.values())
       } : null,
       pricing,
       metadata: {
         cachedAt: new Date().toISOString(),
-        ttl: 300, // 5 minutes
+        // Real TTL, matching dtgBundleCache. This field read 300 for a route that
+        // had no cache at all — a decorative number with no readers.
+        ttl: 900,
         source: 'dtg-bundle-v1'
       }
     };
 
-    console.log(`DTG product bundle for ${styleNumber}: ${uniqueColors.size} colors, ${pricingTiers.length} tiers, ${pricing.sizes.length} sizes`);
-    res.json(response);
-
-  } catch (error) {
-    console.error('Error fetching DTG product bundle:', error.message);
-    res.status(500).json({
-      error: 'Failed to fetch DTG product bundle',
-      details: error.message
-    });
-  }
-});
+    console.log(`DTG product bundle built: ${uniqueColors.size} colors, ${pricingTiers.length} tiers, ${pricing.sizes.length} sizes`);
+    return response;
+}
 
 // POST /api/dtg/quote-pricing
 // Single canonical DTG pricing endpoint. Accepts a shared locationCode +
@@ -286,7 +344,13 @@ router.post('/quote-pricing', async (req, res) => {
             bundlesByStyle[r.style] = r.data;
         }
     }
-    if (Object.keys(bundlesByStyle).length === 0) {
+    // Fail on ANY missing bundle, not only when every one is missing. A partial
+    // set is a SILENTLY WRONG quote, not a degraded one: priceLines() drops the
+    // failing line but still counts its quantity in combinedQty, and the caller
+    // (shared_components/js/quote-cart-engine.js) neither reads `warnings` nor
+    // index-aligns items to a shortened lineItems array — so a partial answered
+    // 200 with an under-stated subtotal AND mis-attributed line items.
+    if (fetchErrors.length > 0) {
         return res.status(502).json({
             error: 'pricing_fetch_failed',
             message: `Could not fetch product bundles: ${fetchErrors.join('; ')}`,
@@ -297,9 +361,6 @@ router.post('/quote-pricing', async (req, res) => {
     const out = priceLines({ locationCode, lines, bundlesByStyle });
     if (out.error) {
         return res.status(400).json(out);
-    }
-    if (fetchErrors.length) {
-        out.warnings = (out.warnings || []).concat(fetchErrors);
     }
     res.json(out);
 });
