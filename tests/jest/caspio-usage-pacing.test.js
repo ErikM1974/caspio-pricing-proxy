@@ -14,7 +14,12 @@ const {
   formatAlert
 } = require('../../src/utils/caspio-usage-pacing');
 
-const at = (iso) => new Date(iso);
+// Fixtures below mean CALENDAR DATES, so pin each to midday on the Caspio
+// account clock (Pacific), which is what periodWindow uses. A bare
+// `T00:00:00Z` fixture is 5 PM the PREVIOUS day in Pacific — the exact
+// off-by-one that made our totals non-comparable with Caspio's chart. The
+// timezone boundary itself is tested explicitly in account-time.test.js.
+const at = (iso) => new Date(`${iso.slice(0, 10)}T19:00:00Z`); // 12:00 PDT
 
 describe('periodWindow — Caspio bills the 27th → the 26th, not calendar months', () => {
   test('mid-period date resolves to the containing 27th→26th window', () => {
