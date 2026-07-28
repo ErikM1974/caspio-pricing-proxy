@@ -24,6 +24,17 @@
  */
 
 require('dotenv').config();
+
+// Metering: see the note in sync-manageorders.js. This script builds its own
+// CASPIO_BASE URLs with raw axios, so without this require its Caspio calls are
+// invisible to the meter. Guarded because the require transitively loads src/config,
+// which process.exit(1)s uncatchably when CASPIO_ACCOUNT_DOMAIN is unset.
+if (process.env.CASPIO_ACCOUNT_DOMAIN) {
+  require('../src/utils/api-tracker');
+} else {
+  console.warn('[meter] CASPIO_ACCOUNT_DOMAIN unset — Caspio call metering is OFF for this run');
+}
+
 const axios = require('axios');
 
 const BASE_URL = process.env.BASE_URL || 'https://caspio-pricing-proxy-ab30a049961a.herokuapp.com';
