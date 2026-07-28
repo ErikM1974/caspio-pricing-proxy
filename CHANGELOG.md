@@ -1,3 +1,7 @@
+## v2026.07.28.1 (2026.07.28)
+
+- Payroll API: expose Vacation_Eligible_Hours for the printed slip footnote
+
 ## v2026.07.27.4 (2026.07.27)
 
 - Payroll: write Vacation_Hours_Remaining now that it is no longer a Caspio formula
