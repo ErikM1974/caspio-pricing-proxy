@@ -31,6 +31,7 @@ const axios = require('axios');
 const config = require('../config');
 const { getCaspioAccessToken, fetchAllCaspioPages } = require('./caspio');
 const tracker = require('./api-tracker');
+const { accountDay } = require('./account-time');
 
 const TABLE = process.env.API_USAGE_ROLLUP_TABLE || '';
 const DYNO = process.env.DYNO || 'local';
@@ -78,7 +79,10 @@ function isRateLimited(err) {
 }
 
 async function pushRollup() {
-  const day = new Date().toISOString().slice(0, 10);
+  // Account clock, matching how Caspio buckets its usage bars and how the
+  // tracker keys callsByDay. A UTC key here would look up a day the tracker
+  // never wrote.
+  const day = accountDay();
   const sinceStart = tracker.stats.callsByDay.get(day) || 0;
 
   // APPEND-ONLY DELTAS. Each flush inserts a row holding only what has accrued

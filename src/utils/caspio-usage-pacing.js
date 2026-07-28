@@ -15,6 +15,8 @@
 // days while the 500,000 cap does not. So the daily budget is
 // 500,000 ÷ daysInPeriod, recomputed per period rather than hardcoded at 16,667.
 
+const { accountParts } = require('./account-time');
+
 const MONTHLY_LIMIT = 500000;
 
 // Alert BEFORE the money is spent, not after. At 100% the overage is already
@@ -38,18 +40,20 @@ function ymd(date) {
 /**
  * The Caspio billing window containing `now`.
  *
- * Dates are handled in UTC to match how api-tracker keys its days
- * (`toISOString().slice(0,10)`). Caspio bills on its own clock, so around the
- * boundary this can be off by a few hours — fine for a pacing alert, which is
- * why Caspio's own usage page stays the source of truth for the billed total.
+ * Boundaries are computed on the CASPIO ACCOUNT CLOCK (Pacific), matching how
+ * api-tracker keys its days and how Caspio buckets its usage bars — their
+ * Integrations log header reads "Log date (UTC-07:00)". This used to run in
+ * UTC, which put our period boundary seven hours ahead of theirs and made our
+ * daily totals non-comparable with the chart. See utils/account-time.
+ *
+ * The Date objects below stay UTC-constructed purely as calendar arithmetic on
+ * already-Pacific y/m/d values, so `ymd()` round-trips them unchanged.
  *
  * @param {Date} now
  * @returns {{startYmd:string, endYmd:string, daysInPeriod:number, daysElapsed:number}}
  */
 function periodWindow(now) {
-  const y = now.getUTCFullYear();
-  const m = now.getUTCMonth();
-  const d = now.getUTCDate();
+  const { year: y, month: m, day: d } = accountParts(now);
 
   // On/after the 27th the current period started this month; before it, last month.
   const start = d >= PERIOD_START_DAY

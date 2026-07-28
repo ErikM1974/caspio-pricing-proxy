@@ -31,6 +31,8 @@
 //    (e.g. 27 Jun–26 Jul). Use these for attribution; use Caspio's own usage page
 //    for "are we under the cap".
 
+const { accountDay, accountHour } = require('./account-time');
+
 const CASPIO_HOST = /(^|\.)caspio\.com$/i;
 
 // Non-table Caspio surfaces get a stable synthetic label so they still show up
@@ -131,8 +133,12 @@ class APITracker {
     bump(this.stats.callsByEndpoint, endpoint);
     bump(this.stats.callsByTable, table);
     bump(this.stats.callsByMethod, method);
-    bump(this.stats.callsByHour, new Date(timestamp).toISOString().slice(0, 13)); // YYYY-MM-DDTHH
-    bump(this.stats.callsByDay, new Date(timestamp).toISOString().slice(0, 10));  // YYYY-MM-DD
+    // Keyed on the CASPIO ACCOUNT CLOCK (Pacific), not UTC — see utils/account-time.
+    // Caspio's usage bars bucket on the account timezone, so a UTC key made our
+    // daily total non-comparable with the number on their chart. The rollup looks
+    // days up by this exact key, so the two must not diverge.
+    bump(this.stats.callsByHour, accountHour(new Date(timestamp)));  // YYYY-MM-DDTHH
+    bump(this.stats.callsByDay, accountDay(new Date(timestamp)));    // YYYY-MM-DD
 
     // Count-based flush trigger (see utils/api-usage-rollup.js). A Heroku
     // Scheduler one-off dyno lives for seconds, so a time-based flush never
@@ -159,7 +165,7 @@ class APITracker {
   }
 
   getTodayCount() {
-    return this.stats.callsByDay.get(new Date().toISOString().slice(0, 10)) || 0;
+    return this.stats.callsByDay.get(accountDay()) || 0;
   }
 
   get24HourCount() {
@@ -268,12 +274,14 @@ class APITracker {
       console.log(`[API TRACKER] pruned ${before - this.calls.length} entries older than 24h`);
     }
 
-    const hourCutoff = new Date(now - 48 * 60 * 60 * 1000).toISOString().slice(0, 13);
+    // Cutoffs must use the SAME key scheme as the maps, or the string compare
+    // prunes the wrong buckets.
+    const hourCutoff = accountHour(new Date(now - 48 * 60 * 60 * 1000));
     for (const [hour] of this.stats.callsByHour) {
       if (hour < hourCutoff) this.stats.callsByHour.delete(hour);
     }
 
-    const dayCutoff = new Date(now - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const dayCutoff = accountDay(new Date(now - 30 * 24 * 60 * 60 * 1000));
     for (const [day] of this.stats.callsByDay) {
       if (day < dayCutoff) this.stats.callsByDay.delete(day);
     }
