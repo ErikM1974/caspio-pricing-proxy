@@ -173,6 +173,49 @@ describe('rollup: write failures and reads', () => {
     expect(p.dynos.sort()).toEqual(['scheduler.77', 'web.1']);
   });
 
+  // Observed in production 2026-07-28 on the very first one-off dyno: the flush
+  // lands immediately after the work that triggered it, which is exactly when a
+  // burst is most likely. Caspio answered `api-calls-rate` three times and the
+  // circuit breaker switched metering off for the rest of the process.
+  test('a rate limit is retried, not counted as a failure', async () => {
+    const rows = [];
+    const rateErr = { response: { status: 429, data: [{ name: 'api-calls-rate' }] } };
+    axios.post
+      .mockRejectedValueOnce(rateErr)
+      .mockImplementation(async (_u, body) => { rows.push(body); return { data: {} }; });
+
+    const { mod, tracker } = bootProcess('run.8695');
+    record(tracker, 250);   // no start() — drive the write path directly
+    await mod.runOnce();
+
+    expect(rows.reduce((s, r) => s + r.Call_Count, 0)).toBe(250); // retry landed
+    expect(mod.status().consecutiveFailures).toBe(0);             // not a "failure"
+    expect(mod.status().active).toBe(true);                       // breaker untripped
+  });
+
+  test('a persistent rate limit defers without disabling metering', async () => {
+    const rateErr = { response: { status: 429, data: [{ name: 'api-calls-rate' }] } };
+    axios.post.mockRejectedValue(rateErr);
+
+    const { mod, tracker } = bootProcess('run.999');
+    record(tracker, 250);
+    for (let i = 0; i < 4; i++) await mod.runOnce();
+
+    expect(mod.status().active).toBe(true);            // still on — it is transient
+    expect(mod.status().consecutiveFailures).toBe(0);
+  });
+
+  test('a STRUCTURAL error still trips the breaker after 3 tries', async () => {
+    axios.post.mockRejectedValue({ response: { status: 404, data: { message: 'table not found' } } });
+
+    const { mod, tracker } = bootProcess('web.1');
+    record(tracker, 250);
+    for (let i = 0; i < 3; i++) await mod.runOnce();
+
+    expect(mod.status().active).toBe(false);           // a missing table IS fatal
+    expect(mod.status().consecutiveFailures).toBe(3);
+  });
+
   test('status() reports the table and dyno it writes as', () => {
     const { mod } = bootProcess('scheduler.42');
     expect(mod.status()).toMatchObject({
