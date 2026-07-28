@@ -75,15 +75,31 @@ async function fetchEnrichment(idOrder) {
     }
 }
 
+// This flag is the ONLY cross-run dedup. The in-memory cache in
+// slack-transfer-received-notify.js lives in a one-off dyno that exists for
+// seconds, so it never survives to a second run.
+//
+// A Caspio PUT that matches nothing returns 200 with RecordsAffected:0 — a
+// no-op, not a success. Swallowing that meant the script logged "sent" while the
+// row stayed a candidate, so the SAME PO re-announced in Slack on EVERY run for
+// the full 14-day lookback. Silent wrong answer; check the count and say so.
 async function setSlackNotified(idPo, token) {
     const url = `${config.caspio.apiBaseUrl}/tables/PurchaseOrders/records?q.where=ID_PO=${encodeURIComponent(idPo)}`;
-    await axios.put(url, { Slack_Notified: 'true' }, {
+    const res = await axios.put(url, { Slack_Notified: 'true' }, {
         headers: {
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json'
         },
         timeout: 15000
     });
+    const affected = res.data?.RecordsAffected ?? 0;
+    if (affected === 0) {
+        throw new Error(
+            `Slack_Notified flag did not stick for ID_PO=${idPo} (RecordsAffected:0). ` +
+            `Left unflagged this PO will re-announce on every run for ${LOOKBACK_DAYS} days.`
+        );
+    }
+    return affected;
 }
 
 async function main() {
@@ -99,9 +115,13 @@ async function main() {
     const rows = await fetchAllCaspioPages('/tables/PurchaseOrders/records', {
         'q.where': where,
         'q.select': 'ID_PO,id_Order,date_Received,id_Vendor',
-        'q.orderBy': 'date_Received DESC',
+        // PK_ID, not date_Received: the sort column for a multi-page Caspio read
+        // must be UNIQUE or rows are dropped and duplicated across page
+        // boundaries. Single-page today, but this set grows the moment the
+        // lookback widens or the flag is ever bulk-cleared.
+        'q.orderBy': 'PK_ID',
         'q.pageSize': 1000
-    });
+    }, { strict: true });   // truncation must fail loudly, never return a partial set
 
     const candidates = rows.slice(0, MAX_BATCH);
     console.log(`[CHECK_TRANSFERS_RECEIVED] candidates=${rows.length}, processing=${candidates.length}`);

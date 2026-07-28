@@ -1583,12 +1583,18 @@ router.post('/sync-shipments', async (req, res) => {
     });
     const pos = [...new Set((openOrders || []).map(o => o.SanMar_PO).filter(Boolean))]; // preserves recency order
     // Which already have a tracking row? Skip those.
+    // Chunked at 100 POs with q.orderBy + q.limit 1000, matching the loop at
+    // :241/:249. Was a single unbounded OR-chain with `q.limit: 2000` and no
+    // ordering — two silent-truncation bugs: Caspio caps a page at 1000 so the
+    // 2000 was never honoured, and an unordered multi-page read drops rows. A PO
+    // missing from this set reads as "no tracking yet" and gets re-pulled from
+    // SanMar every night.
     let withTracking = new Set();
-    if (pos.length) {
-      const tw = pos.map(p => `SanMar_PO='${xmlEscape(p)}'`).join(' OR ');
+    for (let i = 0; i < pos.length; i += 100) {
+      const tw = pos.slice(i, i + 100).map(p => `SanMar_PO='${xmlEscape(p)}'`).join(' OR ');
       const tr = await fetchAllCaspioPages(`/tables/${TABLES.shipments}/records`,
-        { 'q.where': tw, 'q.select': 'SanMar_PO', 'q.limit': 2000 });
-      withTracking = new Set((tr || []).map(r => r.SanMar_PO));
+        { 'q.where': tw, 'q.select': 'SanMar_PO', 'q.orderBy': 'PK_ID', 'q.limit': 1000 });
+      for (const r of (tr || [])) withTracking.add(r.SanMar_PO);
     }
     const pending = pos.filter(p => !withTracking.has(p));
     const batch = pending.slice(0, cap);
@@ -1713,19 +1719,24 @@ async function runRecentCompletedBackground(daysBack) {
     recentCompletedStatus.progress.discovered = candidates.length;
 
     // Skip POs already fully synced (order row WITH a status AND a tracking row).
-    let fullySynced = new Set();
-    if (candidates.length) {
-      const where = candidates.map(p => `SanMar_PO='${xmlEscape(p)}'`).join(' OR ');
+    // Same chunk-100 + orderBy + limit-1000 fix as above. This one mattered
+    // most: `fullySynced` decides what gets RE-INGESTED, so a truncated read
+    // mis-classified every PO past the 1000th row as not-synced and re-pulled it
+    // from SanMar on every run — churn that looked like discovery working hard.
+    const haveStatus = new Set();
+    const haveShip = new Set();
+    for (let i = 0; i < candidates.length; i += 100) {
+      const where = candidates.slice(i, i + 100).map(p => `SanMar_PO='${xmlEscape(p)}'`).join(' OR ');
       const [orderRows, shipRows] = await Promise.all([
         fetchAllCaspioPages(`/tables/${TABLES.orders}/records`,
-          { 'q.where': where, 'q.select': 'SanMar_PO,SanMar_Status', 'q.limit': 2000 }),
+          { 'q.where': where, 'q.select': 'SanMar_PO,SanMar_Status', 'q.orderBy': 'PK_ID', 'q.limit': 1000 }),
         fetchAllCaspioPages(`/tables/${TABLES.shipments}/records`,
-          { 'q.where': where, 'q.select': 'SanMar_PO', 'q.limit': 2000 }),
+          { 'q.where': where, 'q.select': 'SanMar_PO', 'q.orderBy': 'PK_ID', 'q.limit': 1000 }),
       ]);
-      const haveStatus = new Set((orderRows || []).filter(r => r.SanMar_Status).map(r => r.SanMar_PO));
-      const haveShip = new Set((shipRows || []).map(r => r.SanMar_PO));
-      fullySynced = new Set(candidates.filter(p => haveStatus.has(p) && haveShip.has(p)));
+      for (const r of (orderRows || [])) if (r.SanMar_Status) haveStatus.add(r.SanMar_PO);
+      for (const r of (shipRows || [])) haveShip.add(r.SanMar_PO);
     }
+    const fullySynced = new Set(candidates.filter(p => haveStatus.has(p) && haveShip.has(p)));
     // SanMar-reported changes (A/B) take the ingest budget first; the stale-order sweep (C) rides on
     // whatever is left, so adding C can never starve the day's real updates.
     const staleSet = new Set(staleCandidates);

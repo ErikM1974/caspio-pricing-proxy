@@ -483,13 +483,32 @@ router.post('/caspio/daily-sales-by-rep/archive-date', async (req, res) => {
     // issue one DELETE per stale row.
     const results = { created: 0, updated: 0, deleted: 0, errors: [] };
 
-    let existingForDate = [];
+    // ABORT THE DATE IF THIS READ FAILS — do not continue with an empty list.
+    //
+    // This used to swallow the error and carry on with `existingForDate = []`,
+    // on the assumption that the only casualty was phantom cleanup. It was not:
+    // `wasPresent` (below) is derived from this array, so an empty one makes
+    // EVERY rep look new and the loop INSERTs a duplicate row over rows that
+    // already exist. `/ytd` and `GET /daily-sales-by-rep` both SUM rows, so a
+    // duplicate silently double-counts a rep's revenue on the staff dashboard —
+    // and this job re-visits 60 days every night, so one bad read poisons a date
+    // that then looks plausible forever.
+    //
+    // A failed read means "unknown", never "nothing there". Rethrow: the outer
+    // catch turns it into a 500, the scheduler run goes red, and the date is
+    // retried tomorrow — still inside the 60-day ManageOrders window.
+    let existingForDate;
     try {
       existingForDate = await fetchAllCaspioPages(`/tables/${TABLE_NAME}/records`, {
-        'q.where': `SalesDate='${date}'`
+        'q.where': `SalesDate='${date}'`,
+        'q.orderBy': 'PK_ID'   // stable paging — unordered multi-page reads drop rows
       });
     } catch (e) {
-      console.warn(`Could not fetch existing archive rows for ${date} — continuing without phantom cleanup:`, e.message);
+      throw new Error(
+        `Aborting archive of ${date}: could not read existing rows (${e.message}). ` +
+        `Refusing to continue — an empty result here would INSERT duplicates over ` +
+        `existing rows and double-count revenue.`
+      );
     }
 
     const liveRepNames = new Set(reps.map(r => r.name));
