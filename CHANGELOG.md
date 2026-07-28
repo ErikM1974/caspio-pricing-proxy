@@ -1,3 +1,7 @@
+## v2026.07.28.5 (2026.07.28)
+
+- Rollup: flush POST is no longer metered (self-feeding flush loop)
+
 ## v2026.07.28.4 (2026.07.28)
 
 - Meter, rollup and pacing now key days on the Caspio account clock (Pacific), matching how Caspio buckets its usage bars
