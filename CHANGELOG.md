@@ -1,3 +1,7 @@
+## v2026.07.28.2 (2026.07.28)
+
+- Rollup: record scheduler dynos — the table only ever held web.1
+
 ## v2026.07.28.1 (2026.07.28)
 
 - Payroll API: expose Vacation_Eligible_Hours for the printed slip footnote
