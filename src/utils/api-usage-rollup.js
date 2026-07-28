@@ -65,6 +65,18 @@ const contributed = new Map();
 let inFlight = false;
 let pending = false;
 
+/**
+ * Caspio's per-second burst limit — transient, and NOT a reason to disable the
+ * rollup. Only structural failures (missing table, bad shape, bad credentials)
+ * should trip the circuit breaker; treating a rate limit as fatal turns a
+ * momentary burst into permanently-off metering.
+ */
+function isRateLimited(err) {
+  if (err?.response?.status === 429) return true;
+  const body = JSON.stringify(err?.response?.data || '');
+  return /api-calls-rate|rate limit/i.test(body);
+}
+
 async function pushRollup() {
   const day = new Date().toISOString().slice(0, 10);
   const sinceStart = tracker.stats.callsByDay.get(day) || 0;
@@ -93,7 +105,24 @@ async function pushRollup() {
     Updated_At: new Date().toISOString()
   };
 
-  await axios.post(url, body, { headers, timeout: config.timeouts.perRequest });
+  // Caspio's PER-SECOND burst limit is the hard one (the period cap is soft and
+  // merely billed). A flush lands right after the work that triggered it, so it
+  // is exactly when a burst is most likely — observed 2026-07-28: a read-only
+  // script's flush got `api-calls-rate` three times and tripped the breaker.
+  // Back off and retry rather than counting a transient limit as a failure.
+  let lastErr;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      await axios.post(url, body, { headers, timeout: config.timeouts.perRequest });
+      lastErr = null;
+      break;
+    } catch (err) {
+      lastErr = err;
+      if (!isRateLimited(err)) throw err;      // a real error must surface now
+      await new Promise(r => setTimeout(r, 400 * (attempt + 1)));
+    }
+  }
+  if (lastErr) throw lastErr;
 
   // Only advance the watermark once the write actually landed, so a failed
   // write is retried next tick rather than silently skipped.
@@ -127,10 +156,20 @@ async function runOnce() {
     state.lastError = null;
     state.consecutiveFailures = 0;
   } catch (err) {
-    state.consecutiveFailures++;
     state.lastError = err.response?.data
       ? JSON.stringify(err.response.data).slice(0, 300)
       : err.message;
+
+    // A rate limit is a "try later", not "this is broken". Counting it toward
+    // the breaker meant one busy second could switch metering off for the rest
+    // of the process — observed 2026-07-28. The watermark is untouched either
+    // way, so the delta is simply carried into the next flush.
+    if (isRateLimited(err)) {
+      console.warn(`[API USAGE ROLLUP] rate-limited, deferring: ${state.lastError}`);
+      return;
+    }
+
+    state.consecutiveFailures++;
     console.error(
       `[API USAGE ROLLUP] write failed (${state.consecutiveFailures} in a row): ${state.lastError}`
     );
@@ -172,11 +211,21 @@ function start() {
     runOnce().catch(() => {});
   });
 
-  // Catches the tail of a short-lived process that ends below the threshold —
-  // e.g. `check-transfers-received` making a handful of calls. Only fires when
-  // the event loop empties naturally; scripts ending in process.exit(0) skip it,
-  // which is why the threshold above is the primary mechanism, not this.
-  process.on('beforeExit', () => { runOnce().catch(() => {}); });
+  // Catches the tail of a short-lived process that ends below the threshold.
+  // Only fires when the event loop empties naturally; scripts ending in
+  // process.exit(0) skip it, which is why the threshold above is the primary
+  // mechanism, not this.
+  //
+  // ONCE ONLY. `beforeExit` re-fires every time the loop drains, so an async
+  // flush inside it re-arms it — three instant retries against Caspio's
+  // per-second limit, which is exactly how the breaker got tripped on
+  // 2026-07-28.
+  let exitFlushed = false;
+  process.on('beforeExit', () => {
+    if (exitFlushed) return;
+    exitFlushed = true;
+    runOnce().catch(() => {});
+  });
 
   // Flush on the way down. Heroku SIGTERMs before every dyno cycle (deploy,
   // config change, daily recycle), and on 2026-07-26 that happened four times
