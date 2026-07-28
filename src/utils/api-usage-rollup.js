@@ -117,7 +117,7 @@ async function pushRollup() {
   let lastErr;
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      await axios.post(url, body, { headers, timeout: config.timeouts.perRequest });
+      await axios.post(url, body, { headers, timeout: config.timeouts.perRequest, _skipMeter: true });
       lastErr = null;
       break;
     } catch (err) {

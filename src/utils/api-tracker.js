@@ -332,7 +332,13 @@ function installOn(instance) {
         ? new URL(cfg.url, cfg.baseURL).toString()
         : cfg.url;
 
-      if (url && isCaspioUrl(url)) {
+      // `_skipMeter` excludes the rollup's OWN writes. Counting them creates a
+      // FEEDBACK LOOP: a flush POSTs, the interceptor counts that POST, which
+      // leaves a fresh non-zero delta, which triggers another flush. On
+      // 2026-07-28 that ran away and wrote ~1,893 junk rows before Caspio's
+      // per-second limit stopped it. Metering overhead is not application
+      // traffic and must never be able to trigger more metering.
+      if (url && isCaspioUrl(url) && !cfg._skipMeter) {
         const { endpoint, table } = deriveTarget(url);
         tracker.trackCall(endpoint, table, (cfg.method || 'get').toUpperCase());
       }
