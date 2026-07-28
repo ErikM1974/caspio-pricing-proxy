@@ -15,6 +15,21 @@
  * Heroku Scheduler: npm run sync-manageorders (daily at 12:00 PM UTC)
  */
 
+// Metering: requiring api-tracker installs the global Caspio axios interceptor.
+// This script builds its own CASPIO_BASE URLs with raw axios, so without this line
+// nothing here is counted — it was ~910 calls/day invisible to the meter and to
+// API_Usage_Daily. The interceptor attaches to the shared default axios instance,
+// so the requires below are covered. Do not remove.
+//
+// The require transitively loads src/config, which process.exit(1)s — UNCATCHABLY —
+// when CASPIO_ACCOUNT_DOMAIN is unset. Guard it so a metering import can never kill
+// a sync on a machine without that env var. Heroku always sets it.
+if (process.env.CASPIO_ACCOUNT_DOMAIN) {
+  require('../src/utils/api-tracker');
+} else {
+  console.warn('[meter] CASPIO_ACCOUNT_DOMAIN unset — Caspio call metering is OFF for this run');
+}
+
 const axios = require('axios');
 
 const BASE_URL = process.env.BASE_URL || 'https://caspio-pricing-proxy-ab30a049961a.herokuapp.com';
@@ -341,11 +356,24 @@ async function main() {
           stats.updated++;
           await sleep(LINE_ITEM_DELAY_MS);
         } else {
-          // Just update sync date
-          await caspioRequest(
-            `/tables/ManageOrders_Orders/records?q.where=${encodeURIComponent(`id_Order=${id}`)}`,
-            'PUT', { Last_Sync_Date: new Date().toISOString() }
-          );
+          // NO WRITE. This branch used to PUT { Last_Sync_Date } on every unchanged
+          // order purely to stamp "we looked at it" — ~619 billed Caspio writes/day
+          // (60-day window x ~11 orders/day), the single largest avoidable cost in
+          // this script, for a field nothing alerts on.
+          //
+          // Safe to drop because Last_Sync_Date on ManageOrders_Orders has exactly two
+          // readers, and neither needs the touch:
+          //   - the --backfill resume check at :322 below, which is satisfied by the
+          //     backfill's own PUT at :333 (mapped includes Last_Sync_Date, see :208)
+          //   - scripts/backfill-manageorders.js:67, a field list
+          // The house-accounts / nika-accounts / taneisha-accounts readers of the same
+          // column name are DIFFERENT TABLES and are unaffected.
+          //
+          // Semantics change: the field now means "last time this order's data was
+          // written", not "last time the sync ran". That also fixes a latent bug — a
+          // normal sync used to stamp today on all ~660 orders, so a same-day
+          // `--backfill` (without --force) would skip every one of them as
+          // "already synced today".
           stats.unchanged++;
         }
       }
