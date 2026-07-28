@@ -33,7 +33,7 @@ const MODEL_ID = 'claude-opus-5';
 // Allowlists — the ONLY columns that may reach the browser.
 const SAFE_EMPLOYEE_FIELDS = [
   'Payroll_Employee_ID', 'Employee_Full_Name', 'First_Name', 'Last_Name', 'Job_Title',
-  'Department', 'Status', 'Date_Hired', 'Vacation_Eligible_Date',
+  'Department', 'Status', 'Date_Hired', 'Vacation_Eligible_Date', 'Vacation_Eligible_Hours',
   'Vacation_Hours_Available', 'Vacation_Hours_Used', 'Vacation_Hours_Remaining',
   'Sick_Accum_Hours_Available', 'Sick_Hours_Used', 'Sick_Hours_Remaining',
   'Leave_Balances_As_Of',
