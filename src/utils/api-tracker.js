@@ -133,6 +133,29 @@ class APITracker {
     bump(this.stats.callsByMethod, method);
     bump(this.stats.callsByHour, new Date(timestamp).toISOString().slice(0, 13)); // YYYY-MM-DDTHH
     bump(this.stats.callsByDay, new Date(timestamp).toISOString().slice(0, 10));  // YYYY-MM-DD
+
+    // Count-based flush trigger (see utils/api-usage-rollup.js). A Heroku
+    // Scheduler one-off dyno lives for seconds, so a time-based flush never
+    // fires and its calls were never recorded. Counting calls works regardless
+    // of process lifetime.
+    if (this._thresholdFn && ++this._sinceThreshold >= this._thresholdAt) {
+      this._sinceThreshold = 0;
+      try {
+        this._thresholdFn();
+      } catch (err) {
+        console.error('[API TRACKER] threshold hook failed:', err.message);
+      }
+    }
+  }
+
+  /**
+   * Call `fn` every `n` tracked calls. One hook only — the rollup owns it.
+   * The hook must not throw and must not block; metering never delays real work.
+   */
+  onCallThreshold(n, fn) {
+    this._thresholdAt = n;
+    this._thresholdFn = fn;
+    this._sinceThreshold = 0;
   }
 
   getTodayCount() {
@@ -315,6 +338,24 @@ function installOn(instance) {
 }
 
 installOn(require('axios'));
+
+// Auto-start the rollup in EVERY process that talks to Caspio — not just the
+// web dyno. Heroku Scheduler jobs are one-off dynos that never load server.js,
+// so before this the rollup was never started there and their calls went
+// unrecorded: the table held `web.1` rows and nothing else, hiding ~30% of the
+// account's traffic.
+//
+// Deferred with setImmediate because api-usage-rollup requires utils/caspio,
+// which requires THIS module — running it inline would hit a half-initialised
+// require graph. By the next tick everything is resolved. start() is idempotent,
+// so server.js calling it explicitly is harmless.
+setImmediate(() => {
+  try {
+    require('./api-usage-rollup').start();
+  } catch (err) {
+    console.error('[API TRACKER] rollup auto-start failed:', err.message);
+  }
+});
 
 tracker.installOn = installOn;
 tracker.deriveTarget = deriveTarget;

@@ -12,14 +12,20 @@
 // that was never turned on. Status is always reported in /api/admin/metrics, so
 // "enabled but broken" is visible rather than silent.
 //
-// Expected table shape (Erik creates this in Caspio):
+// Table shape:
 //   Usage_Date   Text(10)   YYYY-MM-DD (UTC)
-//   Dyno_Id      Text(64)   Heroku dyno name; one row per dyno per day
-//   Call_Count   Integer
+//   Dyno_Id      Text(64)   Heroku dyno name (web.1, scheduler.1234, local)
+//   Call_Count   Integer    the DELTA this write is contributing, not a total
 //   Updated_At   Text(32)   ISO timestamp
 //
-// Cost: one PUT (plus a POST the first time each day) per hour per dyno
-// ≈ 24-48 calls/day ≈ 0.01% of the 500K period quota.
+// APPEND-ONLY: every flush INSERTS a row holding only the calls accrued since
+// the previous one; readPeriod sums them per day. Many rows per dyno per day is
+// expected and correct — do not "fix" it into one cumulative row, which is what
+// made concurrent dynos clobber each other and restarts walk the total
+// backwards. Rows are cheap; a lost call is not.
+//
+// Cost: one POST per FLUSH_EVERY_CALLS (250) plus an hourly tick — roughly
+// 0.4% overhead, and it buys visibility into ~30% of traffic that was invisible.
 
 const axios = require('axios');
 const config = require('../config');
@@ -30,68 +36,69 @@ const TABLE = process.env.API_USAGE_ROLLUP_TABLE || '';
 const DYNO = process.env.DYNO || 'local';
 const INTERVAL_MS = 60 * 60 * 1000;
 
+// Flush once this many calls have accrued since the last write.
+//
+// THE REASON THIS EXISTS: Heroku Scheduler runs jobs as ONE-OFF DYNOS. Those
+// processes live for seconds and exit, so a 60-minute setInterval never fires
+// and SIGTERM never arrives (they exit normally via process.exit(0)). Result:
+// from the day this rollup shipped until 2026-07-28 the table contained rows
+// from `web.1` and NOTHING ELSE — every scheduled sync's Caspio calls were
+// invisible, ~30% of the account's traffic. Caspio billed 23,959 on 27 Jul
+// while the rollup reported 16,055.
+//
+// A count-based trigger fires regardless of process lifetime. It also caps
+// restart loss on the web dyno at this many calls instead of a full hour.
+// Cost is one POST per threshold — at 250 that is ~0.4% overhead.
+const FLUSH_EVERY_CALLS = 250;
+
 const state = {
   enabled: Boolean(TABLE),
   lastRunAt: null,
   lastOk: null,
   lastError: null,
-  consecutiveFailures: 0
+  consecutiveFailures: 0,
+  flushes: 0
 };
 
 // How much of THIS process's count has already been written, per UTC day.
-// Load-bearing for restart safety — see pushRollup.
 const contributed = new Map();
+let inFlight = false;
+let pending = false;
 
 async function pushRollup() {
   const day = new Date().toISOString().slice(0, 10);
   const sinceStart = tracker.stats.callsByDay.get(day) || 0;
 
-  // ACCUMULATE, never overwrite. `callsByDay` counts since THIS PROCESS started,
-  // so writing it directly meant every dyno restart reset the counter and the
-  // PUT walked the stored total BACKWARDS. Observed 2026-07-26: four restarts in
-  // a day left the row reading 1,650 while Caspio billed 15,951 — a 10x
-  // under-report, from the component whose entire job is to be the trustworthy
-  // number. Same failure family as an empty table reading as 0%.
-  //
-  // Writing a DELTA against the stored value makes restarts additive: a fresh
-  // process has contributed 0, so it adds its whole count to whatever is there.
+  // APPEND-ONLY DELTAS. Each flush inserts a row holding only what has accrued
+  // since the last one; readPeriod sums them per day. Three reasons over the
+  // previous read-modify-write of a single cumulative row:
+  //   1. No read — 1 Caspio call per flush instead of 3.
+  //   2. No race. Concurrent scheduler dynos would otherwise read the same
+  //      cumulative value and each overwrite the other's contribution. With
+  //      hundreds of one-off dynos a day that is a real collision, and every
+  //      collision LOSES calls — under-reporting again.
+  //   3. Restart-safe by construction: a fresh process has contributed 0 and
+  //      simply appends, so nothing can walk the stored total backwards.
   const delta = sinceStart - (contributed.get(day) || 0);
   if (delta <= 0) return;
 
   const token = await getCaspioAccessToken();
   const url = `${config.caspio.apiBaseUrl}/tables/${TABLE}/records`;
   const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
-  const where = `Usage_Date='${day}' AND Dyno_Id='${DYNO}'`;
-
-  const existing = await fetchAllCaspioPages(
-    `/tables/${TABLE}/records`,
-    { 'q.where': where, 'q.select': 'Call_Count', 'q.orderBy': 'PK_ID' },
-    { maxPages: 1 }
-  );
-  const priorTotal = existing.length ? (Number(existing[0].Call_Count) || 0) : 0;
 
   const body = {
     Usage_Date: day,
     Dyno_Id: DYNO,
-    Call_Count: priorTotal + delta,
+    Call_Count: delta,
     Updated_At: new Date().toISOString()
   };
 
-  const put = await axios.put(url, body, {
-    headers,
-    params: { 'q.where': where },
-    timeout: config.timeouts.perRequest
-  });
-
-  // Caspio answers 200 RecordsAffected:0 when nothing matched — that is a
-  // no-op, not a success. Insert the row instead of silently losing the day.
-  if ((put.data?.RecordsAffected ?? 0) === 0) {
-    await axios.post(url, body, { headers, timeout: config.timeouts.perRequest });
-  }
+  await axios.post(url, body, { headers, timeout: config.timeouts.perRequest });
 
   // Only advance the watermark once the write actually landed, so a failed
   // write is retried next tick rather than silently skipped.
   contributed.set(day, sinceStart);
+  state.flushes++;
 
   // Yesterday's watermark is dead weight after a UTC rollover.
   for (const k of contributed.keys()) {
@@ -101,9 +108,21 @@ async function pushRollup() {
 
 async function runOnce() {
   if (!state.enabled) return;
+
+  // Overlapping flushes would race, but DROPPING a trigger loses calls: a burst
+  // that crosses the threshold twice while the first write is still in flight
+  // would leave the second slice unwritten, and a short-lived dyno then exits
+  // without ever recording it. So coalesce instead of discard — mark it pending
+  // and re-run once the current write lands. pushRollup always reads the CURRENT
+  // counter, so one extra pass catches up however far behind it got.
+  if (inFlight) { pending = true; return; }
+  inFlight = true;
   state.lastRunAt = new Date().toISOString();
   try {
-    await pushRollup();
+    do {
+      pending = false;
+      await pushRollup();
+    } while (pending);
     state.lastOk = state.lastRunAt;
     state.lastError = null;
     state.consecutiveFailures = 0;
@@ -124,16 +143,40 @@ async function runOnce() {
         `Check that Caspio table "${TABLE}" exists with Usage_Date/Dyno_Id/Call_Count/Updated_At.`
       );
     }
+  } finally {
+    inFlight = false;
   }
 }
 
+let started = false;
+
+// Idempotent: server.js calls this explicitly, and utils/api-tracker auto-calls
+// it so scheduler one-off dynos get metering too. Whichever lands first wins.
 function start() {
+  if (started) return;
+  started = true;
   if (!TABLE) {
     console.log('✓ API usage rollup OFF (set API_USAGE_ROLLUP_TABLE to enable)');
     return;
   }
   const timer = setInterval(runOnce, INTERVAL_MS);
   if (timer.unref) timer.unref();
+
+  // THE ONE THAT MAKES SCHEDULER DYNOS VISIBLE. A one-off dyno (every `npm run
+  // sync-*` job) lives for seconds: the interval above never fires and SIGTERM
+  // never arrives, so before this hook the rollup table held rows from `web.1`
+  // and nothing else. Counting calls instead of minutes fires regardless of how
+  // long the process lives. Fire-and-forget — metering must never delay or fail
+  // the work the process actually exists to do.
+  tracker.onCallThreshold(FLUSH_EVERY_CALLS, () => {
+    runOnce().catch(() => {});
+  });
+
+  // Catches the tail of a short-lived process that ends below the threshold —
+  // e.g. `check-transfers-received` making a handful of calls. Only fires when
+  // the event loop empties naturally; scripts ending in process.exit(0) skip it,
+  // which is why the threshold above is the primary mechanism, not this.
+  process.on('beforeExit', () => { runOnce().catch(() => {}); });
 
   // Flush on the way down. Heroku SIGTERMs before every dyno cycle (deploy,
   // config change, daily recycle), and on 2026-07-26 that happened four times
