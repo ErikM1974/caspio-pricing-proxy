@@ -1,3 +1,7 @@
+## v2026.07.28.7 (2026.07.28)
+
+- Memory: check-transfers-received cadence 10 min -> hourly at :20
+
 ## v2026.07.28.6 (2026.07.28)
 
 - daily-sales-by-rep: abort the date on a failed read instead of INSERTing duplicate archive rows
