@@ -76,15 +76,27 @@ git push --no-verify origin main
 Genuine emergencies only (prod is down, fix verified another way). Run `/deploy` afterwards so
 the tag and CHANGELOG catch up.
 
-**Install per clone.** `.git/hooks/` is not version-controlled. The canonical copy lives at
-`scripts/git-hooks/pre-push`; a fresh clone has **no** hook until you install it:
+**Enable per clone — one command.** Git never version-controls `.git/hooks/`, so a fresh clone
+starts with **no** hooks. Point git at the tracked directory instead of copying files into it:
 
 ```bash
-cp scripts/git-hooks/pre-push .git/hooks/pre-push && chmod +x .git/hooks/pre-push
+git config core.hooksPath scripts/git-hooks
 ```
 
-Check whether yours is live: `ls -l .git/hooks/pre-push`. If it's missing, the guard is off and
-a hand push to main will succeed silently.
+That covers `pre-push` (the main guard) **and** `pre-commit` (the Postman collection sync), and
+edits to either take effect immediately — no reinstall, no copy that can drift.
+
+Check yours: `git config core.hooksPath` should print `scripts/git-hooks`. If it's empty, **the
+guard is off** and a hand push to main will succeed silently.
+
+Two things to know about this setting:
+
+- **`core.hooksPath` is local config, not tracked.** It's one command per clone, but it can't be
+  committed — nothing can make it automatic.
+- **It replaces `.git/hooks/` entirely, it doesn't merge.** Anything living only in `.git/hooks/`
+  stops running the moment you set it. That's why `pre-commit` is now tracked alongside
+  `pre-push`; the old copies are parked as `.git/hooks/*.superseded-by-core.hooksPath` so nobody
+  edits a file that no longer runs. **Any new hook must go in `scripts/git-hooks/`.**
 
 ---
 
