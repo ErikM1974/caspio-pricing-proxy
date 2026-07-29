@@ -58,6 +58,29 @@ Original names are preserved when there's no collision; only conflicts get the s
 
 ---
 
+## Problem: Caspio Files API DELETE — only the path form works, and a 404 must not be an error
+**Date:** 2026-06-18 (moved here from the auto-memory index 2026-07-29 — it was the only copy)
+**Symptoms:** Orphan-cleanup calls to `DELETE /api/files/:externalKey` hard-failed. Errors were
+undiagnosable because the route logged only `error.message`, never Caspio's real status or body.
+**Root cause / verified semantics:** `files-simple.js` DELETE → Caspio
+`DELETE /integrations/rest/v3/files/{externalKey}` is the **ONLY supported form** (path-style).
+- **204 No Content** on success.
+- **404 FileNotFound** when the file is already gone.
+- The collection form `DELETE /files?externalKey=...` returns **405** — that collection allows
+  only OPTIONS/GET/POST/PUT.
+**Solution:** The route is **idempotent**: a 404 returns `{success:true, alreadyAbsent:true}`, so
+cleanup of an already-deleted file never hard-fails — e.g. re-saving a Shirt Designer mockup over
+a prior `ArtRequests.Rep_Mockup`. 30s timeout; network/timeout → 504 `DELETE_TIMEOUT`; every other
+error now logs Caspio's real status + body.
+**Gotcha:** `files-simple.js` uses the ROOT `config.js` (`CASPIO_ACCOUNT_DOMAIN=c3eku948`, where the
+global Artwork folder `b91133c3-…` lives). `/api/health` reports `caspio.domain` from a *different*
+config module and can show another/stale domain — that mismatch is not a Files-route bug, so don't
+chase it.
+**Prevention:** For any delete-shaped cleanup, treat "already absent" as success, and log the
+upstream status+body rather than `error.message` alone.
+
+---
+
 ## Problem: Box mockup images not showing in Art Hub / AE Hub
 **Date:** 2026-04
 **Symptoms:** Images uploaded to Box weren't displaying in Art Hub or AE Hub
