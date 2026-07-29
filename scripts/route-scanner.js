@@ -14,12 +14,19 @@
 const fs = require('fs').promises;
 const path = require('path');
 const colors = require('colors');
+// Endpoint discovery + real mount resolution live in ONE place, shared with
+// scripts/generate-routes-map.js. Before that (fixed 2026-07-29) this file matched only
+// `router.<verb>(` and pasted a hardcoded '/api' in front of the in-file path, so the
+// Postman collection was missing 10 endpoints and had 5 more under URLs that 404.
+const { buildMountIndex, extractFileRoutes } = require('./lib/route-inventory');
 
 class RouteScanner {
   constructor(options = {}) {
-    this.basePrefix = options.basePrefix || '/api';
+    this.basePrefix = options.basePrefix || '/api';   // fallback only; real prefixes come from server.js
     this.routeFiles = [];
     this.endpoints = [];
+    this.unmounted = [];
+    this.mountIndex = buildMountIndex();
   }
 
   /**
@@ -39,6 +46,10 @@ class RouteScanner {
 
       console.log(`✅ Scanned ${jsFiles.length} route files`.green);
       console.log(`📊 Found ${this.endpoints.length} total endpoints`.cyan);
+      if (this.unmounted.length) {
+        console.warn(`⚠️  ${this.unmounted.length} declared route(s) have no app.use() mount — NOT in the collection:`.yellow);
+        for (const u of this.unmounted) console.warn(`     ${u}`.yellow);
+      }
 
       return this.endpoints;
     } catch (error) {
@@ -72,42 +83,59 @@ class RouteScanner {
   extractRoutes(content, fileName) {
     const routes = [];
 
-    // Match router.METHOD(path, ...) patterns
-    const routeRegex = /router\.(get|post|put|delete|patch)\s*\(\s*['"`]([^'"`]+)['"`]\s*,/g;
+    // Declarations + their REAL mounted URLs come from the shared inventory: it matches
+    // any `<name>Router.<verb>(` and resolves prefixes from server.js's app.use() calls.
+    const declarations = extractFileRoutes(fileName, content, this.mountIndex);
+    const seenInFile = new Set();
 
-    let match;
-    while ((match = routeRegex.exec(content)) !== null) {
-      const [fullMatch, method, routePath] = match;
-      const lineNumber = content.substring(0, match.index).split('\n').length;
+    for (const decl of declarations) {
+      const { method, routePath, fullPaths, index } = decl;
+      const lineNumber = content.substring(0, index).split('\n').length;
 
       // Extract the handler function to analyze parameters
-      const handlerStart = match.index;
-      const handlerEnd = this.findHandlerEnd(content, handlerStart);
-      const handlerCode = content.substring(handlerStart, handlerEnd);
+      const handlerEnd = this.findHandlerEnd(content, index);
+      const handlerCode = content.substring(index, handlerEnd);
 
       // Extract description from JSDoc or inline comments
-      const description = this.extractDescription(content, match.index);
+      const description = this.extractDescription(content, index);
 
       // Extract query parameters from handler code
       const queryParams = this.extractQueryParams(handlerCode);
 
       // Extract request body structure (for POST/PUT/PATCH)
-      const requestBody = this.extractRequestBody(handlerCode, method);
+      const requestBody = this.extractRequestBody(handlerCode, method.toLowerCase());
 
       // Determine category from filename
       const category = this.categorizeEndpoint(fileName, routePath);
 
-      routes.push({
-        method: method.toUpperCase(),
-        path: routePath,
-        fullPath: this.basePrefix + routePath,
-        category: category,
-        description: description,
-        queryParams: queryParams,
-        requestBody: requestBody,
-        sourceFile: fileName,
-        lineNumber: lineNumber
-      });
+      if (fullPaths.length === 0) {
+        // Declared but no app.use() mounts it. Record it loudly instead of inventing a
+        // URL — a fabricated path in Postman is worse than a visible gap.
+        this.unmounted.push(`${fileName}: ${method} ${routePath} (router var: ${decl.varName})`);
+        continue;
+      }
+
+      // A router mounted at more than one prefix serves the route at each of them
+      // (e.g. policies.js → /api/policies and /api/policies-public). Emit one entry per
+      // real URL so the collection can actually exercise them — but only once each:
+      // policies.js declares the same path in both its publicOnly branches, which would
+      // otherwise put duplicate requests in the collection.
+      for (const fullPath of fullPaths) {
+        const sig = `${method} ${fullPath}`;
+        if (seenInFile.has(sig)) continue;
+        seenInFile.add(sig);
+        routes.push({
+          method,
+          path: routePath,
+          fullPath,
+          category: category,
+          description: description,
+          queryParams: queryParams,
+          requestBody: requestBody,
+          sourceFile: fileName,
+          lineNumber: lineNumber
+        });
+      }
     }
 
     return routes;

@@ -8,15 +8,14 @@
  * this endpoint?" — and a hand-written list of 121 files would have drifted again within
  * a month. So it is generated from source instead.
  *
- * WHY NOT REUSE THE POSTMAN SCANNER (scripts/update-postman-collection.js)
- * It only matches `router.<verb>(`, and it derives full paths loosely. Verified against
- * source on 2026-07-29, it was wrong three ways:
- *   - policy-comments.js declares publicRouter/adminRouter → scanner found 0 of its 9
- *   - shipstation.js's webhookRouter route → missed (8 of 9)
- *   - vision.js paths recorded as /api/extract-* when they mount under /api/vision/*
- * Those 10 endpoints are therefore also missing from / wrong in the Postman collection.
- * This script matches ANY `<name>Router.<verb>(` and resolves prefixes from server.js's
- * actual app.use() calls, so the map is right by construction.
+ * SHARED WITH THE POSTMAN SCANNER
+ * Discovery lives in scripts/lib/route-inventory.js, which scripts/route-scanner.js (the
+ * Postman collection's source) also uses — so the map and the collection cannot disagree
+ * about what exists. That module was written because the scanner had been wrong three
+ * ways: it matched only `router.<verb>(` (missing policy-comments.js's 9 endpoints on
+ * publicRouter/adminRouter and shipstation.js's webhookRouter route) and pasted a
+ * hardcoded '/api' prefix (recording vision.js at /api/extract-* when it mounts at
+ * /api/vision/*). Both are fixed as of 2026-07-29.
  *
  * It never guesses: anything it cannot resolve is listed under "Unresolved" in the
  * output and printed to stderr, so a gap is visible rather than silently dropped.
@@ -32,92 +31,31 @@ const OUT = path.join(ROOT, 'memory', 'ROUTES_MAP.md');
 
 const read = (p) => fs.readFileSync(p, 'utf8');
 
-// Comments only — never touch string contents (a naive /*…*/ strip ate 3 real routes
-// out of vision.js while this was being written).
-function stripComments(src) {
-  return src
-    .replace(/^\s*\/\/.*$/gm, '')
-    .replace(/\/\*[\s\S]*?\*\//g, (m) => (m.includes('router.') ? m : ''));
-}
+// Discovery + mount resolution are shared with scripts/route-scanner.js (which feeds the
+// Postman collection) so the map and the collection can never disagree about what exists.
+const { buildMountIndex, extractFileRoutes } = require('./lib/route-inventory');
+const mountIndex = buildMountIndex();
 
-// ── 1. server.js: local identifier → { file, exportName } ──────────────────────
-const server = stripComments(read(path.join(ROOT, 'server.js')));
-const idToRouter = new Map();
-
-// const NAME = require('./src/routes/FILE')
-for (const m of server.matchAll(/const\s+(\w+)\s*=\s*require\(['"]\.\/src\/routes\/([\w-]+)['"]\)/g)) {
-  idToRouter.set(m[1], { file: `${m[2]}.js`, exportName: null });   // null = default export
-}
-// const { a: alias, b } = require('./src/routes/FILE')
-for (const m of server.matchAll(/const\s*\{([^}]+)\}\s*=\s*require\(['"]\.\/src\/routes\/([\w-]+)['"]\)/g)) {
-  for (const part of m[1].split(',')) {
-    const [orig, alias] = part.split(':').map((s) => s.trim());
-    if (orig) idToRouter.set(alias || orig, { file: `${m[2]}.js`, exportName: orig });
-  }
-}
-
-// ── 2. server.js: app.use('<prefix>', …identifier…) → mounts per (file, exportName) ──
-const mounts = new Map();          // "file::exportName" → Set(prefix)
-const key = (f, e) => `${f}::${e || 'default'}`;
-for (const m of server.matchAll(/app\.use\(\s*['"](\/[^'"]*)['"]\s*,([^;]*?)\)\s*;/g)) {
-  const prefix = m[1];
-  for (const ref of m[2].matchAll(/\b(\w+)(?:\.(\w+))?\b/g)) {
-    const info = idToRouter.get(ref[1]);
-    if (!info) continue;
-    // shipstationRoutes.webhookRouter → exportName webhookRouter; bare id → its own
-    const exportName = ref[2] || info.exportName;
-    const k = key(info.file, exportName);
-    if (!mounts.has(k)) mounts.set(k, new Set());
-    mounts.get(k).add(prefix);
-  }
-}
-
-// ── 3. Each route file: which router variable declares which paths ─────────────
-const DECL = /\b(\w*[Rr]outer)\.(get|post|put|delete|patch)\s*\(\s*['"`]([^'"`]*)['"`]/g;
 const files = fs.readdirSync(ROUTES_DIR).filter((f) => f.endsWith('.js')).sort();
-
 const result = [];
 const unresolved = [];
 let totalEndpoints = 0;
 
 for (const file of files) {
-  const src = stripComments(read(path.join(ROUTES_DIR, file)));
-  const defaultVar = (src.match(/module\.exports\s*=\s*(\w+)\s*;/) || [])[1] || 'router';
-  const byVar = new Map();
-  for (const d of src.matchAll(DECL)) {
-    const [, varName, verb, routePath] = d;
-    if (!byVar.has(varName)) byVar.set(varName, []);
-    byVar.get(varName).push({ verb: verb.toUpperCase(), routePath });
-  }
-  // Every prefix this file is mounted at, whatever the export name — the fallback for
-  // factory-built routers (policies.js exports buildRouter() twice as publicRouter and
-  // adminRouter, so the SAME `router` var really is served at both prefixes).
-  const allFilePrefixes = new Set();
-  for (const [k, set] of mounts) {
-    if (k.startsWith(`${file}::`)) for (const p of set) allFilePrefixes.add(p);
-  }
-
+  const declarations = extractFileRoutes(file, read(path.join(ROUTES_DIR, file)), mountIndex);
   const endpoints = [];
   const seen = new Set();
-  for (const [varName, list] of byVar) {
-    // Prefer the router's own export name, then the file's default export, then every
-    // mount the file has (factory pattern). Never guess beyond that.
-    const prefixes = mounts.get(key(file, varName))
-                  || (varName === defaultVar ? mounts.get(key(file, null)) : null)
-                  || (allFilePrefixes.size ? allFilePrefixes : null);
-    for (const { verb, routePath } of list) {
-      if (!prefixes || prefixes.size === 0) {
-        unresolved.push(`${file}  ${verb} ${routePath}  (router var: ${varName} — no app.use() found)`);
-        endpoints.push({ verb, full: `(unmounted) ${routePath}` });
-        continue;
-      }
-      for (const p of prefixes) {
-        const full = (p + routePath).replace(/\/+$/, '') || p;
-        const sig = `${verb} ${full}`;
-        if (seen.has(sig)) continue;   // same path declared in both factory branches
-        seen.add(sig);
-        endpoints.push({ verb, full });
-      }
+  for (const d of declarations) {
+    if (d.fullPaths.length === 0) {
+      unresolved.push(`${file}  ${d.method} ${d.routePath}  (router var: ${d.varName} — no app.use() found)`);
+      endpoints.push({ verb: d.method, full: `(unmounted) ${d.routePath}` });
+      continue;
+    }
+    for (const full of d.fullPaths) {
+      const sig = `${d.method} ${full}`;
+      if (seen.has(sig)) continue;   // same path declared in both factory branches
+      seen.add(sig);
+      endpoints.push({ verb: d.method, full });
     }
   }
   endpoints.sort((a, b) => a.full.localeCompare(b.full) || a.verb.localeCompare(b.verb));
