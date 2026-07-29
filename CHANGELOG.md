@@ -1,3 +1,7 @@
+## v2026.07.29.12 (2026.07.29)
+
+- Deploy v2026.07.29.12: 2 files (jotform.js, jotform-normalizer.test.js)
+
 ## v2026.07.29.11 (2026.07.29)
 
 - Close the exit-flush hole: a job ending in process.exit() never recorded its tail
