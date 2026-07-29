@@ -1,3 +1,7 @@
+## v2026.07.29.9 (2026.07.29)
+
+- sync-orders: content dedupe — stop writing every changed order to Caspio twice
+
 ## v2026.07.29.8 (2026.07.29)
 
 - sync-manageorders: fix the date comparison that re-synced 456 orders/day forever
