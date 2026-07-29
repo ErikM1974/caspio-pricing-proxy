@@ -1,3 +1,10 @@
+## v2026.07.29.6 (2026.07.29)
+
+- Memory: rescue the Files-API DELETE semantics from the auto-memory index
+- Generate the route map from source — the hand-written one had 44 of 121 files
+- Postman scanner: one in five collection entries pointed at a URL that 404s
+- Gate the six anonymous AI chat routes behind requireCrmApiSecret
+
 ## v2026.07.29.5 (2026.07.29)
 
 - Track .claude/skills — a fresh clone couldn't deploy without them
