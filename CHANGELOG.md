@@ -1,3 +1,7 @@
+## v2026.07.29.8 (2026.07.29)
+
+- sync-manageorders: fix the date comparison that re-synced 456 orders/day forever
+
 ## v2026.07.29.7 (2026.07.29)
 
 - Postman: --prune, so the 143 dead entries could actually be removed
