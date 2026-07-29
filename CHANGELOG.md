@@ -1,3 +1,9 @@
+## v2026.07.29.3 (2026.07.29)
+
+- inbound-today: fill "Unmatched" POs from live ManageOrders when the archive lags
+- Delete the three server.js.backup-* files (CLAUDE.md rule 1)
+- .gitignore: close the *.backup-* gap that let 800 KB of server.js copies ship
+
 ## v2026.07.29.2 (2026.07.29)
 
 - Stop serving the repo root — express.static('.') published source and internal docs
