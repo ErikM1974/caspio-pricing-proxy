@@ -9,15 +9,32 @@
 # WHY: the SanMar Inbound "✓ Received" filter reads PurchaseOrders.date_Received /
 # sts_Received (set when receiving counts a PO in). This agent gets that receipt
 # into Caspio in ~15 min instead of the legacy daily "Purchase Orders Export" CSV
-# chain. Runs in PARALLEL with that CSV chain (both upsert by ID_PO) until it's
-# retired.
+# chain.
+#
+# The legacy CSV chain is RETIRED (confirmed by Erik 2026-07-29; the bandit
+# "NWCA Purchase Orders Export to OneDrive" task was disabled 2026-07-17 and no
+# export task exists on the box today — verified by schtasks — and the Caspio-side
+# import no longer runs). THIS AGENT IS THE ONLY WRITER of PurchaseOrders now,
+# which is what makes the content dedupe below safe: there is no second source
+# whose writes this agent would otherwise be correcting.
 #
 # Files (all in C:\NWCA\odbc-sync\ on bandit — reuses the ORDER sync's config.json):
 #   sync-purchase-orders.ps1   this script (master copy lives in the caspio-pricing-proxy
 #                              repo at scripts/bandit-agent/ — edit THERE, recopy to bandit)
-#   config.json                { ProxyBase, CrmApiSecret, Dsn, OverlapMinutes, MaxRows }  (SHARED with sync-orders)
+#   config.json                { ProxyBase, CrmApiSecret, Dsn, OverlapMinutes, MaxRows,
+#                                OrdersOverlapMinutes }  (SHARED by 7 scripts)
 #   last-sync-po.txt           local wall-clock timestamp of last successful run start (SEPARATE from orders)
+#   last-sent-po.json          ID_PO -> { h = content hash, t = last seen }
+#                              Deleting it forces one full re-send of the window.
 #   sync-purchase-orders.log   append-only run log (auto-trimmed at ~1 MB)
+#
+# CONTENT DEDUPE (2026-07-29) — see sync-orders.ps1 for the full rationale. The
+# overlap deliberately re-pulls rows already sent and the proxy PUTs
+# unconditionally, so each change was written ~2x. The OVERLAP IS NOT REDUCED;
+# this agent just remembers what it last sent. Run with -DryRun to log every
+# send/skip decision and POST nothing.
+
+param([switch]$DryRun)
 #
 # Design rules (pricing-index repo memory/SHOPWORKS_ODBC_INTEGRATION.md):
 #  - Bounded query ONLY: WHERE timestamp_Modification >= last-sync minus overlap.
@@ -32,7 +49,22 @@ $ErrorActionPreference = 'Stop'
 $Root       = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ConfigPath = Join-Path $Root 'config.json'
 $StatePath  = Join-Path $Root 'last-sync-po.txt'
+$SentPath   = Join-Path $Root 'last-sent-po.json'
 $LogPath    = Join-Path $Root 'sync-purchase-orders.log'
+
+# A FIXED-WIDTH digest, not the concatenated row — identical rationale to
+# sync-orders.ps1. Do NOT "simplify" to a -join of the values.
+$Sha1 = [System.Security.Cryptography.SHA1]::Create()
+function Get-RowHash($row) {
+    $sb = New-Object System.Text.StringBuilder
+    foreach ($k in @($row.Keys | Sort-Object)) {
+        $v = $row[$k]
+        [void]$sb.Append($k).Append([char]31)
+        [void]$sb.Append($(if ($null -eq $v) { '' } else { [string]$v })).Append([char]30)
+    }
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($sb.ToString())
+    return [System.BitConverter]::ToString($Sha1.ComputeHash($bytes)).Replace('-', '')
+}
 
 function Log([string]$msg) {
     $line = ('{0:yyyy-MM-dd HH:mm:ss}  {1}' -f (Get-Date), $msg)
@@ -114,9 +146,56 @@ FETCH FIRST $maxRows ROWS ONLY
     }
     $rd.Close(); $conn.Close()
     Log "pulled $($rows.Count) changed PO(s)"
-    if ($rows.Count -ge $maxRows) {
+    $capped = $rows.Count -ge $maxRows
+    if ($capped) {
         Log "WARNING: hit MaxRows cap ($maxRows) - state NOT advanced; next run re-pulls from same point"
     }
+
+    # ---- content dedupe (see sync-orders.ps1 for the full reasoning) ----
+    # A missing or corrupt map means "remember nothing" and sends everything —
+    # the safe direction.
+    $sentMap = @{}
+    if (Test-Path $SentPath) {
+        try {
+            $raw = Get-Content $SentPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            foreach ($p in $raw.PSObject.Properties) { $sentMap[$p.Name] = $p.Value }
+        } catch {
+            Log "WARNING: last-sent-po.json unreadable ($($_.Exception.Message)) - sending everything this run"
+            $sentMap = @{}
+        }
+    }
+
+    # A CAPPED run must NEVER dedupe: state is not advanced on a cap and FETCH
+    # FIRST has no ORDER BY, so the next run re-pulls an arbitrary same-size
+    # window. Deduping there would skip every row, POST rows:[], and stamp a GREEN
+    # heartbeat over a sync that is not progressing.
+    $nowStamp = $runStart.ToString('yyyy-MM-dd HH:mm:ss')
+    $toSend = New-Object System.Collections.ArrayList
+    $hashByPo = @{}
+    $skipped = 0
+    foreach ($r in $rows) {
+        # NOT $pid — that is a READ-ONLY PowerShell automatic variable (the current
+        # process id) and assigning to it throws at runtime.
+        $poId = try { [string][long]$r['ID_PO'] } catch { '' }
+        if ($poId -eq '') { [void]$toSend.Add($r); continue }   # unkeyed row: let the proxy reject it
+        $h = Get-RowHash $r
+        $hashByPo[$poId] = $h
+        $prev = $sentMap[$poId]
+        if (-not $capped -and $null -ne $prev -and $prev.h -eq $h) {
+            $skipped++
+            if ($DryRun) { Log "  DRYRUN skip  $poId (unchanged)" }
+        } else {
+            [void]$toSend.Add($r)
+            if ($DryRun) { Log "  DRYRUN send  $poId$(if ($capped) { ' (capped run - dedupe bypassed)' })" }
+        }
+    }
+    Log "dedupe: $($toSend.Count) to send, $skipped unchanged$(if ($capped) { ' (BYPASSED - capped run)' })"
+
+    if ($DryRun) {
+        Log "DRYRUN - nothing posted, no state written"
+        exit 0
+    }
+    $rows = $toSend
 
     # POST in chunks (rows:[] when nothing changed - heartbeat ping).
     $headers = @{ 'x-crm-api-secret' = $cfg.CrmApiSecret }
@@ -140,9 +219,29 @@ FETCH FIRST $maxRows ROWS ONLY
         $sent += $chunk.Count
     } while ($sent -lt $rows.Count)
 
+    # Record what we just sent BEFORE advancing last-sync-po.txt. If the process
+    # dies between the two writes the only possible inconsistency is "hashes
+    # recorded, state not advanced" — the next run re-pulls and skips, which is
+    # correct. Nothing is recorded when a chunk errored, because that path throws
+    # above, so un-recorded rows are simply re-sent: a duplicate, never a gap.
+    # (This endpoint returns errors as { ID_PO, error } — NOT the { key, ... }
+    # shape /sync-designs uses — which is another reason not to parse them.)
+    $newMap = @{}
+    foreach ($k in $hashByPo.Keys) { $newMap[$k] = @{ h = $hashByPo[$k]; t = $nowStamp } }
+    $kept = 0
+    foreach ($k in $sentMap.Keys) {
+        if ($newMap.ContainsKey($k)) { continue }
+        $t = $null
+        try { $t = [datetime]$sentMap[$k].t } catch { $t = $null }
+        if ($null -ne $t -and $t -ge $since) { $newMap[$k] = $sentMap[$k]; $kept++ }
+    }
+    Set-Content -Path $SentPath -Value (ConvertTo-Json $newMap -Depth 4 -Compress) -Encoding UTF8
+    Log "sent-map: $($newMap.Count) entries ($kept carried forward)"
+
     # Advance state only after every chunk succeeded - and only when we did NOT hit
-    # the cap (capped run = there may be more rows in the window).
-    if ($rows.Count -lt $maxRows) {
+    # the cap. Tests $capped, NOT $rows.Count: $rows was filtered by the dedupe
+    # above, so a capped run would otherwise look small and wrongly advance state.
+    if (-not $capped) {
         Set-Content -Path $StatePath -Value $runStart.ToString('yyyy-MM-dd HH:mm:ss') -Encoding UTF8
         Log "OK - state advanced to $($runStart.ToString('yyyy-MM-dd HH:mm:ss'))"
     } else {
