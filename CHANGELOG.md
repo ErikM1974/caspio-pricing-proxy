@@ -1,3 +1,7 @@
+## v2026.07.29.2 (2026.07.29)
+
+- Stop serving the repo root — express.static('.') published source and internal docs
+
 ## v2026.07.29.1 (2026.07.29)
 
 - Keep crawlers off the API — no robots.txt meant Googlebot was pricing the catalog
