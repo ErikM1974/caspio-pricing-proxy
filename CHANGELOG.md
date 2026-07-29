@@ -1,3 +1,7 @@
+## v2026.07.29.1 (2026.07.29)
+
+- Keep crawlers off the API — no robots.txt meant Googlebot was pricing the catalog
+
 ## v2026.07.28.8 (2026.07.28)
 
 - DTG product-bundle: cache it, merge its two Sanmar scans, stop pricing on partial data
