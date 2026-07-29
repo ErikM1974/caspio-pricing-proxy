@@ -98,7 +98,12 @@ const guardReadsOnly = (mw) => (req, res, next) =>
 // Apply all middleware to an Express app
 const applyMiddleware = (app) => {
   app.use(express.json()); // Parse JSON bodies
-  app.use(express.static('.')); // Serve static files from the current directory
+  // NO express.static('.') here — see the note at server.js where the same line
+  // was removed 2026-07-29. Serving the repo root published source, CLAUDE.md and
+  // the memory/ docs tree publicly. This helper is currently unreferenced (only
+  // requireCrmApiSecret / requireCrmSecretOrBrowserOrigin / guardReadsOnly are
+  // imported from this module), so the copy here was a dormant landmine: wiring
+  // applyMiddleware up later would have silently reopened the hole.
   app.use(corsMiddleware);
 };
 

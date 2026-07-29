@@ -94,7 +94,21 @@ app.use((req, res, next) => {
     next();
 });
 
-app.use(express.static('.')); // Serve static files from the current directory
+// REMOVED 2026-07-29: app.use(express.static('.')) published the ENTIRE repo root.
+// In production it served, with HTTP 200 and no auth: server.js (99 KB),
+// server.js.backup-with-comments (281 KB), config.js, CLAUDE.md, and the whole
+// memory/ docs tree (e.g. memory/API_USAGE_TRACKING.md, 27 KB) — internal
+// architecture, table names and endpoint inventories, ideal reconnaissance.
+// No secrets or customer data were exposed: .env, .git/config, *.csv, *.log and
+// orders_check.json are gitignored, so they were never on the slug (all 404).
+//
+// Verified unused before removal — do not re-add without repeating these:
+//   1. 333 captured router requests: only 7 were non-/api, and all 7 were the
+//      probes from this investigation. Zero organic static traffic.
+//   2. ~110 references to this host across the app repo — every one is /api/.
+//   3. GET / already returned 404; the only non-/api route is /robots.txt above.
+// This is an API server. If a file ever genuinely needs serving, mount a
+// dedicated directory (express.static('public')) — never the repo root.
 
 // CORS — allowlist (see src/utils/cors-allowlist.js). Unknown browser origins
 // get no Access-Control-Allow-Origin header (browser blocks them); server-to-
