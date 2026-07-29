@@ -77,10 +77,17 @@ async function main() {
       existingCollection = null;
     }
 
+    // --prune: also DELETE collection entries that no longer exist in code (except the
+    // hand-added ones in scripts/postman-manual-endpoints.json). Opt-in, because the
+    // default must never lose a manually curated request.
+    const prune = process.argv.includes('--prune');
+    if (prune) console.log('🗑  --prune: stale entries will be removed (manual list exempt)'.yellow);
+
     const differ = new CollectionDiffer({
       preserveDescriptions: true,
       preserveExamples: true,
-      preserveQueryValues: true
+      preserveQueryValues: true,
+      prune
     });
 
     const mergedCollection = existingCollection

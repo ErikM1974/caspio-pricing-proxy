@@ -1,0 +1,34 @@
+{
+  "_comment": [
+    "Endpoints that live in the Postman collection but are NOT generated from src/routes/.",
+    "`npm run update-postman -- --prune` deletes stale collection entries EXCEPT these.",
+    "",
+    "Seeded 2026-07-29 when the route scanner was fixed. Before that it built fullPath as",
+    "a hardcoded '/api' + the route's in-file path, so 143 entries pointed at URLs that",
+    "404 (e.g. /api/:policyId for a route that really serves at /api/policies/:policyId).",
+    "Those 143 were provably scanner artifacts and were pruned. The entries below were",
+    "never produced by any scanner run, so they are genuine manual additions - proxied",
+    "endpoints, or routes that live outside src/routes/ - and are kept.",
+    "",
+    "Add a line here if you hand-add an endpoint to the collection that has no route file."
+  ],
+  "endpoints": [
+    "DELETE /api/digitized-designs/:id",
+    "GET /api",
+    "GET /api/caspio/daily-sales",
+    "GET /api/caspio/daily-sales/ytd",
+    "GET /api/digitized-designs",
+    "GET /api/digitized-designs/:id",
+    "GET /api/digitized-designs/design/:designNumber",
+    "GET /api/digitized-designs/search",
+    "GET /api/embroidery-push/verify/:extOrderId",
+    "GET /api/thumbnails/top-sellers",
+    "POST /api/caspio/daily-sales",
+    "POST /api/caspio/daily-sales/bulk",
+    "POST /api/digitized-designs",
+    "POST /api/pre-submit-check",
+    "POST /api/quote-items-with-file",
+    "POST /api/submit",
+    "PUT /api/digitized-designs/:id"
+  ]
+}
