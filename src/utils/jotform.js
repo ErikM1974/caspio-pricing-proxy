@@ -32,6 +32,12 @@ const JOTFORM_FORMS = {
   '240425236898464': { title: 'Apparel Leads #1', variant: 'lead' },
   '242285010362042': { title: 'Webstore Contact Form', variant: 'webstore-contact' },
   '233535928059162': { title: 'NW Custom Apparel Franchise Inquiry', variant: 'franchise' },
+  // Added 2026-07-29 (Erik): the Order Form is a warmer lead than a contact-us
+  // fill — it already carries a due date and line items — but it only ever
+  // emailed the JotForm inbox, so it never reached the Leads board. NOTE the
+  // legacy twin 221517618697062 ("Order Form ", 24 subs, last used 2025-06) is
+  // deliberately NOT registered; 223615420950046 is the live one.
+  '223615420950046': { title: 'Order Form', variant: 'order-form' },
 };
 
 // Display-name spelling matches the quote builders' rep dropdowns and the
@@ -150,12 +156,43 @@ function classify(slug) {
   if (/(upload|artwork|attach)/.test(k) || k.endsWith('file') || k.includes('filesform')) return 'upload';
   if (k.includes('email')) return 'email';
   if (k.includes('phone') || k.includes('cell')) return 'phone';
+  // Exact list, never a substring test: the Order Form also has a `dateIn`
+  // (submitted-on) that must NOT be mistaken for the customer's deadline.
+  if (/^(datedue|duedate|dateneeded|neededby|needby|inhandsdate|dueby)$/.test(k)) return 'dueDate';
   if (k.includes('firstname') || k === 'first') return 'firstName';
   if (k.includes('lastname') || k === 'last') return 'lastName';
-  if (k === 'name' || k === 'fullname' || k === 'yourname' || k === 'contactname') return 'name';
+  if (k === 'name' || k === 'fullname' || k === 'yourname' || k === 'contactname' || k === 'buyername') return 'name';
   if (/(company|business|organization|organisation|group|school)/.test(k)) return 'company';
-  if (/(description|quoterequest|message|comments|additionalinformation|needs|whydoyou|tellus|inquiry)/.test(k)) return 'description';
+  if (/(description|quoterequest|message|comments|additionalinformation|needs|whydoyou|tellus|inquiry|notes)/.test(k)) return 'description';
   return 'other';
+}
+
+// JotForm matrix answers arrive as an array of JSON-encoded row arrays, and
+// carry one entry per rendered row — so a 10-row grid with 1 line filled in
+// stringifies to nine `["","",…]` blanks. Render the filled rows only; the
+// untouched original is always one click away via payload._source.url.
+function renderMatrix(value) {
+  if (!Array.isArray(value) || !value.length) return '';
+  const rows = [];
+  for (const row of value) {
+    if (typeof row !== 'string') return '';
+    let cells;
+    try { cells = JSON.parse(row); } catch { return ''; }
+    if (!Array.isArray(cells)) return '';
+    const filled = cells.map((c) => String(c == null ? '' : c).trim());
+    if (filled.some(Boolean)) rows.push(filled.filter(Boolean).join(', '));
+  }
+  return rows.join(' | ');
+}
+
+// "2026-08-24 00:00:00" / "08/24/2026" → "2026-08-24" (Due_Date is an ISO day).
+function toIsoDay(text) {
+  const s = String(text || '').trim();
+  let m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(s);
+  if (m) return `${m[3]}-${String(m[1]).padStart(2, '0')}-${String(m[2]).padStart(2, '0')}`;
+  return '';
 }
 
 // ── Pure: normalization ───────────────────────────────────────────────
@@ -177,7 +214,7 @@ function capPayload(payload) {
 function normalizeEntries(formID, entries, submissionId) {
   const form = JOTFORM_FORMS[formID] || { title: `JotForm ${formID}`, variant: 'unknown' };
   let email = ''; let phone = ''; let company = '';
-  let first = ''; let last = ''; let fullName = '';
+  let first = ''; let last = ''; let fullName = ''; let dueDate = '';
   const descriptions = [];
   const artworkUrls = [];
   const fields = []; // [label, value] pairs — same self-describing style as the form twins
@@ -194,7 +231,9 @@ function normalizeEntries(formID, entries, submissionId) {
       continue;
     }
 
-    const text = valueToText(e.value);
+    // renderMatrix self-detects (and returns '' for anything not matrix-shaped),
+    // so this also works on the webhook rawRequest path, which carries no type.
+    const text = renderMatrix(e.value) || valueToText(e.value);
     if (!text) continue;
 
     switch (kind) {
@@ -205,6 +244,7 @@ function normalizeEntries(formID, entries, submissionId) {
       case 'lastName': if (!last) last = text; break;
       case 'name': if (!fullName) fullName = text; break;
       case 'description': descriptions.push(text); break;
+      case 'dueDate': if (!dueDate) dueDate = toIsoDay(text); break;
       default: break;
     }
     fields.push([e.label, text]);
@@ -231,7 +271,7 @@ function normalizeEntries(formID, entries, submissionId) {
     },
   });
 
-  return { email, phone, company: resolvedCompany, contactName, summary, payload };
+  return { email, phone, company: resolvedCompany, contactName, summary, dueDate, payload };
 }
 
 const normalizeFromRawRequest = (formID, raw, submissionId) =>
@@ -263,7 +303,7 @@ function buildLeadRecord({ formID, submissionId, normalized, assign, opts = {} }
     Email: S(normalized.email),
     Customer_Number: '',
     Sales_Rep: S((assign && assign.salesRep) || DEFAULT_LEAD_REP, 80),
-    Due_Date: '',
+    Due_Date: S(normalized.dueDate || ''),
     Status: opts.status || DEFAULT_STATUS['jotform-lead'],
     Summary: S(normalized.summary, 250),
     Payload_JSON: JSON.stringify(normalized.payload),
