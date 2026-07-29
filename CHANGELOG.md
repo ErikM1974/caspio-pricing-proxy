@@ -1,3 +1,8 @@
+## v2026.07.29.5 (2026.07.29)
+
+- Track .claude/skills — a fresh clone couldn't deploy without them
+- core.hooksPath: point git at the tracked hooks instead of copying them in
+
 ## v2026.07.29.4 (2026.07.29)
 
 - GIT_WORKFLOW.md documented a deploy path the pre-push hook blocks
