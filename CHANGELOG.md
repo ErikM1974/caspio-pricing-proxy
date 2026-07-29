@@ -1,3 +1,7 @@
+## v2026.07.29.4 (2026.07.29)
+
+- GIT_WORKFLOW.md documented a deploy path the pre-push hook blocks
+
 ## v2026.07.29.3 (2026.07.29)
 
 - inbound-today: fill "Unmatched" POs from live ManageOrders when the archive lags
