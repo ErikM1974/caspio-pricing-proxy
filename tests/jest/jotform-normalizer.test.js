@@ -119,6 +119,90 @@ describe('franchise/webstore variants map through generic slugs', () => {
   });
 });
 
+// Verbatim shape of live submission 6611531883425473151 (2026-07-29), captured
+// with `node scripts/register-jotform-webhooks.js --sample 223615420950046`.
+// The Order Form is the one lead form with a matrix and a real due date, so it
+// is the regression anchor for both.
+describe('Order Form (223615420950046)', () => {
+  const answers = {
+    3: { name: 'company', text: 'Company', type: 'control_textbox', answer: 'USN NRC Kitsap JEA' },
+    4: { name: 'phone', text: 'Phone', type: 'control_phone', answer: { full: '(504) 877-3434' } },
+    5: {
+      name: 'dateIn', text: 'Date in', type: 'control_datetime',
+      answer: { month: '07', day: '29', year: '2026', datetime: '2026-07-29 00:00:00' },
+    },
+    6: { name: 'buyerName', text: 'Buyer Name', type: 'control_textbox', answer: 'Kabrielle Arradondo' },
+    7: { name: 'email', text: 'Email', type: 'control_email', answer: 'Kabrielle.d.arradondo.mil@us.navy.mil' },
+    8: {
+      name: 'dateDue', text: 'Date due', type: 'control_datetime',
+      answer: { month: '08', day: '24', year: '2026', datetime: '2026-08-24 00:00:00' },
+    },
+    9: { name: 'logoType', text: 'Logo Type', type: 'control_checkbox', answer: ['DTG Printing', 'Screenprinting'] },
+    10: { name: 'address', text: 'Address', type: 'control_textbox', answer: '125 S Dewey ST' },
+    11: { name: 'citystatezip', text: 'City/State/Zip', type: 'control_textbox', answer: 'Bremerton WA 98314' },
+    12: {
+      name: 'orderForm', text: 'Order Form', type: 'control_matrix',
+      answer: [
+        '["tshirt","brown","Back and white ink","20","20","20","20","","","","80"]',
+        '["","","","","","","","","","",""]',
+        '["","","","","","","","","","",""]',
+      ],
+    },
+    13: { name: 'notesOn', text: 'Notes on Order', type: 'control_textarea', answer: 'Brown T-shirts\n(Front) solid white sasquatch' },
+    14: { name: 'fileUpload', text: 'File Upload', type: 'control_fileupload', answer: [] },
+  };
+  const n = normalizeFromApiAnswers('223615420950046', answers, '6611531883425473151');
+
+  test('buyerName → Contact_Name (was dropped as "other" before the form was registered)', () => {
+    expect(n.contactName).toBe('Kabrielle Arradondo');
+  });
+
+  test('notesOn → summary, not the "{title} lead" placeholder', () => {
+    expect(n.summary).toContain('Brown T-shirts');
+    expect(n.summary).not.toBe('Order Form lead');
+  });
+
+  test('dateDue → ISO day; dateIn is NOT mistaken for it', () => {
+    expect(n.dueDate).toBe('2026-08-24');
+  });
+
+  test('matrix renders filled rows only — blank grid rows are dropped', () => {
+    const grid = n.payload.fields.find(([l]) => l === 'Order Form')[1];
+    expect(grid).toBe('tshirt, brown, Back and white ink, 20, 20, 20, 20, 80');
+    expect(grid).not.toMatch(/\[|"/);
+  });
+
+  test('company/phone/email still promote; checkbox list survives in payload', () => {
+    expect(n.company).toBe('USN NRC Kitsap JEA');
+    expect(n.phone).toBe('(504) 877-3434');
+    expect(n.email).toBe('kabrielle.d.arradondo.mil@us.navy.mil');
+    expect(n.payload.fields).toContainEqual(['Logo Type', 'DTG Printing, Screenprinting']);
+  });
+
+  test('buildLeadRecord carries the due date onto the Caspio row', () => {
+    const rec = buildLeadRecord({
+      formID: '223615420950046', submissionId: '6611531883425473151', normalized: n, assign: null,
+    });
+    expect(rec.Due_Date).toBe('2026-08-24');
+    expect(rec.Form_ID).toBe('jotform-lead');
+    expect(rec.External_Source).toBe('jotform:223615420950046');
+  });
+});
+
+describe('classify guards', () => {
+  const { classify } = require('../../src/utils/jotform');
+  test('dateIn/dateSubmitted are not due dates', () => {
+    expect(classify('dateIn')).toBe('other');
+    expect(classify('dateDue')).toBe('dueDate');
+    expect(classify('inHandsDate')).toBe('dueDate');
+  });
+  test('leads with no due date still build a blank Due_Date', () => {
+    const n = normalizeFromRawRequest(LEAD_FORM, { q3_email: 'a@b.com', q4_company: 'B Co' }, '9');
+    expect(n.dueDate).toBe('');
+    expect(buildLeadRecord({ formID: LEAD_FORM, submissionId: '9', normalized: n, assign: null }).Due_Date).toBe('');
+  });
+});
+
 describe('pickBestContact (assignment picking)', () => {
   const rows = [
     { id_Customer: 1, Sales_Rep: '', Is_Active: 0, Last_Order_Date: '2020-01-01' },
