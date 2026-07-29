@@ -1,3 +1,8 @@
+## v2026.07.29.7 (2026.07.29)
+
+- Postman: --prune, so the 143 dead entries could actually be removed
+- Remove the contract-sticker-ai route; keep its test's live half
+
 ## v2026.07.29.6 (2026.07.29)
 
 - Memory: rescue the Files-API DELETE semantics from the auto-memory index
