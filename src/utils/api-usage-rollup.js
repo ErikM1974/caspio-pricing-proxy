@@ -64,6 +64,7 @@ const state = {
 // How much of THIS process's count has already been written, per UTC day.
 const contributed = new Map();
 let inFlight = false;
+let inFlightPromise = null;
 let pending = false;
 
 /**
@@ -148,8 +149,26 @@ async function runOnce() {
   // without ever recording it. So coalesce instead of discard — mark it pending
   // and re-run once the current write lands. pushRollup always reads the CURRENT
   // counter, so one extra pass catches up however far behind it got.
-  if (inFlight) { pending = true; return; }
+  //
+  // Hand back the RUNNING promise, not undefined. `await runOnce()` from
+  // flushAndExit used to resolve instantly whenever a flush was already in
+  // flight — the exact case it exists for, since the threshold hook fires a
+  // flush and the script then exits on top of it. The process died mid-write and
+  // reported success, losing up to FLUSH_EVERY_CALLS calls. The do/while below
+  // already re-runs while `pending`, so awaiting this one promise covers the
+  // deferred pass too.
+  if (inFlight) { pending = true; return inFlightPromise; }
   inFlight = true;
+  inFlightPromise = doFlush();
+  try {
+    await inFlightPromise;
+  } finally {
+    inFlight = false;
+    inFlightPromise = null;
+  }
+}
+
+async function doFlush() {
   state.lastRunAt = new Date().toISOString();
   try {
     do {
@@ -186,8 +205,55 @@ async function runOnce() {
         `Check that Caspio table "${TABLE}" exists with Usage_Date/Dyno_Id/Call_Count/Updated_At.`
       );
     }
+  }
+  // No `finally { inFlight = false }` here — runOnce owns that flag now, so it
+  // stays true for the whole life of this promise and callers coalesce onto it.
+}
+
+// How many calls this process has counted but not yet written. Used to make an
+// exit-flush timeout say what it actually cost instead of failing silently.
+function unflushedCount() {
+  const day = accountDay();
+  const sinceStart = tracker.stats.callsByDay.get(day) || 0;
+  return Math.max(0, sinceStart - (contributed.get(day) || 0));
+}
+
+// A short-lived script that ends in process.exit() never reaches `beforeExit`,
+// so its tail — everything since the last 250-call flush — was never recorded.
+// That is why six of the nine morning cluster jobs showed ZERO in
+// API_Usage_Daily on 2026-07-29 while Caspio billed for them.
+//
+// 10 s, not 3: pushRollup retries a rate limit three times with backoff on top
+// of a per-request timeout, and Caspio's per-second limit is most likely to bite
+// exactly here, right after the burst of work that triggered the flush.
+const EXIT_FLUSH_TIMEOUT_MS = 10000;
+
+async function flushAndExit(code = 0) {
+  try {
+    const before = unflushedCount();
+    let timedOut = false;
+    await Promise.race([
+      runOnce(),
+      new Promise(resolve => {
+        const t = setTimeout(() => { timedOut = true; resolve(); }, EXIT_FLUSH_TIMEOUT_MS);
+        if (t.unref) t.unref();
+      })
+    ]);
+    if (timedOut) {
+      // Loud, with the number. Silently abandoning the tail is the same class of
+      // failure as a silent cache fallback: the meter reads low and nothing says why.
+      console.error(
+        `[API USAGE ROLLUP] exit flush timed out after ${EXIT_FLUSH_TIMEOUT_MS}ms — ` +
+        `up to ${before} call(s) unrecorded for ${accountDay()} on ${DYNO}`
+      );
+    }
+  } catch (err) {
+    console.error('[API USAGE ROLLUP] exit flush failed:', err.message);
   } finally {
-    inFlight = false;
+    // ALWAYS exit, with the caller's code. A metering helper must never change
+    // whether a job reports success, and must never hang a one-off dyno open —
+    // dyno-hours cost money and an overrun can overlap the next scheduled run.
+    process.exit(code);
   }
 }
 
@@ -310,4 +376,12 @@ function status() {
   };
 }
 
-module.exports = { start, runOnce, status, readPeriod, isConfigured: () => Boolean(TABLE) };
+module.exports = {
+  start,
+  runOnce,
+  status,
+  readPeriod,
+  flushAndExit,
+  unflushedCount,
+  isConfigured: () => Boolean(TABLE)
+};

@@ -175,13 +175,24 @@ async function main() {
     console.log(`[CHECK_TRANSFERS_RECEIVED] complete: sent=${sent}, failed=${failed}, skipped=${skipped} (elapsed=${elapsed}s)`);
 }
 
+// flushAndExit, not process.exit: this job makes a FIXED ~2 Caspio calls per run,
+// far below the rollup's 250-call flush threshold, and process.exit() skips the
+// `beforeExit` hook — so every run of this hourly job recorded ZERO in
+// API_Usage_Daily while Caspio billed for it. flushAndExit writes the tail first
+// and then exits with the same code, so Heroku Scheduler still sees success/failure
+// exactly as before. It always exits, even if the flush fails or times out.
+const { flushAndExit } = require('../src/utils/api-usage-rollup');
+
 main()
-    .then(() => process.exit(0))
+    .then(() => flushAndExit(0))
     .catch(err => {
         console.error('[CHECK_TRANSFERS_RECEIVED] fatal:', err.message);
         if (err.response) {
             console.error('  response status:', err.response.status);
             console.error('  response body:', JSON.stringify(err.response.data).slice(0, 500));
         }
-        process.exit(1);
+        // The failure path matters MORE than the success path: the calls that ran
+        // before the throw were still billed, and there are far more exit(1) sites
+        // in this repo than exit(0).
+        flushAndExit(1);
     });
