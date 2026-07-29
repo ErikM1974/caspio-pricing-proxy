@@ -1,3 +1,7 @@
+## v2026.07.29.10 (2026.07.29)
+
+- sync-purchase-orders: same content dedupe, now that the legacy CSV chain is confirmed dead
+
 ## v2026.07.29.9 (2026.07.29)
 
 - sync-orders: content dedupe — stop writing every changed order to Caspio twice
