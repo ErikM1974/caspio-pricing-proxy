@@ -1,3 +1,7 @@
+## v2026.07.29.11 (2026.07.29)
+
+- Close the exit-flush hole: a job ending in process.exit() never recorded its tail
+
 ## v2026.07.29.10 (2026.07.29)
 
 - sync-purchase-orders: same content dedupe, now that the legacy CSV chain is confirmed dead
