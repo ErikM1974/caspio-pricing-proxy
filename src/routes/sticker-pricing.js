@@ -351,9 +351,11 @@ function quoteStickerFromGrid({ width, height, qty, grid, rushMultiplier = null 
   };
 }
 
-// Quote-lookup helper — used by the contract-sticker-ai route to translate a
-// customer's free-form ask (e.g. "200 of 2x3 stickers") into a quotable grid row.
-// Implements the bounding-box rule + round-up-qty rule from the system prompt.
+// Quote-lookup helper — translates a free-form ask (e.g. "200 of 2x3 stickers")
+// into a quotable grid row. Implements the bounding-box rule + round-up-qty rule.
+// Written for the contract-sticker-ai bot (removed 2026-07-29); the public
+// /custom-stickers configurator is now its caller, via POST /api/public/sticker-quote
+// on the app, which re-quotes here server-side rather than trusting the browser.
 //
 // GET /api/sticker-pricing/quote?width=2&height=3&qty=200
 //   → { partNumber: "STK-3X3-200", size: "3x3", quantity: 200,
@@ -418,8 +420,12 @@ router.get('/sticker-pricing/quote', async (req, res) => {
   });
 });
 
-// Expose loadGrid + constants for the contract-sticker-ai route's tool implementations,
-// so the AI's quote_sticker_price tool can resolve part numbers without an internal HTTP hop.
+// Named exports alongside the router. These existed so the contract-sticker-ai
+// bot could resolve part numbers without an internal HTTP hop; that route was
+// removed 2026-07-29 and the remaining consumers are the jest suites
+// (sticker-pricing.test.js destructures several, banner-pricing.test.js takes
+// resolveRushMultiplier). Kept as the engine's test seam — they are what lets
+// the pricing math be asserted without standing up Express.
 module.exports = router;
 module.exports.loadGrid = loadGrid;
 module.exports.quoteStickerFromGrid = quoteStickerFromGrid;

@@ -25,6 +25,21 @@ class CollectionDiffer {
     this.preserveDescriptions = options.preserveDescriptions !== false;
     this.preserveExamples = options.preserveExamples !== false;
     this.preserveQueryValues = options.preserveQueryValues !== false;
+    // Opt-in: delete collection entries that no longer exist in code. Off by default so a
+    // normal run can never lose a hand-added endpoint.
+    this.prune = options.prune === true;
+    this.prunedEndpoints = [];
+    this.manualEndpoints = new Set();
+    try {
+      const manual = require('./postman-manual-endpoints.json');
+      for (const e of manual.endpoints || []) this.manualEndpoints.add(e.trim());
+    } catch (err) {
+      // No list = nothing is exempt. Refuse to prune rather than delete blind.
+      if (this.prune) {
+        console.warn('  ⚠️  postman-manual-endpoints.json unreadable — pruning DISABLED for safety'.yellow);
+        this.prune = false;
+      }
+    }
   }
 
   /**
@@ -110,17 +125,41 @@ class CollectionDiffer {
       processedEndpoints.add(this.getEndpointKey(genEndpoint));
     });
 
-    // Check for endpoints that exist but weren't generated (might be removed from code)
+    // Endpoints in the collection that the scanner did NOT generate.
+    // Default: keep them — a hand-added endpoint must not be silently deleted.
+    // With --prune: delete them UNLESS they're listed in scripts/postman-manual-endpoints.json.
+    // Why prune exists (2026-07-29): the scanner used to paste a hardcoded '/api' in front
+    // of each route's in-file path, so 143 entries pointed at URLs that 404. "Never delete"
+    // meant those could never be cleaned up — the collection only ever grew wrong.
     existingEndpoints.forEach(existingEndpoint => {
       const key = this.getEndpointKey(existingEndpoint);
-      if (!processedEndpoints.has(key)) {
-        console.log(`  ⚠️  Endpoint in Postman but not in code: ${existingEndpoint.request.method} ${this.getEndpointPath(existingEndpoint)}`.yellow);
-        // Still include it (don't auto-delete manual additions)
-        mergedEndpoints.push(existingEndpoint);
+      if (processedEndpoints.has(key)) return;
+
+      const method = existingEndpoint.request.method;
+      const epPath = this.getEndpointPath(existingEndpoint);
+      if (this.prune && !this.isManuallyPreserved(method, epPath)) {
+        console.log(`  🗑  Pruned (not in code, not in manual list): ${method} ${epPath}`.red);
+        this.prunedEndpoints.push(`${method} ${epPath}`);
+        return;
       }
+      console.log(`  ⚠️  Endpoint in Postman but not in code: ${method} ${epPath}`.yellow);
+      mergedEndpoints.push(existingEndpoint);
     });
 
     return mergedEndpoints;
+  }
+
+  /**
+   * Is this a hand-added endpoint that has no route file and must survive --prune?
+   * Compared on "METHOD /path" with the {{baseUrl}} variable and any query string removed,
+   * so the list stays readable and doesn't depend on how the URL was stored.
+   */
+  isManuallyPreserved(method, endpointPath) {
+    const clean = String(endpointPath || '')
+      .split('?')[0]
+      .replace(/\{\{base_?[Uu]rl\}\}/g, '')
+      .replace(/\/+$/, '');
+    return this.manualEndpoints.has(`${method} ${clean}`.trim());
   }
 
   /**

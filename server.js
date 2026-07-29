@@ -1195,28 +1195,20 @@ const contractDtgAIRoute = require('./src/routes/contract-dtg-ai');
 app.use('/api/contract-dtg-ai', aiChatLimiter, requireCrmApiSecret, contractDtgAIRoute);
 console.log('✓ Contract DTG AI route loaded (SECRET-ONLY, Claude Sonnet 4.6 + prompt caching)');
 
-// Contract Sticker AI (2026-05-15) — parallel pattern. Streams Claude
-// quote drafts for /calculators/sticker-manual-pricing.html. Unlike CEMB/CDTG
-// which read a pre-filled calculator state, this bot drives the inputs via
-// the quote_sticker_price tool (bounding-box + qty round-up rules).
+// Contract Sticker AI — REMOVED 2026-07-29 (was POST /api/contract-sticker-ai/chat).
+// It served the AI quote drawer on the app's /calculators/sticker-manual-pricing.html,
+// which was retired the same day (its URLs 410) along with the app-side forwarder
+// that reached it. Zero callers remained in any repo. Deleted with it:
+// src/routes/contract-sticker-ai.js and lib/contract-sticker-ai-prompt.js.
 //
-// 🔒 SECRET-ONLY as of 2026-07-24. This bot's lookup_customer tool returns
-// company, contact name, email, phone, street address, sales rep, payment terms
-// and last-ordered date — five matches for any 2-character query — and it was
-// mounted with NO authentication, so the customer list was readable by anyone
-// with curl. The rate limiter's own comment admitted it ("unauthenticated …
-// true protection is auth — TODO").
+// KEPT deliberately: sticker-pricing.js, banner-pricing.js and custom-decal-pricing.js.
+// The bot only ever called their exported compute functions — it owned none of the
+// pricing math (de-duplicated 2026-07-24, Rule 9). All three are independently
+// mounted and live; custom-decal-pricing backs the app's /pricing/decals calculator.
 //
-// The ONLY caller is now the Pricing Index app's session-gated forwarder
-// (POST /api/sticker-ai/chat → here, with X-CRM-API-Secret). Verified by grep
-// across both repos before flipping: shared_components/js/sticker-pricing-page.js
-// was the sole direct caller and has been repointed.
-//
-// ⚠️ DEPLOY ORDER: the app must ship BEFORE this gate. Reversed, the staff
-// sticker page 401s until the app catches up.
-const contractStickerAIRoute = require('./src/routes/contract-sticker-ai');
-app.use('/api/contract-sticker-ai', aiChatLimiter, requireCrmApiSecret, contractStickerAIRoute);
-console.log('✓ Contract Sticker AI route loaded (SECRET-ONLY, Claude Sonnet 4.6 + prompt caching)');
+// Its test became tests/jest/sticker-quote-route-surface.test.js rather than being
+// deleted: the AI-parity half went vacuous, but it is the ONLY test driving the real
+// Express handler for the live, customer-facing /api/sticker-pricing/quote.
 
 // Contract Emblem AI (2026-05-16) — mirrors sticker pattern. Streams Claude
 // quote drafts for /calculators/embroidered-emblem/index.html. Single
