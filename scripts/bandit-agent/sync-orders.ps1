@@ -10,8 +10,11 @@
 # Files (all in C:\NWCA\odbc-sync\ on bandit):
 #   sync-orders.ps1   this script (master copy lives in the caspio-pricing-proxy
 #                     repo at scripts/bandit-agent/ — edit THERE, recopy to bandit)
-#   config.json       { ProxyBase, CrmApiSecret, Dsn, OverlapMinutes, MaxRows }
+#   config.json       { ProxyBase, CrmApiSecret, Dsn, OverlapMinutes, MaxRows,
+#                       OrdersOverlapMinutes }  — SHARED by 7 agent scripts
 #   last-sync.txt     local wall-clock timestamp of last successful run start
+#   last-sent-orders.json  ID_Order -> { h = content hash, t = last seen }
+#                     Deleting it forces one full re-send of the current window.
 #   sync-orders.log   append-only run log (auto-trimmed at ~1 MB)
 #
 # Design rules (pricing-index repo memory/SHOPWORKS_ODBC_INTEGRATION.md):
@@ -22,6 +25,23 @@
 #  - Empty result still POSTs rows:[] — that stamps the watchdog heartbeat, so
 #    "agent alive but quiet" never looks like "agent dead".
 #  - Exit 0 = success, 1 = failure (Task Scheduler history shows red).
+#
+# CONTENT DEDUPE (2026-07-29). The overlap deliberately re-pulls rows already
+# sent — it is the safety net for clock skew and long transactions — and the
+# proxy PUTs unconditionally, so every changed row was written to Caspio ~2x.
+# ORDER_ODBC was measured at 55% of all Caspio calls on a fresh web dyno.
+# This agent now remembers a hash of exactly what it last sent per order and
+# skips rows whose content is unchanged. The OVERLAP IS NOT REDUCED — shortening
+# it would trade a safety net for the same saving this gets for free.
+#
+# Deliberately NOT reducing OrdersOverlapMinutes below 20: the tolerance for the
+# OnSite/FileMaker server clock running behind bandit's Get-Date is exactly the
+# overlap. Note `if ($cfg.OrdersOverlapMinutes)` is PowerShell-truthy, so a
+# literal 0 in config.json silently means 20.
+#
+# Run with -DryRun to log every send/skip decision and POST nothing.
+
+param([switch]$DryRun)
 
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -29,12 +49,33 @@ $ErrorActionPreference = 'Stop'
 $Root      = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ConfigPath = Join-Path $Root 'config.json'
 $StatePath  = Join-Path $Root 'last-sync.txt'
+$SentPath   = Join-Path $Root 'last-sent-orders.json'
 $LogPath    = Join-Path $Root 'sync-orders.log'
 
 function Log([string]$msg) {
     $line = ('{0:yyyy-MM-dd HH:mm:ss}  {1}' -f (Get-Date), $msg)
     Add-Content -Path $LogPath -Value $line -Encoding UTF8
     Write-Output $line
+}
+
+# A FIXED-WIDTH digest, not the concatenated row. NotesOnOrder and
+# NotesToAccounting are unbounded varchar in FileMaker and are given 64,000
+# characters of destination capacity by the proxy, so storing raw values would
+# put ~128 KB per entry on disk. SHA1 is 40 chars regardless. Do NOT "simplify"
+# this to a -join of the values.
+$Sha1 = [System.Security.Cryptography.SHA1]::Create()
+function Get-RowHash($row) {
+    # Sort the keys so the digest does not depend on hashtable enumeration order,
+    # and cover EVERY key the row carries — if the SELECT list gains a column,
+    # that column participates automatically instead of being silently ignored.
+    $sb = New-Object System.Text.StringBuilder
+    foreach ($k in @($row.Keys | Sort-Object)) {
+        $v = $row[$k]
+        [void]$sb.Append($k).Append([char]31)
+        [void]$sb.Append($(if ($null -eq $v) { '' } else { [string]$v })).Append([char]30)
+    }
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($sb.ToString())
+    return [System.BitConverter]::ToString($Sha1.ComputeHash($bytes)).Replace('-', '')
 }
 
 try {
@@ -154,9 +195,57 @@ FETCH FIRST $maxRows ROWS ONLY
         $r['ShipMethod'] = if ($oid -ne '' -and $shipByOrder.ContainsKey($oid)) { $shipByOrder[$oid] } else { $null }
     }
     Log "pulled $($rows.Count) changed order(s); attached ship method to $($shipByOrder.Count)"
-    if ($rows.Count -ge $maxRows) {
+    $capped = $rows.Count -ge $maxRows
+    if ($capped) {
         Log "WARNING: hit MaxRows cap ($maxRows) - state NOT advanced; next run re-pulls from same point"
     }
+
+    # ---- content dedupe -------------------------------------------------
+    # Load what we last sent. A missing or corrupt file means "remember nothing",
+    # which sends everything — the safe direction (a duplicate write costs money,
+    # a skipped write loses data).
+    $sentMap = @{}
+    if (Test-Path $SentPath) {
+        try {
+            $raw = Get-Content $SentPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            foreach ($p in $raw.PSObject.Properties) { $sentMap[$p.Name] = $p.Value }
+        } catch {
+            Log "WARNING: last-sent-orders.json unreadable ($($_.Exception.Message)) - sending everything this run"
+            $sentMap = @{}
+        }
+    }
+
+    # A CAPPED run must never dedupe. State is not advanced on a cap, so the next
+    # run re-pulls the same window; FETCH FIRST has no ORDER BY, so that window is
+    # an arbitrary $maxRows of the matching set. Dedupe there would skip every row,
+    # POST rows:[], and stamp a GREEN heartbeat over a sync that is not progressing
+    # — the "empty read looks healthy" failure. Send everything and let the proxy
+    # absorb the duplicates until the backlog clears.
+    $nowStamp = $runStart.ToString('yyyy-MM-dd HH:mm:ss')
+    $toSend = New-Object System.Collections.ArrayList
+    $hashByOrder = @{}
+    $skipped = 0
+    foreach ($r in $rows) {
+        $oid = try { [string][long]$r['ID_Order'] } catch { '' }
+        if ($oid -eq '') { [void]$toSend.Add($r); continue }   # unkeyed row: let the proxy reject it
+        $h = Get-RowHash $r
+        $hashByOrder[$oid] = $h
+        $prev = $sentMap[$oid]
+        if (-not $capped -and $null -ne $prev -and $prev.h -eq $h) {
+            $skipped++
+            if ($DryRun) { Log "  DRYRUN skip  $oid (unchanged)" }
+        } else {
+            [void]$toSend.Add($r)
+            if ($DryRun) { Log "  DRYRUN send  $oid$(if ($capped) { ' (capped run - dedupe bypassed)' })" }
+        }
+    }
+    Log "dedupe: $($toSend.Count) to send, $skipped unchanged$(if ($capped) { ' (BYPASSED - capped run)' })"
+
+    if ($DryRun) {
+        Log "DRYRUN - nothing posted, no state written"
+        exit 0
+    }
+    $rows = $toSend
 
     # POST in chunks (rows:[] when nothing changed - heartbeat ping).
     # Chunk size is bounded by Heroku's HARD 30s router timeout: each row costs
@@ -183,9 +272,43 @@ FETCH FIRST $maxRows ROWS ONLY
         $sent += $chunk.Count
     } while ($sent -lt $rows.Count)
 
+    # Record what we just sent BEFORE advancing last-sync.txt. Ordering matters:
+    # if the process dies between the two writes, the only possible inconsistency
+    # is "hashes recorded, state not advanced" — the next run re-pulls the same
+    # window and skips it, which is correct. The reverse order could advance state
+    # while forgetting what was sent, i.e. today's behaviour (one duplicate) —
+    # still not a loss, but this way is strictly tighter.
+    #
+    # Nothing is recorded when a chunk errored, because that path throws above.
+    # Un-recorded rows are simply re-sent next run — a duplicate, never a gap.
+    # This is why the errored-row list does NOT need parsing: note that this
+    # endpoint returns errors as { ID_Order, error }, NOT the { key, ... } shape
+    # that /sync-designs uses, so a copy-paste of that parser would silently
+    # match nothing and confirm rows Caspio had actually rejected.
+    $newMap = @{}
+    foreach ($oid in $hashByOrder.Keys) {
+        $newMap[$oid] = @{ h = $hashByOrder[$oid]; t = $nowStamp }
+    }
+    # Carry forward entries still inside the query window; drop the rest. An order
+    # last seen before $since cannot be re-pulled unless it is modified again, and
+    # a modification changes the hash anyway — so an older entry can never save a
+    # write. This bounds the file to roughly one window (hundreds of entries).
+    $kept = 0
+    foreach ($oid in $sentMap.Keys) {
+        if ($newMap.ContainsKey($oid)) { continue }
+        $t = $null
+        try { $t = [datetime]$sentMap[$oid].t } catch { $t = $null }
+        if ($null -ne $t -and $t -ge $since) { $newMap[$oid] = $sentMap[$oid]; $kept++ }
+    }
+    Set-Content -Path $SentPath -Value (ConvertTo-Json $newMap -Depth 4 -Compress) -Encoding UTF8
+    Log "sent-map: $($newMap.Count) entries ($kept carried forward)"
+
     # Advance state only after every chunk succeeded - and only when we did
     # NOT hit the cap (capped run = there may be more rows in the window).
-    if ($rows.Count -lt $maxRows) {
+    # Tests $capped, NOT $rows.Count: $rows has been filtered by the dedupe above,
+    # so a capped run whose rows were mostly unchanged would otherwise look small
+    # and wrongly advance state past rows it never pulled.
+    if (-not $capped) {
         Set-Content -Path $StatePath -Value $runStart.ToString('yyyy-MM-dd HH:mm:ss') -Encoding UTF8
         Log "OK - state advanced to $($runStart.ToString('yyyy-MM-dd HH:mm:ss'))"
     } else {
