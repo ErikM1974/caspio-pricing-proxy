@@ -65,8 +65,16 @@ test-temp-*.js
 .DS_Store
 Thumbs.db
 
-# Claude configuration
-.claude/
+# Claude configuration.
+# NOTE the trailing /* rather than /: with `.claude/` git refuses to descend into the
+# directory at all, and a `!` negation below it can never re-include anything.
+# Skills are SHARED TOOLING and must be tracked — `main` is guarded by a pre-push hook
+# that only accepts release commits produced by .claude/skills/deploy, so a clone without
+# that skill cannot deploy at all. Everything else here is per-machine state and stays out:
+# settings.json / settings.local.json (local paths + permissions), agents, commands,
+# scheduled_tasks.lock.
+.claude/*
+!.claude/skills/
 
 # Temporary/one-off files
 CLEANUP-PLAN.md
