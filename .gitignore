@@ -36,6 +36,24 @@ test-temp-*.js
 *.bak
 *-FINAL.*
 *-old.*
+# `*.backup` does NOT match `server.js.backup-2025-07-07` — anything after
+# `.backup` defeats it. That gap let three ~260 KB copies of server.js get
+# committed in Jul 2025; they rode every Heroku slug and were downloadable over
+# plain HTTP until express.static('.') was removed on 2026-07-29. Deleted in
+# fe3dd77 (recoverable: git show 9b84e6f:server.js.backup-with-comments).
+*.backup-*
+*-backup
+*-backup.*
+#
+# DELIBERATELY NOT LISTED — do not "complete" this list without re-checking:
+#   *-fixed.*  3 legitimate tracked test files use it
+#              (tests/manual/test-fixed-endpoints.js and two others).
+#   *-FIXED.*  core.ignorecase is TRUE on the Windows checkout and FALSE on
+#              Heroku's Linux build, so the uppercase form silently behaves as
+#              the lowercase one locally — a file ignored on one machine and
+#              committed from another.
+#   *-v2.*     a real version convention here, not a lazy copy
+#              (scripts/aggregate-industry-lookalikes-v2.js).
 
 # IDE files
 .vscode/

@@ -1158,6 +1158,46 @@ router.get('/inbound-today', async (req, res) => {
       } catch (e) { /* method falls back to 'Other'; label fields fall back to SanMar_Orders */ }
     }
 
+    // 5b. Live ManageOrders fallback for work orders the nightly archive hasn't picked up yet.
+    //     scripts/sync-manageorders.js runs at 12:00 UTC (5:00 AM PT) — AFTER the ~4 AM inbound
+    //     print — so a work order written yesterday afternoon has NO ManageOrders_Orders row when
+    //     the sheet is built. Those POs printed as "Unmatched": no company, no due date, no design,
+    //     no contact, no rep, method "Other" — on the receiving label too, which is where it hurts
+    //     (2026-07-29: PO 113825 and 113834 went to receiving with a blank company). The data
+    //     exists in ShopWorks the moment the WO is written; only our copy of it lags. Pull those
+    //     few straight from ManageOrders. The API returns the SAME field names as the Caspio
+    //     columns, so the rows drop into moByIdOrder unchanged.
+    //     Best-effort: any failure leaves the PO exactly as it renders today, never blocks the day.
+    const MO_LIVE_CAP = 25;   // a sync outage shouldn't turn one page load into hundreds of MO calls
+    const missingMo = idOrders.filter(id => !moByIdOrder.has(id));
+    if (missingMo.length) {
+      const pullList = missingMo.slice(0, MO_LIVE_CAP);
+      if (missingMo.length > MO_LIVE_CAP) {
+        // Never cap silently — a truncated fallback must be visible in the logs, not inferred
+        // from a page that quietly shows fewer companies than it should.
+        console.warn(`[inbound-today] ${missingMo.length} work orders missing from ManageOrders_Orders; live-resolving only the first ${MO_LIVE_CAP}. Check that sync-manageorders is running.`);
+      }
+      try {
+        const { fetchOrderByNumber } = require('../utils/manageorders');
+        const pullOne = async (id) => {
+          try {
+            const rows = await fetchOrderByNumber(id);
+            const m = Array.isArray(rows) ? rows[0] : rows;
+            if (!m) return;
+            moByIdOrder.set(String(id), m);
+            typeByIdOrder.set(String(id), parseInt(m.id_OrderType) || 0);
+          } catch (e) { /* this WO stays unmatched — exactly as before */ }
+        };
+        for (let i = 0; i < pullList.length; i += 4) {
+          await Promise.all(pullList.slice(i, i + 4).map(pullOne));
+        }
+        const recovered = pullList.filter(id => moByIdOrder.has(id)).length;
+        if (recovered) console.log(`[inbound-today] live ManageOrders filled in ${recovered}/${pullList.length} work order(s) the nightly sync hasn't archived yet`);
+      } catch (e) {
+        console.warn('[inbound-today] live ManageOrders fallback unavailable:', e.message);
+      }
+    }
+
     // 6. Group line items by PO (color resolved; unresolved → Part_ID only, never dropped).
     const linesByPo = new Map();
     for (const it of itemRows) {
