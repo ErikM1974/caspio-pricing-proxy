@@ -72,6 +72,28 @@ app.use(express.json({
     limit: '10mb',
     verify: (req, res, buf) => { req.rawBody = buf; }
 })); // Parse JSON bodies with 10MB limit (for file uploads)
+
+// --- Keep crawlers off the API (2026-07-29, Caspio quota) ---
+// This host served NO robots.txt (404), so Googlebot was crawling the API itself.
+// Measured 4 AM PDT 7/29: it walks a style through /product-details, then
+// /pricing-bundle for EMB *and* DTF *and* ScreenPrint, then /dtg/product-bundle —
+// ~17 billed Caspio calls to compute four decoration prices for a page that only
+// needs indexing. In one 45-second router sample Googlebot was 28% of all requests.
+//
+// Declared BEFORE express.static so a stray root file can never shadow it, and
+// before the CORS/auth middleware so it is answerable without credentials.
+// Note the two directives do different jobs and partly conflict by design:
+// robots.txt stops the CRAWL (the cost we care about); X-Robots-Tag stops INDEXING
+// of URLs discovered before the disallow propagates — Google re-reads robots.txt
+// on its own schedule, so expect up to ~24h before the traffic actually drops.
+app.get('/robots.txt', (req, res) => {
+    res.type('text/plain').send('User-agent: *\nDisallow: /\n');
+});
+app.use((req, res, next) => {
+    res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+    next();
+});
+
 app.use(express.static('.')); // Serve static files from the current directory
 
 // CORS — allowlist (see src/utils/cors-allowlist.js). Unknown browser origins
