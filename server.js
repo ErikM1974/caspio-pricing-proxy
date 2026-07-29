@@ -1150,12 +1150,24 @@ const policiesAISearchRoute = require('./src/routes/policies-ai-search');
 app.use('/api/policies-ai-search', policiesAISearchRoute);
 console.log('✓ Policies AI Search route loaded (public, Claude Sonnet 4.6)');
 
-// Shared limiter for the public AI chat endpoints (contract-*-ai, dtg-quote-ai,
-// emb-quote-ai). These are unauthenticated and each request spends Anthropic
-// tokens (Sonnet + up to 6 tool iterations), so bound per-IP volume. 120/min is
-// far above real staff usage — even a shared office IP with a dozen reps reading
-// streamed replies won't sustain ~2 chat-turns/second — but it caps a single-IP
-// runaway or scraper. (Coarse guard; true protection is auth — TODO.)
+// Shared limiter for the AI chat endpoints (contract-*-ai, dtg-quote-ai,
+// emb-quote-ai). Each request spends Anthropic tokens (Sonnet + up to 6 tool
+// iterations), so bound per-IP volume. 120/min is far above real staff usage —
+// even a shared office IP with a dozen reps reading streamed replies won't
+// sustain ~2 chat-turns/second — but it caps a single-IP runaway.
+//
+// ✅ The "true protection is auth — TODO" this comment used to carry is DONE
+// (2026-07-29). Every one of these mounts now also has requireCrmApiSecret.
+// They were anonymous until then, and each exposes a lookup_customer tool
+// returning customer email, phone, address, sales rep and payment terms — so
+// the customer list was readable with curl. The sticker route had been fixed
+// this way on 2026-07-24; the same fix simply never reached its six siblings.
+//
+// The browser cannot hold this secret, so callers go through the app's
+// session-gated forwarders (sanmar-inventory-app: POST /api/<slug>/chat, same
+// slug as here). If you add a NEW AI chat route: mount it with
+// requireCrmApiSecret, add the matching forwarder in the app, and point the
+// page at the app — never at this host directly.
 const aiChatLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
   max: 120,
@@ -1173,15 +1185,15 @@ const aiChatLimiter = rateLimit({
 // shareable; bounded by the global apiLimiter (200 req/15min/IP). Cost
 // per quote ~$0.001-0.005 after cache warms up.
 const contractEmbroideryAIRoute = require('./src/routes/contract-embroidery-ai');
-app.use('/api/contract-embroidery-ai', aiChatLimiter, contractEmbroideryAIRoute);
-console.log('✓ Contract Embroidery AI route loaded (public, Claude Sonnet 4.6 + prompt caching)');
+app.use('/api/contract-embroidery-ai', aiChatLimiter, requireCrmApiSecret, contractEmbroideryAIRoute);
+console.log('✓ Contract Embroidery AI route loaded (SECRET-ONLY, Claude Sonnet 4.6 + prompt caching)');
 
 // Contract DTG AI — parallel to contract-embroidery-ai. Streams Claude
 // quote drafts for /calculators/dtg-contract/. CalcContext shape differs
 // (locations + heavyweight instead of stitches/product), same SSE pipeline.
 const contractDtgAIRoute = require('./src/routes/contract-dtg-ai');
-app.use('/api/contract-dtg-ai', aiChatLimiter, contractDtgAIRoute);
-console.log('✓ Contract DTG AI route loaded (public, Claude Sonnet 4.6 + prompt caching)');
+app.use('/api/contract-dtg-ai', aiChatLimiter, requireCrmApiSecret, contractDtgAIRoute);
+console.log('✓ Contract DTG AI route loaded (SECRET-ONLY, Claude Sonnet 4.6 + prompt caching)');
 
 // Contract Sticker AI (2026-05-15) — parallel pattern. Streams Claude
 // quote drafts for /calculators/sticker-manual-pricing.html. Unlike CEMB/CDTG
@@ -1211,8 +1223,8 @@ console.log('✓ Contract Sticker AI route loaded (SECRET-ONLY, Claude Sonnet 4.
 // product line (embroidered patches), single quote tool (quote_emblem_price).
 // Tool pulls pricing data from /api/emblem-pricing (Caspio + inline fallback).
 const contractEmblemAIRoute = require('./src/routes/contract-emblem-ai');
-app.use('/api/contract-emblem-ai', aiChatLimiter, contractEmblemAIRoute);
-console.log('✓ Contract Emblem AI route loaded (public, Claude Sonnet 4.6 + prompt caching)');
+app.use('/api/contract-emblem-ai', aiChatLimiter, requireCrmApiSecret, contractEmblemAIRoute);
+console.log('✓ Contract Emblem AI route loaded (SECRET-ONLY, Claude Sonnet 4.6 + prompt caching)');
 
 // Contract Webstore AI (2026-05-16) — mirrors sticker dual-mode pattern.
 // Streams Claude quote drafts + Q&A for /calculators/webstores.html.
@@ -1221,8 +1233,8 @@ console.log('✓ Contract Emblem AI route loaded (public, Claude Sonnet 4.6 + pr
 // New env var: TAVILY_API_KEY (free tier 1000 queries/mo) — bot gracefully
 // reports "web search unavailable" if missing.
 const contractWebstoreAIRoute = require('./src/routes/contract-webstore-ai');
-app.use('/api/contract-webstore-ai', aiChatLimiter, contractWebstoreAIRoute);
-console.log('✓ Contract Webstore AI route loaded (public, Claude Sonnet 4.6 + prompt caching + Tavily web search)');
+app.use('/api/contract-webstore-ai', aiChatLimiter, requireCrmApiSecret, contractWebstoreAIRoute);
+console.log('✓ Contract Webstore AI route loaded (SECRET-ONLY, Claude Sonnet 4.6 + prompt caching + Tavily web search)');
 
 // DTG Quote AI (2026-05-17) — chat-driven DTG retail quote builder. Single
 // product line (DTG), 4 tools: lookup_customer + quote_dtg_pricing
@@ -1231,8 +1243,8 @@ console.log('✓ Contract Webstore AI route loaded (public, Claude Sonnet 4.6 + 
 // ShopWorks push is FRONTEND-handled (button POSTs to /api/submit-order-form
 // directly on sanmar-inventory-app, same as the order form does).
 const dtgQuoteAIRoute = require('./src/routes/dtg-quote-ai');
-app.use('/api/dtg-quote-ai', aiChatLimiter, dtgQuoteAIRoute);
-console.log('✓ DTG Quote AI route loaded (public, Claude Sonnet 4.6 + prompt caching + Tavily web search + curated top-sellers)');
+app.use('/api/dtg-quote-ai', aiChatLimiter, requireCrmApiSecret, dtgQuoteAIRoute);
+console.log('✓ DTG Quote AI route loaded (SECRET-ONLY, Claude Sonnet 4.6 + prompt caching + Tavily web search + curated top-sellers)');
 
 // EMB Quote AI (2026-05-24, Phase EMB Chat B) — research assistant for
 // the Embroidery Quote Builder. 3 tools: lookup_customer, recommend_top_sellers_emb
@@ -1240,8 +1252,8 @@ console.log('✓ DTG Quote AI route loaded (public, Claude Sonnet 4.6 + prompt c
 // lookup_product_details (live SanMar query). No pricing tool — rep computes
 // pricing in the form. Same SSE streaming + tool-loop pattern as DTG.
 const embQuoteAIRoute = require('./src/routes/emb-quote-ai');
-app.use('/api/emb-quote-ai', aiChatLimiter, embQuoteAIRoute);
-console.log('✓ EMB Quote AI route loaded (Claude Sonnet 4.6 + Erik-curated 10yr EMB top-sellers)');
+app.use('/api/emb-quote-ai', aiChatLimiter, requireCrmApiSecret, embQuoteAIRoute);
+console.log('✓ EMB Quote AI route loaded (SECRET-ONLY, Claude Sonnet 4.6 + Erik-curated 10yr EMB top-sellers)');
 
 // Contract DTG Pricing — lean print-cost feed backing the contract DTG
 // calculator. Reads Contract_DTG_Costs Caspio table (5 locations × 4 tiers)
