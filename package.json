@@ -11,6 +11,7 @@
     "sync-sales": "node scripts/sync-all-sales.js",
     "update-postman": "node scripts/update-postman-collection.js",
     "deploy-status": "node scripts/update-endpoint-status.js",
+    "routes-map": "node scripts/generate-routes-map.js",
     "postman-test": "node scripts/postman-api-client.js test",
     "postman-list": "node scripts/postman-api-client.js list",
     "archive-daily-sales": "node scripts/archive-daily-sales.js",
