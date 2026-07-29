@@ -202,7 +202,10 @@ async function main() {
   console.log('  re-save in Excel first (it mangles long JSON cells).');
 }
 
+// flushAndExit, not process.exit: this script loads the Caspio meter, so calls
+// made before a throw were billed but would never be recorded — process.exit()
+// skips the `beforeExit` flush hook. Exits 1 either way.
 main().catch((e) => {
   console.error('FATAL:', e.response ? JSON.stringify(e.response.data).slice(0, 300) : e.message);
-  process.exit(1);
+  require('../src/utils/api-usage-rollup').flushAndExit(1);
 });

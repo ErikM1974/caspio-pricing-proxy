@@ -497,9 +497,13 @@ async function main() {
 // Guarded so the pure helpers can be require()d by a test WITHOUT running a live
 // sync against the production archive. `npm run sync-manageorders` is unaffected.
 if (require.main === module) {
+  // The success path drains naturally, so `beforeExit` already flushes it. This
+  // FAILURE path did not: process.exit() skips that hook, so the calls made
+  // before the throw were billed but never recorded — and this job makes
+  // thousands. Exits 1 either way, so the scheduler still sees the failure.
   main().catch(err => {
     console.error(`\nFATAL: ${err.message}`);
-    process.exit(1);
+    require('../src/utils/api-usage-rollup').flushAndExit(1);
   });
 }
 

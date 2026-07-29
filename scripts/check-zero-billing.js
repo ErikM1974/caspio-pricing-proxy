@@ -358,7 +358,10 @@ async function main() {
   console.log(`  Emails sent:    ${isDryRun ? '0 (dry run)' : sentCount}`);
 }
 
+// The success path drains naturally, so `beforeExit` already flushes it. This
+// FAILURE path did not: process.exit() skips that hook, so the calls made before
+// the throw were billed but never recorded. Exits 1 either way.
 main().catch(err => {
   console.error(`\nFATAL: ${err.message}`);
-  process.exit(1);
+  require('../src/utils/api-usage-rollup').flushAndExit(1);
 });
