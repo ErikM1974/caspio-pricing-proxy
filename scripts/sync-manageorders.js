@@ -72,7 +72,24 @@ function cleanStr(val) {
 
 function normalize(val) {
   if (val === null || val === undefined || val === '') return '';
-  return String(val).trim();
+  const s = String(val).trim();
+  // Canonicalise ISO datetimes before comparing. The ManageOrders API returns
+  // "2026-07-27T00:00:00.000Z" while Caspio hands the same value back as
+  // "2026-07-27T00:00:00" — no milliseconds, no zone. Compared as raw strings
+  // they are NEVER equal, so every order carrying date_Shipped, date_Invoiced or
+  // date_Produced was detected as "changed" on EVERY run, forever, and re-PUT
+  // along with a full delete-and-repost of its line items.
+  //
+  // Measured 2026-07-29: 457 of 611 orders in the 60-day window were flagged
+  // changed — 403 on date_Shipped, 43 on date_Invoiced, 10 on date_Produced, and
+  // exactly ONE (a CustomerName edit) that was real. That drove ~2,901 billed
+  // Caspio calls in a single run, ~18% of the daily budget.
+  //
+  // Trimming to seconds only removes format noise: a genuinely different date or
+  // time still compares different. These are date fields (both sides carry
+  // T00:00:00), so dropping the Z cannot shift one across a day boundary.
+  const iso = s.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})/);
+  return iso ? iso[1] : s;
 }
 
 // ── Caspio Auth & CRUD ──────────────────────────────────────────────────
@@ -107,12 +124,18 @@ async function caspioRequest(endpoint, method = 'GET', body = null) {
   return resp.data || { RecordsAffected: 0, Result: [] };
 }
 
+// q.orderBy=PK_ID is MANDATORY, not cosmetic: Caspio's paged reads are not
+// stably ordered without it, so rows silently drop and duplicate across page
+// boundaries. Both callers here read multi-page tables, and the line-item
+// comparison below treats "absent from this result" as "not in the archive" —
+// a dropped row would look like a deletion and trigger a needless re-sync,
+// while a duplicated one would break the count check.
 async function caspioReadAll(table, where) {
   const records = [];
   let page = 1;
   while (true) {
     const w = where ? `&q.where=${encodeURIComponent(where)}` : '';
-    const data = await caspioRequest(`/tables/${table}/records?q.pageSize=1000&q.pageNumber=${page}${w}`);
+    const data = await caspioRequest(`/tables/${table}/records?q.pageSize=1000&q.orderBy=PK_ID&q.pageNumber=${page}${w}`);
     const rows = data.Result || [];
     records.push(...rows);
     if (rows.length < 1000) break;
@@ -235,9 +258,65 @@ function detectChange(mapped, existing) {
   return null;
 }
 
+// ── Line-item comparison ────────────────────────────────────────────────
+// An order "changes" whenever ANY of CHANGE_FIELDS moves, and most of those are
+// order-level money/status fields — a payment posting, an invoice date, a ship
+// flag. None of them touch line items, yet every one used to trigger a full
+// DELETE + N POSTs. Measured 2026-07-29: sync-manageorders spent 2,901 billed
+// Caspio calls in 22 minutes, ~18% of the entire daily budget, mostly re-writing
+// line items that were byte-identical to what was already stored.
+//
+// Comparing CONTENT rather than guessing which order fields imply a line-item
+// change: a heuristic (e.g. "only re-sync when TotalProductQuantity moves") would
+// silently miss a colour or description edit that leaves totals untouched, and
+// that stale PartColor feeds check-zero-billing's PartNumber+PartColor match.
+const LINE_ITEM_FIELDS = [
+  'PartNumber', 'PartDescription', 'PartColor', 'LineQuantity', 'LineUnitPrice',
+  'SortOrder', 'Size01', 'Size02', 'Size03', 'Size04', 'Size05', 'Size06'
+];
+const NUMERIC_LINE_ITEM_FIELDS = new Set([
+  'LineQuantity', 'LineUnitPrice', 'SortOrder',
+  'Size01', 'Size02', 'Size03', 'Size04', 'Size05', 'Size06'
+]);
+
+// Verified against live rows 2026-07-29: Caspio round-trips these cleanly —
+// unset sizes come back as null (not coerced to 0), numbers stay numbers and
+// strings stay strings — so a value-wise comparison is exact. Numerics are
+// normalised through Number() so 60, 60.0 and "60" compare equal.
+function lineItemSignature(row) {
+  return LINE_ITEM_FIELDS.map(f => {
+    const v = row[f];
+    if (v === null || v === undefined || v === '') return '';
+    return NUMERIC_LINE_ITEM_FIELDS.has(f) ? String(Number(v)) : String(v).trim();
+  }).join('');
+}
+
+// Order-independent: line items carry no stable key of their own, so compare the
+// sorted multiset of signatures. Length first — a cheap reject for the common
+// add/remove case.
+function lineItemsUnchanged(freshItems, orderId, existingRows) {
+  const existing = existingRows || [];   // absent from a COMPLETE read = no rows archived
+  if (existing.length !== freshItems.length) return false;
+  const fresh = freshItems.map(li => lineItemSignature(mapLineItem(li, orderId))).sort();
+  const stored = existing.map(lineItemSignature).sort();
+  for (let i = 0; i < fresh.length; i++) {
+    if (fresh[i] !== stored[i]) return false;
+  }
+  return true;
+}
+
 // ── Sync Line Items for One Order ───────────────────────────────────────
-async function syncLineItems(orderId) {
-  // Delete existing line items
+async function syncLineItems(orderId, existingRows) {
+  // Fetch BEFORE deleting. The old order was delete-then-fetch, so a failed or
+  // rate-limited ManageOrders read (fetchWithRetry throws after 3 attempts) left
+  // the archive rows destroyed and nothing to put back — silent data loss on a
+  // transient network error. Nothing is removed now until replacements are in hand.
+  const items = await fetchLineItems(orderId);   // ShopWorks API — 0 billed Caspio calls
+
+  if (lineItemsUnchanged(items, orderId, existingRows)) {
+    return { count: items.length, skipped: true };
+  }
+
   try {
     await caspioRequest(
       `/tables/ManageOrders_LineItems/records?q.where=${encodeURIComponent(`id_Order=${orderId}`)}`,
@@ -245,14 +324,10 @@ async function syncLineItems(orderId) {
     );
   } catch (e) { /* OK if none exist */ }
 
-  // Pull fresh from ManageOrders
-  const items = await fetchLineItems(orderId);
-
-  // Insert new
   for (const li of items) {
     await caspioRequest('/tables/ManageOrders_LineItems/records', 'POST', mapLineItem(li, orderId));
   }
-  return items.length;
+  return { count: items.length, skipped: false };
 }
 
 // ── Main ────────────────────────────────────────────────────────────────
@@ -293,11 +368,27 @@ async function main() {
   for (const co of caspioOrders) {
     caspioMap.set(String(co.id_Order), co);
   }
-  console.log(`  Found ${caspioOrders.length} records in Caspio\n`);
+  console.log(`  Found ${caspioOrders.length} records in Caspio`);
+
+  // Read every archived line item ONCE, up front, so the per-order comparison in
+  // syncLineItems costs nothing. This is a handful of paged reads (~5-8 calls)
+  // that replaces up to N+1 writes on every changed order — the alternative, a
+  // per-order read, would be ~1 call per changed order (~400/day) and strictly
+  // worse. If this read throws, the whole run aborts rather than proceeding with
+  // a partial map, because a partial map reads as "line items missing" and would
+  // trigger a full re-sync of everything it failed to see.
+  const caspioLineItems = await caspioReadAll('ManageOrders_LineItems');
+  const lineItemMap = new Map();
+  for (const li of caspioLineItems) {
+    const k = String(li.id_Order);
+    if (!lineItemMap.has(k)) lineItemMap.set(k, []);
+    lineItemMap.get(k).push(li);
+  }
+  console.log(`  Found ${caspioLineItems.length} archived line items across ${lineItemMap.size} orders\n`);
 
   // Step 3: Smart sync
   console.log('Step 3: Syncing...');
-  let stats = { new: 0, updated: 0, unchanged: 0, errors: 0, lineItems: 0, skipped: 0 };
+  let stats = { new: 0, updated: 0, unchanged: 0, errors: 0, lineItems: 0, skipped: 0, lineItemsUnchanged: 0 };
   const total = moOrders.length;
   const today = new Date().toISOString().split('T')[0];
   let orderIndex = 0;
@@ -313,7 +404,9 @@ async function main() {
         // New order
         console.log(`  [${orderIndex}/${total}] + NEW: ${id} (${cleanStr(mo.CustomerName)})`);
         await caspioRequest('/tables/ManageOrders_Orders/records', 'POST', mapped);
-        stats.lineItems += await syncLineItems(mo.id_Order);
+        const li = await syncLineItems(mo.id_Order, lineItemMap.get(id));
+        stats.lineItems += li.count;
+        if (li.skipped) stats.lineItemsUnchanged++;
         stats.new++;
         await sleep(LINE_ITEM_DELAY_MS);
 
@@ -334,7 +427,9 @@ async function main() {
           `/tables/ManageOrders_Orders/records?q.where=${encodeURIComponent(`id_Order=${id}`)}`,
           'PUT', mapped
         );
-        stats.lineItems += await syncLineItems(mo.id_Order);
+        const li = await syncLineItems(mo.id_Order, lineItemMap.get(id));
+        stats.lineItems += li.count;
+        if (li.skipped) stats.lineItemsUnchanged++;
         stats.updated++;
         await sleep(LINE_ITEM_DELAY_MS);
 
@@ -352,7 +447,9 @@ async function main() {
             `/tables/ManageOrders_Orders/records?q.where=${encodeURIComponent(`id_Order=${id}`)}`,
             'PUT', mapped
           );
-          stats.lineItems += await syncLineItems(mo.id_Order);
+          const li = await syncLineItems(mo.id_Order, lineItemMap.get(id));
+        stats.lineItems += li.count;
+        if (li.skipped) stats.lineItemsUnchanged++;
           stats.updated++;
           await sleep(LINE_ITEM_DELAY_MS);
         } else {
@@ -391,10 +488,29 @@ async function main() {
   if (stats.skipped) console.log(`  Skipped:   ${stats.skipped} (already synced today)`);
   console.log(`  Errors:    ${stats.errors}`);
   console.log(`  Line items synced: ${stats.lineItems}`);
+  // The saving is this number: each one is a DELETE + N POSTs that did not happen
+  // because the archived line items were already identical to ManageOrders.
+  console.log(`  Line-item re-writes skipped (already identical): ${stats.lineItemsUnchanged}`);
   console.log(`  Total in archive:  ${caspioOrders.length + stats.new}`);
 }
 
-main().catch(err => {
-  console.error(`\nFATAL: ${err.message}`);
-  process.exit(1);
-});
+// Guarded so the pure helpers can be require()d by a test WITHOUT running a live
+// sync against the production archive. `npm run sync-manageorders` is unaffected.
+if (require.main === module) {
+  main().catch(err => {
+    console.error(`\nFATAL: ${err.message}`);
+    process.exit(1);
+  });
+}
+
+// Exported for tests/jest/manageorders-line-item-diff.test.js — the line-item
+// comparison decides whether a financial archive gets rewritten, so it is locked.
+module.exports = {
+  mapLineItem,
+  lineItemSignature,
+  lineItemsUnchanged,
+  detectChange,
+  normalize,
+  CHANGE_FIELDS,
+  LINE_ITEM_FIELDS
+};
