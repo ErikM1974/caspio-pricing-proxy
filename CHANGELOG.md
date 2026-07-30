@@ -1,3 +1,7 @@
+## v2026.07.30.1 (2026.07.30)
+
+- Shutdown: flush the meter in PARALLEL with server.close(), bounded and loud
+
 ## v2026.07.29.12 (2026.07.29)
 
 - Deploy v2026.07.29.12: 2 files (jotform.js, jotform-normalizer.test.js)
