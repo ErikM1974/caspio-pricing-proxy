@@ -4,6 +4,39 @@ A running log of problems solved and gotchas discovered. Add new entries at the 
 
 ---
 
+## Problem: A filter that was right about one consumer silently starved another
+**Date:** 2026-07-30
+**Symptoms:** Cartons on SanMar's PSST freight manifest were absent from the SanMar Inbound
+board and from the printed box labels — PO 113832 and the VA half of split PO 113837.
+SanMar's live feed had both. `sync-shipments` reported `checked: 3, shipmentsAdded: 0`:
+it had looked straight past them. Re-running never helped.
+**Root cause:** `sync-shipments` selected only non-terminal orders
+(`SanMar_Status<>'Shipped' AND <>'Complete' AND …`). The reasoning in the comment was sound
+*for the consumer it was written for*: a shipped order's status dot is already correct, so it
+needs no tracking-based promotion. But a second consumer had grown up on the same table —
+`/inbound-today` builds its **entire candidate list** from `SanMar_Shipments`. So a PO that
+reached Complete before its tracking was ever captured could never get a shipment row, and its
+cartons were invisible to receiving **permanently**, not merely late. The filter wasn't stale
+or wrong; it was correct for one reader and starving for the other.
+**Solution:** Also consider recently-CLOSED orders that still have no tracking row, bounded to
+one page of the most-recently-updated (`?closedScan=`, default 200, max 1000) so it can never
+become a scan of every order ever completed. Canceled stays excluded. Purely additive — the
+original open-order query is untouched. Verified live: candidates 135 → 319,
+`shipmentsAdded` 0 → 1, and all 8 of our POs on the manifest then reconciled exactly.
+**Prevention:**
+- **When a table gains a second reader, re-audit every filter that writes to it.** Ask what
+  each consumer needs, not just the one the code was written for. A `WHERE` clause is an
+  implicit contract with every downstream reader.
+- **"Nothing to do" is a claim that needs checking.** `shipmentsAdded: 0` looked like a healthy
+  no-op and was actually the bug. A skip count (`pendingNoTracking`, `closedCandidates`) makes
+  the difference visible — that is why those counters are now in the response.
+- **Reconcile against the vendor's own document.** Both this and the 2026-07-29 gap were found
+  by diffing the PSST manifest against our board, not by anything in our own telemetry.
+- A PO can legitimately arrive on **two different days** (split shipment, different warehouses:
+  113837 NV → 7/31, VA → 8/4). Any reconciliation keyed on PO alone reads that as a shortfall.
+
+---
+
 ## Problem: Every quote DELETE reported recordsAffected: 0 — even successful ones
 **Date:** 2026-07-08
 **Symptoms:** `DELETE /api/quote_sessions/:id` → 200 `recordsAffected: 0` for a row that a direct table GET confirmed existed (and that a delete-by-QuoteID removed fine). Suspected PK aliasing or numeric-vs-string `q.where` — both disproven by a live create→delete-by-PK→verify round trip: `q.where=PK_ID=<n>` deletes fine, quoted or unquoted (PK_ID works in `q.where` even though `/tables/{t}/fields` metadata omits the autonumber PK).
