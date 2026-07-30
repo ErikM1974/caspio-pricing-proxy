@@ -1634,21 +1634,63 @@ app.use((err, req, res, next) => {
 });
 
 // --- Graceful Shutdown Handler ---
-process.on('SIGTERM', () => {
-    console.log('SIGTERM received: closing HTTP server');
-    server.close(() => {
-        console.log('HTTP server closed');
-        process.exit(0);
-    });
-});
+//
+// The metering flush runs in PARALLEL with server.close(), and the process exits
+// only when both settle (or the bound expires).
+//
+// The race this fixes: api-usage-rollup registers its own async SIGTERM flush
+// (src/utils/api-usage-rollup.js, armed by the start() call above). The old
+// handler here called server.close() and exited from its callback — which on an
+// IDLE dyno fires almost immediately, because there are no connections left to
+// drain. process.exit() then killed the Caspio POST mid-flight, losing up to
+// FLUSH_EVERY_CALLS (250) counted-but-unwritten calls on every dyno cycle.
+// Heroku recycles daily and SIGTERMs on every deploy, so this was a routine loss
+// — measured 2026-07-30: the rollup read 663 against Caspio's 1,376 after an
+// overnight recycle.
+//
+// Deliberately PARALLEL, not flush-then-close: closing first would be simpler,
+// but flushing before close holds client connections open for the length of a
+// Caspio round-trip on every deploy. Nobody should wait on our metering.
+//
+// Calling runOnce() here is safe alongside the rollup's own handler: runOnce
+// coalesces onto an in-flight flush and returns the RUNNING promise, so both
+// paths await the same write rather than racing or double-posting.
+const SHUTDOWN_FLUSH_BOUND_MS = 10000;   // Heroku allows 30s after SIGTERM
 
-process.on('SIGINT', () => {
-    console.log('\nSIGINT received: closing HTTP server');
-    server.close(() => {
-        console.log('HTTP server closed');
-        process.exit(0);
+function gracefulShutdown(signal) {
+    console.log(`${signal} received: closing HTTP server`);
+
+    const closed = new Promise(resolve => {
+        server.close(() => { console.log('HTTP server closed'); resolve(); });
     });
-});
+
+    const pending = apiUsageRollup.unflushedCount ? apiUsageRollup.unflushedCount() : 0;
+    const flushed = Promise.resolve(apiUsageRollup.runOnce())
+        .then(() => { if (pending > 0) console.log(`[API USAGE ROLLUP] flushed ${pending} call(s) on ${signal}`); })
+        .catch(err => console.error(`[API USAGE ROLLUP] ${signal} flush failed:`, err.message));
+
+    let timedOut = false;
+    const bound = new Promise(resolve => {
+        const t = setTimeout(() => { timedOut = true; resolve(); }, SHUTDOWN_FLUSH_BOUND_MS);
+        if (t.unref) t.unref();
+    });
+
+    Promise.race([Promise.all([closed, flushed]), bound])
+        .then(() => {
+            // Say so out loud. A silently-abandoned flush is why the meter read low
+            // for a week without anything explaining it.
+            if (timedOut) {
+                console.error(
+                    `[SHUTDOWN] ${signal} bound of ${SHUTDOWN_FLUSH_BOUND_MS}ms expired — ` +
+                    `up to ${pending} call(s) may be unrecorded`
+                );
+            }
+        })
+        .finally(() => process.exit(0));
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 // --- Server Startup ---
 const server = app.listen(PORT, async () => {
