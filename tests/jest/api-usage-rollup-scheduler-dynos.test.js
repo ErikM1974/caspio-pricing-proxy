@@ -70,8 +70,15 @@ describe('rollup: short-lived scheduler dynos', () => {
     record(tracker, 250); await flush();
 
     // Each row carries only its own slice; summing reconstructs the total.
-    expect(rows.every(r => r.Call_Count <= 250)).toBe(true);
-    expect(rows.reduce((s, r) => s + r.Call_Count, 0)).toBe(500);
+    //
+    // Since 2026-07-30 the sum can exceed the TRACKED calls by at most one per row:
+    // every rollup POST is itself a billed Caspio call, is now counted, and lands in
+    // the following flush's delta. Asserting the invariant rather than a literal
+    // total, so the numbers stay meaningful instead of needing a bump each time.
+    const sum = rows.reduce((s, r) => s + r.Call_Count, 0);
+    expect(rows.every(r => r.Call_Count <= 250 + 1)).toBe(true);
+    expect(sum).toBeGreaterThanOrEqual(500);
+    expect(sum - 500).toBeLessThanOrEqual(rows.length);   // excess is our own writes only
     expect(axios.put).not.toHaveBeenCalled();
   });
 
@@ -132,7 +139,11 @@ describe('rollup: short-lived scheduler dynos', () => {
     record(tracker, 600);
     await flush(); await flush();
 
-    expect(rows.reduce((s, r) => s + r.Call_Count, 0)).toBe(600);
+    // Nothing may be stranded. The sum may exceed 600 by at most one per row — each
+    // flush's own billed POST is counted and rides in the next delta (2026-07-30).
+    const sum = rows.reduce((s, r) => s + r.Call_Count, 0);
+    expect(sum).toBeGreaterThanOrEqual(600);
+    expect(sum - 600).toBeLessThanOrEqual(rows.length);
   });
 });
 
@@ -152,8 +163,13 @@ describe('rollup: write failures and reads', () => {
     expect(mod.status().consecutiveFailures).toBe(1);
 
     // The retry must still carry the FULL 250 — a dropped watermark would lose it.
+    // It carries 251, and that extra 1 is correct: Caspio bills a request that then
+    // 500s, so the failed POST attempt is itself a billed call and is now counted
+    // (2026-07-30). It rides in this delta.
     await mod.runOnce();
-    expect(rows.reduce((s, r) => s + r.Call_Count, 0)).toBe(250);
+    const sum = rows.reduce((s, r) => s + r.Call_Count, 0);
+    expect(sum).toBeGreaterThanOrEqual(250);      // nothing lost — the point of the test
+    expect(sum - 250).toBeLessThanOrEqual(1);     // exactly the one failed attempt
   });
 
   test('readPeriod sums the delta rows across dynos and days', async () => {

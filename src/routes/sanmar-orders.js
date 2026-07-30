@@ -1605,14 +1605,14 @@ router.post('/sync-shipments', async (req, res) => {
     return res.status(403).json({ error: 'Unauthorized' });
   }
   const cap = Math.min(Math.max(parseInt(req.query.limit) || 8, 1), 15);
+  // How many recently-CLOSED orders to also consider (see the second query below).
+  const closedScan = Math.min(Math.max(parseInt(req.query.closedScan) || 200, 0), 1000);
   const log = { started: new Date().toISOString() };
   try {
     // Open (non-terminal) orders, most-recently-updated first (likeliest to have
     // just shipped). EXCLUDE terminal states rather than match specific open ones:
     // SanMar stores the raw status casing (e.g. lowercase "confirmed"), so an
-    // exclusion is robust to casing AND to any new open-status string. Already-
-    // "shipped"/"complete" orders are skipped (their dot is already correct, and a
-    // status-shipped order doesn't need a tracking-based promotion). No date math
+    // exclusion is robust to casing AND to any new open-status string. No date math
     // in the q.where (avoids Caspio datetime-format pitfalls) — orderBy + cap focus
     // on recency.
     const openOrders = await fetchAllCaspioPages(`/tables/${TABLES.orders}/records`, {
@@ -1621,7 +1621,40 @@ router.post('/sync-shipments', async (req, res) => {
       'q.orderBy': 'Status_Updated_Date DESC',
       'q.limit': 1000,
     });
-    const pos = [...new Set((openOrders || []).map(o => o.SanMar_PO).filter(Boolean))]; // preserves recency order
+
+    // …AND recently-closed orders that still have no tracking row.
+    //
+    // This job used to look at open orders ONLY, on the reasoning that a shipped/complete
+    // order's status dot is already correct so it needs no tracking-based promotion. True
+    // for the dot — but the tracking row is not just a dot. `/inbound-today` builds its
+    // ENTIRE candidate list from the shipments table, so a PO that reached Complete before
+    // we ever captured its tracking could never get a shipment row, and its cartons were
+    // therefore invisible to the receiving board and box labels — permanently, not merely
+    // late. No amount of re-running fixed it, because the PO was excluded by the query.
+    //
+    // Found 2026-07-30 reconciling SanMar's PSST freight manifest: PO 113832 (1 carton) and
+    // the VA half of split PO 113837 (11 pcs) were absent from the board while SanMar's live
+    // feed had both. Receiving had no row and no label for either.
+    //
+    // Bounded to ONE page of the most-recently-updated closed orders (default 200) so this
+    // can never become a scan of every order we have ever completed. Canceled stays excluded
+    // — nothing is arriving for those.
+    let closedOrders = [];
+    if (closedScan > 0) {
+      closedOrders = await fetchAllCaspioPages(`/tables/${TABLES.orders}/records`, {
+        'q.where': "SanMar_Status<>'Canceled' AND SanMar_Status<>'Cancelled'",
+        'q.select': 'SanMar_PO,Status_Updated_Date',
+        'q.orderBy': 'Status_Updated_Date DESC',
+        'q.limit': closedScan,
+      }, { maxPages: 1 }) || [];   // deliberate single page; strict:false so no truncation throw
+    }
+
+    // Open first (they still need the status promotion), then recent closed. Set keeps the
+    // first occurrence, so a PO in both keeps its open-order priority.
+    const pos = [...new Set([...(openOrders || []), ...closedOrders]
+      .map(o => o.SanMar_PO).filter(Boolean))]; // preserves recency order
+    log.openCandidates = (openOrders || []).length;
+    log.closedCandidates = closedOrders.length;
     // Which already have a tracking row? Skip those.
     // Chunked at 100 POs with q.orderBy + q.limit 1000, matching the loop at
     // :241/:249. Was a single unbounded OR-chain with `q.limit: 2000` and no

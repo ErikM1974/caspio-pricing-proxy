@@ -10,11 +10,11 @@
     "never produced by any scanner run, so they are genuine manual additions - proxied",
     "endpoints, or routes that live outside src/routes/ - and are kept.",
     "",
-    "Add a line here if you hand-add an endpoint to the collection that has no route file."
+    "Add a line here if you hand-add an endpoint to the collection that has no route file.",
+    "2026-07-30 correction: 'GET /api' was wrongly seeded here. The provenance check compared the collection's '/api' against the old scanner's '/api/' and the trailing slash made 15 artifacts (router.get('/') routes) look like hand additions. /api 404s in production. Removed so --prune clears them. Lesson: normalise trailing slashes before comparing URL provenance."
   ],
   "endpoints": [
     "DELETE /api/digitized-designs/:id",
-    "GET /api",
     "GET /api/caspio/daily-sales",
     "GET /api/caspio/daily-sales/ytd",
     "GET /api/digitized-designs",
