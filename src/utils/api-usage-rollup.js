@@ -67,6 +67,37 @@ let inFlight = false;
 let inFlightPromise = null;
 let pending = false;
 
+// Our OWN writes, per account day. Caspio bills every rollup POST, but the
+// interceptor deliberately skips them (`_skipMeter`) — counting them there feeds
+// the threshold hook, which fires another flush, which posts again: that loop
+// wrote ~1,893 junk rows on 2026-07-28.
+//
+// So count them HERE instead, outside the tracker. This never touches
+// onCallThreshold, so there is no feedback path — but the calls stop being
+// invisible, which was a permanent ~1-per-flush under-count against Caspio.
+// Counted per ATTEMPT, not per success: a rate-limit retry is a billed call too.
+//
+// Each flush's own cost lands in the NEXT flush's delta, so the very last flush
+// of a process is never recorded. That is one call per process, and it is the
+// honest floor — recording it would require a write to record the write.
+const selfWrites = new Map();
+
+// Tracked-call count at the last successful write, per day. Separate from
+// `contributed` so a flush can tell REAL activity from its own accumulated
+// bookkeeping — see the guard in pushRollup.
+const contributedTracked = new Map();
+
+function bumpSelfWrite(day) {
+  selfWrites.set(day, (selfWrites.get(day) || 0) + 1);
+}
+
+// Everything this process knows it has spent today: tracked calls + our own
+// writes. The single definition used by both the delta and unflushedCount, so
+// they can never disagree.
+function countedToday(day) {
+  return (tracker.stats.callsByDay.get(day) || 0) + (selfWrites.get(day) || 0);
+}
+
 /**
  * Caspio's per-second burst limit — transient, and NOT a reason to disable the
  * rollup. Only structural failures (missing table, bad shape, bad credentials)
@@ -84,7 +115,7 @@ async function pushRollup() {
   // tracker keys callsByDay. A UTC key here would look up a day the tracker
   // never wrote.
   const day = accountDay();
-  const sinceStart = tracker.stats.callsByDay.get(day) || 0;
+  const sinceStart = countedToday(day);   // tracked calls + our own rollup writes
 
   // APPEND-ONLY DELTAS. Each flush inserts a row holding only what has accrued
   // since the last one; readPeriod sums them per day. Three reasons over the
@@ -96,6 +127,14 @@ async function pushRollup() {
   //      collision LOSES calls — under-reporting again.
   //   3. Restart-safe by construction: a fresh process has contributed 0 and
   //      simply appends, so nothing can walk the stored total backwards.
+  // Only spend a call when REAL activity has accrued. Without this guard a delta
+  // made up purely of our own prior writes would post a row of 1 that itself costs
+  // 1 — break-even noise — and the `pending` loop in runOnce could post an extra
+  // time on every coalesced flush. Self-writes still get reported; they just ride
+  // along with the next flush that has genuine calls behind it.
+  const trackedNow = tracker.stats.callsByDay.get(day) || 0;
+  if (trackedNow <= (contributedTracked.get(day) || 0)) return;
+
   const delta = sinceStart - (contributed.get(day) || 0);
   if (delta <= 0) return;
 
@@ -118,6 +157,9 @@ async function pushRollup() {
   let lastErr;
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
+      // Count the attempt BEFORE awaiting: Caspio bills a request that then 429s
+      // or times out just the same, and a throw below must not lose the count.
+      bumpSelfWrite(day);
       await axios.post(url, body, { headers, timeout: config.timeouts.perRequest, _skipMeter: true });
       lastErr = null;
       break;
@@ -132,11 +174,18 @@ async function pushRollup() {
   // Only advance the watermark once the write actually landed, so a failed
   // write is retried next tick rather than silently skipped.
   contributed.set(day, sinceStart);
+  contributedTracked.set(day, trackedNow);
   state.flushes++;
 
-  // Yesterday's watermark is dead weight after a UTC rollover.
+  // Yesterday's watermarks are dead weight after a day rollover.
   for (const k of contributed.keys()) {
     if (k < day) contributed.delete(k);
+  }
+  for (const k of contributedTracked.keys()) {
+    if (k < day) contributedTracked.delete(k);
+  }
+  for (const k of selfWrites.keys()) {
+    if (k < day) selfWrites.delete(k);
   }
 }
 
@@ -214,7 +263,7 @@ async function doFlush() {
 // exit-flush timeout say what it actually cost instead of failing silently.
 function unflushedCount() {
   const day = accountDay();
-  const sinceStart = tracker.stats.callsByDay.get(day) || 0;
+  const sinceStart = countedToday(day);   // tracked calls + our own rollup writes
   return Math.max(0, sinceStart - (contributed.get(day) || 0));
 }
 
@@ -372,7 +421,27 @@ function status() {
     consecutiveFailures: state.consecutiveFailures,
     note: TABLE
       ? (state.enabled ? null : 'DISABLED after repeated write failures — see lastError')
-      : 'Not configured; metrics are in-memory per-dyno only and reset on restart.'
+      : 'Not configured; metrics are in-memory per-dyno only and reset on restart.',
+
+    // RECONCILIATION. Caspio's own usage page will always read HIGHER than the sum
+    // of API_Usage_Daily rows at any given instant, and that is expected, not a
+    // bug: rows are written once per FLUSH_EVERY_CALLS, so up to that many calls
+    // sit counted-but-unwritten. Publishing the pending figure turns an
+    // unexplained gap into an arithmetic one —
+    //     (sum of today's rollup rows) + pendingUnflushed  ==  what we have counted
+    // — so a residual against Caspio is now a real signal instead of a shrug.
+    // Deliberately does NOT read the rollup table: this runs on every /api/admin/
+    // metrics hit and a read here would spend the budget it exists to measure.
+    reconciliation: {
+      accountDay: accountDay(),
+      pendingUnflushed: unflushedCount(),
+      flushEveryCalls: FLUSH_EVERY_CALLS,
+      selfWritesToday: selfWrites.get(accountDay()) || 0,
+      note: 'pendingUnflushed is THIS dyno only. Add it to the summed rollup rows '
+          + 'before comparing with Caspio. selfWritesToday = our own rollup POSTs, '
+          + 'which Caspio bills and which are now counted (the final flush of a '
+          + 'process is never recorded — a floor of ~1 call per process).'
+    }
   };
 }
 

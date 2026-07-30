@@ -93,16 +93,68 @@ describe('runOnce coalescing is awaitable', () => {
 });
 
 describe('unflushedCount', () => {
-  test('reports what has been counted but not written, and clears after a flush', async () => {
+  test('reports what has been counted but not written', async () => {
     countToday(120);
     expect(rollup.unflushedCount()).toBe(120);
     await rollup.runOnce();
-    expect(rollup.unflushedCount()).toBe(0);
+    // 1, not 0: the flush's OWN write is a billed Caspio call, now counted, and it
+    // rides along with the next flush that has real activity behind it. This is the
+    // honest floor — recording it immediately would need a write to record a write.
+    expect(rollup.unflushedCount()).toBe(1);
   });
 
   test('never goes negative', () => {
     countToday(0);
     expect(rollup.unflushedCount()).toBe(0);
+  });
+});
+
+describe('self-write accounting (our own rollup POSTs are billed by Caspio)', () => {
+  test('a flush reports its own write in the NEXT delta, not a row of its own', async () => {
+    countToday(100);
+    await rollup.runOnce();
+    expect(axios.post.mock.calls[0][1].Call_Count).toBe(100);
+
+    // More real traffic arrives; the previous flush's own cost rides along.
+    countToday(150);
+    await rollup.runOnce();
+    expect(axios.post).toHaveBeenCalledTimes(2);
+    expect(axios.post.mock.calls[1][1].Call_Count).toBe(51);   // 50 new + 1 self
+  });
+
+  test('a delta of ONLY self-writes does not post — that row would cost what it reports', async () => {
+    countToday(100);
+    await rollup.runOnce();
+    expect(axios.post).toHaveBeenCalledTimes(1);
+    // No new tracked calls. unflushedCount is 1 (our own write) but writing it would
+    // spend a call to report a call, and would let a coalesced flush post twice.
+    expect(rollup.unflushedCount()).toBe(1);
+    await rollup.runOnce();
+    expect(axios.post).toHaveBeenCalledTimes(1);              // still 1 — no extra row
+  });
+
+  test('a rate-limit retry counts as a billed attempt', async () => {
+    const rateLimited = Object.assign(new Error('429'), { response: { status: 429, data: {} } });
+    let n = 0;
+    axios.post = jest.fn(async () => { if (++n === 1) throw rateLimited; return { data: {} }; });
+    countToday(80);
+    await rollup.runOnce();
+    expect(axios.post).toHaveBeenCalledTimes(2);              // one 429, one success
+    // Both attempts were billed by Caspio, so both are counted.
+    expect(rollup.unflushedCount()).toBe(2);
+  });
+
+  test('status() publishes the reconciliation so a gap is arithmetic, not a mystery', async () => {
+    countToday(60);
+    await rollup.runOnce();
+    const s = rollup.status();
+    expect(s.reconciliation).toMatchObject({
+      accountDay: accountDay(),
+      pendingUnflushed: 1,
+      flushEveryCalls: 250,
+      selfWritesToday: 1
+    });
+    expect(typeof s.reconciliation.note).toBe('string');
   });
 });
 
