@@ -1,3 +1,9 @@
+## v2026.07.30.2 (2026.07.30)
+
+- Meter: count our own rollup writes, and publish the reconciliation
+- sync-shipments only looked at OPEN orders, so closed-before-tracked POs never appeared
+- Postman preserve-list: 'GET /api' was an artifact, not a hand addition
+
 ## v2026.07.30.1 (2026.07.30)
 
 - Shutdown: flush the meter in PARALLEL with server.close(), bounded and loud
