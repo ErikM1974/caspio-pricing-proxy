@@ -282,3 +282,66 @@ describe('formatAlert — actionable, and states its own trustworthiness', () =>
     expect(formatAlert(pacing(false))).toContain(':warning:');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Trend-based projection (2026-07-31). The old formula was
+// `periodToDate / daysCounted * daysInPeriod` — a whole-period average, which
+// anchors the projection to how the period STARTED. 27-29 Jul cost
+// 23,959 / 22,659 / 20,616 before the quota fixes landed, so it would have
+// projected ~98% of cap every day for the rest of the period even after the
+// real rate fell to ~11-12K/day. An alarm that always fires is one you learn to
+// ignore — the exact failure it exists to prevent.
+describe('projection uses spent + recent trend, not a whole-period average', () => {
+  const { computePacing } = require('../../src/utils/caspio-usage-pacing');
+  const base = {
+    rollupDaysWithData: 5, dynoDailyRate: 20000, dynoCallsSinceStart: 4481,
+    dynoUptimeMs: 19176915, topTables: []
+  };
+  const sum = o => Object.values(o).reduce((a, c) => a + c, 0);
+
+  // A period that started badly and then got fixed.
+  const badStart = {
+    '2026-07-27': 23959, '2026-07-28': 22659, '2026-07-29': 20616,
+    '2026-07-30': 11200, '2026-07-31': 11000
+  };
+
+  test('a fixed rate stops projecting an overage — the old average never would', () => {
+    const now = new Date('2026-08-01T18:00:00Z');
+    const args = { ...base, now, rollupPeriodToDate: sum(badStart), rollupDaysWithData: 5 };
+
+    const oldWay = computePacing(args);                                  // no rollupByDay
+    const trend  = computePacing({ ...args, rollupByDay: badStart });
+
+    // Same spend, same day — only the projection method differs.
+    expect(trend.projected).toBeLessThan(oldWay.projected);
+    expect(trend.shouldAlert).toBe(false);
+  });
+
+  test('money already spent is SUNK — never extrapolated', () => {
+    const now = new Date('2026-08-01T18:00:00Z');
+    const p = computePacing({ ...base, now, rollupPeriodToDate: sum(badStart), rollupByDay: badStart });
+    // Projection must be at least what is already spent, and must equal
+    // spent + (recent rate x days left) — not spent x some multiple.
+    expect(p.projected).toBeGreaterThanOrEqual(p.periodToDate);
+  });
+
+  test("today is excluded from the trend — a partial day would read as false comfort", () => {
+    const now = new Date('2026-08-01T09:00:00Z');   // early: today has barely any calls
+    const withTinyToday = { ...badStart, '2026-08-01': 12 };
+    const p = computePacing({
+      ...base, now, rollupPeriodToDate: sum(withTinyToday), rollupByDay: withTinyToday
+    });
+    const withoutToday = computePacing({
+      ...base, now, rollupPeriodToDate: sum(withTinyToday), rollupByDay: badStart
+    });
+    // The 12-call partial day must not drag the projected rate down.
+    expect(p.projected).toBe(withoutToday.projected);
+  });
+
+  test('falls back to the whole-period average when no per-day data is supplied', () => {
+    const now = new Date('2026-08-01T18:00:00Z');
+    const p = computePacing({ ...base, now, rollupPeriodToDate: sum(badStart) });
+    expect(Number.isFinite(p.projected)).toBe(true);
+    expect(p.projected).toBeGreaterThan(0);
+  });
+});
