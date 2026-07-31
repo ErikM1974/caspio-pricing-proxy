@@ -38,12 +38,55 @@ const AUTH_HEADERS = {
   'x-api-secret': CRM_API_SECRET
 };
 
+// Heroku's ROUTER kills any web request at 30 s (H12) regardless of the client timeout —
+// the 5-minute axios timeout below has never once applied. Measured 2026-07-31, twice:
+// POST /sync returns 503 at 30.36 s. The dyno KEEPS PROCESSING after the router gives up,
+// so the sync itself finishes; only our view of it dies.
+//
+// That 503 used to throw straight out of this function, and because main() ran all six
+// phases under ONE try/catch, everything after it was skipped — including
+// syncRecentCompleted(), which exists precisely to ingest orders that never made it into
+// the table. The single slowest phase was silently disabling its own safety net.
+function isRouterTimeout(err) {
+  return err.code === 'ECONNABORTED'
+    || err.code === 'ETIMEDOUT'
+    || (err.response && err.response.status === 503);
+}
+
+// After an H12 the work continues on the dyno. Wait for it to land so the later phases
+// run against finished data instead of a half-written table. Bounded — never hangs the job.
+async function waitForSyncToSettle(startedAtMs, maxWaitMs = 4 * 60 * 1000) {
+  const deadline = Date.now() + maxWaitMs;
+  while (Date.now() < deadline) {
+    await new Promise(r => setTimeout(r, 10000));
+    try {
+      const s = await axios.get(`${BASE_URL}/api/sanmar-orders/status-summary`, { timeout: 15000 });
+      const last = Date.parse((s.data || {}).lastSync || '');
+      if (Number.isFinite(last) && last >= startedAtMs) return true;
+    } catch (e) { /* keep waiting; a poll blip is not a failure */ }
+  }
+  return false;
+}
+
 async function syncOrders(full = false) {
   const url = `${BASE_URL}/api/sanmar-orders/sync${full ? '?full=true' : ''}`;
   console.log(`\n[${new Date().toISOString()}] Starting order sync (${full ? 'full' : 'incremental'})...`);
+  const startedAtMs = Date.now();
 
-  const response = await axios.post(url, {}, { headers: AUTH_HEADERS, timeout: TIMEOUT });
-  const result = response.data;
+  let result;
+  try {
+    const response = await axios.post(url, {}, { headers: AUTH_HEADERS, timeout: TIMEOUT });
+    result = response.data;
+  } catch (err) {
+    if (!isRouterTimeout(err)) throw err;
+    console.log(`  Router timed out at 30s (H12) — expected; the dyno is still syncing.`);
+    const settled = await waitForSyncToSettle(startedAtMs);
+    console.log(settled
+      ? `  Server-side sync completed (confirmed via status-summary). Status: SUCCESS (after H12)`
+      : `  Could not confirm completion within 4 min — continuing anyway so the catch-up phases still run.`);
+    return { viaH12: true, settled };
+  }
+
   console.log(`  Orders found: ${result.ordersFound || 0}`);
   console.log(`  Orders upserted: ${result.ordersUpserted || 0}`);
   console.log(`  Shipments updated: ${result.shipmentsUpdated || 0}`);
@@ -262,14 +305,37 @@ async function main() {
       const days = parseInt(args[idx + 1]) || 90;
       await runInvoiceBackfill(days);
     } else {
-      // Normal daily sync: orders + invoices + ManageOrders matching
+      // Normal daily sync. Each phase is ISOLATED (2026-07-31): these used to be six bare
+      // awaits under this one try/catch, so the first throw skipped every later phase —
+      // and the first phase is the slowest and the only one that reliably H12s. Losing
+      // syncRecentCompleted() that way is the worst case: it is the catch-up that ingests
+      // orders which never entered the table at all, so the failure removed exactly the
+      // mechanism that would have covered for it. A phase failing must never silence
+      // the phases behind it.
       const full = args.includes('--full');
-      await syncOrders(full);
-      await syncPendingShipments();
-      await syncRecentCompleted();
-      await syncInvoices();
-      await matchManageOrders();
-      await syncDeliveryDates();
+      const phases = [
+        ['orders', () => syncOrders(full)],
+        ['shipment catch-up', () => syncPendingShipments()],
+        ['recently-completed catch-up', () => syncRecentCompleted()],
+        ['invoices', () => syncInvoices()],
+        ['ManageOrders match', () => matchManageOrders()],
+        ['delivery dates', () => syncDeliveryDates()],
+      ];
+      const failed = [];
+      for (const [name, run] of phases) {
+        try {
+          await run();
+        } catch (err) {
+          failed.push(name);
+          console.error(`\n  ✗ PHASE FAILED (${name}): ${err.response?.data?.error || err.message}`);
+          console.error(`    Continuing with the remaining phases.`);
+        }
+      }
+      if (failed.length) {
+        // Still a non-zero exit so the run is visibly red — but only AFTER everything ran.
+        console.error(`\n[${new Date().toISOString()}] SanMar sync finished with ${failed.length} failed phase(s): ${failed.join(', ')}`);
+        process.exit(1);
+      }
     }
 
     console.log(`\n[${new Date().toISOString()}] SanMar sync completed successfully.`);
