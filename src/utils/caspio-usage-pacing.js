@@ -108,6 +108,10 @@ function computePacing({
   // How many distinct days in the window actually have rollup rows. This, NOT
   // the summed total, is what says whether the rollup has data — see below.
   rollupDaysWithData = null,
+  // { 'YYYY-MM-DD': calls } for the period. Enables a TREND-based projection —
+  // see the trailing-rate block below. Optional: without it the old
+  // whole-period average is used unchanged.
+  rollupByDay = null,
   dynoDailyRate = 0,
   dynoCallsSinceStart = 0,
   dynoUptimeMs = Infinity,
@@ -179,7 +183,45 @@ function computePacing({
       : period.daysElapsed;
 
     const avgPerDay = periodToDate / daysCounted;
-    projected = Math.round(avgPerDay * period.daysInPeriod);
+
+    // SPENT + TREND, not a whole-period average.
+    //
+    // The old formula was `avgPerDay * daysInPeriod`, which permanently anchors
+    // the projection to however the period STARTED. Measured 2026-07-31: 27-29 Jul
+    // cost 23,959 / 22,659 / 20,616 before the quota fixes landed, so the average
+    // stayed high enough to project 98% of cap even though the current rate had
+    // fallen to ~11-12K/day and the period was really tracking to ~380K. It would
+    // have fired EVERY DAY for the rest of the period — and an alarm that always
+    // fires is one you learn to ignore, which is exactly the failure it exists to
+    // prevent (nobody looked for 30 days before the $358 bill).
+    //
+    // Instead: money already spent is SUNK (periodToDate, not extrapolated), and
+    // only the days that REMAIN are projected, from the recent rate. That makes
+    // the number respond to a fix within a day or two instead of being held
+    // hostage by the start of the period.
+    //
+    // Today is excluded from the trend — it is partial, and including it would
+    // drag the rate down all morning and read as false comfort.
+    const TREND_DAYS = 3;
+    const todayYmd = ymd(now);
+    let recentRate = null;
+    if (rollupByDay && typeof rollupByDay === 'object') {
+      const complete = Object.entries(rollupByDay)
+        .filter(([d, v]) => d < todayYmd && Number.isFinite(Number(v)))
+        .sort((a, b) => (a[0] < b[0] ? 1 : -1))          // newest first
+        .slice(0, TREND_DAYS);
+      if (complete.length > 0) {
+        recentRate = complete.reduce((s, [, v]) => s + Number(v), 0) / complete.length;
+      }
+    }
+
+    if (recentRate !== null) {
+      const daysRemaining = Math.max(0, period.daysInPeriod - period.daysElapsed);
+      projected = Math.round(periodToDate + recentRate * daysRemaining);
+    } else {
+      // No per-day data (older callers, or a period with no complete days yet).
+      projected = Math.round(avgPerDay * period.daysInPeriod);
+    }
 
     if (rollupDaysWithData !== null && daysCounted < period.daysElapsed) {
       partialCoverage = {

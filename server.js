@@ -1519,6 +1519,9 @@ async function computeUsagePacing() {
     now,
     rollupPeriodToDate: rollupTotal,
     rollupDaysWithData,
+    // Feeds the trend-based projection: spent-so-far + recent rate x days left,
+    // instead of a whole-period average that stays red long after a fix lands.
+    rollupByDay,
     dynoDailyRate,
     dynoCallsSinceStart: summary.totalCallsSinceStart,
     // Guards against a just-cycled dyno projecting nonsense off a few seconds of
