@@ -1,3 +1,8 @@
+## v2026.07.31.1 (2026.07.31)
+
+- Meter: count what Caspio RECEIVES, not what we SEND
+- Lessons: a filter that was right about one consumer silently starved another
+
 ## v2026.07.30.2 (2026.07.30)
 
 - Meter: count our own rollup writes, and publish the reconciliation
