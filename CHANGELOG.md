@@ -1,3 +1,7 @@
+## v2026.07.31.3 (2026.07.31)
+
+- Pacing: project from spent + recent trend, so the alert can go green again
+
 ## v2026.07.31.2 (2026.07.31)
 
 - sync-sanmar: the slowest phase was silently disabling its own safety net
