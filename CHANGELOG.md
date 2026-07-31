@@ -1,3 +1,7 @@
+## v2026.07.31.2 (2026.07.31)
+
+- sync-sanmar: the slowest phase was silently disabling its own safety net
+
 ## v2026.07.31.1 (2026.07.31)
 
 - Meter: count what Caspio RECEIVES, not what we SEND
