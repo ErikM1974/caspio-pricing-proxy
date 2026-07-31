@@ -106,7 +106,11 @@ class APITracker {
       callsByTable: new Map(),
       callsByMethod: new Map(),
       callsByHour: new Map(),
-      callsByDay: new Map()
+      callsByDay: new Map(),
+      // Caspio-bound requests that produced NO response, so Caspio never billed
+      // them and we no longer count them. Kept visible so the 2026-07-31
+      // count-on-response fix can be verified rather than believed.
+      unbilled: { noResponse: 0, timedOut: 0 }
     };
 
     // Cleanup + a single summary log line every 5 minutes. The old code logged
@@ -236,6 +240,13 @@ class APITracker {
         : percentOfLimit > 80 ? 'WARNING' : 'OK',
       topEndpoints: this.getTopEndpoints(5),
       topTables: this.getTopTables(5),
+      // Caspio-bound requests that got NO response, so Caspio never billed them.
+      // Since 2026-07-31 we count on the RESPONSE, matching their definition, and
+      // these are excluded. Published so the fix is checkable: if this stays ~0 and
+      // we still read high, the over-count has another cause and this was the
+      // wrong theory. `timedOut` is separated because a client-side timeout MAY
+      // have reached Caspio and been billed — that direction under-counts.
+      unbilled: { ...this.stats.unbilled },
       // Both maps are cumulative since process start — see the header caveats.
       scope: 'single dyno, since process start; callsByDay/last24h are windowed'
     };
@@ -308,7 +319,11 @@ class APITracker {
       callsByTable: new Map(),
       callsByMethod: new Map(),
       callsByHour: new Map(),
-      callsByDay: new Map()
+      callsByDay: new Map(),
+      // Caspio-bound requests that produced NO response, so Caspio never billed
+      // them and we no longer count them. Kept visible so the 2026-07-31
+      // count-on-response fix can be verified rather than believed.
+      unbilled: { noResponse: 0, timedOut: 0 }
     };
     console.log('[API TRACKER] Stats reset');
   }
@@ -325,9 +340,28 @@ const tracker = new APITracker();
 // client is created with axios.create() AND targets Caspio, it must call
 // installOn(instance) or its calls will be invisible here.
 // ---------------------------------------------------------------------------
+// COUNT ON RESPONSE, NOT ON REQUEST (2026-07-31).
+//
+// Caspio bills requests it RECEIVES. We used to count in a request interceptor —
+// i.e. when a request was SENT — so anything that died before reaching them
+// (connection refused, DNS failure, client-side abort) inflated our number and
+// never theirs. That is why the meter crossed over from under- to OVER-reporting:
+//
+//     day     ours    caspio
+//     7/27  16,055   23,959   under 33%   (coverage still broken)
+//     7/28  17,792   22,659   under 21%
+//     7/29  18,612   20,616   under 10%
+//     7/30  19,776   16,729   OVER  18%   <- ours kept rising as fixes landed,
+//                                            Caspio's fell as usage dropped,
+//                                            and the two lines crossed
+//
+// Counting on the response path makes our definition the same as their billing
+// definition. An HTTP error status still counts — a 400/429/500 is a request they
+// received and billed. Only a request that produced NO response is excluded.
 function installOn(instance) {
-  instance.interceptors.request.use(cfg => {
+  const countFrom = (cfg) => {
     try {
+      if (!cfg) return;
       const url = cfg.baseURL && cfg.url && !/^https?:\/\//i.test(cfg.url)
         ? new URL(cfg.url, cfg.baseURL).toString()
         : cfg.url;
@@ -338,16 +372,45 @@ function installOn(instance) {
       // 2026-07-28 that ran away and wrote ~1,893 junk rows before Caspio's
       // per-second limit stopped it. Metering overhead is not application
       // traffic and must never be able to trigger more metering.
+      // (api-usage-rollup counts its own writes separately, outside the tracker.)
       if (url && isCaspioUrl(url) && !cfg._skipMeter) {
         const { endpoint, table } = deriveTarget(url);
         tracker.trackCall(endpoint, table, (cfg.method || 'get').toUpperCase());
       }
     } catch (err) {
       // Never let metering break a real request.
-      console.error('[API TRACKER] interceptor error (request still sent):', err.message);
+      console.error('[API TRACKER] interceptor error (request unaffected):', err.message);
     }
-    return cfg;
-  });
+  };
+
+  // What we are now NOT counting, so this fix is verifiable instead of assumed.
+  // If `noResponse` is ~0 and we still read high, the cause is something else and
+  // this change was the wrong theory — that must be visible, not buried.
+  const noteUnbilled = (err) => {
+    try {
+      const cfg = err && err.config;
+      if (!cfg) return;
+      const url = cfg.baseURL && cfg.url && !/^https?:\/\//i.test(cfg.url)
+        ? new URL(cfg.url, cfg.baseURL).toString()
+        : cfg.url;
+      if (!url || !isCaspioUrl(url) || cfg._skipMeter) return;
+      // ECONNABORTED is a CLIENT-side timeout: Caspio may well have received and
+      // billed it, so it is tracked apart from a clean never-reached-them failure.
+      const bucket = (err.code === 'ECONNABORTED' || /timeout/i.test(err.message || ''))
+        ? 'timedOut' : 'noResponse';
+      tracker.stats.unbilled[bucket] = (tracker.stats.unbilled[bucket] || 0) + 1;
+    } catch (e) { /* metering must never mask the real error */ }
+  };
+
+  instance.interceptors.response.use(
+    resp => { countFrom(resp && resp.config); return resp; },
+    err => {
+      // err.response present = Caspio answered (any status) = they billed it.
+      if (err && err.response) countFrom(err.config);
+      else noteUnbilled(err);
+      return Promise.reject(err);
+    }
+  );
   return instance;
 }
 

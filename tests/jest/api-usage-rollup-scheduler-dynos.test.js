@@ -251,9 +251,11 @@ describe('rollup: write failures and reads', () => {
   test('the interceptor ignores a _skipMeter request', () => {
     const { tracker } = bootProcess('web.1');
     const handlers = [];
-    const stub = { interceptors: { request: { use: fn => handlers.push(fn) } } };
+    // Counting lives on the RESPONSE path since 2026-07-31 — Caspio bills what it
+    // receives, so a request that never got there must not be counted.
+    const stub = { interceptors: { response: { use: (ok, err) => handlers.push({ ok, err }) } } };
     tracker.installOn(stub);
-    const fire = cfg => handlers.forEach(fn => fn(cfg));
+    const fire = cfg => handlers.forEach(h => h.ok && h.ok({ config: cfg, status: 200 }));
 
     const url = 'https://nwcustom.caspio.com/integrations/rest/v3/tables/API_Usage_Daily/records';
     fire({ url, method: 'post', _skipMeter: true });

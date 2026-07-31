@@ -58,48 +58,105 @@ describe('api-tracker: isCaspioUrl', () => {
   });
 });
 
-describe('api-tracker: interceptor counting', () => {
+// Counting moved from the REQUEST path to the RESPONSE path on 2026-07-31.
+// Caspio bills requests it RECEIVES; we were counting requests we SENT, so any
+// request that died before reaching them inflated our number and never theirs.
+// That is how the meter went from 33% UNDER (7/27) to 18% OVER (7/30) as the
+// coverage fixes landed and real usage fell — the two lines crossed.
+describe('api-tracker: interceptor counting (counts what Caspio RECEIVES)', () => {
   let stub;
 
   beforeEach(() => {
     tracker.reset();
-    // Minimal axios-shaped stub: capture the registered interceptor so we can
-    // invoke it directly without issuing a request.
+    // Minimal axios-shaped stub capturing the RESPONSE interceptor pair, so we
+    // can simulate each outcome without issuing a request.
     const handlers = [];
+    const swallow = p => { if (p && typeof p.catch === 'function') p.catch(() => {}); };
     stub = {
-      interceptors: { request: { use: fn => handlers.push(fn) } },
-      fire: cfg => handlers.forEach(fn => fn(cfg))
+      interceptors: { response: { use: (ok, err) => handlers.push({ ok, err }) } },
+      // Caspio answered normally.
+      respond: cfg => handlers.forEach(h => h.ok && h.ok({ config: cfg, status: 200 })),
+      // Caspio answered with an error STATUS — still a request they received and billed.
+      errorStatus: (cfg, status) =>
+        handlers.forEach(h => h.err && swallow(h.err({ config: cfg, response: { status } }))),
+      // Never reached Caspio: connection refused / DNS / abort. NOT billed.
+      netFail: cfg =>
+        handlers.forEach(h => h.err && swallow(h.err({ config: cfg, message: 'socket hang up' }))),
+      // Client-side timeout — may or may not have been billed; tracked separately.
+      timeout: cfg =>
+        handlers.forEach(h => h.err && swallow(h.err({ config: cfg, code: 'ECONNABORTED', message: 'timeout of 15000ms exceeded' })))
     };
     tracker.installOn(stub);
   });
 
-  test('counts a Caspio request once, attributed to its table', () => {
-    stub.fire({ url: `${CASPIO}/integrations/rest/v3/tables/ORDER_ODBC/records`, method: 'get' });
+  test('counts a Caspio call once, attributed to its table', () => {
+    stub.respond({ url: `${CASPIO}/integrations/rest/v3/tables/ORDER_ODBC/records`, method: 'get' });
     expect(tracker.stats.totalCalls).toBe(1);
     expect(tracker.getTopTables(5)).toEqual([{ table: 'ORDER_ODBC', count: 1 }]);
   });
 
   test('counts writes, not just reads — these were 100% invisible before', () => {
-    stub.fire({ url: `${CASPIO}/integrations/rest/v3/tables/ORDER_ODBC/records`, method: 'put' });
-    stub.fire({ url: `${CASPIO}/integrations/rest/v3/tables/ORDER_ODBC/records`, method: 'post' });
+    stub.respond({ url: `${CASPIO}/integrations/rest/v3/tables/ORDER_ODBC/records`, method: 'put' });
+    stub.respond({ url: `${CASPIO}/integrations/rest/v3/tables/ORDER_ODBC/records`, method: 'post' });
     expect(tracker.stats.totalCalls).toBe(2);
     expect(tracker.stats.callsByMethod.get('PUT')).toBe(1);
     expect(tracker.stats.callsByMethod.get('POST')).toBe(1);
   });
 
+  test('an error STATUS still counts — Caspio received and billed it', () => {
+    const cfg = { url: `${CASPIO}/integrations/rest/v3/tables/X/records`, method: 'get' };
+    stub.errorStatus(cfg, 429);   // the rate limit we hit constantly
+    stub.errorStatus(cfg, 400);
+    stub.errorStatus(cfg, 500);
+    expect(tracker.stats.totalCalls).toBe(3);
+    expect(tracker.stats.unbilled.noResponse).toBe(0);
+  });
+
+  test('a request that NEVER REACHED Caspio is not counted — this is the over-count fix', () => {
+    stub.netFail({ url: `${CASPIO}/integrations/rest/v3/tables/X/records`, method: 'get' });
+    expect(tracker.stats.totalCalls).toBe(0);
+    expect(tracker.stats.unbilled.noResponse).toBe(1);
+  });
+
+  test('a client-side timeout is excluded but bucketed apart (it MAY have been billed)', () => {
+    stub.timeout({ url: `${CASPIO}/integrations/rest/v3/tables/X/records`, method: 'get' });
+    expect(tracker.stats.totalCalls).toBe(0);
+    expect(tracker.stats.unbilled.timedOut).toBe(1);
+    expect(tracker.stats.unbilled.noResponse).toBe(0);
+  });
+
+  test('a failed NON-Caspio request does not pollute the unbilled counters', () => {
+    stub.netFail({ url: 'https://api.shipstation.com/orders', method: 'get' });
+    expect(tracker.stats.unbilled.noResponse).toBe(0);
+    expect(tracker.stats.unbilled.timedOut).toBe(0);
+  });
+
+  test('_skipMeter is honoured on the response path too (no feedback loop)', () => {
+    stub.respond({ url: `${CASPIO}/integrations/rest/v3/tables/API_Usage_Daily/records`, method: 'post', _skipMeter: true });
+    stub.netFail({ url: `${CASPIO}/integrations/rest/v3/tables/API_Usage_Daily/records`, method: 'post', _skipMeter: true });
+    expect(tracker.stats.totalCalls).toBe(0);
+    expect(tracker.stats.unbilled.noResponse).toBe(0);
+  });
+
   test('ignores non-Caspio traffic (ShopWorks, SanMar, Box, our own proxy)', () => {
-    stub.fire({ url: 'https://api.shipstation.com/orders', method: 'get' });
-    stub.fire({ url: 'https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/x', method: 'get' });
+    stub.respond({ url: 'https://api.shipstation.com/orders', method: 'get' });
+    stub.respond({ url: 'https://caspio-pricing-proxy-ab30a049961a.herokuapp.com/api/x', method: 'get' });
     expect(tracker.stats.totalCalls).toBe(0);
   });
 
   test('resolves relative urls against baseURL', () => {
-    stub.fire({ baseURL: `${CASPIO}/integrations/rest/v3`, url: '/tables/Leads_CRM/records', method: 'get' });
+    stub.respond({ baseURL: `${CASPIO}/integrations/rest/v3`, url: '/tables/Leads_CRM/records', method: 'get' });
     expect(tracker.getTopTables(1)).toEqual([{ table: 'Leads_CRM', count: 1 }]);
   });
 
-  test('a thrown interceptor error never blocks the request', () => {
-    expect(() => stub.fire({ url: null, method: 'get' })).not.toThrow();
+  test('a thrown interceptor error never blocks the response', () => {
+    expect(() => stub.respond({ url: null, method: 'get' })).not.toThrow();
+    expect(() => stub.netFail(null)).not.toThrow();
+  });
+
+  test('getSummary publishes the unbilled counters so the fix is checkable', () => {
+    stub.netFail({ url: `${CASPIO}/integrations/rest/v3/tables/X/records`, method: 'get' });
+    expect(tracker.getSummary().unbilled).toEqual({ noResponse: 1, timedOut: 0 });
   });
 });
 
