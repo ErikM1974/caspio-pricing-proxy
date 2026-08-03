@@ -104,10 +104,15 @@ async function syncPendingShipments() {
   console.log(`\n[${new Date().toISOString()}] Catch-up shipment pull (status-unchanged shipped orders)...`);
   const maxRounds = 6; // up to ~48 POs/run
   let totalAdded = 0, totalChecked = 0;
+  // Walk the cursor. Rounds used to drain on their own because pulling tracking for a
+  // PO removed it from `pending` — but a PO being RE-checked for a straggler carton
+  // stays pending until its ship date ages out, so without `offset` every round would
+  // re-poll the same first 8 forever (2026-08-03).
+  let offset = 0;
   for (let round = 1; round <= maxRounds; round++) {
     let r;
     try {
-      const resp = await axios.post(`${BASE_URL}/api/sanmar-orders/sync-shipments?limit=8`, {},
+      const resp = await axios.post(`${BASE_URL}/api/sanmar-orders/sync-shipments?limit=8&offset=${offset}`, {},
         { headers: AUTH_HEADERS, timeout: TIMEOUT });
       r = resp.data || {};
     } catch (e) {
@@ -116,8 +121,9 @@ async function syncPendingShipments() {
     }
     totalAdded += r.shipmentsAdded || 0;
     totalChecked += r.checked || 0;
-    console.log(`  round ${round}: checked ${r.checked || 0}, +${r.shipmentsAdded || 0} tracking, ${r.remaining || 0} remaining`);
+    console.log(`  round ${round} (offset ${offset}): checked ${r.checked || 0}, +${r.shipmentsAdded || 0} tracking, ${r.remaining || 0} remaining`);
     if (!r.remaining || (r.checked || 0) === 0) break;
+    offset = typeof r.nextOffset === 'number' ? r.nextOffset : offset + (r.checked || 0);
   }
   console.log(`  Catch-up: +${totalAdded} tracking rows (${totalChecked} POs checked). Status: SUCCESS`);
 }

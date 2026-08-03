@@ -1698,9 +1698,21 @@ router.post('/sync-shipments', async (req, res) => {
     // Zero-carton POs first — those are wholly invisible, the worst failure — then the
     // recently-shipped ones being re-polled for stragglers.
     const noTracking = pos.filter(p => !newestShip.has(p));
-    const recentlyShipped = pos.filter(p => newestShip.has(p) && !isSettled(p));
+    // Oldest carton first among the re-polls: those are closest to ageing out of the
+    // window, so they get their last chances before we stop watching them.
+    const recentlyShipped = pos.filter(p => newestShip.has(p) && !isSettled(p))
+      .sort((a, b) => String(newestShip.get(a)).localeCompare(String(newestShip.get(b))));
     const pending = [...noTracking, ...recentlyShipped];
-    const batch = pending.slice(0, cap);
+
+    // `offset` exists because re-polling no longer shrinks `pending`. When a PO had NO
+    // tracking, pulling it gave it a row and it left the list, so repeated rounds
+    // naturally drained. A PO being re-checked for a straggler carton STAYS pending until
+    // its ship date ages out — so without an offset the scheduler's 6 rounds would hammer
+    // the same first N POs forever and never reach the rest (caught in production
+    // immediately after the 2026-08-03 deploy: three rounds, identical batch, remaining
+    // stuck at 53). scripts/sync-sanmar.js walks this cursor across its rounds.
+    const offset = Math.max(parseInt(req.query.offset) || 0, 0);
+    const batch = pending.slice(offset, offset + cap);
     let added = 0;
     for (const po of batch) {
       try { added += await pullAndStoreShipments(po); }
@@ -1708,12 +1720,15 @@ router.post('/sync-shipments', async (req, res) => {
     }
     log.openConfirmed = pos.length;
     log.recheckDays = recheckDays;
+    log.offset = offset;
     log.noTracking = noTracking.length;           // never had a carton — wholly invisible
     log.recheckWindow = recentlyShipped.length;   // has a carton, still watched for stragglers
     log.pendingNoTracking = pending.length;       // kept: existing callers/log parsers read this
     log.checked = batch.length;
     log.shipmentsAdded = added;
-    log.remaining = Math.max(0, pending.length - batch.length);
+    // What is left AFTER this batch's cursor position — the caller's next offset.
+    log.remaining = Math.max(0, pending.length - (offset + batch.length));
+    log.nextOffset = offset + batch.length;
     log.completed = new Date().toISOString();
     console.log('[sync-shipments]', JSON.stringify(log));
     res.json(log);

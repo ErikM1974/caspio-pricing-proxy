@@ -94,3 +94,31 @@ describe('sync-shipments: the route implements that rule', () => {
     expect(BLOCK).toMatch(/log\.pendingNoTracking/);   // kept for existing log parsers
   });
 });
+
+describe('sync-shipments: rounds must advance, not re-poll the same batch', () => {
+  // Caught in production straight after the 2026-08-03 deploy: three consecutive rounds
+  // returned an identical batch and `remaining` stuck at 53. Re-polling no longer shrinks
+  // `pending`, so the drain loop needs an explicit cursor.
+  test('the route slices from an offset, not always from 0', () => {
+    expect(BLOCK).toMatch(/const offset = Math\.max\(parseInt\(req\.query\.offset\)/);
+    expect(BLOCK).toMatch(/pending\.slice\(offset, offset \+ cap\)/);
+    expect(BLOCK).not.toMatch(/pending\.slice\(0, cap\)/);
+  });
+
+  test('remaining and nextOffset account for the cursor', () => {
+    expect(BLOCK).toMatch(/pending\.length - \(offset \+ batch\.length\)/);
+    expect(BLOCK).toMatch(/log\.nextOffset = offset \+ batch\.length/);
+  });
+
+  test('re-polls are ordered oldest-carton-first, so they get a last chance before ageing out', () => {
+    expect(BLOCK).toMatch(/\.sort\(\(a, b\) =>[\s\S]*newestShip\.get\(a\)/);
+  });
+
+  test('the scheduler walks the cursor across its rounds', () => {
+    const fs2 = require('fs'), path2 = require('path');
+    const JOB = fs2.readFileSync(path2.join(__dirname, '../../scripts/sync-sanmar.js'), 'utf8');
+    const fn = JOB.slice(JOB.indexOf('async function syncPendingShipments'), JOB.indexOf('// Recently-completed catch-up'));
+    expect(fn).toMatch(/offset=\$\{offset\}/);
+    expect(fn).toMatch(/offset = typeof r\.nextOffset === 'number'/);
+  });
+});
