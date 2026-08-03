@@ -15,7 +15,7 @@
 // days while the 500,000 cap does not. So the daily budget is
 // 500,000 ÷ daysInPeriod, recomputed per period rather than hardcoded at 16,667.
 
-const { accountParts } = require('./account-time');
+const { accountDay, accountParts } = require('./account-time');
 
 const MONTHLY_LIMIT = 500000;
 
@@ -32,6 +32,38 @@ const PERIOD_START_DAY = 27;
 // inventing a confident number. Rollup mode is unaffected (it reads real
 // per-day history from Caspio and does not care how old this process is).
 const MIN_UPTIME_FOR_RATE_MS = 60 * 60 * 1000; // 1 hour
+
+// The first day the repaired meter produced a number comparable with Caspio's.
+//
+// API_Usage_Daily rows written BEFORE this date came from a meter that was
+// missing call paths, and they are wrong by amounts that change day to day and
+// FLIP SIGN — measured against Caspio's own billing page:
+//
+//     27 Jul  ours 16,055  Caspio 23,959   -33%
+//     28 Jul  ours 17,792  Caspio 22,659   -21%
+//     29 Jul  ours 18,612  Caspio 20,616   -10%
+//     30 Jul  ours 19,776  Caspio 16,729   +18%   <- over-counts
+//     31 Jul  ours 10,857  Caspio 10,626   +2.2%  <- first clean day
+//
+// Those rows stay in the table (they are real evidence of what the outage cost)
+// but they must never feed a RATE, because a rate gets multiplied by every day
+// left in the period. On 2026-08-01 the 3-day window was {29,30,31 Jul}; two
+// pre-repair days dragged the mean to 16,415/day and projected 493,729 = 99% of
+// cap, which DMed Erik a false alarm at 4 AM. The true figure was ~341,000.
+//
+// Deliberately NOT applied to periodToDate: that is a sum of what was actually
+// recorded, and dropping days from it would understate spend — the opposite and
+// more dangerous error. Caspio's page remains the billing truth either way.
+const ROLLUP_TRUSTED_FROM = '2026-07-31';
+
+// Seven days, not three, so the window always contains exactly two weekend days
+// and cannot pick up a day-of-week bias. Measured 2026-08-03: a 3-day window on
+// a Monday reads {Fri, Sat, Sun} = 7,780/day and under-projects; the same window
+// on a Friday is all-weekday and over-projects. Weekends here run roughly half a
+// weekday (Sat 6,657 / Sun ~4,531 against Fri 10,626), so the swing is large
+// enough to move the projection by ~50,000 calls — a tenth of the cap — purely
+// on which day of the week you happen to look.
+const TREND_DAYS = 7;
 
 function ymd(date) {
   return date.toISOString().slice(0, 10);
@@ -169,6 +201,8 @@ function computePacing({
   let periodToDate;
   let projected;
   let partialCoverage = null;
+  let trendDaysUsed = 0;
+  let trendExcludedDays = 0;
 
   if (mode === 'rollup') {
     periodToDate = rollupPeriodToDate;
@@ -201,17 +235,29 @@ function computePacing({
     // hostage by the start of the period.
     //
     // Today is excluded from the trend — it is partial, and including it would
-    // drag the rate down all morning and read as false comfort.
-    const TREND_DAYS = 3;
-    const todayYmd = ymd(now);
+    // drag the rate down all morning and read as false comfort. Days written by
+    // the pre-repair meter are excluded too (see ROLLUP_TRUSTED_FROM).
+    // The ACCOUNT day, not the UTC day. rollupByDay is keyed on Pacific (that is
+    // how Caspio buckets), so comparing against ymd(now) was wrong for the seven
+    // hours between 5 PM Pacific and midnight UTC: the still-running Pacific day
+    // sorted BELOW the UTC "today" and was treated as complete, so an evening
+    // check averaged in a partial day and read the rate low. The 4 AM scheduled
+    // run sits outside that window, which is why it never surfaced.
+    const todayYmd = accountDay(now);
     let recentRate = null;
     if (rollupByDay && typeof rollupByDay === 'object') {
-      const complete = Object.entries(rollupByDay)
-        .filter(([d, v]) => d < todayYmd && Number.isFinite(Number(v)))
+      const usable = Object.entries(rollupByDay)
+        .filter(([d, v]) => d < todayYmd && Number.isFinite(Number(v)));
+
+      const trusted = usable.filter(([d]) => d >= ROLLUP_TRUSTED_FROM);
+      trendExcludedDays = usable.length - trusted.length;
+
+      const complete = trusted
         .sort((a, b) => (a[0] < b[0] ? 1 : -1))          // newest first
         .slice(0, TREND_DAYS);
       if (complete.length > 0) {
         recentRate = complete.reduce((s, [, v]) => s + Number(v), 0) / complete.length;
+        trendDaysUsed = complete.length;
       }
     }
 
@@ -253,6 +299,16 @@ function computePacing({
     percentOfLimit,
     dynoUptimeMs,
     partialCoverage,
+    // How the rate behind `projected` was derived. Surfaced so the dashboard can
+    // grey the excluded bars and the alert can say what it is standing on —
+    // a projection whose basis is invisible is how the 4 AM false alarm on
+    // 2026-08-01 read as authoritative.
+    trend: {
+      daysUsed: trendDaysUsed,
+      windowDays: TREND_DAYS,
+      trustedFrom: ROLLUP_TRUSTED_FROM,
+      excludedDays: trendExcludedDays
+    },
     // $0.002/call — 1,000 calls/day over = $60/period.
     estimatedOverageUsd: Math.round(overageCalls * 0.002 * 100) / 100,
     shouldAlert: percentOfLimit >= ALERT_AT_PERCENT,
@@ -295,6 +351,18 @@ function formatAlert(p) {
     lines.push('_Source: one dyno since its last restart — a LOWER BOUND, not the billed total. Set `API_USAGE_ROLLUP_TABLE` for a real period figure._');
   } else {
     lines.push('_Source: API_Usage_Daily rollup, summed across dynos._');
+    // State the basis of the projection. Without this the number looks
+    // authoritative regardless of how few days it rests on.
+    if (p.trend && p.trend.daysUsed) {
+      let basis = `_Rate from the last ${p.trend.daysUsed} complete day` +
+                  `${p.trend.daysUsed === 1 ? '' : 's'}`;
+      if (p.trend.excludedDays) {
+        basis += `; ${p.trend.excludedDays} pre-repair day` +
+                 `${p.trend.excludedDays === 1 ? '' : 's'} before ` +
+                 `${p.trend.trustedFrom} excluded as unreliable`;
+      }
+      lines.push(basis + '._');
+    }
   }
 
   lines.push('Billed truth: Caspio → Plan and billing → Usage. Attribution: `/dashboards/api-usage.html`.');
@@ -305,6 +373,8 @@ function formatAlert(p) {
 module.exports = {
   MONTHLY_LIMIT,
   ALERT_AT_PERCENT,
+  ROLLUP_TRUSTED_FROM,
+  TREND_DAYS,
   periodWindow,
   computePacing,
   formatAlert

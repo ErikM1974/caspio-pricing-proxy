@@ -345,3 +345,154 @@ describe('projection uses spent + recent trend, not a whole-period average', () 
     expect(p.projected).toBeGreaterThan(0);
   });
 });
+
+// THE 4 AM FALSE ALARM, 2026-08-01. The 3-day window was {29,30,31 Jul}; two of
+// those rows came from the pre-repair meter (30 Jul read 19,776 where Caspio
+// billed 16,729). Mean 16,415/day projected 493,729 = 99% of cap and DMed Erik.
+// True figure: ~341,000. An alarm that fires on bad input is worse than none —
+// it is the "learn to ignore it" failure the trend projection existed to avoid.
+describe('the trend rate ignores rows written by the pre-repair meter', () => {
+  const { computePacing, ROLLUP_TRUSTED_FROM } = require('../../src/utils/caspio-usage-pacing');
+  const base = {
+    rollupDaysWithData: 6, dynoDailyRate: 0, dynoCallsSinceStart: 0,
+    dynoUptimeMs: 19176915, topTables: []
+  };
+  const sum = o => Object.values(o).reduce((a, c) => a + c, 0);
+
+  // Exactly what the rollup table held on the morning of the false alarm.
+  const real = {
+    '2026-07-27': 16055, '2026-07-28': 17792, '2026-07-29': 18612,
+    '2026-07-30': 19776, '2026-07-31': 10857, '2026-08-01': 4684
+  };
+  const now = new Date('2026-08-01T11:00:00Z');   // the 4 AM Pacific scheduled run
+
+  test('THE REGRESSION: the 99% false alarm does not fire', () => {
+    const p = computePacing({
+      ...base, now, rollupPeriodToDate: sum(real), rollupByDay: real
+    });
+    expect(p.shouldAlert).toBe(false);
+    expect(p.percentOfLimit).toBeLessThan(90);
+    // Only 31 Jul is trusted, so the rate is that day alone — not the
+    // 16,415/day the contaminated window produced.
+    expect(p.trend.daysUsed).toBe(1);
+    expect(p.trend.excludedDays).toBe(4);
+  });
+
+  test('the excluded rows still count toward money SPENT', () => {
+    const p = computePacing({
+      ...base, now, rollupPeriodToDate: sum(real), rollupByDay: real
+    });
+    // Dropping them from periodToDate would understate spend — the more
+    // dangerous direction. They are only barred from setting a RATE.
+    expect(p.periodToDate).toBe(sum(real));
+  });
+
+  test('a period entirely after the boundary excludes nothing', () => {
+    const clean = {
+      '2026-08-01': 6657, '2026-08-02': 4531, '2026-08-03': 10600,
+      '2026-08-04': 10200, '2026-08-05': 9900
+    };
+    const p = computePacing({
+      ...base, now: new Date('2026-08-06T11:00:00Z'),
+      rollupPeriodToDate: sum(clean), rollupByDay: clean, rollupDaysWithData: 5
+    });
+    expect(p.trend.excludedDays).toBe(0);
+    expect(p.trend.daysUsed).toBe(5);
+  });
+
+  test('the boundary day itself is trusted — it is the first clean day', () => {
+    const p = computePacing({
+      ...base, now, rollupPeriodToDate: sum(real), rollupByDay: real
+    });
+    expect(ROLLUP_TRUSTED_FROM).toBe('2026-07-31');
+    expect(p.trend.trustedFrom).toBe('2026-07-31');
+    // 31 Jul is the only complete trusted day, and it IS the rate.
+    const daysRemaining = p.period.daysInPeriod - p.period.daysElapsed;
+    expect(p.projected).toBe(Math.round(sum(real) + 10857 * daysRemaining));
+  });
+});
+
+// Measured 2026-08-03: a 3-day window read {Fri 10,857 · Sat 7,386 · Sun 5,096}
+// = 7,780/day and under-projected by ~50,000 calls, a tenth of the cap. The same
+// window on a Friday is all-weekday and over-projects. Seven days always spans
+// exactly two weekend days, so the day you happen to look stops mattering.
+describe('the trend window spans a whole week, so weekends cannot bias it', () => {
+  const { computePacing, TREND_DAYS } = require('../../src/utils/caspio-usage-pacing');
+  const base = {
+    dynoDailyRate: 0, dynoCallsSinceStart: 0, dynoUptimeMs: 19176915, topTables: []
+  };
+  const sum = o => Object.values(o).reduce((a, c) => a + c, 0);
+
+  // Two full weeks of a steady business: ~10,500 weekdays, ~5,500 weekends.
+  // 3 Aug 2026 is a Monday.
+  const week = {
+    '2026-07-31': 10626, '2026-08-01': 6657,  '2026-08-02': 4531,   // Fri Sat Sun
+    '2026-08-03': 10600, '2026-08-04': 10450, '2026-08-05': 10700,
+    '2026-08-06': 10500, '2026-08-07': 10626, '2026-08-08': 6600,   // Fri Sat
+    '2026-08-09': 4500,                                             // Sun
+    '2026-08-10': 10600, '2026-08-11': 10450, '2026-08-12': 10700,
+    '2026-08-13': 10500, '2026-08-14': 10626                        // Fri
+  };
+
+  test('window is a full week', () => expect(TREND_DAYS).toBe(7));
+
+  const rateOn = ymd => {
+    const upTo = Object.fromEntries(Object.entries(week).filter(([d]) => d <= ymd));
+    const p = computePacing({
+      ...base, now: new Date(`${ymd}T11:00:00Z`),
+      rollupPeriodToDate: sum(upTo), rollupByDay: upTo,
+      rollupDaysWithData: Object.keys(upTo).length
+    });
+    const daysRemaining = p.period.daysInPeriod - p.period.daysElapsed;
+    return (p.projected - p.periodToDate) / daysRemaining;      // implied rate
+  };
+
+  test('THE BIAS: Monday and Friday now agree within a few percent', () => {
+    const monday = rateOn('2026-08-10');   // window {3-9 Aug}: 5 weekdays, 2 weekend
+    const friday = rateOn('2026-08-14');   // window {7-13 Aug}: 5 weekdays, 2 weekend
+    const spread = Math.abs(monday - friday) / Math.max(monday, friday);
+    expect(spread).toBeLessThan(0.05);
+  });
+
+  test('a 3-day window on the same data would NOT have agreed', () => {
+    // Proves the test above is measuring the fix, not a flat fixture: taken 3 at
+    // a time the same numbers swing hugely by day of week.
+    const last3 = ymd => {
+      const d = Object.entries(week).filter(([k]) => k < ymd).sort().slice(-3);
+      return d.reduce((s, [, v]) => s + v, 0) / 3;
+    };
+    const monday3 = last3('2026-08-10');   // {7,8,9} = Fri Sat Sun
+    const friday3 = last3('2026-08-14');   // {11,12,13} = all weekday
+    expect(Math.abs(monday3 - friday3) / friday3).toBeGreaterThan(0.25);
+  });
+});
+
+// rollupByDay is keyed on the Pacific account day. Comparing it against a UTC
+// "today" made the still-running Pacific day sort as complete for the seven
+// hours between 5 PM Pacific and midnight UTC, so an evening check averaged in
+// a partial day and read the rate low. The 4 AM scheduled run sits outside that
+// window, which is why it stayed hidden.
+describe('"today" is the account day, not the UTC day', () => {
+  const { computePacing } = require('../../src/utils/caspio-usage-pacing');
+  const base = {
+    dynoDailyRate: 0, dynoCallsSinceStart: 0, dynoUptimeMs: 19176915,
+    topTables: [], rollupDaysWithData: 4
+  };
+  const sum = o => Object.values(o).reduce((a, c) => a + c, 0);
+
+  test('an 8 PM Pacific check does not average in the partial current day', () => {
+    // 2026-08-04T03:00Z = 3 Aug 20:00 Pacific. The UTC date is already the 4th.
+    const now = new Date('2026-08-04T03:00:00Z');
+    const days = {
+      '2026-08-01': 10000, '2026-08-02': 10000,
+      '2026-08-03': 400                       // today, still running
+    };
+    const p = computePacing({
+      ...base, now, rollupPeriodToDate: sum(days), rollupByDay: days
+    });
+    // The 400 must not count. Rate is the two complete days = 10,000.
+    expect(p.trend.daysUsed).toBe(2);
+    const daysRemaining = p.period.daysInPeriod - p.period.daysElapsed;
+    expect(p.projected).toBe(Math.round(sum(days) + 10000 * daysRemaining));
+  });
+});

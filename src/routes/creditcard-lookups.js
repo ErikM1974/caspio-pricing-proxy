@@ -113,12 +113,19 @@ router.get('/supacolor-po-index', async (req, res) => {
 // POST /api/creditcard-atmos/upsert  body: { rows: [...formatter rows...], dryRun: bool }
 //
 // The formatter's "Push to Caspio" button calls this. Each row is matched to an existing
-// record by Reference_ID (the bare BoA reference number): found -> PUT (update), else POST
+// record by Reference_ID ('R' + the BoA reference digits): found -> PUT (update), else POST
 // (insert). Safeguards:
 //   - id_Vendor is a Caspio FORMULA field -> never written (Caspio rejects it).
 //   - GL_Account and (on update) Reconciled are NEVER overwritten -> human edits preserved.
 //   - Never deletes. Rows with a blank Reference_ID are skipped (can't dedup).
 // Writes run in small parallel batches to stay well under Heroku's 30s request limit.
+//
+// Reference_ID MUST be Text in Caspio, never a numeric type. A BoA reference is 23 digits —
+// longer than any numeric type holds (a 64-bit integer tops out at 19) — so a numeric field
+// keeps only the leading ~7 significant digits, which are the acquirer/BIN prefix (the payment
+// PROCESSOR, not the charge). On 2026-08-03 that collapsed a 92-charge statement to 21 distinct
+// keys. The 'R' prefix the formatter emits makes the value non-numeric everywhere, so a wrong
+// field type now fails loudly instead of silently merging unrelated charges.
 
 const CC_WRITE_BATCH = 6;          // concurrent Caspio writes per batch
 const CC_DELETE_ME_PREFIX = '';    // (reserved)
@@ -150,6 +157,22 @@ function mdyToIso(s) {
     return m ? `${m[3]}-${m[1].padStart(2, '0')}-${m[2].padStart(2, '0')}` : null;
 }
 
+// Comparison key for a Reference_ID: the bare digit run, so 'R2401…' (current) and
+// '2401…' (legacy, pre-2026-08-03) match each other. Requires 15+ digits so the
+// 'NOREF-<PK_ID>' placeholders written by scripts/clean-atmos-table.js never collide
+// with a real reference. Returns null when the value isn't a BoA reference.
+function refDigits(value) {
+    const m = String(value == null ? '' : value).match(/(\d{15,})/);
+    return m ? m[1] : null;
+}
+
+// Canonical stored form. Keep in sync with _ref_key() in the InkSoft formatter
+// (Python Inksoft/web/atmos_formatter.py).
+function refKey(value) {
+    const d = refDigits(value);
+    return d ? `R${d}` : '';
+}
+
 // Build a Caspio-typed payload from a formatter row. Excludes id_Vendor (formula) and
 // GL_Account (preserved). Reconciled is set only on insert (preserved on update).
 function ccPayload(row, isInsert) {
@@ -164,7 +187,9 @@ function ccPayload(row, isInsert) {
     if (/^\d+$/.test(vc)) p.id_Vendor_Charge = parseInt(vc, 10);
     if (row.PONumber != null) p.PONumber = String(row.PONumber);
     if (row.Month_Reconciled != null) p.Month_Reconciled = String(row.Month_Reconciled);
-    p.Reference_ID = String(row.Reference_ID || '');
+    // Always write the canonical 'R'-prefixed form, so a legacy bare-digit row is
+    // migrated in place the first time it is touched.
+    p.Reference_ID = refKey(row.Reference_ID) || String(row.Reference_ID || '');
     if (isInsert) p.Reconciled = String(row.Reconciled).toLowerCase() === 'yes';
     return p;
 }
@@ -184,17 +209,29 @@ router.post('/creditcard-atmos/upsert', async (req, res) => {
             'q.orderBy': 'PK_ID', // stable pagination — a dropped row here defeats the dup-guard (duplicate CC rows inserted)
             'q.pageSize': 1000
         });
-        const existingRefs = new Set(existingRows.map(r => String(r.Reference_ID)));
+        // Index by bare digits, but remember the value as STORED so the PUT below can
+        // target a legacy bare-digit row (its q.where must match what's in the table).
+        const existingByDigits = new Map();
+        for (const r of existingRows) {
+            const d = refDigits(r.Reference_ID);
+            if (d && !existingByDigits.has(d)) existingByDigits.set(d, String(r.Reference_ID));
+        }
 
-        // Classify
+        // Classify. Entries are {row, storedRef} — storedRef is null for inserts.
         let skipped = 0;
         const inserts = [], updates = [];
-        const seenInBatch = new Set();
+        const seenInBatch = new Map();
         for (const row of rows) {
-            const ref = String(row.Reference_ID || '').trim();
-            if (!ref) { skipped++; continue; }
-            if (existingRefs.has(ref) || seenInBatch.has(ref)) updates.push(row);
-            else { inserts.push(row); seenInBatch.add(ref); }
+            const digits = refDigits(row.Reference_ID);
+            if (!digits) { skipped++; continue; }
+            const stored = existingByDigits.has(digits) ? existingByDigits.get(digits)
+                         : seenInBatch.has(digits) ? seenInBatch.get(digits)
+                         : null;
+            if (stored !== null) updates.push({ row, storedRef: stored });
+            else {
+                inserts.push({ row, storedRef: null });
+                seenInBatch.set(digits, refKey(digits));
+            }
         }
 
         if (dryRun) {
@@ -216,7 +253,7 @@ router.post('/creditcard-atmos/upsert', async (req, res) => {
                     if (r.status === 'rejected') {
                         const e = r.reason;
                         errors.push({
-                            ref: String(batch[j].Reference_ID || ''),
+                            ref: String(batch[j].row.Reference_ID || ''),
                             error: e.response ? JSON.stringify(e.response.data) : e.message
                         });
                     }
@@ -224,8 +261,10 @@ router.post('/creditcard-atmos/upsert', async (req, res) => {
             }
         }
 
-        await runBatched(updates, async (row) => {
-            const ref = String(row.Reference_ID).replace(/'/g, "''");
+        await runBatched(updates, async ({ row, storedRef }) => {
+            // Target the row by the value CURRENTLY stored (may be a legacy bare-digit
+            // key); ccPayload rewrites it to the canonical 'R' form.
+            const ref = String(storedRef).replace(/'/g, "''");
             await ccWriteWithRetry(() => axios.put(
                 `${caspioApiBaseUrl}/tables/${TABLE_CC}/records?q.where=Reference_ID='${ref}'`,
                 ccPayload(row, false),
@@ -234,7 +273,7 @@ router.post('/creditcard-atmos/upsert', async (req, res) => {
             updated++;
         });
 
-        await runBatched(inserts, async (row) => {
+        await runBatched(inserts, async ({ row }) => {
             await ccWriteWithRetry(() => axios.post(
                 `${caspioApiBaseUrl}/tables/${TABLE_CC}/records`,
                 ccPayload(row, true),
@@ -254,3 +293,5 @@ router.post('/creditcard-atmos/upsert', async (req, res) => {
 });
 
 module.exports = router;
+module.exports.refDigits = refDigits;
+module.exports.refKey = refKey;
