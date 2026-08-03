@@ -1,8 +1,10 @@
 // One-time cleanup of CreditCard_NWCA_ATMOS: backfill Reference_ID, dedupe by reference,
 // and give no-reference rows a placeholder key — so Reference_ID can be marked Unique.
 //
-// Identity per charge = the bare BoA reference (15+ digit run in InvoiceNumber). Rows with
-// no reference are grouped by their exact InvoiceNumber and keyed "NOREF-<PK_ID>".
+// Identity per charge = the BoA reference (15+ digit run in InvoiceNumber), stored as
+// "R<digits>". Rows with no reference are grouped by their exact InvoiceNumber and keyed
+// "NOREF-<PK_ID>". Reference_ID must be a Text field — a 23-digit reference does not fit
+// any numeric type, and a numeric field silently merges unrelated charges.
 // For each group: keep the most-complete row (prefer one with a GL_Account, then Reconciled=Yes,
 // then lowest PK_ID), set its Reference_ID, and DELETE the other copies by PK_ID.
 //
@@ -58,7 +60,9 @@ function pickSurvivor(rows) {
     for (const [key, grp] of groups) {
         const isNoRef = key.startsWith('NOREF:');
         const survivor = pickSurvivor(grp);
-        const refValue = isNoRef ? ('NOREF-' + survivor.PK_ID) : key.slice(4);
+        // 'R' prefix keeps the 23-digit reference non-numeric — see refKey() in
+        // src/routes/creditcard-lookups.js for why a bare-digit key silently merges charges.
+        const refValue = isNoRef ? ('NOREF-' + survivor.PK_ID) : ('R' + key.slice(4));
         if (isNoRef) noRefGroups++;
         if (grp.length > 1) dupGroups++;
         if (String(survivor.Reference_ID || '') !== refValue) setRef.push({ pk: survivor.PK_ID, ref: refValue });
