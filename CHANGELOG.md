@@ -1,3 +1,7 @@
+## v2026.08.03.4 (2026.08.03)
+
+- inbound-today: cartons decide the arrival day, not POs
+
 ## v2026.08.03.3 (2026.08.03)
 
 - sync-shipments: give the drain loop a cursor — rounds were re-polling the same batch
