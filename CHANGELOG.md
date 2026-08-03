@@ -1,3 +1,8 @@
+## v2026.08.03.2 (2026.08.03)
+
+- One-off: realign Atmos Month_Reconciled to the table's YY-Mon convention
+- A carton that ships after its order closes was invisible forever
+
 ## v2026.08.03.1 (2026.08.03)
 
 - Pacing: bar pre-repair rollup rows from the rate, widen the trend to 7 days
