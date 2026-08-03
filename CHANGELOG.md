@@ -1,3 +1,7 @@
+## v2026.08.03.3 (2026.08.03)
+
+- sync-shipments: give the drain loop a cursor — rounds were re-polling the same batch
+
 ## v2026.08.03.2 (2026.08.03)
 
 - One-off: realign Atmos Month_Reconciled to the table's YY-Mon convention
