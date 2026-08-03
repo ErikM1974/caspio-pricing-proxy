@@ -1655,21 +1655,51 @@ router.post('/sync-shipments', async (req, res) => {
       .map(o => o.SanMar_PO).filter(Boolean))]; // preserves recency order
     log.openCandidates = (openOrders || []).length;
     log.closedCandidates = closedOrders.length;
-    // Which already have a tracking row? Skip those.
-    // Chunked at 100 POs with q.orderBy + q.limit 1000, matching the loop at
-    // :241/:249. Was a single unbounded OR-chain with `q.limit: 2000` and no
-    // ordering — two silent-truncation bugs: Caspio caps a page at 1000 so the
-    // 2000 was never honoured, and an unordered multi-page read drops rows. A PO
-    // missing from this set reads as "no tracking yet" and gets re-pulled from
-    // SanMar every night.
-    let withTracking = new Set();
+    // Which POs are DONE? Not "has a tracking row" — "has one and has gone quiet".
+    //
+    // A PO used to be skipped the moment it had ANY carton, which loses every carton
+    // that ships after the first (2026-08-03, PO 113852): carton 1 left NV on 7/30 while
+    // the order was still Open, so the daily loop pulled it; carton 2 left VA on 7/31 by
+    // which time SanMar had CLOSED the order. After that all three ingest paths declined
+    // it — the daily loop skips Complete (:1561), this pass skipped "has tracking", and
+    // /sync-recent-completed only ingests orders we don't already hold (:1833). The carton
+    // was invisible to receiving forever. (Its sibling 113837 survived only because both
+    // its cartons shipped the same day, while the order was still open.)
+    //
+    // So: re-poll a PO until its newest carton is RECHECK_DAYS old. SanMar splits across
+    // warehouses over consecutive days, so a short tail catches the stragglers; after that
+    // the PO is settled and drops out for good. pullAndStoreShipments is idempotent —
+    // it checks (SanMar_PO, Tracking_Number) before inserting — so a re-poll costs one
+    // SOAP call and can never duplicate a row.
+    //
+    // Chunked at 100 POs with q.orderBy + q.limit 1000, matching the loop at :241/:249.
+    // Was a single unbounded OR-chain with `q.limit: 2000` and no ordering — two silent
+    // truncation bugs: Caspio caps a page at 1000, and an unordered multi-page read drops
+    // rows. A PO missing from this read reads as "no tracking yet" and is re-pulled.
+    const recheckDays = Math.min(Math.max(parseInt(req.query.recheckDays) || 10, 0), 60);
+    const recheckCutoff = new Date(Date.now() - recheckDays * 86400000).toISOString().slice(0, 10);
+    const newestShip = new Map();   // PO -> newest Ship_Date we hold ('' if the row has none)
     for (let i = 0; i < pos.length; i += 100) {
       const tw = pos.slice(i, i + 100).map(p => `SanMar_PO='${xmlEscape(p)}'`).join(' OR ');
       const tr = await fetchAllCaspioPages(`/tables/${TABLES.shipments}/records`,
-        { 'q.where': tw, 'q.select': 'SanMar_PO', 'q.orderBy': 'PK_ID', 'q.limit': 1000 });
-      for (const r of (tr || [])) withTracking.add(r.SanMar_PO);
+        { 'q.where': tw, 'q.select': 'SanMar_PO,Ship_Date', 'q.orderBy': 'PK_ID', 'q.limit': 1000 });
+      for (const r of (tr || [])) {
+        const d = String(r.Ship_Date || '').slice(0, 10);
+        const prev = newestShip.get(r.SanMar_PO);
+        if (prev === undefined || d > prev) newestShip.set(r.SanMar_PO, d);
+      }
     }
-    const pending = pos.filter(p => !withTracking.has(p));
+    // Settled = we hold a carton AND its newest one is older than the recheck window.
+    // A row with no Ship_Date is never treated as settled — we can't prove it's quiet.
+    const isSettled = (p) => {
+      const d = newestShip.get(p);
+      return d !== undefined && d !== '' && d < recheckCutoff;
+    };
+    // Zero-carton POs first — those are wholly invisible, the worst failure — then the
+    // recently-shipped ones being re-polled for stragglers.
+    const noTracking = pos.filter(p => !newestShip.has(p));
+    const recentlyShipped = pos.filter(p => newestShip.has(p) && !isSettled(p));
+    const pending = [...noTracking, ...recentlyShipped];
     const batch = pending.slice(0, cap);
     let added = 0;
     for (const po of batch) {
@@ -1677,7 +1707,10 @@ router.post('/sync-shipments', async (req, res) => {
       catch (e) { console.error(`[sync-shipments] ${po}:`, e.message); }
     }
     log.openConfirmed = pos.length;
-    log.pendingNoTracking = pending.length;
+    log.recheckDays = recheckDays;
+    log.noTracking = noTracking.length;           // never had a carton — wholly invisible
+    log.recheckWindow = recentlyShipped.length;   // has a carton, still watched for stragglers
+    log.pendingNoTracking = pending.length;       // kept: existing callers/log parsers read this
     log.checked = batch.length;
     log.shipmentsAdded = added;
     log.remaining = Math.max(0, pending.length - batch.length);
