@@ -1,3 +1,8 @@
+## v2026.08.03.1 (2026.08.03)
+
+- Pacing: bar pre-repair rollup rows from the rate, widen the trend to 7 days
+- Atmos upsert: key on the reference digit run, store it non-numeric
+
 ## v2026.07.31.3 (2026.07.31)
 
 - Pacing: project from spent + recent trend, so the alert can go green again
