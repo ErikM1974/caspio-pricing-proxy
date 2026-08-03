@@ -37,6 +37,13 @@ const SAFE_EMPLOYEE_FIELDS = [
   'Vacation_Hours_Available', 'Vacation_Hours_Used', 'Vacation_Hours_Remaining',
   'Sick_Accum_Hours_Available', 'Sick_Hours_Used', 'Sick_Hours_Remaining',
   'Leave_Balances_As_Of',
+  // 🔴 HAND-MAINTAINED BY ERIK, NEVER WRITTEN BY THE IMPORT. The payroll packet inflates
+  // both vacation accrued and used by any prior-year carryover (hours taken in December,
+  // paid on a January check), so the slip needs the real annual grant to subtract it back
+  // out. It lives in its OWN column precisely because the import overwrites all three
+  // Vacation_Hours_* columns every Friday — parking it in one of those would destroy it.
+  // See dashboards/js/vacation-carryover.js in the app repo.
+  'Vacation_Annual_Entitlement',
 ].join(',');
 
 const SAFE_REGISTER_FIELDS = [
@@ -230,11 +237,16 @@ function reconcile(p) {
     label, derived, printed, ok: Math.abs(derived - printed) <= 0.02,
   }));
 
+  // 🔒 rowIssues is rendered in the BROWSER (toSafeReview attaches the whole verdict), so
+  // it must name the employee and nothing else. It used to interpolate that employee's
+  // gross, deductions and net — per-person dollar amounts, on a page whose entire reason
+  // for existing is that compensation never reaches it. The admin has the packet in front
+  // of them; the row number is what they need, not the figures.
   const rowIssues = [];
   for (const x of emps) {
     if (!x.paid) continue;
     if (Math.abs(r2(Number(x.grossWages) - Number(x.totalDeductions)) - Number(x.netPay)) > 0.02) {
-      rowIssues.push(`${x.nameOnPacket}: gross ${x.grossWages} - deductions ${x.totalDeductions} != net ${x.netPay}`);
+      rowIssues.push(`${x.nameOnPacket}: gross minus deductions does not equal net — check this row on the packet`);
     }
   }
   const ids = emps.map(x => x.payrollEmployeeId);
@@ -432,6 +444,10 @@ router.post('/import', async (req, res) => {
         }
         // Refresh CURRENT state on Employees. Pay fields are touched only for paid staff —
         // an unpaid employee's packet row says nothing about their rate.
+        // 🔴 NEVER add Vacation_Annual_Entitlement here. It is the hand-maintained annual
+        // grant the slip subtracts the carryover against; writing the packet's inflated
+        // accrued into it would make the correction a no-op and silently revert anyone
+        // with a carryover to the raw payroll figure.
         const upd = {
           Vacation_Hours_Available: x.vacationAccrued || 0,
           Vacation_Hours_Used: x.vacationUsed || 0,

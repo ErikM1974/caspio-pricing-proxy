@@ -4,6 +4,39 @@ A running log of problems solved and gotchas discovered. Add new entries at the 
 
 ---
 
+## Problem: One missing carton, three bugs stacked — each hiding the next
+**Date:** 2026-08-03
+**Symptoms:** PO 113852's second carton (VA, `1ZGH03410357176079`, 1 pc) was on SanMar's PSST
+manifest and in SanMar's live feed, but on no printout and no day of the inbound board. Three
+separate sync paths were run against it and all reported success having done nothing.
+**Root cause — three independent defects in series:**
+1. **Ingest.** The order shipped carton 1 on 7/30 while SanMar had it OPEN, then carton 2 on
+   7/31 after SanMar CLOSED it. Every path then declined carton 2 for a different reason: the
+   daily loop skips Complete; `/sync-shipments` skipped any PO that already had a carton;
+   `/sync-recent-completed` only ingests orders we don't already hold. Fixed by making a PO
+   'settled' only once its NEWEST carton is older than `recheckDays` (default 10).
+2. **Drain loop (self-inflicted, caught in prod within minutes).** Re-polling no longer shrinks
+   `pending`, so `pending.slice(0, cap)` returned the same head every round — three rounds,
+   identical batch, `remaining` stuck at 53. Fixed with an explicit `?offset=` cursor.
+3. **Display.** `/inbound-today` collapsed all of a PO's cartons into one entry BEFORE choosing
+   a day, taking the earliest estimate and the FIRST tracking's UPS date. A split-warehouse PO
+   could only ever appear on one day; its other cartons were dropped silently. Fixed by
+   bucketing per CARTON, then grouping the survivors by PO.
+**Verified:** 113852 now shows on 8/3 (NV carton) and 8/6 (VA carton), each with only its own box.
+**Prevention.**
+- 🔑 **A fix that makes data appear in a table has not finished — check it renders.** Bug 1 was
+  fixed and the carton was still invisible, because bug 3 lived one layer up. 'It's in the
+  database' is not 'the user can see it'.
+- 🔑 **A near-miss is not a pass.** Sibling PO 113837 survived bug 3 purely because its two
+  estimates fell outside each other's ±3-day band. That accident is what made me wrongly
+  conclude the PO-keyed skip was harmless — verify the mechanism, not the outcome of one case.
+- 🔑 **Grouping before filtering loses rows.** Any 'collapse to parent, then decide' pipeline
+  silently drops children that would have decided differently. Filter first, group after.
+- 🔑 When a loop's progress depended on its own side effect (rows leaving the queue), removing
+  that side effect turns it into an infinite no-op. Give it an explicit cursor.
+- Found, again, only by reconciling SanMar's PSST manifest against our board — not by telemetry.
+
+---
 ## Problem: A filter that was right about one consumer silently starved another
 **Date:** 2026-07-30
 **Symptoms:** Cartons on SanMar's PSST freight manifest were absent from the SanMar Inbound
