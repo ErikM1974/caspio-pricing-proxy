@@ -1026,42 +1026,71 @@ router.get('/inbound-today', async (req, res) => {
     // Candidate band: estimate within ±3 days of the target (UPS rarely differs by more). Fetch UPS for
     // these, then keep only POs whose EFFECTIVE arrival (UPS date when known, else estimate) == date.
     const bandLo = addDaysISO(date, -3), bandHi = addDaysISO(date, 3);
-    const poShip = new Map(); // po -> { boxes, shipDate, lastShipDate, carrier, tracking, arrivingTracking, fromCity, fromState, estArrival, upsDelivery }
+
+    // CARTONS decide the day, not POs (fixed 2026-08-03). This used to collapse every carton
+    // of a PO into ONE entry before choosing a day: the estimate was the earliest box's, and
+    // the UPS lookup used whichever tracking happened to be seen first. A PO whose cartons ship
+    // from different warehouses then had exactly one arrival day, and its other cartons were
+    // dropped with no trace — PO 113852's VA carton (1ZGH03410357176079, est. 8/6) never
+    // appeared on ANY day while its NV sibling sat on 8/3. Sibling 113837 escaped only because
+    // its two estimates fell outside each other's ±3-day band, so each request happened to see
+    // one carton. A split shipment genuinely arrives on two days and must show on both.
+    const cartons = [];
     for (const s of shipRows) {
       const po = s.SanMar_PO; const sd = (s.Ship_Date || '').slice(0, 10);
       if (!po || !sd) continue;
       const estArrival = addBusinessDays(sd, transitDaysFor(s.Ship_Method, s.Ship_From_State));
       if (!estArrival || estArrival < bandLo || estArrival > bandHi) continue; // outside the candidate band
-      const cur = poShip.get(po) || { boxes: 0, shipDate: sd, lastShipDate: sd, carrier: s.Carrier || '', tracking: s.Tracking_Number || '', arrivingTracking: new Set(), fromCity: s.Ship_From_City || '', fromState: s.Ship_From_State || '', estArrival };
-      cur.boxes += 1;
-      if (sd < cur.shipDate) cur.shipDate = sd;
-      if (sd > cur.lastShipDate) cur.lastShipDate = sd; // newest arriving box — drives the follow-on-shipment check
-      if (estArrival < cur.estArrival) cur.estArrival = estArrival; // earliest box's estimate
-      if (!cur.tracking && s.Tracking_Number) cur.tracking = s.Tracking_Number;
-      // Exactly which cartons are landing in this window. SanMar's live box feed returns EVERY box a
-      // PO ever shipped, so without this a split shipment reports its whole history on the first
-      // arrival day (PO 113682: 70 pcs / 3 boxes shown when only 6 pcs / 1 box was inbound).
-      if (s.Tracking_Number) cur.arrivingTracking.add(String(s.Tracking_Number).trim().toUpperCase());
-      poShip.set(po, cur);
+      cartons.push({
+        po, shipDate: sd, estArrival,
+        tracking: String(s.Tracking_Number || '').trim(),
+        carrier: s.Carrier || '',
+        fromCity: s.Ship_From_City || '', fromState: s.Ship_From_State || '',
+        upsDelivery: null,
+      });
     }
 
-    // UPS's REAL delivery date per candidate PO (first 1Z tracking) — pooled + cached; best-effort.
+    // UPS's REAL delivery date per CARTON — each one has its own tracking and its own date;
+    // asking once per PO is what made the second carton inherit the first one's day.
+    // Pooled + cached inside trackOne, best-effort: a failure leaves that carton on its estimate.
     try {
       const { trackOne } = require('./ups-tracking');
-      const cands = [...poShip.entries()].filter(([, v]) => v.tracking && /^1Z/i.test(v.tracking));
-      const fetchUps = async ([po, v]) => {
+      const cands = cartons.filter(c => c.tracking && /^1Z/i.test(c.tracking));
+      const fetchUps = async (c) => {
         try {
-          const r = await trackOne(v.tracking);
-          if (r && r.deliveryDate) v.upsDelivery = { date: r.deliveryDate, type: r.deliveryType || 'scheduled', status: r.status || '' };
-        } catch (e) { /* leave this PO on its estimate */ }
+          const r = await trackOne(c.tracking);
+          if (r && r.deliveryDate) c.upsDelivery = { date: r.deliveryDate, type: r.deliveryType || 'scheduled', status: r.status || '' };
+        } catch (e) { /* leave this carton on its estimate */ }
       };
       for (let i = 0; i < cands.length; i += 5) await Promise.all(cands.slice(i, i + 5).map(fetchUps));
     } catch (e) { /* UPS enrichment best-effort; estimates stand */ }
 
-    // Keep only POs whose EFFECTIVE arrival == the target day (UPS real date when known, else estimate).
-    for (const [po, v] of [...poShip.entries()]) {
-      const effective = (v.upsDelivery && v.upsDelivery.date) ? v.upsDelivery.date : v.estArrival;
-      if (effective !== date) poShip.delete(po);
+    // Keep the cartons whose EFFECTIVE arrival == the target day, THEN group them by PO.
+    const poShip = new Map(); // po -> { boxes, shipDate, lastShipDate, carrier, tracking, arrivingTracking, fromCity, fromState, estArrival, upsDelivery }
+    for (const c of cartons) {
+      const effective = (c.upsDelivery && c.upsDelivery.date) ? c.upsDelivery.date : c.estArrival;
+      if (effective !== date) continue;
+      let cur = poShip.get(c.po);
+      if (!cur) {
+        cur = {
+          boxes: 0, shipDate: c.shipDate, lastShipDate: c.shipDate,
+          carrier: c.carrier, tracking: c.tracking, arrivingTracking: new Set(),
+          fromCity: c.fromCity, fromState: c.fromState,
+          estArrival: c.estArrival, upsDelivery: c.upsDelivery,
+        };
+        poShip.set(c.po, cur);
+      }
+      cur.boxes += 1;
+      if (c.shipDate < cur.shipDate) cur.shipDate = c.shipDate;
+      if (c.shipDate > cur.lastShipDate) cur.lastShipDate = c.shipDate; // newest box arriving TODAY — drives the follow-on check
+      if (c.estArrival < cur.estArrival) cur.estArrival = c.estArrival;
+      if (!cur.tracking && c.tracking) cur.tracking = c.tracking;
+      if (!cur.upsDelivery && c.upsDelivery) cur.upsDelivery = c.upsDelivery;
+      if (!cur.carrier && c.carrier) cur.carrier = c.carrier;
+      // Exactly which cartons land TODAY. SanMar's live box feed returns EVERY box a PO ever
+      // shipped, so without this a split shipment reports its whole history on one arrival day
+      // (PO 113682: 70 pcs / 3 boxes shown when only 6 pcs / 1 box was inbound).
+      if (c.tracking) cur.arrivingTracking.add(c.tracking.toUpperCase());
     }
 
     if (poShip.size === 0) {
