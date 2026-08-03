@@ -1,3 +1,9 @@
+## v2026.08.03.5 (2026-08-03)
+
+- Lessons: one missing carton, three bugs stacked — each hiding the next
+- One-off: split the Feb/Mar/Apr 2026 statements out of their 2025 labels
+- Payroll: expose Vacation_Annual_Entitlement, stop leaking pay in reconcile
+
 ## v2026.08.03.4 (2026.08.03)
 
 - inbound-today: cartons decide the arrival day, not POs
