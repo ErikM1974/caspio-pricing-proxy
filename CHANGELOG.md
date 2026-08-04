@@ -1,3 +1,7 @@
+## v2026.08.04.1 (2026.08.04)
+
+- Flag rush orders: 3 or fewer working days between blanks landing and due date
+
 ## v2026.08.03.5 (2026-08-03)
 
 - Lessons: one missing carton, three bugs stacked — each hiding the next
