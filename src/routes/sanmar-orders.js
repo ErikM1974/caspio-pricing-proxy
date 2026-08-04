@@ -776,6 +776,35 @@ function addBusinessDays(isoDate, n) {
   return cur;
 }
 
+// ── Rush detection (Erik 2026-08-04) ─────────────────────────────────────────────
+// How many working days production actually gets: the days strictly AFTER the blanks
+// land, up to and including the due date. The arrival day itself does not count — the
+// cartons are being counted in and put away that day. Weekends and the company holidays
+// above are skipped, using the SAME calendar as the arrival estimate so the two can never
+// disagree. A due date that falls on a weekend contributes nothing, which is correct: you
+// cannot produce on it.
+//
+// Returns null when either date is missing (unknown, NOT rush — never invent urgency),
+// and can return 0 or a negative number when the due date is on/inside the arrival day,
+// which is worse than a rush and is reported as pastDue.
+function workingDaysBetween(fromIso, toIso) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fromIso || '') || !/^\d{4}-\d{2}-\d{2}$/.test(toIso || '')) return null;
+  if (toIso <= fromIso) {
+    // Due on or before the day the blanks arrive. Count backwards so "how late" is visible.
+    let n = 0, cur = toIso;
+    while (cur < fromIso) { cur = addDaysISO(cur, 1); if (isBusinessDay(cur)) n--; }
+    return n;
+  }
+  let n = 0, cur = fromIso;
+  while (cur < toIso) { cur = addDaysISO(cur, 1); if (isBusinessDay(cur)) n++; }
+  return n;
+}
+
+// Erik's rule, 2026-08-04: three or fewer working days between the blanks landing and the
+// due date is a RUSH. Deliberately inclusive — an order due exactly 3 days after receipt is
+// the one that quietly slips, so it gets flagged rather than assumed fine.
+const RUSH_MAX_PRODUCTION_DAYS = 3;
+
 // Which of a PO's boxes are actually landing in THIS arrival window. SanMar's live shipment feed
 // returns every box the PO ever shipped, so without this a split shipment reports its whole history
 // on the first carton's arrival day (PO 113682 showed 70 pcs / 3 boxes when 6 pcs / 1 box was
@@ -1314,13 +1343,25 @@ router.get('/inbound-today', async (req, res) => {
       const method = ORDER_TYPE_LABEL[idOrderStr ? typeByIdOrder.get(idOrderStr) : 0] || 'Other';
       const mo = idOrderStr ? moByIdOrder.get(idOrderStr) : null;
       const contactName = mo ? `${(mo.ContactFirstName || '').trim()} ${(mo.ContactLastName || '').trim()}`.trim() : '';
+      // Rush: how many working days production gets between these blanks landing and the
+      // due date. Computed off the ARRIVAL day (this request's date), not today — a PO on
+      // Thursday's sheet is judged by Thursday, which is when its blanks actually show up.
+      const dueIso = mo ? String(mo.date_RequestedToShip || '').slice(0, 10) : '';
+      const productionDays = workingDaysBetween(date, dueIso);
       return {
         sanmarPO: po, workOrder: idOrderStr || '', shopworksPO: o.ShopWorks_PO || '',
         company: (mo && (mo.CustomerName || '').trim()) || o.Company_Name || '',
         salesRep: (mo && (mo.CustomerServiceRep || '').trim()) || o.Sales_Rep || '',
         salesOrder: o.SanMar_Sales_Order || '', status: o.SanMar_Status || '',
         // ManageOrders header fields for the box label (synced; empty if not yet matched/synced)
-        dueDate: mo ? String(mo.date_RequestedToShip || '').slice(0, 10) : '',
+        dueDate: dueIso,
+        // productionDays: working days after arrival, up to and including the due date.
+        // null = no due date on file (unknown, never treated as rush).
+        // <= 0 = due on or before the blanks land (pastDue — worse than a rush).
+        productionDays,
+        rush: productionDays !== null && productionDays <= RUSH_MAX_PRODUCTION_DAYS,
+        pastDue: productionDays !== null && productionDays <= 0,
+        rushThreshold: RUSH_MAX_PRODUCTION_DAYS,
         dateOrdered: mo ? String(mo.date_Ordered || '').slice(0, 10) : '',
         designNumber: mo && mo.id_Design != null ? String(mo.id_Design) : '',
         designName: mo ? (mo.DesignName || '').trim() : '',
@@ -1352,12 +1393,12 @@ router.get('/inbound-today', async (req, res) => {
     const totals = orders.reduce((t, o) => {
       if (o.received) { receivedCount++; return t; }   // counted in by receiving — not an "arriving" box
       wos.add(o.workOrder || ('po:' + o.sanmarPO));
-      return { pos: t.pos + 1, boxes: t.boxes + o.boxes, piecesShipped: t.piecesShipped + o.piecesShipped, piecesOrdered: t.piecesOrdered + o.piecesOrdered, lines: t.lines + o.lines.length, cost: t.cost + (o.cost || 0) };
-    }, { pos: 0, boxes: 0, piecesShipped: 0, piecesOrdered: 0, lines: 0, cost: 0 });
+      return { pos: t.pos + 1, boxes: t.boxes + o.boxes, piecesShipped: t.piecesShipped + o.piecesShipped, piecesOrdered: t.piecesOrdered + o.piecesOrdered, lines: t.lines + o.lines.length, cost: t.cost + (o.cost || 0), rush: t.rush + (o.rush ? 1 : 0), pastDue: t.pastDue + (o.pastDue ? 1 : 0) };
+    }, { pos: 0, boxes: 0, piecesShipped: 0, piecesOrdered: 0, lines: 0, cost: 0, rush: 0, pastDue: 0 });
 
     const payload = {
       date, today, generatedAt: new Date().toISOString(),
-      totals: { pos: totals.pos, workOrders: wos.size, boxes: totals.boxes, piecesShipped: totals.piecesShipped, piecesOrdered: totals.piecesOrdered, lines: totals.lines, cost: Math.round(totals.cost * 100) / 100, received: receivedCount },
+      totals: { pos: totals.pos, workOrders: wos.size, boxes: totals.boxes, piecesShipped: totals.piecesShipped, piecesOrdered: totals.piecesOrdered, lines: totals.lines, cost: Math.round(totals.cost * 100) / 100, received: receivedCount, rush: totals.rush, pastDue: totals.pastDue },
       orders,
       note: 'Arriving = UPS\'s real scheduled/rescheduled/delivered date whenever UPS has scanned the boxes (marked ✓ UPS); otherwise a SanMar ship-date + ground-transit ESTIMATE (marked ~ est., business days; weekends & holidays skipped — we receive Mon–Fri only). Per-box contents come live from SanMar\'s shipment feed; colors/sizes from the SanMar product table.',
     };
@@ -3308,3 +3349,8 @@ module.exports.isFollowOnShipment = isFollowOnShipment;
 module.exports.flattenShipmentCartons = flattenShipmentCartons;
 module.exports.cartonKey = cartonKey;
 module.exports.isEmptyWindowError = isEmptyWindowError;
+// Rush rule (Erik 2026-08-04) — exported so the working-day maths is testable directly
+// rather than through a mirror of itself.
+module.exports.workingDaysBetween = workingDaysBetween;
+module.exports.isBusinessDay = isBusinessDay;
+module.exports.RUSH_MAX_PRODUCTION_DAYS = RUSH_MAX_PRODUCTION_DAYS;
