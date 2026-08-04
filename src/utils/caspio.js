@@ -313,6 +313,11 @@ async function fetchAllCaspioPages(resourcePath, initialParams = {}, options = {
 
   } catch (error) {
     console.error(`Error fetching all pages from ${resourcePath}:`, error.message);
+    // A strict-mode truncation must reach the caller — the partial-return
+    // below is exactly the silent incompleteness strict:true opts out of.
+    if (error.code === 'CASPIO_PAGINATION_TRUNCATED') {
+      throw error;
+    }
     if (allResults.length > 0) {
       console.log(`Returning ${allResults.length} partial results collected before error`);
       return allResults;
