@@ -14,6 +14,7 @@
 //   GET  /api/sanmar-orders/batch-status    — Synced inbound status for many work orders (dashboard)
 //   GET  /api/sanmar-orders/daily-inbound   — Daily arriving-blanks rollup by decoration method (dashboard graph)
 //   GET  /api/sanmar-orders/inbound-today   — Detailed POs arriving on a day (line items + color), for the detail view + PDF
+//   GET  /api/sanmar-orders/label-data/:id  — One PO (?type=po) or work order (?type=wo) as print-ready box-label data (repack station)
 //   POST /api/sanmar-orders/link            — Save ShopWorks↔SanMar PO mapping
 //   POST /api/sanmar-orders/sync            — Daily sync (Heroku Scheduler)
 //   POST /api/sanmar-orders/sync-recent-completed — Catch-up (ASYNC 202): ingest fast-completing orders missed by allOpen/lastUpdate (lastUpdate-wide + invoice + stale-order discovery)
@@ -1032,6 +1033,187 @@ async function resolvePartColors(partIds) {
   return map;
 }
 
+// ── Shared per-PO assembly (2026-08-04) ─────────────────────────────────────────
+// Used by BOTH /inbound-today (receiving sheets + labels) and /label-data (the repack
+// station at /pages/box-labels.html). One pipeline: a field added here reaches every
+// label surface at once — the RUSH flag drift between the two label systems is what
+// forced this extraction, don't fork it again.
+
+// Live per-box contents (OSN) for each PO — pool of 5, per-PO try/catch so one slow or
+// failed PO degrades only itself (Rule #4: a PO that can't resolve its boxes keeps the
+// PO-level line summary rather than showing blank-but-complete).
+async function fetchLiveBoxesByPo(pos) {
+  const boxesByPo = new Map();
+  const fetchBoxes = async (po) => {
+    try {
+      const xml = await makeSoapRequest(ENDPOINTS.shipmentNotification, buildShipmentRequest(1, { referenceNumber: po }), {
+        timeout: 20000, namespaces: { ns: NS.shipment, shar: NS.shipmentShared },
+      });
+      if (checkSoapError(xml)) return;
+      const boxes = [];
+      for (const sh of parseShipmentResponse(xml)) {
+        for (const so of (sh.salesOrders || [])) {
+          for (const loc of (so.locations || [])) {
+            for (const pkg of (loc.packages || [])) {
+              if (!pkg.trackingNumber && !(pkg.items && pkg.items.length)) continue;
+              boxes.push({
+                trackingNumber: pkg.trackingNumber || '', carrier: pkg.carrier || '',
+                shipmentDate: (pkg.shipmentDate || '').slice(0, 10),
+                items: (pkg.items || []).map(it => ({ partId: String(it.supplierPartId || ''), style: it.supplierProductId || '', qty: parseInt(it.quantity, 10) || 0 })),
+              });
+            }
+          }
+        }
+      }
+      boxesByPo.set(po, boxes);
+    } catch (e) { /* unset → PO falls back to PO-level lines in the response */ }
+  };
+  for (let i = 0; i < pos.length; i += 5) { // pool of 5 to stay snappy + within SanMar cadence
+    await Promise.all(pos.slice(i, i + 5).map(fetchBoxes));
+  }
+  return boxesByPo;
+}
+
+// Per-work-order ManageOrders fields — method (id_OrderType) + the box-label header fields
+// (due date, design#, contact, rep, customer PO) from the SYNCED ManageOrders_Orders table,
+// plus a capped LIVE ManageOrders fallback for work orders the nightly archive hasn't picked
+// up yet (see the /inbound-today history: fresh WOs printed as "Unmatched" on the receiving
+// label until the live pull was added). Best-effort throughout — never blocks the response.
+async function fetchMoHeaderMaps(idOrders, liveCap, logTag) {
+  const typeByIdOrder = new Map();
+  const moByIdOrder = new Map();
+  for (let i = 0; i < idOrders.length; i += 75) {
+    const chunk = idOrders.slice(i, i + 75);
+    try {
+      const moRows = await fetchAllCaspioPages(`/tables/${MO_TABLE}/records`, {
+        'q.where': chunk.map(id => `id_Order='${xmlEscape(id)}'`).join(' OR '),
+        'q.select': 'id_Order,id_OrderType,CustomerName,date_RequestedToShip,date_Ordered,id_Design,DesignName,ContactFirstName,ContactLastName,CustomerServiceRep,CustomerPurchaseOrder,TermsName',
+        'q.limit': 1000,
+      }) || [];
+      for (const m of moRows) {
+        typeByIdOrder.set(String(m.id_Order), parseInt(m.id_OrderType) || 0);
+        moByIdOrder.set(String(m.id_Order), m);
+      }
+    } catch (e) { /* method falls back to 'Other'; label fields fall back to SanMar_Orders */ }
+  }
+  const missingMo = idOrders.filter(id => !moByIdOrder.has(id));
+  if (missingMo.length) {
+    const pullList = missingMo.slice(0, liveCap);
+    if (missingMo.length > liveCap) {
+      // Never cap silently — a truncated fallback must be visible in the logs, not inferred
+      // from a page that quietly shows fewer companies than it should.
+      console.warn(`[${logTag}] ${missingMo.length} work orders missing from ManageOrders_Orders; live-resolving only the first ${liveCap}. Check that sync-manageorders is running.`);
+    }
+    try {
+      const { fetchOrderByNumber } = require('../utils/manageorders');
+      const pullOne = async (id) => {
+        try {
+          const rows = await fetchOrderByNumber(id);
+          const m = Array.isArray(rows) ? rows[0] : rows;
+          if (!m) return;
+          moByIdOrder.set(String(id), m);
+          typeByIdOrder.set(String(id), parseInt(m.id_OrderType) || 0);
+        } catch (e) { /* this WO stays unmatched — exactly as before */ }
+      };
+      for (let i = 0; i < pullList.length; i += 4) {
+        await Promise.all(pullList.slice(i, i + 4).map(pullOne));
+      }
+      const recovered = pullList.filter(id => moByIdOrder.has(id)).length;
+      if (recovered) console.log(`[${logTag}] live ManageOrders filled in ${recovered}/${pullList.length} work order(s) the nightly sync hasn't archived yet`);
+    } catch (e) {
+      console.warn(`[${logTag}] live ManageOrders fallback unavailable:`, e.message);
+    }
+  }
+  return { typeByIdOrder, moByIdOrder };
+}
+
+// Group PO line items with color/size resolved (unresolved → Part_ID only, never dropped).
+function resolveOrderLines(itemRows, colorMap) {
+  const linesByPo = new Map();
+  for (const it of itemRows) {
+    const c = colorMap.get(String(it.Part_ID)) || null;
+    let arr = linesByPo.get(it.SanMar_PO);
+    if (!arr) { arr = []; linesByPo.set(it.SanMar_PO, arr); }
+    const qShipped = parseInt(it.Qty_Shipped, 10) || 0;
+    const unitCost = c ? c.unitCost : 0;
+    arr.push({
+      style: it.Style || (c && c.style) || '',
+      partId: it.Part_ID || '',
+      color: c ? c.colorName : '',
+      catalogColor: c ? c.catalogColor : '',
+      size: c ? c.size : '',
+      title: c ? c.title : '',
+      brand: c ? c.brand : '',
+      qtyOrdered: parseInt(it.Qty_Ordered, 10) || 0,
+      qtyShipped: qShipped,
+      status: it.Item_Status || '',
+      unitCost,
+      lineCost: Math.round(unitCost * qShipped * 100) / 100,
+      resolved: !!c,
+    });
+  }
+  return linesByPo;
+}
+
+// Map raw OSN boxes → print-ready box detail (color/size resolved, pieces + cost totalled).
+function resolveBoxDetail(bs, colorMap) {
+  return bs.map((b, i) => {
+    const items = b.items.map(it => {
+      const c = colorMap.get(it.partId) || null;
+      const unitCost = c ? c.unitCost : 0;
+      return {
+        style: it.style || (c && c.style) || '', partId: it.partId,
+        color: c ? c.colorName : '', catalogColor: c ? c.catalogColor : '',
+        size: c ? c.size : '', title: c ? c.title : '', brand: c ? c.brand : '',
+        qty: it.qty, unitCost, lineCost: Math.round(unitCost * it.qty * 100) / 100, resolved: !!c,
+      };
+    });
+    return {
+      boxNumber: i + 1,
+      trackingNumber: b.trackingNumber,
+      carrier: b.carrier,
+      trackingUrl: buildCarrierTrackingUrl(b.carrier, b.trackingNumber),
+      shipmentDate: b.shipmentDate,
+      pieces: items.reduce((t, it) => t + it.qty, 0),
+      cost: Math.round(items.reduce((t, it) => t + it.lineCost, 0) * 100) / 100,
+      items,
+    };
+  });
+}
+
+// ManageOrders header fields for the box label — ONE definition for every composer.
+function moLabelFields(mo) {
+  return {
+    dueDate: mo ? String(mo.date_RequestedToShip || '').slice(0, 10) : '',
+    dateOrdered: mo ? String(mo.date_Ordered || '').slice(0, 10) : '',
+    designNumber: mo && mo.id_Design != null ? String(mo.id_Design) : '',
+    designName: mo ? (mo.DesignName || '').trim() : '',
+    contactName: mo ? `${(mo.ContactFirstName || '').trim()} ${(mo.ContactLastName || '').trim()}`.trim() : '',
+    customerPO: mo ? (mo.CustomerPurchaseOrder || '').trim() : '',
+    terms: mo ? (mo.TermsName || '').trim() : '',
+  };
+}
+
+// Rush block for an order record, anchored on the day production's clock starts.
+function rushFieldsFor(anchorIso, dueIso) {
+  const productionDays = workingDaysBetween(anchorIso, dueIso);
+  return {
+    productionDays,
+    rush: productionDays !== null && productionDays <= RUSH_MAX_PRODUCTION_DAYS,
+    pastDue: productionDays !== null && productionDays <= 0,
+    rushThreshold: RUSH_MAX_PRODUCTION_DAYS,
+  };
+}
+
+// The repack station prints labels AFTER the blanks landed, so its rush clock starts at
+// whichever is later: the (last) arrival day or the day the label is printed. Same calendar,
+// same workingDaysBetween — evaluated at print time instead of the sheet's arrival day.
+function labelRushAnchor(arrivalIso, todayIso) {
+  const a = /^\d{4}-\d{2}-\d{2}$/.test(arrivalIso || '') ? arrivalIso : '';
+  if (!a) return todayIso;
+  return a > todayIso ? a : todayIso;
+}
+
 router.get('/inbound-today', async (req, res) => {
   try {
     const today = new Date().toISOString().slice(0, 10);
@@ -1158,37 +1340,9 @@ router.get('/inbound-today', async (req, res) => {
       'q.limit': 1000,
     }) || [];
 
-    // 3b. Live per-box contents (OSN) for each arriving PO — concurrency-capped, per-PO
-    //     try/catch so one slow/failed PO degrades only itself (Rule #4: a PO that can't
-    //     resolve its boxes keeps the PO-level line summary rather than showing blank-but-complete).
-    const boxesByPo = new Map();
-    const fetchBoxes = async (po) => {
-      try {
-        const xml = await makeSoapRequest(ENDPOINTS.shipmentNotification, buildShipmentRequest(1, { referenceNumber: po }), {
-          timeout: 20000, namespaces: { ns: NS.shipment, shar: NS.shipmentShared },
-        });
-        if (checkSoapError(xml)) return;
-        const boxes = [];
-        for (const sh of parseShipmentResponse(xml)) {
-          for (const so of (sh.salesOrders || [])) {
-            for (const loc of (so.locations || [])) {
-              for (const pkg of (loc.packages || [])) {
-                if (!pkg.trackingNumber && !(pkg.items && pkg.items.length)) continue;
-                boxes.push({
-                  trackingNumber: pkg.trackingNumber || '', carrier: pkg.carrier || '',
-                  shipmentDate: (pkg.shipmentDate || '').slice(0, 10),
-                  items: (pkg.items || []).map(it => ({ partId: String(it.supplierPartId || ''), style: it.supplierProductId || '', qty: parseInt(it.quantity, 10) || 0 })),
-                });
-              }
-            }
-          }
-        }
-        boxesByPo.set(po, boxes);
-      } catch (e) { /* unset → PO falls back to PO-level lines in the response */ }
-    };
-    for (let i = 0; i < pos.length; i += 5) { // pool of 5 to stay snappy + within SanMar cadence
-      await Promise.all(pos.slice(i, i + 5).map(fetchBoxes));
-    }
+    // 3b. Live per-box contents (OSN) for each arriving PO — shared assembly, see
+    //     fetchLiveBoxesByPo above (per-PO degradation semantics unchanged).
+    const boxesByPo = await fetchLiveBoxesByPo(pos);
 
     // 4. Resolve color/size for every Part_ID — order-items AND box contents — in one lookup.
     const boxPartIds = [];
@@ -1198,88 +1352,13 @@ router.get('/inbound-today', async (req, res) => {
     // 5. Per-work-order ManageOrders fields — method (id_OrderType) + the box-label header
     //    fields (due date, design#, contact, rep, customer PO). All from the SYNCED
     //    ManageOrders_Orders table (fast, no live MO call), keyed by id_Order.
+    //    (5 + 5b live-fallback live in fetchMoHeaderMaps — see the shared assembly block.
+    //     Cap 25: a sync outage shouldn't turn one page load into hundreds of MO calls.)
     const idOrders = [...new Set([...orderRows.map(o => o.id_Order).filter(Boolean).map(String), ...poWoFallback.values()])];
-    const typeByIdOrder = new Map();
-    const moByIdOrder = new Map();
-    for (let i = 0; i < idOrders.length; i += 75) {
-      const chunk = idOrders.slice(i, i + 75);
-      try {
-        const moRows = await fetchAllCaspioPages(`/tables/${MO_TABLE}/records`, {
-          'q.where': chunk.map(id => `id_Order='${xmlEscape(id)}'`).join(' OR '),
-          'q.select': 'id_Order,id_OrderType,CustomerName,date_RequestedToShip,date_Ordered,id_Design,DesignName,ContactFirstName,ContactLastName,CustomerServiceRep,CustomerPurchaseOrder,TermsName',
-          'q.limit': 1000,
-        }) || [];
-        for (const m of moRows) {
-          typeByIdOrder.set(String(m.id_Order), parseInt(m.id_OrderType) || 0);
-          moByIdOrder.set(String(m.id_Order), m);
-        }
-      } catch (e) { /* method falls back to 'Other'; label fields fall back to SanMar_Orders */ }
-    }
-
-    // 5b. Live ManageOrders fallback for work orders the nightly archive hasn't picked up yet.
-    //     scripts/sync-manageorders.js runs at 12:00 UTC (5:00 AM PT) — AFTER the ~4 AM inbound
-    //     print — so a work order written yesterday afternoon has NO ManageOrders_Orders row when
-    //     the sheet is built. Those POs printed as "Unmatched": no company, no due date, no design,
-    //     no contact, no rep, method "Other" — on the receiving label too, which is where it hurts
-    //     (2026-07-29: PO 113825 and 113834 went to receiving with a blank company). The data
-    //     exists in ShopWorks the moment the WO is written; only our copy of it lags. Pull those
-    //     few straight from ManageOrders. The API returns the SAME field names as the Caspio
-    //     columns, so the rows drop into moByIdOrder unchanged.
-    //     Best-effort: any failure leaves the PO exactly as it renders today, never blocks the day.
-    const MO_LIVE_CAP = 25;   // a sync outage shouldn't turn one page load into hundreds of MO calls
-    const missingMo = idOrders.filter(id => !moByIdOrder.has(id));
-    if (missingMo.length) {
-      const pullList = missingMo.slice(0, MO_LIVE_CAP);
-      if (missingMo.length > MO_LIVE_CAP) {
-        // Never cap silently — a truncated fallback must be visible in the logs, not inferred
-        // from a page that quietly shows fewer companies than it should.
-        console.warn(`[inbound-today] ${missingMo.length} work orders missing from ManageOrders_Orders; live-resolving only the first ${MO_LIVE_CAP}. Check that sync-manageorders is running.`);
-      }
-      try {
-        const { fetchOrderByNumber } = require('../utils/manageorders');
-        const pullOne = async (id) => {
-          try {
-            const rows = await fetchOrderByNumber(id);
-            const m = Array.isArray(rows) ? rows[0] : rows;
-            if (!m) return;
-            moByIdOrder.set(String(id), m);
-            typeByIdOrder.set(String(id), parseInt(m.id_OrderType) || 0);
-          } catch (e) { /* this WO stays unmatched — exactly as before */ }
-        };
-        for (let i = 0; i < pullList.length; i += 4) {
-          await Promise.all(pullList.slice(i, i + 4).map(pullOne));
-        }
-        const recovered = pullList.filter(id => moByIdOrder.has(id)).length;
-        if (recovered) console.log(`[inbound-today] live ManageOrders filled in ${recovered}/${pullList.length} work order(s) the nightly sync hasn't archived yet`);
-      } catch (e) {
-        console.warn('[inbound-today] live ManageOrders fallback unavailable:', e.message);
-      }
-    }
+    const { typeByIdOrder, moByIdOrder } = await fetchMoHeaderMaps(idOrders, 25, 'inbound-today');
 
     // 6. Group line items by PO (color resolved; unresolved → Part_ID only, never dropped).
-    const linesByPo = new Map();
-    for (const it of itemRows) {
-      const c = colorMap.get(String(it.Part_ID)) || null;
-      let arr = linesByPo.get(it.SanMar_PO);
-      if (!arr) { arr = []; linesByPo.set(it.SanMar_PO, arr); }
-      const qShipped = parseInt(it.Qty_Shipped, 10) || 0;
-      const unitCost = c ? c.unitCost : 0;
-      arr.push({
-        style: it.Style || (c && c.style) || '',
-        partId: it.Part_ID || '',
-        color: c ? c.colorName : '',
-        catalogColor: c ? c.catalogColor : '',
-        size: c ? c.size : '',
-        title: c ? c.title : '',
-        brand: c ? c.brand : '',
-        qtyOrdered: parseInt(it.Qty_Ordered, 10) || 0,
-        qtyShipped: qShipped,
-        status: it.Item_Status || '',
-        unitCost,
-        lineCost: Math.round(unitCost * qShipped * 100) / 100,
-        resolved: !!c,
-      });
-    }
+    const linesByPo = resolveOrderLines(itemRows, colorMap);
 
     // 6b. Per-box contents with color/size resolved (one box block per package).
     //     SCOPED TO THIS DAY: SanMar's shipment feed returns every box the PO ever shipped, so we keep
@@ -1291,28 +1370,7 @@ router.get('/inbound-today', async (req, res) => {
     const boxDetailByPo = new Map();
     for (const [po, allBoxes] of boxesByPo) {
       const bs = scopeBoxesToArrival(allBoxes, (poShip.get(po) || {}).arrivingTracking);
-      boxDetailByPo.set(po, bs.map((b, i) => {
-        const items = b.items.map(it => {
-          const c = colorMap.get(it.partId) || null;
-          const unitCost = c ? c.unitCost : 0;
-          return {
-            style: it.style || (c && c.style) || '', partId: it.partId,
-            color: c ? c.colorName : '', catalogColor: c ? c.catalogColor : '',
-            size: c ? c.size : '', title: c ? c.title : '', brand: c ? c.brand : '',
-            qty: it.qty, unitCost, lineCost: Math.round(unitCost * it.qty * 100) / 100, resolved: !!c,
-          };
-        });
-        return {
-          boxNumber: i + 1,
-          trackingNumber: b.trackingNumber,
-          carrier: b.carrier,
-          trackingUrl: buildCarrierTrackingUrl(b.carrier, b.trackingNumber),
-          shipmentDate: b.shipmentDate,
-          pieces: items.reduce((t, it) => t + it.qty, 0),
-          cost: Math.round(items.reduce((t, it) => t + it.lineCost, 0) * 100) / 100,
-          items,
-        };
-      }));
+      boxDetailByPo.set(po, resolveBoxDetail(bs, colorMap));
     }
 
     // 7. Compose per-PO records, sorted by company then PO.
@@ -1342,30 +1400,20 @@ router.get('/inbound-today', async (req, res) => {
       const idOrderStr = woFor(po); // effective WO: SanMar_Orders.id_Order, else PurchaseOrders fallback
       const method = ORDER_TYPE_LABEL[idOrderStr ? typeByIdOrder.get(idOrderStr) : 0] || 'Other';
       const mo = idOrderStr ? moByIdOrder.get(idOrderStr) : null;
-      const contactName = mo ? `${(mo.ContactFirstName || '').trim()} ${(mo.ContactLastName || '').trim()}`.trim() : '';
-      // Rush: how many working days production gets between these blanks landing and the
-      // due date. Computed off the ARRIVAL day (this request's date), not today — a PO on
-      // Thursday's sheet is judged by Thursday, which is when its blanks actually show up.
-      const dueIso = mo ? String(mo.date_RequestedToShip || '').slice(0, 10) : '';
-      const productionDays = workingDaysBetween(date, dueIso);
+      const moFields = moLabelFields(mo);
       return {
         sanmarPO: po, workOrder: idOrderStr || '', shopworksPO: o.ShopWorks_PO || '',
         company: (mo && (mo.CustomerName || '').trim()) || o.Company_Name || '',
         salesRep: (mo && (mo.CustomerServiceRep || '').trim()) || o.Sales_Rep || '',
         salesOrder: o.SanMar_Sales_Order || '', status: o.SanMar_Status || '',
         // ManageOrders header fields for the box label (synced; empty if not yet matched/synced)
-        dueDate: dueIso,
-        // productionDays: working days after arrival, up to and including the due date.
-        // null = no due date on file (unknown, never treated as rush).
+        ...moFields,
+        // Rush: how many working days production gets between these blanks landing and the
+        // due date. Computed off the ARRIVAL day (this request's date), not today — a PO on
+        // Thursday's sheet is judged by Thursday, which is when its blanks actually show up.
+        // productionDays: null = no due date on file (unknown, never treated as rush);
         // <= 0 = due on or before the blanks land (pastDue — worse than a rush).
-        productionDays,
-        rush: productionDays !== null && productionDays <= RUSH_MAX_PRODUCTION_DAYS,
-        pastDue: productionDays !== null && productionDays <= 0,
-        rushThreshold: RUSH_MAX_PRODUCTION_DAYS,
-        dateOrdered: mo ? String(mo.date_Ordered || '').slice(0, 10) : '',
-        designNumber: mo && mo.id_Design != null ? String(mo.id_Design) : '',
-        designName: mo ? (mo.DesignName || '').trim() : '',
-        contactName, customerPO: mo ? (mo.CustomerPurchaseOrder || '').trim() : '', terms: mo ? (mo.TermsName || '').trim() : '',
+        ...rushFieldsFor(date, moFields.dueDate),
         issue: deriveIssueFlags(o.Issue_Details),
         method, arrival: date,
         arrivalSource: (sh.upsDelivery && sh.upsDelivery.date) ? 'ups' : 'estimate', // truthful vs guess
@@ -1407,6 +1455,241 @@ router.get('/inbound-today', async (req, res) => {
   } catch (error) {
     console.error('[sanmar inbound-today] error:', error.message);
     res.status(500).json({ error: 'inbound-today failed', details: error.message });
+  }
+});
+
+// ── GET /label-data/:identifier — one PO (or work order) resolved to print-ready label data ──
+// Powers /pages/box-labels.html (the repack station) with THE SAME order shape /inbound-today
+// rows use, so the shared box-label template renders identically from either source and any
+// field added to the shared assembly (rush, follow-on, …) reaches every label surface at once.
+//   type=po (default): identifier is a SanMar PO — the numeric prefix is enough ("113814"
+//     finds "113814 BW"). type=wo: a ShopWorks work order; resolves ALL of its SanMar POs.
+// Differences from /inbound-today, all deliberate:
+//   • no arrival-day window — every carton of the PO is returned (the repacker has the
+//     physical boxes in front of them; hiding history would hide boxes, Rule #4);
+//   • received POs are NOT dropped — repacking usually happens AFTER count-in;
+//   • rush is anchored on max(last arrival, today): the runway that REMAINS when the label
+//     is printed, computed with the same calendar/functions as the sheet so the two surfaces
+//     can never disagree about what a working day is.
+// No contact email anywhere in the response (same PII posture as /inbound-today).
+// Cached 120s per identifier; ?refresh=1 bypasses (the page re-pulls before printing).
+router.get('/label-data/:identifier', async (req, res) => {
+  try {
+    const identifier = String(req.params.identifier || '').trim();
+    const type = req.query.type === 'wo' ? 'wo' : 'po';
+    if (!identifier) return res.status(400).json({ error: 'identifier required' });
+
+    const today = new Date().toISOString().slice(0, 10);
+    const cacheKey = `sanmar-label-data-${type}-${identifier.toUpperCase()}`;
+    if (!req.query.refresh) { const c = orderCache.get(cacheKey); if (c) return res.json(c); }
+
+    // 1. Resolve identifier → canonical SanMar_PO strings as stored in Caspio.
+    let pos = [];
+    if (type === 'wo') {
+      const rows = await fetchAllCaspioPages(`/tables/${TABLES.orders}/records`, {
+        'q.where': `id_Order='${xmlEscape(identifier)}'`,
+        'q.select': 'SanMar_PO', 'q.limit': 1000,
+      }) || [];
+      pos = [...new Set(rows.map(r => r.SanMar_PO).filter(Boolean))];
+      if (!pos.length) {
+        // Not matched in SanMar_Orders yet — the authoritative ShopWorks PurchaseOrders
+        // mirror (id_Order → ID_PO) still knows, matched back to shipments by numeric prefix.
+        const poRows = await fetchAllCaspioPages(`/tables/${PO_TABLE}/records`, {
+          'q.where': `id_Order='${xmlEscape(identifier)}'`, 'q.select': 'ID_PO', 'q.limit': 1000,
+        }) || [];
+        const nums = [...new Set(poRows.map(r => String(r.ID_PO || '').trim()).filter(n => /^\d+$/.test(n)))];
+        if (nums.length) {
+          const shipPoRows = await fetchAllCaspioPages(`/tables/${TABLES.shipments}/records`, {
+            'q.where': nums.map(n => `SanMar_PO LIKE '${n}%'`).join(' OR '),
+            'q.select': 'SanMar_PO', 'q.limit': 1000,
+          }) || [];
+          pos = [...new Set(shipPoRows.map(r => r.SanMar_PO).filter(p => nums.includes(extractPONumber(p))))];
+          if (!pos.length) pos = nums; // no shipment rows yet — the live SOAP pull may still know the PO
+        }
+      }
+    } else {
+      const num = extractPONumber(identifier);
+      const shipPoRows = await fetchAllCaspioPages(`/tables/${TABLES.shipments}/records`, {
+        'q.where': num ? `SanMar_PO LIKE '${num}%'` : `SanMar_PO='${xmlEscape(identifier)}'`,
+        'q.select': 'SanMar_PO', 'q.limit': 1000,
+      }) || [];
+      // LIKE '113%' also matches 1138xx — keep only exact numeric-prefix matches.
+      pos = [...new Set(shipPoRows.map(r => r.SanMar_PO).filter(p => !num || extractPONumber(p) === num))];
+      if (!pos.length) pos = [identifier]; // unknown to Caspio — still try the live SOAP box pull
+    }
+
+    if (!pos.length) {
+      return res.json({
+        identifier, type, today, generatedAt: new Date().toISOString(), orders: [],
+        note: type === 'wo'
+          ? `Work order ${identifier}: no SanMar PO linked yet. Try the SanMar PO number from the box slip instead.`
+          : `PO ${identifier}: no SanMar shipment on file.`,
+      });
+    }
+
+    // 2. Every carton for these POs — no day window (see header comment).
+    const poWhere = pos.map(p => `SanMar_PO='${xmlEscape(p)}'`).join(' OR ');
+    const shipRows = await fetchAllCaspioPages(`/tables/${TABLES.shipments}/records`, {
+      'q.where': poWhere,
+      'q.select': 'SanMar_PO,Ship_Date,Ship_From_State,Ship_From_City,Carrier,Ship_Method,Tracking_Number',
+      'q.limit': 1000,
+    }) || [];
+
+    const cartons = [];
+    for (const s of shipRows) {
+      const po = s.SanMar_PO; const sd = (s.Ship_Date || '').slice(0, 10);
+      if (!po || !sd) continue;
+      cartons.push({
+        po, shipDate: sd,
+        estArrival: addBusinessDays(sd, transitDaysFor(s.Ship_Method, s.Ship_From_State)),
+        tracking: String(s.Tracking_Number || '').trim(),
+        carrier: s.Carrier || '',
+        fromCity: s.Ship_From_City || '', fromState: s.Ship_From_State || '',
+        upsDelivery: null,
+      });
+    }
+
+    // UPS's real delivery date per carton — best-effort, a failure leaves the estimate.
+    try {
+      const { trackOne } = require('./ups-tracking');
+      const cands = cartons.filter(c => c.tracking && /^1Z/i.test(c.tracking));
+      const fetchUps = async (c) => {
+        try {
+          const r = await trackOne(c.tracking);
+          if (r && r.deliveryDate) c.upsDelivery = { date: r.deliveryDate, type: r.deliveryType || 'scheduled', status: r.status || '' };
+        } catch (e) { /* leave this carton on its estimate */ }
+      };
+      for (let i = 0; i < cands.length; i += 5) await Promise.all(cands.slice(i, i + 5).map(fetchUps));
+    } catch (e) { /* UPS enrichment best-effort; estimates stand */ }
+
+    // Group per PO. arrival = the LAST carton's effective arrival (order fully here then).
+    const poShip = new Map();
+    for (const c of cartons) {
+      const effective = (c.upsDelivery && c.upsDelivery.date) ? c.upsDelivery.date : c.estArrival;
+      let cur = poShip.get(c.po);
+      if (!cur) {
+        cur = {
+          boxes: 0, shipDate: c.shipDate, lastShipDate: c.shipDate,
+          carrier: c.carrier, tracking: c.tracking,
+          fromCity: c.fromCity, fromState: c.fromState,
+          estArrival: c.estArrival, arrival: effective, upsDelivery: c.upsDelivery,
+          arrivalSource: (c.upsDelivery && c.upsDelivery.date) ? 'ups' : 'estimate',
+        };
+        poShip.set(c.po, cur);
+      }
+      cur.boxes += 1;
+      if (c.shipDate < cur.shipDate) cur.shipDate = c.shipDate;
+      if (c.shipDate > cur.lastShipDate) cur.lastShipDate = c.shipDate;
+      if (effective && (!cur.arrival || effective > cur.arrival)) {
+        cur.arrival = effective;
+        cur.arrivalSource = (c.upsDelivery && c.upsDelivery.date) ? 'ups' : 'estimate';
+        cur.upsDelivery = c.upsDelivery || cur.upsDelivery;
+      }
+      if (!cur.tracking && c.tracking) cur.tracking = c.tracking;
+      if (!cur.carrier && c.carrier) cur.carrier = c.carrier;
+    }
+    // A PO resolved but with no shipment rows yet (WO fallback / unknown PO) still gets a
+    // record — the live SOAP pull below may have its boxes even before the Caspio sync does.
+    for (const po of pos) {
+      if (!poShip.has(po)) poShip.set(po, { boxes: 0, shipDate: '', lastShipDate: '', carrier: '', tracking: '', fromCity: '', fromState: '', estArrival: '', arrival: '', arrivalSource: 'estimate', upsDelivery: null });
+    }
+
+    // 3. Orders + WO fallback + received state (same sources as /inbound-today).
+    const orderRows = await fetchAllCaspioPages(`/tables/${TABLES.orders}/records`, {
+      'q.where': poWhere,
+      'q.select': 'SanMar_PO,id_Order,ShopWorks_PO,SanMar_Sales_Order,SanMar_Status,Company_Name,Sales_Rep,Issue_Details',
+      'q.limit': 1000,
+    }) || [];
+    const orderByPo = new Map(orderRows.map(o => [o.SanMar_PO, o]));
+    const needWo = pos.filter(po => !String((orderByPo.get(po) || {}).id_Order || '').trim());
+    const poWoFallback = needWo.length
+      ? await fetchPoToOrderMap(needWo.map(extractPONumber).filter(Boolean))
+      : new Map();
+    const woFor = (po) => String((orderByPo.get(po) || {}).id_Order || poWoFallback.get(extractPONumber(po)) || (type === 'wo' ? identifier : ''));
+    const receivedByPo = await fetchPoReceivedMap(pos.map(extractPONumber).filter(Boolean));
+
+    // 4. Line items + live boxes + color/size resolution (shared assembly).
+    const itemRows = await fetchAllCaspioPages(`/tables/${TABLES.items}/records`, {
+      'q.where': poWhere,
+      'q.select': 'SanMar_PO,Style,Part_ID,Qty_Ordered,Qty_Shipped,Item_Status',
+      'q.limit': 1000,
+    }) || [];
+    const boxesByPo = await fetchLiveBoxesByPo(pos);
+    const boxPartIds = [];
+    for (const bs of boxesByPo.values()) for (const b of bs) for (const it of b.items) boxPartIds.push(it.partId);
+    const colorMap = await resolvePartColors([...itemRows.map(it => it.Part_ID).filter(Boolean), ...boxPartIds]);
+    const linesByPo = resolveOrderLines(itemRows, colorMap);
+
+    // 5. ManageOrders header fields (small live-fallback cap — this is a single-PO lookup).
+    const idOrders = [...new Set(pos.map(woFor).filter(Boolean))];
+    const { typeByIdOrder, moByIdOrder } = await fetchMoHeaderMaps(idOrders, 5, 'label-data');
+
+    // 6. Compose — same record shape as /inbound-today rows.
+    const orders = pos.map(po => {
+      const sh = poShip.get(po); const o = orderByPo.get(po) || {};
+      const lines = linesByPo.get(po) || [];
+      const boxDetail = boxesByPo.has(po) ? resolveBoxDetail(boxesByPo.get(po), colorMap) : null;
+      const usingBox = boxesByPo.has(po);
+      const piecesOrdered = lines.reduce((t, l) => t + l.qtyOrdered, 0);
+      const piecesShipped = usingBox
+        ? (boxDetail || []).reduce((t, b) => t + (b.pieces || 0), 0)
+        : lines.reduce((t, l) => t + l.qtyShipped, 0);
+      const cost = usingBox
+        ? Math.round((boxDetail || []).reduce((t, b) => t + (b.cost || 0), 0) * 100) / 100
+        : Math.round(lines.reduce((t, l) => t + (l.lineCost || 0), 0) * 100) / 100;
+      const recvRow = receivedByPo.get(extractPONumber(po));
+      const receivedDate = (recvRow || {}).receivedDate || '';
+      const followOnShipment = !!recvRow && isFollowOnShipment(receivedDate, sh.lastShipDate);
+      const idOrderStr = woFor(po);
+      const method = ORDER_TYPE_LABEL[idOrderStr ? typeByIdOrder.get(idOrderStr) : 0] || 'Other';
+      const mo = idOrderStr ? moByIdOrder.get(idOrderStr) : null;
+      const moFields = moLabelFields(mo);
+      const rushAnchor = labelRushAnchor(sh.arrival, today);
+      return {
+        sanmarPO: po, workOrder: idOrderStr || '', shopworksPO: o.ShopWorks_PO || '',
+        company: (mo && (mo.CustomerName || '').trim()) || o.Company_Name || '',
+        salesRep: (mo && (mo.CustomerServiceRep || '').trim()) || o.Sales_Rep || '',
+        salesOrder: o.SanMar_Sales_Order || '', status: o.SanMar_Status || '',
+        ...moFields,
+        // Rush anchored at print time (max(arrival, today)) — the runway that REMAINS.
+        ...rushFieldsFor(rushAnchor, moFields.dueDate),
+        rushAnchor,
+        issue: deriveIssueFlags(o.Issue_Details),
+        method,
+        arrival: sh.arrival || '', arrivalSource: sh.arrivalSource, estArrival: sh.estArrival || '',
+        upsDelivery: sh.upsDelivery || null,
+        shipDate: sh.shipDate, fromCity: sh.fromCity, fromState: sh.fromState,
+        carrier: sh.carrier, tracking: sh.tracking, trackingUrl: buildCarrierTrackingUrl(sh.carrier, sh.tracking),
+        boxes: (boxDetail || []).length || sh.boxes,
+        boxDetail,
+        boxDetailAvailable: usingBox,
+        received: !!recvRow && !followOnShipment,
+        receivedDate,
+        followOnShipment,
+        cost, piecesShipped, piecesOrdered, lines,
+      };
+    }).sort((a, b) => (a.company || '').localeCompare(b.company || '') || a.sanmarPO.localeCompare(b.sanmarPO));
+
+    const payload = {
+      identifier, type, today, generatedAt: new Date().toISOString(),
+      orders,
+      totals: {
+        pos: orders.length,
+        boxes: orders.reduce((t, o) => t + (o.boxes || 0), 0),
+        piecesShipped: orders.reduce((t, o) => t + o.piecesShipped, 0),
+        piecesOrdered: orders.reduce((t, o) => t + o.piecesOrdered, 0),
+        rush: orders.reduce((t, o) => t + (o.rush ? 1 : 0), 0),
+        pastDue: orders.reduce((t, o) => t + (o.pastDue ? 1 : 0), 0),
+      },
+      note: orders.length ? '' : (type === 'wo'
+        ? `Work order ${identifier}: no SanMar shipment found. Try the SanMar PO number from the box slip.`
+        : `PO ${identifier}: no SanMar shipment found. Check the number, or use Work Order# instead.`),
+    };
+    orderCache.set(cacheKey, payload, 120);
+    res.json(payload);
+  } catch (error) {
+    console.error('[sanmar label-data] error:', error.message);
+    res.status(500).json({ error: 'label-data failed', details: error.message });
   }
 });
 
@@ -3354,3 +3637,8 @@ module.exports.isEmptyWindowError = isEmptyWindowError;
 module.exports.workingDaysBetween = workingDaysBetween;
 module.exports.isBusinessDay = isBusinessDay;
 module.exports.RUSH_MAX_PRODUCTION_DAYS = RUSH_MAX_PRODUCTION_DAYS;
+// Shared per-PO assembly (2026-08-04) — pinned so /inbound-today and /label-data can never
+// disagree about the label fields or the rush clock (tests/jest/sanmar-label-data.test.js).
+module.exports.moLabelFields = moLabelFields;
+module.exports.rushFieldsFor = rushFieldsFor;
+module.exports.labelRushAnchor = labelRushAnchor;
