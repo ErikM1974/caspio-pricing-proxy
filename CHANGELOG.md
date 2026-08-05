@@ -1,3 +1,7 @@
+## v2026.08.05.10 (2026.08.05)
+
+- Gate DTG calibration writes with the shared secret; keep GET public
+
 ## v2026.08.05.9 (2026.08.05)
 
 - Gate POST /api/manageorders/orders/create — the last anonymous write
