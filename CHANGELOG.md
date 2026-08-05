@@ -1,3 +1,7 @@
+## v2026.08.04.2 (2026.08.04)
+
+- Add /api/sanmar-orders/label-data/:id — one label pipeline for both surfaces
+
 ## v2026.08.04.1 (2026.08.04)
 
 - Flag rush orders: 3 or fewer working days between blanks landing and due date
