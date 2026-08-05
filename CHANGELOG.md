@@ -1,3 +1,7 @@
+## v2026.08.05.7 (2026.08.05)
+
+- Gate the Box READ routes behind the shared secret
+
 ## v2026.08.05.6 (2026.08.05)
 
 - Fix unauthenticated arbitrary file write, and the HEAD auth bypass
