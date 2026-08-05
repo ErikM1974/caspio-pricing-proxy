@@ -729,6 +729,35 @@ const filesRoutes = require('./src/routes/files-simple');
 app.use('/api', filesRoutes);
 console.log('✓ File upload routes loaded');
 
+// ── Box READ routes: secret-gated (2026-08-05) ───────────────────────────────
+// These were ANONYMOUS in production: /box/download/:fileId served any file the
+// Box service account could see, /box/thumbnail/:fileId the same as an image,
+// and /box/art-folders enumerated 9,147 customer folders — all with no
+// credential of any kind.
+//
+// They could not simply be gated, because ~8 staff pages used box/thumbnail as
+// <img> URLs straight from the browser and a browser cannot hold a secret. The
+// app now fronts them with a session-gated same-origin forwarder
+// (`boxForward` in the Pricing Index server.js, live v2026.08.05.17): the
+// browser's SAML cookie authorises the request there — it rides along even on
+// plain <img> requests — and only the app adds this secret on the way here.
+//
+// MUST stay above `app.use('/api', boxUploadRoutes)`; below it the router
+// answers first and the gate never runs.
+//
+// ⚠️ READ routes only, deliberately. The four WRITE routes (POST shared-link,
+// create-mockup-folder, upload-to-folder, DELETE file/:fileId) are still called
+// directly from the browser and would break — they are a separate piece of work.
+app.use([
+  '/api/box/thumbnail',
+  '/api/box/download',
+  '/api/box/art-folders',
+  '/api/box/mockup-folders',
+  '/api/box/folder-files',
+  '/api/box/search',
+  '/api/box/shared-image',
+], requireCrmApiSecret);
+
 // Box Upload Routes (mockup file upload to Box → Caspio)
 const boxUploadRoutes = require('./src/routes/box-upload');
 app.use('/api', boxUploadRoutes);
