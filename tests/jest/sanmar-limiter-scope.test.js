@@ -83,6 +83,32 @@ describe('sanmarLimiter scope', () => {
     });
 });
 
+describe('EVERY /api-mounted limiter is path-scoped', () => {
+    // The bug was never limited to sanmarLimiter: monogramsLimiter and
+    // rostersLimiter (30/min each, the strictest in the proxy) were also
+    // unscoped, so the whole API was effectively capped at 30 req/min per IP.
+    // Any limiter mounted `app.use('/api', X, router)` MUST carry a skip.
+    const BROAD = SERVER.match(/app\.use\('\/api',\s*([A-Za-z]+Limiter)\s*,/g) || [];
+
+    test('found the broadly-mounted limiters to check', () => {
+        expect(BROAD.length).toBeGreaterThanOrEqual(5);
+    });
+
+    test.each([...new Set(BROAD.map(m => m.match(/([A-Za-z]+Limiter)/)[1]))])(
+        '%s declares a skip (path scope)', (name) => {
+            const def = SERVER.match(new RegExp(`const ${name} = rateLimit\\(\\{[\\s\\S]*?\\n\\}\\);`));
+            expect(def).not.toBeNull();
+            expect(def[0]).toMatch(/skip:/);
+        });
+
+    test('meterOnly exempts the CRM secret and scopes by originalUrl', () => {
+        const helper = SERVER.match(/function meterOnly\([\s\S]*?\n\}/)[0];
+        expect(helper).toMatch(/x-crm-api-secret/);
+        expect(helper).toMatch(/originalUrl/);
+        expect(helper).toMatch(/prefixes\.some/);
+    });
+});
+
 describe('source guards', () => {
     test('the skip is path-scoped in server.js, not secret-only', () => {
         expect(SERVER).toMatch(/startsWith\('\/api\/sanmar-shopworks'\)/);
