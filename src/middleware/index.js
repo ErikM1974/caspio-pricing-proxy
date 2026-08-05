@@ -90,10 +90,18 @@ const requireCrmSecretOrBrowserOrigin = (req, res, next) => {
   return res.status(401).json({ error: 'Unauthorized' });
 };
 
-// Wrap a middleware so it only enforces on GET (read) requests — writes/pushes
+// Wrap a middleware so it only enforces on read requests — writes/pushes
 // (POST/PUT/DELETE) are left to their own limiters and server-side callers.
+//
+// 🔴 HEAD must be listed explicitly (fixed 2026-08-05). Express routes HEAD to
+// the GET handler, but `req.method` is still 'HEAD', so a `=== 'GET'` test let
+// HEAD through the gate and into the handler — observed live as
+// `GET /api/manageorders/orders` → 401 while `HEAD` on the same path reached the
+// PII handler. A HEAD response carries the status and headers, so that is a real
+// auth bypass on a read route, not a cosmetic one.
+const READ_METHODS = new Set(['GET', 'HEAD']);
 const guardReadsOnly = (mw) => (req, res, next) =>
-  (req.method === 'GET' ? mw(req, res, next) : next());
+  (READ_METHODS.has(req.method) ? mw(req, res, next) : next());
 
 // Apply all middleware to an Express app
 const applyMiddleware = (app) => {
