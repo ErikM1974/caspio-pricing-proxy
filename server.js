@@ -916,6 +916,22 @@ const manageOrdersLimiter = rateLimit({
 // /lineitems keeps guardReadsOnly — it has no write callers to migrate.
 app.use('/api/manageorders/orders', requireCrmApiSecret);
 app.use('/api/manageorders/lineitems', guardReadsOnly(requireCrmApiSecret));
+// Tracking (2026-08-05). Was fully anonymous: GET /api/manageorders/tracking
+// returned ~911 KB of tracking records — customer shipment identifiers and
+// addresses — to anyone, and the push router's /tracking/{pull,push,verify}
+// were open as well. One prefix covers BOTH routers, since manageorders.js and
+// manageorders-push.js both hang off /api/manageorders/tracking.
+//
+// Every method is gated, not just reads: /tracking/push WRITES tracking numbers
+// into OnSite, so leaving it open would let anyone attach a tracking number to
+// an order.
+//
+// The only real caller is the Python Inksoft order view
+// (web/app.py, GET /tracking/{shopworks_id}) — it sent NO secret and was fixed
+// first (inksoft-transform, 2026-08-05). Its call is wrapped in a
+// try/except that swallows failures, so a 401 here would have made tracking
+// silently vanish from the order view rather than erroring: the worst kind.
+app.use('/api/manageorders/tracking', requireCrmApiSecret);
 const manageOrdersRoutes = require('./src/routes/manageorders');
 app.use('/api', manageOrdersLimiter, manageOrdersRoutes);
 console.log('✓ ManageOrders routes loaded (rate limited: 30 req/min, PII reads gated)');
