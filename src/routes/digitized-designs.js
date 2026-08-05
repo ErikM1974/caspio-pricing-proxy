@@ -13,6 +13,7 @@ const axios = require('axios');
 const router = express.Router();
 const config = require('../../config');
 const { getCaspioAccessToken, fetchAllCaspioPages } = require('../utils/caspio');
+const { requireCrmSecretOrBrowserOrigin } = require('../middleware');
 
 // ============================================
 // Configuration
@@ -406,7 +407,7 @@ router.get('/digitized-designs/lookup', async (req, res) => {
  * Returns designs in the fallback response shape (companyName, designName fields).
  * Now queries the same unified table — no separate ShopWorks_Designs lookup needed.
  */
-router.get('/digitized-designs/fallback', async (req, res) => {
+router.get('/digitized-designs/fallback', requireCrmSecretOrBrowserOrigin, async (req, res) => {
     const { designs } = req.query;
 
     if (!designs || typeof designs !== 'string') {
@@ -498,13 +499,83 @@ router.get('/digitized-designs/fallback', async (req, res) => {
 // SEARCH-ALL ENDPOINT (fuzzy search)
 // ============================================
 
+// ============================================
+// WHERE builder (pure — exported for jest)
+// ============================================
+
 /**
- * GET /api/digitized-designs/search-all?q=<term>&limit=20&customerId=<id>
+ * Build the search-all WHERE clause. Behavior-preserving extraction of the
+ * inline logic, plus the opt-in `deep` mode used by the Design Vault's
+ * server-side escalation: deep extends matching into DST_Filename /
+ * Thread_Colors / Art_Notes / Placement — exactly the fields the client-side
+ * index deliberately excludes. `customerId` must arrive pre-escaped ('' doubled).
+ * Returns { whereClause, isNumeric, useFuzzy }; whereClause is null when a
+ * numeric term fails sanitization.
+ */
+function buildSearchWhere(searchTerm, { customerId = '', deep = false } = {}) {
+    const isNumeric = /^\d+$/.test(searchTerm);
+    const escaped = searchTerm.replace(/'/g, "''");
+    const searchWords = escaped.split(/\s+/).filter(w => w.length >= 2);
+    const useFuzzy = !isNumeric && escaped.length >= 5;
+    let whereClause;
+
+    if (isNumeric) {
+        const sanitized = sanitizeDesignNumber(searchTerm);
+        if (!sanitized) return { whereClause: null, isNumeric, useFuzzy: false };
+        // Deep: DST filenames usually embed the design number ("31442 FB.dst")
+        whereClause = deep
+            ? `(Design_Number='${sanitized}' OR Design_Number LIKE '${sanitized}%' OR DST_Filename LIKE '%${sanitized}%')`
+            : `(Design_Number='${sanitized}' OR Design_Number LIKE '${sanitized}%')`;
+    } else if (useFuzzy) {
+        // Fuzzy: multi-word AND + prefix broadening
+        const isMultiWord = searchWords.length > 1;
+
+        function buildFuzzyWhere(field) {
+            if (isMultiWord) {
+                const exactParts = searchWords.map(w => `${field} LIKE '%${w}%'`);
+                const fuzzyParts = searchWords.map(w => {
+                    const pfx = w.substring(0, Math.min(4, w.length));
+                    return `${field} LIKE '%${pfx}%'`;
+                });
+                return `(${exactParts.join(' AND ')}) OR (${fuzzyParts.join(' AND ')})`;
+            } else {
+                const prefix = escaped.substring(0, 4);
+                return `${field} LIKE '%${escaped}%' OR ${field} LIKE '%${prefix}%'`;
+            }
+        }
+
+        whereClause = `(${buildFuzzyWhere('Company')}) OR (${buildFuzzyWhere('Design_Name')})`;
+    } else {
+        // Short terms: exact substring
+        whereClause = `Company LIKE '%${escaped}%' OR Design_Name LIKE '%${escaped}%'`;
+    }
+
+    if (!isNumeric && deep) {
+        const deepClauses = ['DST_Filename', 'Thread_Colors', 'Art_Notes', 'Placement']
+            .map(f => `${f} LIKE '%${escaped}%'`)
+            .join(' OR ');
+        whereClause = `${whereClause} OR ${deepClauses}`;
+    }
+
+    // Broaden for customer scope
+    if (customerId && !isNumeric) {
+        whereClause = `(${whereClause}) OR (Customer_ID='${customerId}')`;
+    }
+
+    // Add active filter
+    return { whereClause: `(${whereClause}) AND ${ACTIVE_FILTER}`, isNumeric, useFuzzy };
+}
+
+
+/**
+ * GET /api/digitized-designs/search-all?q=<term>&limit=20&customerId=<id>&fields=deep
  * Fuzzy search across Design_Lookup_2026 by company name or design number.
  * Optional customerId: prioritize customer's designs in results.
+ * Optional fields=deep: also match DST filenames, thread colors, art notes,
+ * placement (the Design Vault's "deep search" escalation).
  */
-router.get('/digitized-designs/search-all', async (req, res) => {
-    const { q, limit: limitParam, customerId: customerIdParam } = req.query;
+router.get('/digitized-designs/search-all', requireCrmSecretOrBrowserOrigin, async (req, res) => {
+    const { q, limit: limitParam, customerId: customerIdParam, fields } = req.query;
 
     if (!q || typeof q !== 'string' || q.trim().length < 2) {
         return res.status(400).json({ success: false, error: 'Search query must be at least 2 characters' });
@@ -513,58 +584,22 @@ router.get('/digitized-designs/search-all', async (req, res) => {
     const searchTerm = q.trim();
     const resultLimit = Math.min(Math.max(parseInt(limitParam, 10) || 20, 1), 200);
     const isNumeric = /^\d+$/.test(searchTerm);
-    const escaped = searchTerm.replace(/'/g, "''");
+    const deep = fields === 'deep';
     const customerId = (customerIdParam && typeof customerIdParam === 'string') ? customerIdParam.trim().replace(/'/g, "''") : '';
 
     try {
-        const cacheKey = `search-all:${searchTerm.toLowerCase()}:${resultLimit}:${customerId}`;
+        const cacheKey = `search-all:${searchTerm.toLowerCase()}:${resultLimit}:${customerId}:${deep ? 'deep' : 'std'}`;
         const cached = designsCache.get(cacheKey);
         if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
             return res.json(cached.data);
         }
 
-        console.log(`[Designs] Search-all: "${searchTerm}" (${isNumeric ? 'numeric' : 'text'})`);
+        console.log(`[Designs] Search-all: "${searchTerm}" (${isNumeric ? 'numeric' : 'text'}${deep ? ', deep' : ''})`);
 
-        // Build WHERE clause
-        const searchWords = escaped.split(/\s+/).filter(w => w.length >= 2);
-        const useFuzzy = !isNumeric && escaped.length >= 5;
-        let whereClause;
-
-        if (isNumeric) {
-            const sanitized = sanitizeDesignNumber(searchTerm);
-            if (!sanitized) return res.status(400).json({ success: false, error: 'Invalid design number' });
-            whereClause = `(Design_Number='${sanitized}' OR Design_Number LIKE '${sanitized}%')`;
-        } else if (useFuzzy) {
-            // Fuzzy: multi-word AND + prefix broadening
-            const isMultiWord = searchWords.length > 1;
-
-            function buildFuzzyWhere(field) {
-                if (isMultiWord) {
-                    const exactParts = searchWords.map(w => `${field} LIKE '%${w}%'`);
-                    const fuzzyParts = searchWords.map(w => {
-                        const pfx = w.substring(0, Math.min(4, w.length));
-                        return `${field} LIKE '%${pfx}%'`;
-                    });
-                    return `(${exactParts.join(' AND ')}) OR (${fuzzyParts.join(' AND ')})`;
-                } else {
-                    const prefix = escaped.substring(0, 4);
-                    return `${field} LIKE '%${escaped}%' OR ${field} LIKE '%${prefix}%'`;
-                }
-            }
-
-            whereClause = `(${buildFuzzyWhere('Company')}) OR (${buildFuzzyWhere('Design_Name')})`;
-        } else {
-            // Short terms: exact substring
-            whereClause = `Company LIKE '%${escaped}%' OR Design_Name LIKE '%${escaped}%'`;
+        const { whereClause, useFuzzy } = buildSearchWhere(searchTerm, { customerId, deep });
+        if (!whereClause) {
+            return res.status(400).json({ success: false, error: 'Invalid design number' });
         }
-
-        // Broaden for customer scope
-        if (customerId && !isNumeric) {
-            whereClause = `(${whereClause}) OR (Customer_ID='${customerId}')`;
-        }
-
-        // Add active filter
-        whereClause = `(${whereClause}) AND ${ACTIVE_FILTER}`;
 
         const records = await fetchAllCaspioPages(RESOURCE_PATH, {
             'q.where': whereClause,
@@ -601,7 +636,9 @@ router.get('/digitized-designs/search-all', async (req, res) => {
                 if (scoreDiff !== 0) return scoreDiff;
                 return parseInt(a.designNumber) - parseInt(b.designNumber);
             });
-            const MIN_FUZZY_SCORE = useFuzzy ? 45 : 0;
+            // Deep hits may match ONLY DST/thread/notes/placement — fuzzyScore
+            // can't see those fields, so score-filtering would drop them.
+            const MIN_FUZZY_SCORE = (useFuzzy && !deep) ? 45 : 0;
             results = allResults.filter(r => r.customerMatch || (r.relevanceScore || 0) >= MIN_FUZZY_SCORE).slice(0, resultLimit);
         } else {
             allResults.sort((a, b) => parseInt(a.designNumber) - parseInt(b.designNumber));
@@ -613,6 +650,7 @@ router.get('/digitized-designs/search-all', async (req, res) => {
             query: searchTerm,
             searchType: isNumeric ? 'design_number' : 'company',
             fuzzyEnabled: useFuzzy || false,
+            deepFields: deep,
             customerScoped: !!customerId,
             results,
             count: results.length,
@@ -637,7 +675,7 @@ router.get('/digitized-designs/search-all', async (req, res) => {
  * GET /api/digitized-designs/by-customer?customerId=12025
  * Fetches ALL designs belonging to a specific customer. Used for gallery view.
  */
-router.get('/digitized-designs/by-customer', async (req, res) => {
+router.get('/digitized-designs/by-customer', requireCrmSecretOrBrowserOrigin, async (req, res) => {
     const { customerId: rawId } = req.query;
 
     if (!rawId || typeof rawId !== 'string' || !/^\d+$/.test(rawId.trim())) {
@@ -744,3 +782,8 @@ router.post('/digitized-designs/sync-rep', express.json(), async (req, res) => {
 
 
 module.exports = router;
+// Pure WHERE builder exported for jest (tests/jest/digitized-designs-where.test.js).
+// NOTE the gate boundary: search-all / by-customer / fallback carry
+// requireCrmSecretOrBrowserOrigin; /lookup stays OPEN — it backs the public,
+// field-scrubbed /design/:n share page.
+module.exports.buildSearchWhere = buildSearchWhere;
