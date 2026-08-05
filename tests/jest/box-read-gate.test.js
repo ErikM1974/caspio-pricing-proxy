@@ -132,3 +132,34 @@ describe('ManageOrders tracking is secret-gated', () => {
         expect(gateIdx).toBeLessThan(mountIdx);
     });
 });
+
+/**
+ * POST /api/manageorders/auth/test (2026-08-05).
+ *
+ * Gated for what it DOES, not what it returns: testAuth() discloses only
+ * success/expiry/token LENGTH — never the token or the credentials — but it
+ * calls getToken(true), forcing a fresh signin against ManageOrders on every
+ * request. Anonymously that let anyone trigger upstream credential operations
+ * on demand and churn the shared token cache real order pushes depend on.
+ */
+describe('ManageOrders auth/test is secret-gated', () => {
+    const gateRe = /^app\.use\('\/api\/manageorders\/auth', requireCrmApiSecret\);/m;
+
+    test('the auth gate exists', () => {
+        expect(SERVER).toMatch(gateRe);
+    });
+
+    test('it is registered above the push router mount, or it never runs', () => {
+        const gateIdx = SERVER.search(gateRe);
+        const mountIdx = SERVER.indexOf("app.use('/api/manageorders', manageOrdersPushRoutes);");
+        expect(gateIdx).toBeGreaterThan(-1);
+        expect(mountIdx).toBeGreaterThan(-1);
+        expect(gateIdx).toBeLessThan(mountIdx);
+    });
+
+    test('/push/health stays OPEN — a health check with no data is deliberate', () => {
+        // Guards the reverse mistake: gating the whole push prefix would take
+        // the health endpoint with it.
+        expect(SERVER).not.toMatch(/^app\.use\('\/api\/manageorders\/push', requireCrmApiSecret\);/m);
+    });
+});

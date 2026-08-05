@@ -932,6 +932,15 @@ app.use('/api/manageorders/lineitems', guardReadsOnly(requireCrmApiSecret));
 // try/except that swallows failures, so a 401 here would have made tracking
 // silently vanish from the order view rather than erroring: the worst kind.
 app.use('/api/manageorders/tracking', requireCrmApiSecret);
+// auth/test (2026-08-05). It leaks nothing — testAuth() returns only success,
+// expiry and token LENGTH, never the token or the credentials. It is gated for
+// what it DOES: getToken(true) forces a fresh signin against ManageOrders on
+// every call, so anonymously it let anyone trigger upstream credential
+// operations on demand — burning API quota, risking lockout on repeated
+// signins, and churning the shared token cache that real order pushes rely on.
+// Zero callers in any of the three repos; a human testing credentials by hand
+// just needs to send the secret.
+app.use('/api/manageorders/auth', requireCrmApiSecret);
 const manageOrdersRoutes = require('./src/routes/manageorders');
 app.use('/api', manageOrdersLimiter, manageOrdersRoutes);
 console.log('✓ ManageOrders routes loaded (rate limited: 30 req/min, PII reads gated)');
