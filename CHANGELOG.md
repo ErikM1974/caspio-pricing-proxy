@@ -1,3 +1,7 @@
+## v2026.08.05.4 (2026.08.05)
+
+- Fix: sanmarLimiter was metering the ENTIRE proxy at 60 req/min per IP
+
 ## v2026.08.05.3 (2026.08.05)
 
 - Contract embroidery AI: pass stitch-file context through to the model
