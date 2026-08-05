@@ -1,3 +1,7 @@
+## v2026.08.05.5 (2026.08.05)
+
+- Scope EVERY /api-mounted limiter — the proxy was capped at 30 req/min per IP
+
 ## v2026.08.05.4 (2026.08.05)
 
 - Fix: sanmarLimiter was metering the ENTIRE proxy at 60 req/min per IP
