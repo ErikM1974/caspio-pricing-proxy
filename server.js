@@ -903,9 +903,18 @@ const manageOrdersLimiter = rateLimit({
 // lineitems :1010), dashboard-endpoints.js + shopworks-service.js (v3), and
 // work-order-picker.js + monogram-form-service.js (/api/mo first, proxy fallback).
 // Server-to-server portal calls send the secret. This closes the Origin-spoof
-// residual — a spoofed Origin header no longer grants PII. Writes (/orders/create)
-// and push routes stay untouched: guardReadsOnly only gates GET/HEAD.
-app.use('/api/manageorders/orders', guardReadsOnly(requireCrmApiSecret));
+// residual — a spoofed Origin header no longer grants PII.
+//
+// 2026-08-05: the guardReadsOnly wrapper came OFF /orders, so WRITES are gated
+// too. It was there because POST /orders/create had to stay open — the sample
+// cart posted to it straight from the browser, and a browser cannot hold a
+// secret. That caller now goes through the app's public, rate-limited,
+// payload-validated forwarder (app v2026.08.05.21), which supplies the secret;
+// and the three server-side callers in the app that previously sent NO secret
+// at all were fixed in the same release. An anonymous POST can no longer
+// create a real ShopWorks order.
+// /lineitems keeps guardReadsOnly — it has no write callers to migrate.
+app.use('/api/manageorders/orders', requireCrmApiSecret);
 app.use('/api/manageorders/lineitems', guardReadsOnly(requireCrmApiSecret));
 const manageOrdersRoutes = require('./src/routes/manageorders');
 app.use('/api', manageOrdersLimiter, manageOrdersRoutes);
