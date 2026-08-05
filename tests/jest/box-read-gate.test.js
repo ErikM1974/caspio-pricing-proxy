@@ -36,7 +36,8 @@ const READ_PATHS = [
     '/api/box/shared-image',
 ];
 
-// Still browser-reachable on purpose — see the header comment.
+// Gated too since 2026-08-05 (app v2026.08.05.19). Every page calling these was
+// already SAML-gated, so there was no public caller to migrate first.
 const WRITE_PATHS = [
     '/api/box/shared-link',
     '/api/box/create-mockup-folder',
@@ -59,8 +60,19 @@ describe('Box read routes are secret-gated', () => {
         expect(gateBlock()).toContain(`'${p}'`);
     });
 
-    test.each(WRITE_PATHS)('%s is NOT gated (browser calls it directly)', (p) => {
-        expect(gateBlock()).not.toContain(`'${p}'`);
+    test.each(WRITE_PATHS)('%s is inside the gate too', (p) => {
+        expect(gateBlock()).toContain(`'${p}'`);
+    });
+
+    test('every Box route in the router is covered by the gate', () => {
+        const router = fs.readFileSync(
+            path.join(__dirname, '../../src/routes/box-upload.js'), 'utf8');
+        const declared = [...router.matchAll(/router\.(?:get|post|put|delete)\('\/box\/([a-z-]+)/g)]
+            .map(m => m[1]);
+        const gated = new Set([...READ_PATHS, ...WRITE_PATHS].map(p => p.replace('/api/box/', '')));
+        const uncovered = [...new Set(declared)].filter(r => !gated.has(r));
+        // If this fails, a Box route was added without deciding its auth story.
+        expect(uncovered).toEqual([]);
     });
 
     test('the gate is registered ABOVE the box router mount, or it never runs', () => {
