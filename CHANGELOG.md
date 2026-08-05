@@ -1,3 +1,10 @@
+## v2026.08.05.1 (2026.08.05)
+
+- sync-design-lookup: verify the delete, and NEVER insert on top of it
+- sync-design-lookup: countRecords must never return null (it emptied the table)
+- sync-design-lookup: treat 429 as backpressure, not as a failure to skip past
+- sync-sanmar: run the short backfill daily — it closes the weekend hole
+
 ## v2026.08.04.3 (2026.08.04)
 
 - Design Vault PR-A groundwork: surface strict truncation + shared normalizers
