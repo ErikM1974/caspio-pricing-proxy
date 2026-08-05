@@ -121,6 +121,7 @@ async function makeCaspioRequest(method, resourcePath, params = {}, data = null)
  */
 async function fetchAllCaspioPages(resourcePath, initialParams = {}, options = {}) {
   let allResults = [];
+  let fetchedCount = 0; // counts rows even when discardResults skips accumulation
   let params = { ...initialParams };
   // Store desired page size for pagination logic. Keep q.limit for page 1 (universally compatible).
   // Only switch to q.pageSize + q.pageNumber for pages 2+ (avoids v3 q.limit conflict).
@@ -139,7 +140,12 @@ async function fetchAllCaspioPages(resourcePath, initialParams = {}, options = {
     totalTimeout: config.timeouts.totalPagination,
     // strict: throw instead of returning a silently-truncated page cap. See the
     // truncation guard at the end of this function.
-    strict: false
+    strict: false,
+    // discardResults: stream-only mode — rows reach pageCallback but are never
+    // accumulated, so a 150k-row scan doesn't hold the whole table in dyno
+    // memory. The return value is []; earlyExitCondition's second argument
+    // stays empty too. Callers must consume via pageCallback.
+    discardResults: false
   };
   const mergedOptions = { ...defaultOptions, ...options };
 
@@ -220,11 +226,14 @@ async function fetchAllCaspioPages(resourcePath, initialParams = {}, options = {
 
         if (response.data && response.data.Result) {
           const resultsThisPage = response.data.Result.length;
-          allResults = allResults.concat(response.data.Result);
+          fetchedCount += resultsThisPage;
+          if (!mergedOptions.discardResults) {
+            allResults = allResults.concat(response.data.Result);
+          }
 
           // Enhanced pagination logging
           console.log(`[Pagination] Page ${pageCount}: Fetched ${resultsThisPage} records`);
-          console.log(`[Pagination] Total collected so far: ${allResults.length}`);
+          console.log(`[Pagination] Total collected so far: ${fetchedCount}`);
           console.log(`[Pagination] Has NextPageUrl: ${!!response.data.NextPageUrl}`);
           console.log(`[Pagination] TotalRecords: ${response.data.TotalRecords || 'N/A'}`);
 
@@ -241,7 +250,7 @@ async function fetchAllCaspioPages(resourcePath, initialParams = {}, options = {
 
         if (response.data && response.data.TotalRecords !== undefined) {
           const totalRecords = response.data.TotalRecords;
-          const fetchedSoFar = allResults.length;
+          const fetchedSoFar = fetchedCount;
           console.log(`Page ${pageCount}: Fetched ${fetchedSoFar}/${totalRecords} records for ${resourcePath}`);
           if (fetchedSoFar >= totalRecords) {
             morePages = false;
@@ -301,14 +310,14 @@ async function fetchAllCaspioPages(resourcePath, initialParams = {}, options = {
     if (mergedOptions.strict && morePages && pageCount >= mergedOptions.maxPages) {
       const error = new Error(
         `Caspio pagination truncated: hit maxPages=${mergedOptions.maxPages} ` +
-        `(${allResults.length} rows) on ${resourcePath} with more rows available. ` +
+        `(${fetchedCount} rows) on ${resourcePath} with more rows available. ` +
         `Raise maxPages or narrow the query — a partial result here would be wrong, not just slow.`
       );
       error.code = 'CASPIO_PAGINATION_TRUNCATED';
       throw error;
     }
 
-    console.log(`Total records fetched: ${allResults.length} from ${pageCount} page(s) for ${resourcePath}`);
+    console.log(`Total records fetched: ${fetchedCount} from ${pageCount} page(s) for ${resourcePath}`);
     return allResults;
 
   } catch (error) {

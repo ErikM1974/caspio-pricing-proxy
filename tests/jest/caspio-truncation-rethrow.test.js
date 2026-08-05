@@ -69,3 +69,34 @@ test('mid-stream non-truncation error still returns rows collected so far', asyn
     const rows = await fetchAllCaspioPages('/tables/Fake/records', { 'q.limit': 5 }, { maxPages: 5 });
     expect(rows).toHaveLength(5);
 });
+
+test('discardResults streams rows to pageCallback without accumulating them', async () => {
+    // Caspio-faithful sequence for 10 rows at pageSize 5: two full pages, then
+    // an empty page (the full-page heuristic overrides the TotalRecords stop,
+    // so the empty page is what actually ends pagination).
+    let call = 0;
+    axios.mockImplementation(async () => {
+        call++;
+        return call <= 2
+            ? { data: { Result: FULL_PAGE.data.Result, TotalRecords: 10 } }
+            : { data: { Result: [], TotalRecords: 10 } };
+    });
+
+    const seen = [];
+    const rows = await fetchAllCaspioPages('/tables/Fake/records', { 'q.limit': 5 }, {
+        maxPages: 10,
+        discardResults: true,
+        pageCallback: (pageRows) => seen.push(...pageRows)
+    });
+    expect(rows).toEqual([]);
+    expect(seen).toHaveLength(10);
+    expect(axios).toHaveBeenCalledTimes(3);
+});
+
+test('discardResults still surfaces strict truncation', async () => {
+    axios.mockResolvedValue(FULL_PAGE); // full pages forever, no TotalRecords
+
+    await expect(fetchAllCaspioPages('/tables/Fake/records', { 'q.limit': 5 }, {
+        maxPages: 2, strict: true, discardResults: true, pageCallback: () => { }
+    })).rejects.toMatchObject({ code: 'CASPIO_PAGINATION_TRUNCATED' });
+});
