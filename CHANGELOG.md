@@ -1,3 +1,7 @@
+## v2026.08.05.13 (2026.08.05)
+
+- Box folder resolution keys on the ShopWorks design number
+
 ## v2026.08.05.12 (2026.08.05)
 
 - Gate POST /api/manageorders/auth/test
