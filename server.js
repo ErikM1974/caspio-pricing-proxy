@@ -937,6 +937,20 @@ const upsTrackingRoutes = require('./src/routes/ups-tracking');
 app.use('/api/ups-tracking', sanmarLimiter, guardReadsOnly(requireCrmSecretOrBrowserOrigin), upsTrackingRoutes);
 console.log('✓ UPS Tracking routes loaded (live delivery dates by tracking number)');
 
+// Design Search Routes (Design Vault master index: /index /meta /recent).
+// PII-bearing (companies, customer ids, reps) → same origin-or-secret gate as
+// ups-tracking; the staff-gated gallery page is the real boundary. Legit use is
+// ~1 index fetch/day/user + light meta/recent polling, so 30/min is roomy.
+const designSearchRoutes = require('./src/routes/design-search');
+const designSearchLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  message: { error: 'Too many design-search requests', retryAfter: '60 seconds' }
+});
+app.use('/api/design-search', designSearchLimiter, guardReadsOnly(requireCrmSecretOrBrowserOrigin), designSearchRoutes);
+console.log('✓ Design Search routes loaded (Design Vault index)');
+
 // SanMar Shipment Notification Routes (box-level shipment data for Box Labels)
 const sanmarShipmentRoutes = require('./src/routes/sanmar-shipments');
 app.use('/api/sanmar-shipments', sanmarLimiter, sanmarShipmentRoutes);
@@ -1736,6 +1750,11 @@ const server = app.listen(PORT, async () => {
     } catch (error) {
         console.warn('⚠️  [transfer-files] WARN — Transfer_Order_Files smoke check failed:', error.message, '\n   Falling back to legacy-column synthesis until the table is reachable.\n');
     }
+
+    // Design Vault: warm the design-search index shortly after boot (jittered
+    // 45-90s so it misses the bandit sync windows). Heroku's daily dyno restart
+    // makes this the de-facto daily rebuild — no Scheduler job to hand-manage.
+    require('./src/utils/design-search-index').warmOnBoot();
 
     // Schedule: daily broken-mockups digest email to Steve at 8 AM Pacific.
     // Runs in-dyno. Skipped when not in production or when EmailJS config
