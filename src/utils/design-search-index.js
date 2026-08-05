@@ -52,9 +52,23 @@ const BASE_SELECT = [
 ].join(',');
 
 const TTL_MS = 24 * 60 * 60 * 1000;
-// Base floor: Design_Lookup_2026 measured ~155k rows (2026-08). A build that
-// sees dramatically fewer has hit truncation/filtering we failed to detect.
-const ABSOLUTE_ROW_FLOOR = 100000;
+// Base floor: a build seeing dramatically fewer rows than the table really has
+// is one that hit truncation or a filter we failed to detect, and must not
+// replace a good index.
+//
+// ⚠️ Calibrate this against the TRUE dataset size, not whatever the table
+// happens to contain. It was originally 100,000, set from a live count of
+// 146,526 — but that number was ~4x duplication from a broken sync, not real
+// data. When the table was rebuilt correctly to 38,785 rows on 2026-08-05, the
+// gate refused every build ("below the completeness floor 100000") and took the
+// Vault down until this was lowered. A floor tuned to corrupt data rejects the
+// fix for that corruption.
+//
+// 25,000 still catches a catastrophic truncation (the real risk: a maxPages cap
+// silently returning one page) while leaving room for the dataset to shrink
+// legitimately. The relative check below — 90% of the previous successful
+// build — is what guards against gradual drift.
+const ABSOLUTE_ROW_FLOOR = 25000;
 
 // ---------------------------------------------------------------------------
 // Pure helpers (exported for jest)

@@ -177,6 +177,53 @@ const CASPIO_API_BASE = `https://${CASPIO_DOMAIN}/integrations/rest/v3`;
 const LIVE_MODE = process.argv.includes('--live');
 const VERBOSE = process.argv.includes('--verbose');
 
+// --csv-out <path>: write the merged rows to CSV instead of POSTing them.
+// A full refresh is ~38.8k individual POSTs (Caspio REST v3 has no batch
+// insert) = ~7.8% of the 500k/period Integrations budget for ONE run. Caspio's
+// data-import quota is a SEPARATE ~1,000/period meter, so importing the same
+// rows costs essentially nothing against the budget that matters — and takes
+// minutes instead of hours. Use this for any full rebuild; keep --live for
+// small incremental work.
+const CSV_OUT_IDX = process.argv.indexOf('--csv-out');
+const CSV_OUT = CSV_OUT_IDX !== -1 ? process.argv[CSV_OUT_IDX + 1] : null;
+
+// Column order for the CSV. MUST match the keys pushed into unifiedRecords —
+// these are the Design_Lookup_2026 field names. ID_Unique / PK_ID are omitted
+// on purpose: Caspio owns those.
+const CSV_COLUMNS = [
+    'Design_Number', 'Design_Name', 'Company', 'Customer_ID',
+    'Stitch_Count', 'Stitch_Tier', 'AS_Surcharge', 'DST_Filename',
+    'Color_Changes', 'Extra_Colors', 'Extra_Color_Surcharge',
+    'FB_Price_1_7', 'FB_Price_8_23', 'FB_Price_24_47', 'FB_Price_48_71', 'FB_Price_72plus',
+    'Thumbnail_URL', 'DST_Preview_URL', 'Artwork_URL', 'Mockup_URL',
+    'Placement', 'Thread_Colors', 'Last_Order_Date', 'Order_Count',
+    'Art_Notes', 'Sales_Rep', 'Customer_Type', 'Is_Active', 'Date_Updated'
+];
+
+/** RFC-4180 field: quote when it contains a comma, quote, CR/LF, or edge whitespace. */
+function csvField(value) {
+    if (value === null || value === undefined) return '';
+    let s = String(value);
+    // Strip CR/LF outright — Caspio's importer treats a stray newline inside an
+    // unquoted field as a row break, which silently shifts every later column.
+    s = s.replace(/\r\n|\r|\n/g, ' ');
+    if (/[",]/.test(s) || /^\s|\s$/.test(s)) {
+        s = '"' + s.replace(/"/g, '""') + '"';
+    }
+    return s;
+}
+
+function writeCsv(records, outPath) {
+    const fsMod = require('fs');
+    const lines = [CSV_COLUMNS.join(',')];
+    for (const rec of records) {
+        lines.push(CSV_COLUMNS.map(col => csvField(rec[col])).join(','));
+    }
+    // BOM so Excel opens UTF-8 design names correctly; Caspio ignores it.
+    fsMod.writeFileSync(outPath, '﻿' + lines.join('\r\n') + '\r\n', 'utf8');
+    return { rows: records.length, bytes: fsMod.statSync(outPath).size };
+}
+
 // Source tables
 const TABLES = {
     master: 'Digitized_Designs_Master_2026',
@@ -1109,6 +1156,23 @@ async function main() {
         const repTag = rec.Sales_Rep ? ` [${rec.Sales_Rep}]` : '';
         const typeTag = rec.Customer_Type ? ` (${rec.Customer_Type})` : '';
         console.log(`    Design #${rec.Design_Number} — "${rec.Design_Name}" (${rec.Company}${repTag}${typeTag}) — ${rec.Stitch_Count} stitches, ${rec.Stitch_Tier}`);
+    }
+
+    // CSV export short-circuits BOTH modes — it never touches Caspio.
+    if (CSV_OUT) {
+        const out = writeCsv(unifiedRecords, CSV_OUT);
+        console.log('\n' + '='.repeat(60));
+        console.log('CSV EXPORT COMPLETE — nothing written to Caspio.');
+        console.log(`  File:    ${CSV_OUT}`);
+        console.log(`  Rows:    ${out.rows.toLocaleString()} (+1 header)`);
+        console.log(`  Size:    ${(out.bytes / 1048576).toFixed(1)} MB`);
+        console.log(`  Columns: ${CSV_COLUMNS.length} — ${CSV_COLUMNS.join(', ')}`);
+        console.log('');
+        console.log('  Import into Caspio table: Design_Lookup_2026');
+        console.log('  The table must be EMPTIED first — this is a full replace,');
+        console.log('  not an append. Every row is regenerated from source each run.');
+        console.log('='.repeat(60));
+        return;
     }
 
     if (!LIVE_MODE) {
