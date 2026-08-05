@@ -94,6 +94,48 @@ async function syncOrders(full = false) {
   return result;
 }
 
+// Daily short backfill (Erik 2026-08-05). The incremental order sync looks back 24 HOURS,
+// and Monday's run uses allOpen — which EXCLUDES Complete orders. An order that closes over
+// a weekend therefore falls through BOTH windows and never enters the table: PO 113847 was
+// still missing 2.4 hours after Monday 8/3's sync had run, and had to be pulled by hand.
+// Four consecutive days of reconciling SanMar's PSST manifest ended the same way — a manual
+// `backfill?days=3` closed the gap every time, in about 15 seconds.
+//
+// So the thing that kept working by hand now runs on the schedule. Deliberately WIDE (5 days,
+// not 3): it has to span an ordinary weekend AND a Monday holiday without special-casing a
+// calendar, and re-covering a day costs almost nothing because the backfill upserts. Measured
+// ~27 orders per run, roughly 1% of the daily Caspio budget.
+//
+// Runs FIRST, before the catch-up phases, so they operate on the fuller order set.
+// Async endpoint (returns 202) + poll, so it never trips Heroku's 30s web timeout.
+const BACKFILL_DAYS = parseInt(process.env.SANMAR_BACKFILL_DAYS, 10) || 5;
+async function syncDailyBackfill() {
+  console.log(`\n[${new Date().toISOString()}] Daily short backfill (${BACKFILL_DAYS} days — spans weekends/holiday Mondays)...`);
+  let resp;
+  try {
+    resp = await axios.post(`${BASE_URL}/api/sanmar-orders/backfill?days=${BACKFILL_DAYS}`, {},
+      { headers: AUTH_HEADERS, timeout: 30000 });
+  } catch (e) {
+    // 409 = a backfill is already running (a hand-run, or a previous job still going).
+    // That is not a failure: the work we wanted is happening. Don't start a second one.
+    if (e.response && e.response.status === 409) {
+      console.log('  A backfill is already in progress — leaving it to finish. Status: SKIPPED');
+      return;
+    }
+    throw e;
+  }
+  const result = await pollBackfillStatus('/api/sanmar-orders/backfill-status', 'Daily Backfill');
+  if (result && result.error) {
+    console.log(`  Backfill reported an error: ${result.error}`);
+    return;
+  }
+  if (result) {
+    console.log(`  Backfill: ${result.ordersSaved || 0} order(s) upserted, ${result.shipmentsSaved || 0} shipment(s), ${result.errors || 0} error(s). Status: SUCCESS`);
+  } else {
+    console.log('  Backfill still running after the poll window — it continues on the dyno.');
+  }
+}
+
 // Catch-up shipment pull (Erik 2026-06-16). The incremental order sync above only
 // re-touches orders whose STATUS changed, so an order that shipped without an
 // order-status change never gets its tracking pulled — its Inbound dot stays
@@ -321,6 +363,9 @@ async function main() {
       const full = args.includes('--full');
       const phases = [
         ['orders', () => syncOrders(full)],
+        // Closes the weekend/Monday hole the 24h window and allOpen both miss. Before the
+        // catch-up phases so they see the fuller order set.
+        ['daily backfill', () => syncDailyBackfill()],
         ['shipment catch-up', () => syncPendingShipments()],
         ['recently-completed catch-up', () => syncRecentCompleted()],
         ['invoices', () => syncInvoices()],

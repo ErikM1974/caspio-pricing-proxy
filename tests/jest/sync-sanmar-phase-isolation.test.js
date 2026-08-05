@@ -80,3 +80,36 @@ describe('sync-sanmar: Heroku H12 on the order sync is survivable', () => {
     expect(fn).toMatch(/return false/);            // gives up rather than looping forever
   });
 });
+
+describe('sync-sanmar: the daily short backfill closes the weekend hole', () => {
+  // The incremental sync looks back 24h and Monday uses allOpen (which excludes Complete),
+  // so an order that closes over a weekend falls through both. PO 113847 was still missing
+  // 2.4h after Monday 8/3's sync; a manual backfill?days=3 fixed it, four days running.
+  test('it is registered as a phase, before the catch-ups', () => {
+    const branch = dailyBranch();
+    expect(branch).toContain('syncDailyBackfill');
+    expect(branch.indexOf('syncDailyBackfill'))
+      .toBeLessThan(branch.indexOf('syncPendingShipments'));
+    expect(branch.indexOf('syncDailyBackfill'))
+      .toBeLessThan(branch.indexOf('syncRecentCompleted'));
+  });
+
+  test('the window is wide enough to span a weekend AND a holiday Monday', () => {
+    const m = SRC.match(/const BACKFILL_DAYS = parseInt\(process\.env\.SANMAR_BACKFILL_DAYS, 10\) \|\| (\d+)/);
+    expect(m).not.toBeNull();
+    expect(Number(m[1])).toBeGreaterThanOrEqual(4);   // 3 cannot reach Friday from a holiday Tuesday
+  });
+
+  test('it uses the async endpoint and polls, so it cannot H12', () => {
+    const fn = SRC.slice(SRC.indexOf('async function syncDailyBackfill'), SRC.indexOf('// Catch-up shipment pull'));
+    expect(fn).toMatch(/backfill\?days=/);
+    expect(fn).toMatch(/pollBackfillStatus/);
+  });
+
+  test('an already-running backfill is skipped, not duplicated or failed', () => {
+    const fn = SRC.slice(SRC.indexOf('async function syncDailyBackfill'), SRC.indexOf('// Catch-up shipment pull'));
+    expect(fn).toMatch(/status === 409/);
+    expect(fn).toMatch(/return;/);
+    expect(fn).toMatch(/throw e/);   // any OTHER error still propagates to the phase handler
+  });
+});

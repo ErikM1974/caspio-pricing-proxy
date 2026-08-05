@@ -299,81 +299,197 @@ async function fetchAll(tableName, params = {}) {
 }
 
 /**
- * Insert a single record into a Caspio table.
- * Note: Caspio REST v3 does NOT support batch/array POST — each record must be sent individually.
+ * Insert a single record, retrying through Caspio's rate limiter.
+ *
+ * 🔴 Caspio's PER-SECOND limit is the real ceiling, not the monthly quota, and
+ * when you cross it the whole ACCOUNT starts answering 429 — reads included, so
+ * every other proxy consumer (pricing, products, dashboards) degrades with you.
+ * On 2026-08-05 this script drove ~30-50 writes/sec (concurrency 10, 50ms
+ * between chunks) and got exactly that: 2,520 rows in, then a wall of 429s.
+ * A 429 is BACKPRESSURE, not a failure — wait and retry, never drop the record.
  */
-async function insertRecord(tableName, record) {
+async function insertRecord(tableName, record, throttle) {
     if (!LIVE_MODE) return { dryRun: true };
 
-    const token = await getToken();
     const url = `${CASPIO_API_BASE}/tables/${tableName}/records`;
+    const MAX_ATTEMPTS = 6;
+    let lastErr;
 
-    const resp = await axios.post(url, record, {
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        timeout: 15000
-    });
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+        try {
+            const token = await getToken();
+            return await axios.post(url, record, {
+                headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+                timeout: 20000
+            });
+        } catch (err) {
+            lastErr = err;
+            const status = err.response?.status;
+            const retryable = status === 429 || status === 408 || (status >= 500 && status <= 599);
+            if (!retryable || attempt === MAX_ATTEMPTS) break;
 
-    return resp.data;
+            // Tell the whole run to slow down — one record backing off alone
+            // just means the next chunk walks into the same wall.
+            if (status === 429) throttle.penalise();
+            const waitMs = Math.min(60000, 1500 * Math.pow(2, attempt - 1));
+            await sleep(waitMs + Math.floor(Math.random() * 500));
+        }
+    }
+    throw lastErr;
 }
 
 /**
- * Insert records with concurrency control.
- * Sends CONCURRENCY requests in parallel, waits for all to finish, then next batch.
+ * Adaptive pacing: widen the gap between chunks whenever Caspio pushes back,
+ * and creep back toward the floor only after a clean stretch.
  */
-async function insertWithConcurrency(tableName, records, concurrency = 5, onProgress = null) {
+function makeThrottle(floorMs = 400, ceilMs = 8000) {
+    let delay = floorMs;
+    let cleanChunks = 0;
+    return {
+        get current() { return delay; },
+        penalise() { delay = Math.min(ceilMs, Math.max(floorMs, delay * 2)); cleanChunks = 0; },
+        reward() {
+            if (++cleanChunks >= 12 && delay > floorMs) { delay = Math.max(floorMs, delay / 2); cleanChunks = 0; }
+        },
+        wait() { return sleep(delay); }
+    };
+}
+
+/**
+ * Insert records with adaptive concurrency control.
+ * Every record either lands or fails the run — nothing is silently skipped.
+ */
+async function insertWithConcurrency(tableName, records, concurrency = 4, onProgress = null) {
     if (!LIVE_MODE) return { dryRun: true, count: records.length };
 
-    const stats = { inserted: 0, errors: 0 };
+    const stats = { inserted: 0, errors: 0, retriesSeen: 0 };
+    const failures = [];
+    const throttle = makeThrottle();
     const startTime = Date.now();
 
     for (let i = 0; i < records.length; i += concurrency) {
         const chunk = records.slice(i, i + concurrency);
 
         const results = await Promise.allSettled(
-            chunk.map(rec => insertRecord(tableName, rec))
+            chunk.map(rec => insertRecord(tableName, rec, throttle))
         );
 
+        let chunkClean = true;
         for (let j = 0; j < results.length; j++) {
             if (results[j].status === 'fulfilled') {
                 stats.inserted++;
             } else {
+                chunkClean = false;
                 stats.errors++;
-                const errMsg = results[j].reason?.response?.data?.Message || results[j].reason?.message || 'unknown';
+                const reason = results[j].reason;
+                const errMsg = reason?.response?.data?.Message || reason?.message || 'unknown';
+                failures.push({ designNumber: chunk[j].Design_Number, status: reason?.response?.status, errMsg });
                 if (stats.errors <= 10) {
                     console.error(`  ❌ Design #${chunk[j].Design_Number}: ${errMsg}`);
                 }
             }
         }
+        chunkClean ? throttle.reward() : throttle.penalise();
 
-        // Progress callback
         if (onProgress && (i + concurrency) % 500 < concurrency) {
             const elapsed = ((Date.now() - startTime) / 1000).toFixed(0);
-            onProgress(Math.min(i + concurrency, records.length), records.length, elapsed, stats);
+            onProgress(Math.min(i + concurrency, records.length), records.length, elapsed, stats, throttle.current);
         }
 
-        // Small delay between chunks to avoid overwhelming Caspio
-        await sleep(50);
+        // 🔴 Bail out rather than grind through 34,000 more failures leaving a
+        // half-populated table that LOOKS fine. The old code counted errors and
+        // kept going; that is how a silently incomplete table gets published.
+        if (stats.errors >= 50 && stats.inserted === 0) {
+            throw new Error(`Aborting: ${stats.errors} consecutive insert failures with nothing landing — Caspio is refusing writes.`);
+        }
+
+        await throttle.wait();
     }
 
+    stats.failures = failures;
     return stats;
 }
 
 /**
- * Delete all records from a Caspio table (for full refresh).
+ * How many rows the table holds — or, when Caspio won't say, whether it holds ANY.
+ *
+ * Returns 0 for empty, a positive count when Caspio supplies TotalRecords, and
+ * -1 for "not empty, exact count unknown". Callers must treat anything !== 0 as
+ * "still has rows".
+ *
+ * 🔴 Caspio REST v3 does NOT reliably return TotalRecords on this endpoint — it
+ * came back undefined here, and reading `.toLocaleString()` off the resulting
+ * null threw *after* the DELETE had already run (2026-08-05), which aborted the
+ * sync with the table emptied and nothing re-inserted. The emptiness probe below
+ * is all the delete verification actually needs, and it cannot return null.
+ */
+async function countRecords(tableName) {
+    const token = await getToken();
+    const resp = await axios.get(`${CASPIO_API_BASE}/tables/${tableName}/records`, {
+        headers: { Authorization: `Bearer ${token}` },
+        params: { 'q.select': 'PK_ID', 'q.limit': 1 },
+        timeout: 30000
+    });
+    const total = resp.data?.TotalRecords;
+    if (typeof total === 'number') return total;
+    return (resp.data?.Result || []).length === 0 ? 0 : -1;
+}
+
+/** Render a countRecords() result for humans without ever throwing. */
+function fmtCount(n) {
+    if (n === 0) return '0';
+    if (typeof n === 'number' && n > 0) return n.toLocaleString();
+    return 'some (exact count unavailable)';
+}
+
+/**
+ * Delete every row from a Caspio table, VERIFIED.
+ *
+ * 🔴 This used to issue a WHERE-less DELETE and let main() insert regardless of
+ * the outcome. That is how Design_Lookup_2026 reached 146,526 rows for what is
+ * really a 38,785-row dataset: the 2026-02-24 and 2026-02-25 runs each stacked
+ * a full copy on top of the previous one (sampled 2026-08-05: design #36868 had
+ * 43 rows for 10 distinct DST+stitch combinations). Caspio also answers an
+ * unsupported delete with 400, which the old handler logged as "table already
+ * empty" — the exact opposite of what happened.
+ *
+ * Now: delete with an explicit match-everything WHERE, loop until the table is
+ * actually empty (Caspio caps how much one DELETE removes), and return the
+ * verified remaining count so the caller can refuse to insert on top.
  */
 async function deleteAllRecords(tableName) {
     if (!LIVE_MODE) return { dryRun: true };
 
-    const token = await getToken();
     const url = `${CASPIO_API_BASE}/tables/${tableName}/records`;
+    let totalDeleted = 0;
 
-    // Delete with no WHERE = delete all
-    const resp = await axios.delete(url, {
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        timeout: 60000
-    });
+    for (let pass = 1; pass <= 40; pass++) {
+        const before = await countRecords(tableName);
+        if (before === 0) break;
 
-    return resp.data;
+        const token = await getToken();
+        const resp = await axios.delete(url, {
+            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+            params: { 'q.where': 'PK_ID>0' },   // matches every row; Caspio requires a WHERE
+            timeout: 120000,
+            validateStatus: () => true
+        });
+
+        if (resp.status >= 400) {
+            throw new Error(`DELETE rejected with HTTP ${resp.status}: ${JSON.stringify(resp.data).slice(0, 200)}`);
+        }
+
+        const affected = resp.data?.RecordsAffected ?? 0;
+        totalDeleted += affected;
+        console.log(`    pass ${pass}: deleted ${fmtCount(affected)} (table had ${fmtCount(before)})`);
+
+        // No progress but rows remain → looping again would spin forever.
+        if (affected === 0) break;
+        await sleep(500);
+    }
+
+    const remaining = await countRecords(tableName);
+    return { totalDeleted, remaining };
 }
 
 function sleep(ms) {
@@ -1008,16 +1124,29 @@ async function main() {
     // Step 3: Clear existing unified table
     // -----------------------------------------------
     console.log('\n🗑️  Step 3: Clearing existing unified table...');
+    const before = await countRecords(TABLES.unified);
+    console.log(`  Table currently holds ${fmtCount(before)} rows`);
     try {
-        await deleteAllRecords(TABLES.unified);
-        console.log(`  Cleared all records from ${TABLES.unified}`);
-    } catch (err) {
-        // 404 means table is empty — that's fine
-        if (err.response?.status === 404 || err.response?.status === 400) {
-            console.log(`  Table already empty or no records to delete`);
-        } else {
-            console.error(`  ⚠️  Delete failed (${err.message}) — will try inserting anyway`);
+        const del = await deleteAllRecords(TABLES.unified);
+        console.log(`  Deleted ${fmtCount(del.totalDeleted)}; ${fmtCount(del.remaining)} remaining`);
+
+        // 🔴 ABORT rather than insert on top. Inserting into a table that still
+        // holds rows is what produced 4-5 duplicate copies of every design
+        // (see deleteAllRecords). A no-op run is recoverable; a stacked one is
+        // not, and it silently corrupts every consumer of this table.
+        if (del.remaining !== 0) {
+            console.error(`\n❌ ABORTED — ${fmtCount(del.remaining)} rows survived the delete.`);
+            console.error('   Refusing to insert on top: that is exactly how this table');
+            console.error('   accumulated ~4x duplicate rows in February.');
+            console.error('   The table is UNCHANGED apart from whatever the delete removed.');
+            process.exitCode = 1;
+            return;
         }
+    } catch (err) {
+        console.error(`\n❌ ABORTED — delete failed: ${err.message}`);
+        console.error('   Nothing was inserted; the table is unchanged.');
+        process.exitCode = 1;
+        return;
     }
 
     // -----------------------------------------------
@@ -1025,12 +1154,27 @@ async function main() {
     // Note: Caspio REST v3 does NOT support batch/array POST.
     // We use concurrency (5 parallel requests) to maximize throughput.
     // -----------------------------------------------
-    console.log('\n📤 Step 4: Inserting records (concurrency=10)...');
+    // Concurrency 4 + adaptive pacing, NOT 10 + a 50ms sleep. The fast settings
+    // tripped Caspio's per-second limiter on 2026-08-05 and 429'd the whole
+    // account (reads included) after 2,520 rows. Slower and finishing beats
+    // faster and leaving the table half-written.
+    console.log('\n📤 Step 4: Inserting records (concurrency=4, adaptive pacing)...');
     const startWrite = Date.now();
 
-    const stats = await insertWithConcurrency(TABLES.unified, unifiedRecords, 10, (done, total, elapsed, s) => {
-        console.log(`  Progress: ${done}/${total} (${elapsed}s) — inserted=${s.inserted}, errors=${s.errors}`);
+    const stats = await insertWithConcurrency(TABLES.unified, unifiedRecords, 4, (done, total, elapsed, s, delayMs) => {
+        console.log(`  Progress: ${done}/${total} (${elapsed}s) — inserted=${s.inserted}, errors=${s.errors}, pacing=${delayMs}ms`);
     });
+
+    // A partially-written table is the dangerous outcome: it reads as valid and
+    // silently under-serves every consumer. Say so loudly and exit non-zero.
+    if (stats.errors > 0) {
+        console.error(`\n❌ ${stats.errors} record(s) never landed — the table is INCOMPLETE.`);
+        const byStatus = {};
+        for (const f of stats.failures || []) byStatus[f.status || 'unknown'] = (byStatus[f.status || 'unknown'] || 0) + 1;
+        console.error(`   Failure statuses: ${JSON.stringify(byStatus)}`);
+        console.error(`   Re-run the sync once Caspio is healthy — it is a full refresh, so a clean re-run fixes it.`);
+        process.exitCode = 1;
+    }
 
     const writeTime = ((Date.now() - startWrite) / 1000).toFixed(1);
 
