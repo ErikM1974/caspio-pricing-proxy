@@ -1,3 +1,7 @@
+## v2026.08.05.8 (2026.08.05)
+
+- Gate the Box WRITE routes too — the Box surface is now fully closed
+
 ## v2026.08.05.7 (2026.08.05)
 
 - Gate the Box READ routes behind the shared secret
