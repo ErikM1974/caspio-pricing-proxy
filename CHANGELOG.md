@@ -1,3 +1,7 @@
+## v2026.08.05.6 (2026.08.05)
+
+- Fix unauthenticated arbitrary file write, and the HEAD auth bypass
+
 ## v2026.08.05.5 (2026.08.05)
 
 - Scope EVERY /api-mounted limiter — the proxy was capped at 30 req/min per IP
