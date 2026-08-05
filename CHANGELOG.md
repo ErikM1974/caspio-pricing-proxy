@@ -1,3 +1,7 @@
+## v2026.08.05.11 (2026.08.05)
+
+- Gate the ManageOrders tracking routes
+
 ## v2026.08.05.10 (2026.08.05)
 
 - Gate DTG calibration writes with the shared secret; keep GET public
