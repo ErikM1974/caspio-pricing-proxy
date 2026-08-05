@@ -1,3 +1,7 @@
+## v2026.08.05.9 (2026.08.05)
+
+- Gate POST /api/manageorders/orders/create — the last anonymous write
+
 ## v2026.08.05.8 (2026.08.05)
 
 - Gate the Box WRITE routes too — the Box surface is now fully closed
