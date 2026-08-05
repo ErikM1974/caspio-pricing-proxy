@@ -222,6 +222,74 @@ function buildCalcContextBlock(ctx) {
         // per AI panel session via /api/quote-sequence/CEMB.
         quoteID: typeof ctx.quoteID === 'string' && ctx.quoteID ? ctx.quoteID : null,
     };
+
+    // ── Stitch-file context (2026-08-05) ───────────────────────────────────
+    // This whitelist is exhaustive by design, so anything the frontend adds is
+    // dropped until it is named here. The calculator has been sending dstFile
+    // since 2026-08-04 and it never reached the model — the fields below close
+    // that gap. Everything is re-validated and length-capped: file names and
+    // DST header labels are attacker-controlled bytes that end up in a prompt.
+    const str = (v, max) => (typeof v === 'string' && v ? v.slice(0, max) : null);
+    // 🔴 Number(null) === 0 and 0 is finite, so a naive Number.isFinite guard
+    // turns "this location has no file" into the FACT "0 stitches, 0.0 in,
+    // 0 colours" — and the prompt tells the model to quote those verbatim.
+    // Reject the empty values BEFORE coercing.
+    const num = v => (v === null || v === undefined || v === ''
+        ? null
+        : (Number.isFinite(Number(v)) ? Number(v) : null));
+    // Drop null members entirely so a missing measurement is ABSENT from the
+    // prompt rather than present-and-empty (the model treats those differently).
+    const compact = o => {
+        const out = {};
+        for (const k of Object.keys(o)) if (o[k] !== null && o[k] !== undefined) out[k] = o[k];
+        return out;
+    };
+
+    if (ctx.dstFile && typeof ctx.dstFile === 'object') {
+        safe.dstFile = compact({
+            name: str(ctx.dstFile.name, 120),
+            exactStitches: num(ctx.dstFile.exactStitches),
+            widthMM: num(ctx.dstFile.widthMM),
+            heightMM: num(ctx.dstFile.heightMM),
+            colors: num(ctx.dstFile.colors),
+        });
+    }
+
+    // One entry per decorated location on the same garments (left chest +
+    // full back). Capped so a malformed client can't balloon the prompt.
+    if (Array.isArray(ctx.locations) && ctx.locations.length) {
+        safe.locations = ctx.locations.slice(0, 6).map(loc => compact({
+            product: validProducts.includes(String(loc && loc.product)) ? String(loc.product) : 'garment',
+            productLabel: str(loc && loc.productLabel, 40),
+            stitches: num(loc && loc.stitches),
+            unit: num(loc && loc.unit),
+            file: str(loc && loc.file, 120),
+            exactStitches: num(loc && loc.exactStitches),
+            widthMM: num(loc && loc.widthMM),
+            heightMM: num(loc && loc.heightMM),
+            colors: num(loc && loc.colors),
+        }));
+    }
+
+    // Advisory production read. ADVISORY IS LOAD-BEARING: these never change a
+    // price, and the system prompt forbids quoting them as a surcharge.
+    if (ctx.production && typeof ctx.production === 'object') {
+        const risks = Array.isArray(ctx.production.risks) ? ctx.production.risks.slice(0, 6) : [];
+        safe.production = {
+            machineHours: num(ctx.production.machineHours),
+            risks: risks.map(r => ({
+                code: str(r && r.code, 40),
+                level: (r && r.level) === 'warn' ? 'warn' : 'info',
+                title: str(r && r.title, 80),
+                detail: str(r && r.detail, 400),
+            })),
+        };
+    }
+
+    if (typeof ctx.tierLabel === 'string' && ctx.tierLabel) {
+        safe.tierLabel = ctx.tierLabel.slice(0, 20);
+    }
+
     return JSON.stringify(safe, null, 2);
 }
 
