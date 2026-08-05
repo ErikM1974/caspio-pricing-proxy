@@ -1,3 +1,8 @@
+## v2026.08.05.2 (2026.08.05)
+
+- sync-design-lookup: add --csv-out for full rebuilds (39k API calls -> 1 import)
+- design-search: lower the completeness floor — it was tuned to corrupt data
+
 ## v2026.08.05.1 (2026.08.05)
 
 - sync-design-lookup: verify the delete, and NEVER insert on top of it
