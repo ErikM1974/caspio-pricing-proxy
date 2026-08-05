@@ -4,6 +4,43 @@ A running log of problems solved and gotchas discovered. Add new entries at the 
 
 ---
 
+## Problem: A safety guard emptied the production table it was written to protect
+**Date:** 2026-08-05
+**Symptoms:** `node scripts/sync-design-lookup.js --live` printed `❌ ABORTED — delete failed:
+Cannot read properties of null (reading 'toLocaleString')` and inserted nothing. Design_Lookup_2026
+was left with **0 rows** — `/design/:n` customer share pages, the EMB quote-builder design picker,
+and `search-all`/`by-customer` all served empty until a follow-up run restored 38,785 rows.
+**Background — the bug the guard existed for.** The table held **146,526 rows for a 38,785-row
+dataset**: design #36868 had 43 rows for 10 distinct DST+stitch combinations, every row stamped
+2026-02-24 or 2026-02-25. Step 3 issued a **WHERE-less DELETE**, which Caspio silently does not
+honour, then logged HTTP 400 as "table already empty" and, on any other error, printed *"will try
+inserting anyway"* — and did. Two runs, two stacked copies, ~4-5x duplication. (It also explains
+the Vault index reading 146,526 base rows to yield only 37,811 groups: grouping was absorbing it.)
+**Root cause of the outage:** the new verified-delete guard called `countRecords()`, which read
+`resp.data.TotalRecords` — a field **Caspio REST v3 does not return** on `GET /tables/{t}/records`.
+It came back `undefined` → helper returned `null` → `null.toLocaleString()` threw in the log line
+that runs *immediately after* the DELETE. So the guard aborted correctly but **downstream of the
+destructive step**, on an input that had never been checked against a real response.
+**Solution:** `countRecords()` now returns 0 / a real count / `-1` ("not empty, count unknown")
+derived from whether a `q.limit=1` probe returns rows — it cannot return null. All count logging
+goes through `fmtCount()`, so nothing between delete and insert can throw. Callers already treat
+`!== 0` as "still has rows". Commits `d2b1822` (guard) + `f770735` (null-safety).
+**Prevention.**
+- 🔑 **A guard that reads a field you have never observed on a real response is not a guard.** One
+  read call would have shown `TotalRecords` was undefined. Verify the probe *before* trusting it to
+  gate anything destructive.
+- 🔑 **Put the verification UPSTREAM of the destructive step.** Check-then-delete fails safe;
+  delete-then-check fails empty. The abort path must be reachable before data is gone.
+- 🔑 **Caspio DELETE needs an explicit WHERE.** `q.where=PK_ID>0` deletes and reports
+  `RecordsAffected`; a WHERE-less DELETE removes nothing while looking like success. Never treat a
+  4xx on a delete as "already empty" — that is the opposite of what it means.
+- 🔑 **Never insert on top of an unverified delete.** A no-op run is recoverable; a stacked one
+  silently corrupts every consumer and hides inside grouped reads for months.
+- ⚠️ Full-refresh scripts on this table are one POST per record (**no batch insert in REST v3**):
+  38,785 records ≈ 39k Caspio calls and ~30 min with an empty-table window. Run them off-hours.
+
+---
+
 ## Problem: One missing carton, three bugs stacked — each hiding the next
 **Date:** 2026-08-03
 **Symptoms:** PO 113852's second carton (VA, `1ZGH03410357176079`, 1 pc) was on SanMar's PSST
