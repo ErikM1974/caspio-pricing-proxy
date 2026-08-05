@@ -444,10 +444,14 @@ async function findEmptyAdditionalArtSlot(pkId) {
  *   - pkId: Caspio PK_ID of the art request
  *   - customerId: ShopWorks customer ID (for folder lookup/creation)
  *   - companyName: company name (for folder naming)
+ *   - designNumSw: OPTIONAL ShopWorks design number (ArtRequests.Design_Num_SW).
+ *       This is the number Steve's Box folder names start with. Supply it and
+ *       the mockup is filed in the RIGHT folder; omit it and the legacy
+ *       company-name guess applies, which can file into another design's folder.
  */
 router.post('/art-requests/:designId/upload-mockup', upload.single('file'), async (req, res) => {
     const { designId } = req.params;
-    const { pkId, customerId, companyName, targetSlotField } = req.body;
+    const { pkId, customerId, companyName, targetSlotField, designNumSw } = req.body;
 
     // Validate required fields
     if (!req.file) {
@@ -485,12 +489,35 @@ router.post('/art-requests/:designId/upload-mockup', upload.single('file'), asyn
             }
         }
 
-        // 2. Find or create art folder in Box (search by design #, then company name)
-        let folder = await findArtFolder(designId, companyName);
-        if (!folder) {
-            // Auto-create folder: "{designId} {companyName}" (Steve's naming convention)
-            const folderLabel = companyName || `Design ${designId}`;
-            folder = await createCustomerFolder(designId, folderLabel);
+        // 2. Find or create the art folder in Box.
+        //
+        //    Steve's folders are named "{Design_Num_SW} {Company}". `designId`
+        //    here is Caspio's ID_Design surrogate key, which matches no folder
+        //    name, so the old call always fell through to the company-name
+        //    search — and that accepts the FIRST folder merely CONTAINING the
+        //    company, i.e. a different design's folder. Real case 2026-08-05:
+        //    design 53069 (SW 40733) had its mockup filed into "40640 Ironside
+        //    Marine", an older job. When it missed entirely it created
+        //    "53069 Ironside Marine", polluting the art box with folders that
+        //    break Steve's convention.
+        //
+        //    So: when the caller supplies the ShopWorks number, resolve on it
+        //    and create with it. Callers that do not (yet) send it keep the
+        //    legacy path exactly as before.
+        const swNum = String(designNumSw || '').trim();
+        let folder;
+        if (swNum) {
+            folder = await findArtFolder(swNum, null);   // prefix match only — no company guessing
+            if (!folder) {
+                folder = await createCustomerFolder(swNum, companyName || `Design ${swNum}`);
+            }
+        } else {
+            folder = await findArtFolder(designId, companyName);
+            if (!folder) {
+                // Auto-create folder: "{designId} {companyName}" (Steve's naming convention)
+                const folderLabel = companyName || `Design ${designId}`;
+                folder = await createCustomerFolder(designId, folderLabel);
+            }
         }
         console.log(`Box upload: Using folder "${folder.name}" (ID: ${folder.id})`);
 
@@ -622,7 +649,7 @@ router.post('/art-requests/:designId/upload-mockup', upload.single('file'), asyn
  */
 router.post('/art-requests/:designId/upload-additional-art', upload.single('file'), async (req, res) => {
     const { designId } = req.params;
-    const { pkId, customerId, companyName, targetSlotField } = req.body;
+    const { pkId, customerId, companyName, targetSlotField, designNumSw } = req.body;
 
     if (!req.file) {
         return res.status(400).json({ success: false, error: 'No file provided', code: 'NO_FILE' });
@@ -655,10 +682,20 @@ router.post('/art-requests/:designId/upload-additional-art', upload.single('file
             }
         }
 
-        let folder = await findArtFolder(designId, companyName);
-        if (!folder) {
-            const folderLabel = companyName || `Design ${designId}`;
-            folder = await createCustomerFolder(designId, folderLabel);
+        // Same folder-resolution rule as upload-mockup: prefer the ShopWorks
+        // number (what Steve's folder names start with) and only fall back to
+        // the legacy company-name guess when the caller cannot supply it.
+        const swNum = String(designNumSw || '').trim();
+        let folder;
+        if (swNum) {
+            folder = await findArtFolder(swNum, null);
+            if (!folder) folder = await createCustomerFolder(swNum, companyName || `Design ${swNum}`);
+        } else {
+            folder = await findArtFolder(designId, companyName);
+            if (!folder) {
+                const folderLabel = companyName || `Design ${designId}`;
+                folder = await createCustomerFolder(designId, folderLabel);
+            }
         }
 
         const ext = file.originalname.split('.').pop() || 'jpg';
@@ -867,8 +904,19 @@ router.get('/box/folder-files', async (req, res) => {
                 return res.json({ success: true, found: false, folderId: null, folderName: null, files: [] });
             }
         } else {
-            // Search by design number (original behavior)
+            // Search by design number. NOTE: `designNumber` here means the
+            // SHOPWORKS number (Design_Num_SW) — the value Steve's folder names
+            // start with, e.g. "40733 Ironside Marine". It is NOT Caspio's
+            // ID_Design surrogate key; those never match a folder.
             const designNum = String(designNumber).trim();
+
+            // Without the guard an undefined ancestor is simply dropped by
+            // axios, silently widening the search to the whole enterprise and
+            // returning a confident wrong folder. Match /box/search's behaviour
+            // and fail loudly instead.
+            if (!BOX_ART_FOLDER_ID) {
+                return res.status(500).json({ success: false, error: 'BOX_ART_FOLDER_ID not configured' });
+            }
 
             const searchResp = await axios.get(`${BOX_API_BASE}/search`, {
                 params: {
