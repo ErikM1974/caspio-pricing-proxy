@@ -1,3 +1,7 @@
+## v2026.08.05.12 (2026.08.05)
+
+- Gate POST /api/manageorders/auth/test
+
 ## v2026.08.05.11 (2026.08.05)
 
 - Gate the ManageOrders tracking routes
