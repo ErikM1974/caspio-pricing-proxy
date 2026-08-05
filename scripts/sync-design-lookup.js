@@ -359,21 +359,66 @@ async function insertWithConcurrency(tableName, records, concurrency = 5, onProg
 }
 
 /**
- * Delete all records from a Caspio table (for full refresh).
+ * Count rows currently in a Caspio table (cheap — asks for 1 row, reads TotalRecords).
+ */
+async function countRecords(tableName) {
+    const token = await getToken();
+    const resp = await axios.get(`${CASPIO_API_BASE}/tables/${tableName}/records`, {
+        headers: { Authorization: `Bearer ${token}` },
+        params: { 'q.select': 'PK_ID', 'q.limit': 1 },
+        timeout: 30000
+    });
+    return resp.data?.TotalRecords ?? null;
+}
+
+/**
+ * Delete every row from a Caspio table, VERIFIED.
+ *
+ * 🔴 This used to issue a WHERE-less DELETE and let main() insert regardless of
+ * the outcome. That is how Design_Lookup_2026 reached 146,526 rows for what is
+ * really a 38,785-row dataset: the 2026-02-24 and 2026-02-25 runs each stacked
+ * a full copy on top of the previous one (sampled 2026-08-05: design #36868 had
+ * 43 rows for 10 distinct DST+stitch combinations). Caspio also answers an
+ * unsupported delete with 400, which the old handler logged as "table already
+ * empty" — the exact opposite of what happened.
+ *
+ * Now: delete with an explicit match-everything WHERE, loop until the table is
+ * actually empty (Caspio caps how much one DELETE removes), and return the
+ * verified remaining count so the caller can refuse to insert on top.
  */
 async function deleteAllRecords(tableName) {
     if (!LIVE_MODE) return { dryRun: true };
 
-    const token = await getToken();
     const url = `${CASPIO_API_BASE}/tables/${tableName}/records`;
+    let totalDeleted = 0;
 
-    // Delete with no WHERE = delete all
-    const resp = await axios.delete(url, {
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        timeout: 60000
-    });
+    for (let pass = 1; pass <= 40; pass++) {
+        const before = await countRecords(tableName);
+        if (before === 0) break;
 
-    return resp.data;
+        const token = await getToken();
+        const resp = await axios.delete(url, {
+            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+            params: { 'q.where': 'PK_ID>0' },   // matches every row; Caspio requires a WHERE
+            timeout: 120000,
+            validateStatus: () => true
+        });
+
+        if (resp.status >= 400) {
+            throw new Error(`DELETE rejected with HTTP ${resp.status}: ${JSON.stringify(resp.data).slice(0, 200)}`);
+        }
+
+        const affected = resp.data?.RecordsAffected ?? 0;
+        totalDeleted += affected;
+        console.log(`    pass ${pass}: deleted ${affected.toLocaleString()} (table had ${before.toLocaleString()})`);
+
+        // No progress but rows remain → looping again would spin forever.
+        if (affected === 0) break;
+        await sleep(500);
+    }
+
+    const remaining = await countRecords(tableName);
+    return { totalDeleted, remaining };
 }
 
 function sleep(ms) {
@@ -1008,16 +1053,29 @@ async function main() {
     // Step 3: Clear existing unified table
     // -----------------------------------------------
     console.log('\n🗑️  Step 3: Clearing existing unified table...');
+    const before = await countRecords(TABLES.unified);
+    console.log(`  Table currently holds ${before === null ? 'unknown' : before.toLocaleString()} rows`);
     try {
-        await deleteAllRecords(TABLES.unified);
-        console.log(`  Cleared all records from ${TABLES.unified}`);
-    } catch (err) {
-        // 404 means table is empty — that's fine
-        if (err.response?.status === 404 || err.response?.status === 400) {
-            console.log(`  Table already empty or no records to delete`);
-        } else {
-            console.error(`  ⚠️  Delete failed (${err.message}) — will try inserting anyway`);
+        const del = await deleteAllRecords(TABLES.unified);
+        console.log(`  Deleted ${del.totalDeleted.toLocaleString()}; ${del.remaining.toLocaleString()} remaining`);
+
+        // 🔴 ABORT rather than insert on top. Inserting into a table that still
+        // holds rows is what produced 4-5 duplicate copies of every design
+        // (see deleteAllRecords). A no-op run is recoverable; a stacked one is
+        // not, and it silently corrupts every consumer of this table.
+        if (del.remaining !== 0) {
+            console.error(`\n❌ ABORTED — ${del.remaining.toLocaleString()} rows survived the delete.`);
+            console.error('   Refusing to insert on top: that is exactly how this table');
+            console.error('   accumulated ~4x duplicate rows in February.');
+            console.error('   The table is UNCHANGED apart from whatever the delete removed.');
+            process.exitCode = 1;
+            return;
         }
+    } catch (err) {
+        console.error(`\n❌ ABORTED — delete failed: ${err.message}`);
+        console.error('   Nothing was inserted; the table is unchanged.');
+        process.exitCode = 1;
+        return;
     }
 
     // -----------------------------------------------
