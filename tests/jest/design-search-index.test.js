@@ -286,14 +286,14 @@ function mockCaspio({ baseCount, overlays = {} }) {
 describe('buildIndex completeness gate', () => {
     test('a full base stream builds and serves', async () => {
         mockCaspio({
-            baseCount: 100000,
+            baseCount: 38785,   // the REAL production row count — proves the floor accepts live data
             overlays: { designs2026: [{ ID_Design: 999999, DesignName: 'Fresh', ID_Customer: 1 }] }
         });
         await idx.buildIndex();
         const s = idx.getIndexState();
         expect(s.current).not.toBeNull();
-        expect(s.current.payload.counts.baseRows).toBe(100000);
-        expect(s.current.payload.counts.groups).toBe(100001); // +1 fresh overlay group
+        expect(s.current.payload.counts.baseRows).toBe(38785);
+        expect(s.current.payload.counts.groups).toBe(38786); // +1 fresh overlay group
         expect(s.current.payload.counts.bySource.designs2026).toBe(1);
         expect(s.current.etag).toBe(`"${s.current.payload.version}"`);
     });
@@ -306,7 +306,7 @@ describe('buildIndex completeness gate', () => {
     });
 
     test('a failed rebuild keeps the previous index serving', async () => {
-        mockCaspio({ baseCount: 100000 });
+        mockCaspio({ baseCount: 38785 });
         await idx.buildIndex();
         const goodVersion = idx.getIndexState().current.version;
 
@@ -323,7 +323,7 @@ describe('buildIndex completeness gate', () => {
         fetchAllCaspioPages.mockImplementation(async (table, params, options) => {
             if (table.includes('Design_Lookup')) {
                 const rows = [];
-                for (let i = 0; i < 100000; i++) rows.push({ Design_Number: i + 1 });
+                for (let i = 0; i < 38785; i++) rows.push({ Design_Number: i + 1 });
                 if (options && options.pageCallback) options.pageCallback(rows, 1);
                 return [];
             }
