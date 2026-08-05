@@ -1495,9 +1495,23 @@ console.log('✓ Payroll routes loaded [CRM-gated, admin-only via crm-proxy]');
 // DTG Print-Area Calibration (Custom T-Shirts storefront, 2026-06-10)
 // Staff-laid print-envelope placements per style/view/color → Caspio
 // DTG_Calibration; the storefront designer anchors to these (no-deploy edits).
+//
+// gateWritesOnly (2026-08-05): POST/DELETE previously needed NO credentials, so
+// anyone who knew the URL could move or delete the print box for every style.
+// That discloses nothing — it silently misprints customer orders, which is worse
+// to discover. Writes now require X-CRM-API-Secret; the staff tool reaches them
+// through the main app's session-gated forwarder (app v2026.08.05.20, which had
+// to ship FIRST or the tool would have broken in between).
+//
+// 🔴 GET STAYS PUBLIC — do not promote this to requireCrmApiSecret. The PUBLIC
+// customer designer at teamnwca.com/custom-tees reads
+// GET /api/dtg-calibration?styleNumber=… on every product open; gating it breaks
+// the storefront. Scoped to this prefix (not bare '/api') so it cannot meter or
+// gate unrelated routes.
+app.use('/api/dtg-calibration', gateWritesOnly);
 const dtgCalibrationRoutes = require('./src/routes/dtg-calibration');
 app.use('/api', dtgCalibrationRoutes);
-console.log('✓ DTG Calibration routes loaded');
+console.log('✓ DTG Calibration routes loaded [writes CRM-gated, GET public]');
 
 // Order Form Customer Suggestions Routes (Phase 6c, 2026-05-03)
 // Reads/writes Customer_Service_History to power the order form's
