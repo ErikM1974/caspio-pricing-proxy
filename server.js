@@ -634,6 +634,30 @@ const stylePerformanceRoutes = require('./src/routes/style-performance');
 app.use('/api/style-performance', stylePerformanceRoutes);
 console.log('✓ SanMar Style Performance 10yr routes loaded (2,162 styles, full margin data)');
 
+/**
+ * Path scope for a limiter mounted as `app.use('/api', limiter, router)`.
+ *
+ * 🔴 Express runs mount-path middleware for EVERY request under the prefix, not
+ * just the ones the trailing router answers. So a limiter written to protect one
+ * route family silently meters the WHOLE proxy, and the strictest cap wins for
+ * everything. Before 2026-08-05 that meant 30 req/min per IP across all of
+ * /api — monogramsLimiter and rostersLimiter each at 30, neither scoped — so any
+ * page chatty enough to exceed it got 429s on unrelated calls. It surfaced as
+ * "Deep search failed (HTTP 429)" in the Design Vault, and as a flaky 429 in our
+ * own service-codes test during full-suite runs.
+ *
+ * Wrap every /api-mounted limiter's skip in this. Server-to-server callers with
+ * the CRM secret stay exempt everywhere (bandit syncs, crons).
+ */
+function meterOnly(...prefixes) {
+  return (req) => {
+    const s = req.headers['x-crm-api-secret'];
+    if (s && process.env.CRM_API_SECRET && s === process.env.CRM_API_SECRET) return true;
+    const url = String(req.originalUrl || '');
+    return !prefixes.some((p) => url.startsWith(p));
+  };
+}
+
 // Read limiter for the three published rate cards (2026-07-24). These are
 // deliberately anonymous — they back a customer-facing price page, so they must
 // stay open — but they were previously mounted with NO limiter at all. Generous
@@ -647,7 +671,9 @@ const pricingReadLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   trustProxy: true,
-  message: { error: 'Too many pricing requests — please slow down and try again shortly.' }
+  message: { error: 'Too many pricing requests — please slow down and try again shortly.' },
+  // Scoped: mounted on /api but guards only the three rate cards. See meterOnly().
+  skip: meterOnly('/api/sticker-pricing', '/api/banner-pricing', '/api/custom-decal-pricing')
 });
 
 // Sticker pricing route — backs Order Form sticker method (Caspio Sticker_Pricing + inline fallback)
@@ -1035,6 +1061,9 @@ console.log('✓ Customer History routes loaded');
 
 // Monograms Routes (CRUD for monogram orders)
 const monogramsLimiter = rateLimit({
+  // Scoped: guards /api/monograms only. Unscoped, this 30/min cap metered
+  // EVERY /api request in the proxy — the binding constraint proxy-wide.
+  skip: meterOnly('/api/monograms'),
   windowMs: 60 * 1000, // 1 minute
   max: 30, // Max 30 requests per minute
   message: {
@@ -1051,6 +1080,8 @@ console.log('✓ Monograms routes loaded (rate limited: 30 req/min)');
 
 // Names & Numbers Rosters Routes (team roster management with OCR)
 const rostersLimiter = rateLimit({
+  // Scoped: guards /api/rosters only (see monogramsLimiter above).
+  skip: meterOnly('/api/rosters'),
   windowMs: 60 * 1000,
   max: 30,
   message: { error: 'Too many requests to Rosters endpoints', retryAfter: '60 seconds' },
