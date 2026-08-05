@@ -12,13 +12,17 @@
  * now fronts them with a session-gated same-origin forwarder, so the SAML cookie
  * authorises the request there and only the app adds the shared secret here.
  *
+ * The four WRITE routes joined them on 2026-08-05 (app v2026.08.05.19) — every
+ * page calling those was already SAML-gated, so there was no public caller to
+ * migrate. All 11 Box routes are now covered.
+ *
  * Two things this locks, both of which fail SILENTLY if broken:
  *   1. Express runs mount-path middleware in registration order, so a gate
  *      registered BELOW `app.use('/api', boxUploadRoutes)` never runs — the
  *      routes answer first. The gate would look present and do nothing.
- *   2. The four WRITE routes are deliberately NOT gated (still called directly
- *      from the browser). Gating them here would break art submission; leaving
- *      a READ route out would silently re-open the customer-data exposure.
+ *   2. Coverage in both directions: a route dropped from the gate silently
+ *      re-opens the exposure, and the router-coverage test fails the build if a
+ *      NEW Box route appears without an auth decision.
  */
 
 const fs = require('fs');
@@ -92,5 +96,39 @@ describe('Box read routes are secret-gated', () => {
             const suffix = p.replace('/api', '');           // '/box/thumbnail'
             expect(router).toContain(`'${suffix}`);          // matches '/box/thumbnail/:fileId' too
         }
+    });
+});
+
+/**
+ * ManageOrders tracking (2026-08-05). GET /api/manageorders/tracking returned
+ * ~911 KB of customer tracking records to anyone, and /tracking/push WRITES
+ * tracking numbers into OnSite. One prefix covers both routers.
+ *
+ * The ordering assertion matters as much as the gate: registered below either
+ * router mount it never runs, and the routes answer first.
+ */
+describe('ManageOrders tracking is secret-gated', () => {
+    const gateRe = /^app\.use\('\/api\/manageorders\/tracking', requireCrmApiSecret\);/m;
+
+    test('the tracking gate exists', () => {
+        expect(SERVER).toMatch(gateRe);
+    });
+
+    test('it gates EVERY method — /tracking/push writes into OnSite', () => {
+        // guardReadsOnly would leave POST open, which is what left
+        // /orders/create anonymous for months.
+        const line = SERVER.match(gateRe)[0];
+        expect(line).not.toContain('guardReadsOnly');
+    });
+
+    test.each([
+        ["app.use('/api', manageOrdersLimiter, manageOrdersRoutes);", 'manageorders router'],
+        ["app.use('/api/manageorders', manageOrdersPushRoutes);", 'push router'],
+    ])('the gate is registered above the %s', (mount) => {
+        const gateIdx = SERVER.search(gateRe);
+        const mountIdx = SERVER.indexOf(mount);
+        expect(gateIdx).toBeGreaterThan(-1);
+        expect(mountIdx).toBeGreaterThan(-1);
+        expect(gateIdx).toBeLessThan(mountIdx);
     });
 });
