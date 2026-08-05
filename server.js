@@ -909,7 +909,22 @@ const sanmarLimiter = rateLimit({
   // — exempt them, else the thumbnail image sync 429s at 60/min (caught 2026-07-17).
   skip: (req) => {
     const s = req.headers['x-crm-api-secret'];
-    return !!s && !!process.env.CRM_API_SECRET && s === process.env.CRM_API_SECRET;
+    if (s && process.env.CRM_API_SECRET && s === process.env.CRM_API_SECRET) return true;
+
+    // 🔴 `app.use('/api', sanmarLimiter, sanmarShopworksRoutes)` runs this
+    // middleware for EVERY /api request, not just the five /sanmar-shopworks/*
+    // endpoints it guards — Express executes mount-path middleware regardless of
+    // which router ends up answering. So a single 60/min per-IP budget silently
+    // covered the whole proxy, and any page chatty enough to exceed it started
+    // 429ing on unrelated calls. The Design Vault surfaced it (2026-08-05): one
+    // staff member browsing designs — index + batched thumbnail fills while
+    // scrolling + 3 hydrations per design opened + deep search — blows past 60
+    // in a minute, and the failure lands on whichever request happens to be
+    // 61st. Count ONLY the paths this limiter actually protects; every other
+    // family carries its own limiter (designSearchLimiter, pricingReadLimiter,
+    // artWriteLimiter, writeLimiter, imageUploadLimiter, …).
+    // Same fix shape as manageOrdersLimiter's path-scoped skip above.
+    return !String(req.originalUrl || '').startsWith('/api/sanmar-shopworks');
   },
 });
 app.use('/api', sanmarLimiter, sanmarShopworksRoutes);
@@ -1419,8 +1434,26 @@ console.log('✓ Non-SanMar Products routes loaded');
 
 // Digitized Designs Routes (design lookup for stitch count auto-detection)
 const digitizedDesignsRoutes = require('./src/routes/digitized-designs');
+// Own limiter (2026-08-05). These used to be capped only as collateral of
+// sanmarLimiter's accidental whole-/api reach; now that it counts just its own
+// paths, this family needs its own ceiling. 180/min is generous for real use —
+// the Design Vault searches locally and only calls here for deep search and
+// per-design detail — while still bounding an anonymous scraper. Server-to-
+// server callers with the CRM secret are exempt, same as elsewhere.
+const digitizedDesignsLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 180,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many design lookup requests', retryAfter: '60 seconds' },
+  skip: (req) => {
+    const s = req.headers['x-crm-api-secret'];
+    return !!s && !!process.env.CRM_API_SECRET && s === process.env.CRM_API_SECRET;
+  },
+});
+app.use('/api/digitized-designs', digitizedDesignsLimiter);
 app.use('/api', digitizedDesignsRoutes);
-console.log('✓ Digitized Designs routes loaded');
+console.log('✓ Digitized Designs routes loaded (rate limited: 180 req/min)');
 
 // Embroidery Push Routes (push saved quotes to ShopWorks via ManageOrders PUSH API)
 const embroideryPushRoutes = require('./src/routes/embroidery-push');
