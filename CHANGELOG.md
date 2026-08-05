@@ -1,3 +1,11 @@
+## v2026.08.04.3 (2026.08.04)
+
+- Design Vault PR-A groundwork: surface strict truncation + shared normalizers
+- WIP Design Vault PR-A: index engine + /api/design-search routes (DO NOT DEPLOY YET)
+- Sync release v2026.08.04.2 back into develop
+- Design Vault PR-B: gate design search reads + fields=deep escalation
+- jest: forceExit so a fully-green run stops exiting 1
+
 ## v2026.08.04.2 (2026.08.04)
 
 - Add /api/sanmar-orders/label-data/:id — one label pipeline for both surfaces
