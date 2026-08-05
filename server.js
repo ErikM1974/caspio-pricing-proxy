@@ -745,10 +745,15 @@ console.log('✓ File upload routes loaded');
 // MUST stay above `app.use('/api', boxUploadRoutes)`; below it the router
 // answers first and the gate never runs.
 //
-// ⚠️ READ routes only, deliberately. The four WRITE routes (POST shared-link,
-// create-mockup-folder, upload-to-folder, DELETE file/:fileId) are still called
-// directly from the browser and would break — they are a separate piece of work.
+// The WRITE routes joined them on 2026-08-05 (app v2026.08.05.19): every page
+// that calls those was already SAML-gated, so unlike the reads there was no
+// public caller to migrate — the forwarder was the whole fix. `upload-to-folder`
+// is multipart and the app streams the raw request through rather than parsing
+// it, so multer still sees an intact body with its boundary.
+//
+// This now covers EVERY route in box-upload.js except the health/debug ones.
 app.use([
+  // reads
   '/api/box/thumbnail',
   '/api/box/download',
   '/api/box/art-folders',
@@ -756,6 +761,11 @@ app.use([
   '/api/box/folder-files',
   '/api/box/search',
   '/api/box/shared-image',
+  // writes
+  '/api/box/shared-link',
+  '/api/box/create-mockup-folder',
+  '/api/box/upload-to-folder',
+  '/api/box/file',
 ], requireCrmApiSecret);
 
 // Box Upload Routes (mockup file upload to Box → Caspio)
