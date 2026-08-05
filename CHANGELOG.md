@@ -1,3 +1,7 @@
+## v2026.08.05.3 (2026.08.05)
+
+- Contract embroidery AI: pass stitch-file context through to the model
+
 ## v2026.08.05.2 (2026.08.05)
 
 - sync-design-lookup: add --csv-out for full rebuilds (39k API calls -> 1 import)
