@@ -359,7 +359,17 @@ async function insertWithConcurrency(tableName, records, concurrency = 5, onProg
 }
 
 /**
- * Count rows currently in a Caspio table (cheap — asks for 1 row, reads TotalRecords).
+ * How many rows the table holds — or, when Caspio won't say, whether it holds ANY.
+ *
+ * Returns 0 for empty, a positive count when Caspio supplies TotalRecords, and
+ * -1 for "not empty, exact count unknown". Callers must treat anything !== 0 as
+ * "still has rows".
+ *
+ * 🔴 Caspio REST v3 does NOT reliably return TotalRecords on this endpoint — it
+ * came back undefined here, and reading `.toLocaleString()` off the resulting
+ * null threw *after* the DELETE had already run (2026-08-05), which aborted the
+ * sync with the table emptied and nothing re-inserted. The emptiness probe below
+ * is all the delete verification actually needs, and it cannot return null.
  */
 async function countRecords(tableName) {
     const token = await getToken();
@@ -368,7 +378,16 @@ async function countRecords(tableName) {
         params: { 'q.select': 'PK_ID', 'q.limit': 1 },
         timeout: 30000
     });
-    return resp.data?.TotalRecords ?? null;
+    const total = resp.data?.TotalRecords;
+    if (typeof total === 'number') return total;
+    return (resp.data?.Result || []).length === 0 ? 0 : -1;
+}
+
+/** Render a countRecords() result for humans without ever throwing. */
+function fmtCount(n) {
+    if (n === 0) return '0';
+    if (typeof n === 'number' && n > 0) return n.toLocaleString();
+    return 'some (exact count unavailable)';
 }
 
 /**
@@ -410,7 +429,7 @@ async function deleteAllRecords(tableName) {
 
         const affected = resp.data?.RecordsAffected ?? 0;
         totalDeleted += affected;
-        console.log(`    pass ${pass}: deleted ${affected.toLocaleString()} (table had ${before.toLocaleString()})`);
+        console.log(`    pass ${pass}: deleted ${fmtCount(affected)} (table had ${fmtCount(before)})`);
 
         // No progress but rows remain → looping again would spin forever.
         if (affected === 0) break;
@@ -1054,17 +1073,17 @@ async function main() {
     // -----------------------------------------------
     console.log('\n🗑️  Step 3: Clearing existing unified table...');
     const before = await countRecords(TABLES.unified);
-    console.log(`  Table currently holds ${before === null ? 'unknown' : before.toLocaleString()} rows`);
+    console.log(`  Table currently holds ${fmtCount(before)} rows`);
     try {
         const del = await deleteAllRecords(TABLES.unified);
-        console.log(`  Deleted ${del.totalDeleted.toLocaleString()}; ${del.remaining.toLocaleString()} remaining`);
+        console.log(`  Deleted ${fmtCount(del.totalDeleted)}; ${fmtCount(del.remaining)} remaining`);
 
         // 🔴 ABORT rather than insert on top. Inserting into a table that still
         // holds rows is what produced 4-5 duplicate copies of every design
         // (see deleteAllRecords). A no-op run is recoverable; a stacked one is
         // not, and it silently corrupts every consumer of this table.
         if (del.remaining !== 0) {
-            console.error(`\n❌ ABORTED — ${del.remaining.toLocaleString()} rows survived the delete.`);
+            console.error(`\n❌ ABORTED — ${fmtCount(del.remaining)} rows survived the delete.`);
             console.error('   Refusing to insert on top: that is exactly how this table');
             console.error('   accumulated ~4x duplicate rows in February.');
             console.error('   The table is UNCHANGED apart from whatever the delete removed.');
