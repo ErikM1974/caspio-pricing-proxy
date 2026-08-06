@@ -1,3 +1,7 @@
+## v2026.08.06.2 (2026.08.06)
+
+- sync-status: count Box FileUrl, stop reporting the page cap as a total
+
 ## v2026.08.06.1 (2026.08.06)
 
 - Fix by-designs batch truncation: page size is rows, not designs
