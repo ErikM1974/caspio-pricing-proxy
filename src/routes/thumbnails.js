@@ -23,6 +23,15 @@ const thumbnailCache = new Map();
 const syncStatusCache = new Map();
 const CACHE_TTL = 5 * 60 * 1000;
 
+// Shopworks_Thumbnail_Report holds one row per design PER LOCATION (the key is
+// Thumb_DesLoc…), so asking for N designs can legitimately match many more than N
+// rows. Any page size derived from the DESIGN count therefore truncates real
+// matches. Headroom per design, so a multi-location design can never crowd its
+// neighbours out of the result set. /thumbnails/by-designs caps `ids` at 20, so
+// the worst case stays one bounded Caspio page.
+const MAX_ROWS_PER_DESIGN = 25;
+const MAX_BATCH_ROWS = 1000;
+
 /**
  * Sanitize design ID input
  * @param {string} designId - Raw design ID
@@ -176,9 +185,15 @@ router.get('/thumbnails/by-designs', async (req, res) => {
     // Fetch uncached IDs from Caspio in one query
     if (uncachedIds.length > 0) {
       const whereClause = uncachedIds.map(id => `Thumb_DesLocid_Design='${id}'`).join(' OR ');
+      // 🔴 This was `uncachedIds.length`. Rows are per design+LOCATION, so a batch of
+      // 18 designs could match well over 18 rows; Caspio truncated the page and every
+      // design past the cut came back `found: false` — then that wrong answer was
+      // cached for CACHE_TTL. Newest designs sort last, so they were the ones lost,
+      // which read as a ShopWorks sync lag on the SanMar inbound sheet (real artwork
+      // showing the "no logo" tile). See tests/jest/thumbnails-batch-limit.test.js.
       const params = {
         'q.where': whereClause,
-        'q.limit': uncachedIds.length
+        'q.limit': Math.min(MAX_BATCH_ROWS, uncachedIds.length * MAX_ROWS_PER_DESIGN)
       };
 
       const response = await makeCaspioRequest(
