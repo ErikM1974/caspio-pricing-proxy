@@ -1,3 +1,7 @@
+## v2026.08.06.1 (2026.08.06)
+
+- Fix by-designs batch truncation: page size is rows, not designs
+
 ## v2026.08.05.13 (2026.08.05)
 
 - Box folder resolution keys on the ShopWorks design number
