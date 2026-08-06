@@ -351,20 +351,44 @@ router.put('/thumbnails/:thumbnailId/external-key', async (req, res) => {
   }
 });
 
+// A row "has an image" if EITHER storage field is populated. ExternalKey is the
+// retired Caspio Files key; artwork now lives in Box and is addressed by FileUrl.
+// Counting only ExternalKey reported 0 of 20,000 rows as having images on a table
+// where 26,990 of 27,665 do (measured 2026-08-06) — i.e. it answered "no artwork
+// anywhere" while every design on screen was rendering fine.
+function thumbnailRowHasImage(r) {
+  const key = r.ExternalKey && String(r.ExternalKey).trim() !== '';
+  const url = r.FileUrl && String(r.FileUrl).trim() !== '';
+  return Boolean(key || url);
+}
+
+// The table is ~27.7k rows = ~28 pages, so a count is ~28 Caspio reads. The
+// default pagination cap (20) silently truncated it at exactly 20,000 and the
+// route reported that as fact. Room to grow, and `strict` below turns any future
+// truncation into a loud error instead of a plausible wrong number.
+const SYNC_COUNT_MAX_PAGES = 120;
+
 /**
  * GET /api/thumbnails/sync-status
- * Get sync status and statistics for the thumbnail table
+ * Sync freshness for the thumbnail table, and (optionally) record counts.
  *
- * @query {boolean} refresh - Set to 'true' to bypass cache
+ * @query {boolean} refresh - Set to 'true' to bypass the 5-minute cache
+ * @query {boolean} counts  - Set to 'true' to also count rows. OFF by default:
+ *                            Caspio exposes no COUNT on this API version, so a
+ *                            count means paging the whole table (~28 reads).
+ *                            `lastSync` alone — the field that actually answers
+ *                            "is the sync stalled?" — costs a single read.
  *
- * @returns {object} Sync status with last sync time and record counts
+ * @returns {object} { lastSync, counts: {...}|null }
  */
 router.get('/thumbnails/sync-status', async (req, res) => {
   try {
     const refresh = req.query.refresh === 'true';
+    const wantCounts = req.query.counts === 'true';
 
-    // Check cache (5 minute TTL)
-    const cacheKey = 'sync-status';
+    // Cache key must include `counts` — otherwise a cheap lastSync-only response
+    // would be served to a caller that asked for counts, and vice versa.
+    const cacheKey = wantCounts ? 'sync-status:counts' : 'sync-status';
     if (!refresh) {
       const cached = syncStatusCache.get(cacheKey);
       if (cached && (Date.now() - cached.timestamp < CACHE_TTL)) {
@@ -373,9 +397,9 @@ router.get('/thumbnails/sync-status', async (req, res) => {
       }
     }
 
-    console.log('[Thumbnails] Fetching sync status');
+    console.log(`[Thumbnails] Fetching sync status (counts=${wantCounts})`);
 
-    // Query 1: Get most recent timestamp_Added (order by desc, limit 1)
+    // Query 1: most recent timestamp_Added — one read, always.
     const latestRecord = await makeCaspioRequest(
       'get',
       '/tables/Shopworks_Thumbnail_Report/records',
@@ -389,27 +413,42 @@ router.get('/thumbnails/sync-status', async (req, res) => {
     const records = Array.isArray(latestRecord) ? latestRecord : (latestRecord?.Result || []);
     const lastSync = records.length > 0 ? records[0].timestamp_Added : null;
 
-    // Query 2: Get all records to count (using fetchAllCaspioPages with select for efficiency)
-    const allRecords = await fetchAllCaspioPages(
-      '/tables/Shopworks_Thumbnail_Report/records',
-      {
-        'q.select': 'ID_Serial,ExternalKey'
-      }
-    );
-
-    const totalRecords = allRecords.length;
-    const recordsWithImages = allRecords.filter(r => r.ExternalKey && r.ExternalKey.trim() !== '').length;
-    const recordsNeedingImages = totalRecords - recordsWithImages;
+    let counts = null;
+    if (wantCounts) {
+      // Streamed: discardResults keeps 27k rows out of dyno memory, and strict
+      // makes a hit page-cap throw rather than silently return a short count.
+      let totalRecords = 0;
+      let recordsWithImages = 0;
+      await fetchAllCaspioPages(
+        '/tables/Shopworks_Thumbnail_Report/records',
+        { 'q.select': 'ID_Serial,ExternalKey,FileUrl', 'q.limit': 1000 },
+        {
+          maxPages: SYNC_COUNT_MAX_PAGES,
+          discardResults: true,
+          strict: true,
+          pageCallback: (rows) => {
+            for (const r of rows) {
+              totalRecords++;
+              if (thumbnailRowHasImage(r)) recordsWithImages++;
+            }
+          }
+        }
+      );
+      counts = {
+        totalRecords,
+        recordsWithImages,
+        recordsNeedingImages: totalRecords - recordsWithImages
+      };
+    }
 
     const result = {
       success: true,
       lastSync: lastSync,
-      totalRecords: totalRecords,
-      recordsWithImages: recordsWithImages,
-      recordsNeedingImages: recordsNeedingImages
+      counts,
+      countsHint: wantCounts ? undefined : 'add ?counts=true for record counts (~28 Caspio reads)'
     };
 
-    console.log(`[Thumbnails] Sync status: lastSync=${lastSync}, total=${totalRecords}, withImages=${recordsWithImages}`);
+    console.log(`[Thumbnails] Sync status: lastSync=${lastSync}, counts=${counts ? JSON.stringify(counts) : 'skipped'}`);
 
     // Cache result
     syncStatusCache.set(cacheKey, { data: result, timestamp: Date.now() });
