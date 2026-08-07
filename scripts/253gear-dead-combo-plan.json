@@ -1,0 +1,44 @@
+{
+  "_README": [
+    "Declared fixes for products whose dropdowns offer Style x Colour combinations that no",
+    "variant backs. Erik's calls, 2026-08-07. Nothing here is inferred.",
+    "",
+    "mode 'recolour'      -> every garment becomes ONE colour; Colour survives as a single",
+    "                        value and the theme renders it as static text, not a dropdown.",
+    "mode 'foldIntoStyle' -> each garment keeps its own colour, which a shared dropdown",
+    "                        cannot express, so the colour moves into the Style value and",
+    "                        the Colour option is deleted.",
+    "",
+    "deleteMediaMatching is a list of FILENAME FRAGMENTS. Deletion is irreversible from",
+    "here - the photo would have to be re-uploaded - so it is opt-in per product and the",
+    "script refuses to remove the last photo on a product."
+  ],
+
+  "5762255585436": {
+    "title": "Historic Puyallup Raceways #33332",
+    "mode": "recolour",
+    "colour": "Athletic Heather",
+    "why": "Erik: offer the tee AND the hoodie in Athletic Heather only; drop Ash and its photo.",
+    "deleteMediaMatching": [],
+    "_resolved": [
+      "The Ash hoodie photo WAS deleted here, which left the hoodie falling back to a",
+      "lifestyle shot of a tee. Erik then judged the two greys close enough and asked for it",
+      "back, relabelled - done by scripts/253gear-restore-33332-hoodie.js.",
+      "",
+      "🔑 Deleting product media does NOT delete the file. It stays in Shopify Files, still",
+      "READY, at a different CDN url (the /products/ path, no attachment UUID) - the url the",
+      "product was serving 404s. Recovery goes through files(query:), not a re-upload.",
+      "deleteMediaMatching is now empty so a re-run cannot remove it again."
+    ]
+  },
+
+  "6014688395420": {
+    "title": "Clyde's Water Slide, Puyallup WA #33958",
+    "mode": "foldIntoStyle",
+    "why": "Erik: the tee is Royal and the hoodie is Navy - one colour each, so Colour is not a choice.",
+    "styleRenames": {
+      "T-Shirt": "T-Shirt - Royal",
+      "Hoodie": "Hoodie - Navy"
+    }
+  }
+}

@@ -69,7 +69,12 @@ const M_REORDER = `
 mutation($id: ID!, $moves: [MoveInput!]!) {
   productReorderMedia(id: $id, moves: $moves) {
     job { id done }
-    userErrors { field message }   # UserError, NOT MediaUserError — it has no 'code'
+    # Canonical field is mediaUserErrors; userErrors is a deprecated alias that can read
+    # empty while the real errors sit in the other. Select BOTH - collectUserErrors() in
+    # shopify-client walks for any *userErrors array and throws on a non-empty one.
+    # (No backticks in here: this is inside a JS template literal.)
+    mediaUserErrors { field message code }
+    userErrors { field message }
   }
 }`;
 

@@ -312,3 +312,51 @@ describe("Erik's rule as a build gate", () => {
         expect(src).not.toMatch(/=\s*\d+\.\d{2}\s*[;,)]/);
     });
 });
+
+// ── Style values that carry their colour ──────────────────────────────────────────────
+//
+// Where a design is sold in one colour per garment, a shared Colour dropdown offers every
+// colour to every style and the impossible pairs become dead "Unavailable" ends. Naming
+// the colour in the Style fixes that — but every config lookup keys on the option string,
+// and the tools SKIP an unknown style rather than erroring. Without this, those products
+// would quietly drop out of price and weight coverage with nothing reporting it.
+
+describe('a Style that names its colour still resolves to its garment', () => {
+    const CONFIG = {
+        prices: { 'T-Shirt': 22.5, Hoodie: 43.75 },
+        sizeLadder: { L: 0, '2XL': 2 },
+        styles: [
+            { option: 'T-Shirt', sanmarStyle: 'PC54', filterTag: 'T-Shirt', weightGrams: 200,
+              weightBySize: { L: 200, '2XL': 231 } },
+            { option: 'Hoodie', sanmarStyle: 'PC78H', filterTag: 'Hoodie', weightGrams: 558,
+              weightBySize: { L: 558, '2XL': 644 } }
+        ]
+    };
+
+    test('price, SKU and weight all follow the garment, not the label', () => {
+        expect(B.priceFor('T-Shirt - Royal', 'L', CONFIG)).toBe(B.priceFor('T-Shirt', 'L', CONFIG));
+        expect(B.skuFor('Hoodie - Navy', '2XL', CONFIG)).toBe(B.skuFor('Hoodie', '2XL', CONFIG));
+        expect(B.weightFor('Hoodie - Navy', 'L', CONFIG)).toBe(558);
+    });
+
+    test('the size ladder still applies on top', () => {
+        expect(B.priceFor('T-Shirt - Royal', '2XL', CONFIG)).toBe('24.50');
+    });
+
+    test('an exact config entry wins over the fallback', () => {
+        const withExact = { ...CONFIG, prices: { ...CONFIG.prices, 'T-Shirt - Royal': 30 } };
+        expect(B.priceFor('T-Shirt - Royal', 'L', withExact)).toBe('30.00');
+    });
+
+    test('a genuinely unknown garment still throws — the fallback is not a catch-all', () => {
+        expect(() => B.priceFor('Poncho - Royal', 'L', CONFIG)).toThrow(/No retail price configured/);
+        expect(() => B.skuFor('Poncho - Royal', 'L', CONFIG)).toThrow(/No SanMar style mapped/);
+        expect(() => B.weightFor('Poncho', 'L', CONFIG)).toThrow(/No SanMar style mapped/);
+    });
+
+    test('baseStyleOption splits only on " - ", so hyphenated garments survive', () => {
+        expect(B.baseStyleOption('T-Shirt')).toBe('T-Shirt');           // NOT "T"
+        expect(B.baseStyleOption('Long Sleeve Tee - Navy')).toBe('Long Sleeve Tee');
+        expect(B.baseStyleOption('Hoodie')).toBe('Hoodie');
+    });
+});

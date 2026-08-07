@@ -98,8 +98,33 @@ function buildHandle(designName, city, options = {}) {
  * Base price and the size ladder both come from config — no number lives here.
  * Integer-cent arithmetic so a ladder step can never introduce a float artefact.
  */
+/**
+ * The garment behind a Style option value.
+ *
+ * Where a design is sold in exactly one colour per garment, a shared Colour dropdown
+ * cannot express it — Shopify options are product-level, so every listed colour is
+ * offered for every style and the impossible pairs become "Unavailable" dead ends. The
+ * fix is to name the colour in the Style itself: "T-Shirt - Royal", "Hoodie - Navy".
+ *
+ * That would otherwise make the product invisible to every config lookup — price, weight,
+ * SKU, filter tag all key on the option string — and the tools fail *open* on an unknown
+ * style (they skip it), so the product would quietly stop being covered rather than
+ * erroring. Silent loss of coverage is the failure mode worth preventing here.
+ */
+function baseStyleOption(styleOption) {
+    return String(styleOption || '').split(' - ')[0].trim();
+}
+
+/** Exact match wins; only then fall back to the garment before the " - colour" suffix. */
+function lookupByStyle(styleOption, pick) {
+    const exact = pick(styleOption);
+    if (exact !== undefined && exact !== null) return exact;
+    const base = baseStyleOption(styleOption);
+    return base && base !== styleOption ? pick(base) : undefined;
+}
+
 function priceFor(styleOption, size, config) {
-    const base = config && config.prices ? config.prices[styleOption] : undefined;
+    const base = lookupByStyle(styleOption, (s) => (config && config.prices ? config.prices[s] : undefined));
     if (base === undefined || base === null || !Number.isFinite(Number(base))) {
         throw new ProductBuildError(
             `No retail price configured for style "${styleOption}"`, 'MISSING_PRICE', { styleOption }
@@ -132,7 +157,7 @@ function assertPriceOnLadder(styleOption, size, price, config) {
 // ── Style map ────────────────────────────────────────────────────────────────
 
 function styleDefFor(styleOption, config) {
-    const def = (config.styles || []).find((s) => s.option === styleOption);
+    const def = lookupByStyle(styleOption, (s) => (config.styles || []).find((d) => d.option === s));
     if (!def) {
         throw new ProductBuildError(
             `No SanMar style mapped for "${styleOption}"`, 'UNMAPPED_STYLE', { styleOption }
@@ -502,6 +527,7 @@ module.exports = {
     buildVariantMediaBindings,
     bindingKey,
     priceFor,
+    baseStyleOption,
     assertPriceOnLadder,
     skuFor,
     slugify,

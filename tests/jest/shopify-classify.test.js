@@ -222,3 +222,45 @@ describe('the design NAME classifies too, and is trusted first', () => {
         expect(r.method).toBe('none');
     });
 });
+
+// ── A Style that names its colour must still earn its garment tag ─────────────────────
+//
+// Where a garment sells in exactly one colour, the colour moves into the Style value
+// ("T-Shirt - Royal") so the product stops offering dead Style x Colour combinations.
+// buildTagSet compared style names by equality, so a folded style matched no config entry
+// and the product would have published with NO T-Shirt/Hoodie tag - absent from those
+// collections, with nothing reporting it. Unreachable from the publisher today, which
+// builds from config names; locked anyway so the fallback stays one rule, not three.
+
+describe('folded Style values still resolve to a garment tag', () => {
+    const CFG = {
+        baseTags: ['253'],
+        cities: [{ name: 'Puyallup', tag: 'city:Puyallup', collection: 'puyallup' }],
+        styles: [
+            { option: 'T-Shirt', filterTag: 'T-Shirt' },
+            { option: 'Hoodie', filterTag: 'Hoodie' },
+            { option: 'Long Sleeve Tee', filterTag: 'Long Sleeve Tee' }
+        ]
+    };
+    const tagsFor = (styles) => require('../../src/utils/shopify-classify')
+        .buildTagSet({ city: 'Puyallup', styles }, CFG).tags.sort();
+
+    test('a folded style produces exactly the same tags as the plain one', () => {
+        expect(tagsFor(['T-Shirt - Royal', 'Hoodie - Navy']))
+            .toEqual(tagsFor(['T-Shirt', 'Hoodie']));
+    });
+
+    test('the garment tags are actually present, not merely equal-and-empty', () => {
+        expect(tagsFor(['T-Shirt - Royal', 'Hoodie - Navy'])).toEqual(
+            ['253', 'Hoodie', 'T-Shirt', 'city:Puyallup']
+        );
+    });
+
+    test('a garment whose own name has no colour suffix is untouched', () => {
+        expect(tagsFor(['Long Sleeve Tee'])).toContain('Long Sleeve Tee');
+    });
+
+    test('an unknown garment earns NO garment tag — the fallback is not a catch-all', () => {
+        expect(tagsFor(['Poncho - Royal'])).toEqual(['253', 'city:Puyallup']);
+    });
+});
