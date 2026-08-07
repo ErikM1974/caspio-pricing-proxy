@@ -1,3 +1,13 @@
+## v2026.08.07.1 (2026.08.07)
+
+- 253Gear Publisher: Shopify client, product builder, audit, Step 0 inspect
+- 253Gear Publisher: config, orchestrator, routes
+- 253Gear Publisher: design classifier + copy drafter
+- Shopify API version: 2026-07, not the 2025-01 in the reference docs
+- 253Gear Publisher: create + seed the Shopify_Config_2026 Caspio table
+- 253Gear Publisher: correct every assumption against the live store
+- Merge 253Gear Publisher: Shopify product publisher for Steve's dashboard
+
 ## v2026.08.06.2 (2026.08.06)
 
 - sync-status: count Box FileUrl, stop reporting the page cap as a total
