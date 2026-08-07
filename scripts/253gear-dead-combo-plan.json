@@ -19,13 +19,16 @@
     "mode": "recolour",
     "colour": "Athletic Heather",
     "why": "Erik: offer the tee AND the hoodie in Athletic Heather only; drop Ash and its photo.",
-    "deleteMediaMatching": ["AshHoodieThumbnail"],
-    "_consequence": [
-      "The Ash hoodie photo is the ONLY hoodie photo on this product. Removing it leaves the",
-      "hoodie variants with no image of their own, so the storefront falls back to the",
-      "product's first photo - a lifestyle shot of a TEE. Erik chose this knowingly over",
-      "leaving a wrong-grey photo in place. It is resolved the moment Steve supplies an",
-      "Athletic Heather hoodie flat-lay, which is now the top item on his list."
+    "deleteMediaMatching": [],
+    "_resolved": [
+      "The Ash hoodie photo WAS deleted here, which left the hoodie falling back to a",
+      "lifestyle shot of a tee. Erik then judged the two greys close enough and asked for it",
+      "back, relabelled - done by scripts/253gear-restore-33332-hoodie.js.",
+      "",
+      "🔑 Deleting product media does NOT delete the file. It stays in Shopify Files, still",
+      "READY, at a different CDN url (the /products/ path, no attachment UUID) - the url the",
+      "product was serving 404s. Recovery goes through files(query:), not a re-upload.",
+      "deleteMediaMatching is now empty so a re-run cannot remove it again."
     ]
   },
 
