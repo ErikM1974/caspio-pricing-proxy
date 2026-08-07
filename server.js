@@ -1597,8 +1597,25 @@ const visionLimiter = rateLimit({
     standardHeaders: true,
     legacyHeaders: false
 });
+// SECURITY (2026-08-07): every /api/vision call spends Anthropic tokens, so an
+// unauthenticated endpoint here is also an open tab on our bill — the same finding
+// already written up for the AI chats in the app's server.js.
+//
+// Gated SURGICALLY, not wholesale, because a blanket gate would 401 four working
+// staff tools. These routes have LIVE browser callers that hit the proxy directly
+// with API_BASE and carry no secret:
+//     /extract-supacolor             pages/js/transfer-detail.js:1090
+//     /extract-supacolor-jobs-list   dashboards/js/supacolor-orders.js:280
+//     /extract-supacolor-job-detail  dashboards/js/supacolor-orders.js:303,
+//                                    pages/js/supacolor-job-detail.js:137
+//     /extract-mockup-info           (referenced by the transfer flow)
+// Closing those needs an app-side SAML forwarder per caller first — tracked separately.
+//
+// /extract-shopworks has NO browser caller: the 253Gear Publisher reaches it through
+// the app's requirePageAccess forwarder, so it can be closed today.
+app.use('/api/vision/extract-shopworks', requireCrmApiSecret);
 app.use('/api/vision', visionLimiter, visionRoutes);
-console.log('✓ Vision routes loaded (rate limited: 10 req/min)');
+console.log('✓ Vision routes loaded (rate limited: 10 req/min; extract-shopworks secret-gated)');
 
 // --- Admin Metrics Endpoint ---
 // Caspio quota meter. `?full=1` returns the COMPLETE per-table/per-endpoint
