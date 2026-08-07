@@ -347,6 +347,35 @@ async function fetchAllCaspioPages(resourcePath, initialParams = {}, options = {
 // --- Load all modular routes ---
 // All endpoints are now organized into logical route modules
 
+// ── 253gear.com publisher (2026-08-08) ───────────────────────────────────────
+// Steve's dashboard tab turns a finished design into a DRAFT product on the retail
+// storefront. Mounted FIRST and gated ON THE SAME LINE so the gate can never drift
+// away from the router, and above every other '/api' mount so nothing can shadow it.
+//
+// Secret-only on ALL methods — not guardReadsOnly, whose READ_METHODS includes HEAD
+// (see the bypass documented at src/middleware/index.js:96-104). The app fronts this
+// with requirePageAccess('gear-publisher.html'), so one Caspio row governs both the
+// page and its data.
+//
+// The write limiter is scoped to this prefix only. A limiter mounted bare on '/api'
+// runs for EVERY /api request, which is how the whole proxy once ended up capped at
+// 30 req/min.
+const shopifyWriteLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  trustProxy: true,
+  message: { error: 'Too many 253gear publish operations — please slow down.' }
+});
+app.use('/api/shopify', (req, res, next) =>
+  (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS')
+    ? next()
+    : shopifyWriteLimiter(req, res, next));
+const shopifyProductsRoutes = require('./src/routes/shopify-products');
+app.use('/api/shopify', requireCrmApiSecret, shopifyProductsRoutes);
+console.log('✓ 253Gear publisher routes loaded [CRM-gated]');
+
 // Orders Routes (contains order-dashboard endpoint)
 // #9 side-door gate (2026-06-29): DEAD endpoint (the front-end serves its OWN /api/orders;
 // no proxy caller found in code, Erik confirmed no external consumers) that leaked order
@@ -1371,6 +1400,15 @@ const dtgQuoteAIRoute = require('./src/routes/dtg-quote-ai');
 app.use('/api/dtg-quote-ai', aiChatLimiter, requireCrmApiSecret, dtgQuoteAIRoute);
 console.log('✓ DTG Quote AI route loaded (SECRET-ONLY, Claude Sonnet 4.6 + prompt caching + Tavily web search + curated top-sellers)');
 
+// 253gear product-copy drafter (2026-08-08) — drafts the storefront description
+// (hook + local history) for Steve to edit. Same SSE contract as the quote chats, so
+// the app picks it up by adding the slug to AI_CHAT_ROUTES. Web search is wired in
+// deliberately: the copy failures on that store were factual, not stylistic, so the
+// model must CHECK a claim rather than recall it and cite a source for each one.
+const shopifyDescriptionAIRoute = require('./src/routes/shopify-description-ai');
+app.use('/api/shopify-description-ai', aiChatLimiter, requireCrmApiSecret, shopifyDescriptionAIRoute);
+console.log('✓ 253Gear description AI route loaded (SECRET-ONLY, Claude Sonnet 4.6 + Tavily fact-check)');
+
 // EMB Quote AI (2026-05-24, Phase EMB Chat B) — research assistant for
 // the Embroidery Quote Builder. 3 tools: lookup_customer, recommend_top_sellers_emb
 // (Caspio EMB_Top_Sellers_2026 — Erik curates from 10yr sales),
@@ -1597,8 +1635,25 @@ const visionLimiter = rateLimit({
     standardHeaders: true,
     legacyHeaders: false
 });
+// SECURITY (2026-08-07): every /api/vision call spends Anthropic tokens, so an
+// unauthenticated endpoint here is also an open tab on our bill — the same finding
+// already written up for the AI chats in the app's server.js.
+//
+// Gated SURGICALLY, not wholesale, because a blanket gate would 401 four working
+// staff tools. These routes have LIVE browser callers that hit the proxy directly
+// with API_BASE and carry no secret:
+//     /extract-supacolor             pages/js/transfer-detail.js:1090
+//     /extract-supacolor-jobs-list   dashboards/js/supacolor-orders.js:280
+//     /extract-supacolor-job-detail  dashboards/js/supacolor-orders.js:303,
+//                                    pages/js/supacolor-job-detail.js:137
+//     /extract-mockup-info           (referenced by the transfer flow)
+// Closing those needs an app-side SAML forwarder per caller first — tracked separately.
+//
+// /extract-shopworks has NO browser caller: the 253Gear Publisher reaches it through
+// the app's requirePageAccess forwarder, so it can be closed today.
+app.use('/api/vision/extract-shopworks', requireCrmApiSecret);
 app.use('/api/vision', visionLimiter, visionRoutes);
-console.log('✓ Vision routes loaded (rate limited: 10 req/min)');
+console.log('✓ Vision routes loaded (rate limited: 10 req/min; extract-shopworks secret-gated)');
 
 // --- Admin Metrics Endpoint ---
 // Caspio quota meter. `?full=1` returns the COMPLETE per-table/per-endpoint

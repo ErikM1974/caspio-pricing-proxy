@@ -36,6 +36,11 @@ Look at the screenshot and extract ALL visible fields. The screenshot may show a
 **Design tab** — look for:
 - Design number (in "Currently Viewing" section, the number before the dash)
 - Design name (text after the design number)
+- Design description / notes: any LONGER free-text describing the design — a "Notes to
+  Production" box, a description field, or artwork notes. Copy it VERBATIM. Do not
+  summarise it, do not tidy it, and do not invent one if there is no such field: return
+  null. (Used as the mandatory design description on 253gear.com storefront listings, so
+  a guessed value would become a permanent product record.)
 - Order type (shown as badge in top-right, e.g. "EMB", "DTG", "SP")
 - Number of locations
 - Location code (2-3 letter code like "LC", "FB", "FF", "CB", "CFC", "CLP", "CRS" — shown in the Location dropdown or field)
@@ -71,6 +76,7 @@ JSON schema:
   "reqShipDate": "string|null",
   "designNumber": "string|null",
   "designName": "string|null",
+  "designDescription": "string|null",
   "orderType": "string|null",
   "locations": "number|null",
   "locationCode": "string|null",
