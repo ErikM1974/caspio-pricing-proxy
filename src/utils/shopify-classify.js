@@ -55,16 +55,21 @@ function primaryToken(tag) {
 /**
  * Deterministic pass: does the artwork text name exactly one known place?
  *
+ * ⚠️ Matches on the city's NAME ("Tacoma"), never on its tag. The tags are prefixed —
+ * `city:Tacoma` — so tokenising the tag would try to match the literal word "city" in
+ * the artwork and hit on every design that happens to print it.
+ *
+ * @param cities  config.cities — [{ name, tag, collection }]
  * @returns { method, city, confidence, reason, candidates }
  *   method 'text'      — one match; settled
  *   method 'ambiguous' — several; a human picks, we do NOT guess
  *   method 'none'      — no match; the caller may ask the model
  */
-function classifyFromText(designText, vocabulary) {
-    const vocab = (vocabulary || []).map((v) => String(v).toLowerCase());
-    if (!vocab.length) {
+function classifyFromText(designText, cities) {
+    const list = (cities || []).filter((c) => c && c.name);
+    if (!list.length) {
         return { method: 'unavailable', city: null, confidence: 'none', candidates: [],
-            reason: 'The collection rules have not been read yet, so there is no vocabulary to match against.' };
+            reason: 'The collection rules have not been read yet, so there is no city list to match against.' };
     }
 
     const tokens = new Set(tokenize(designText));
@@ -73,10 +78,9 @@ function classifyFromText(designText, vocabulary) {
             reason: 'No readable text in the design.' };
     }
 
-    const matches = vocab.filter((tag) => {
-        const primary = primaryToken(tag);
-        return primary && tokens.has(primary);
-    });
+    const matches = list
+        .filter((c) => tokens.has(String(c.name).toLowerCase()))
+        .map((c) => c.name);
 
     if (matches.length === 1) {
         return {
@@ -84,7 +88,7 @@ function classifyFromText(designText, vocabulary) {
             city: matches[0],
             confidence: 'high',
             candidates: matches,
-            reason: `The design text says "${primaryToken(matches[0]).toUpperCase()}".`
+            reason: `The design text says "${matches[0].toUpperCase()}".`
         };
     }
 
@@ -111,20 +115,22 @@ function classifyFromText(designText, vocabulary) {
  * file on. A suggestion outside the vocabulary is discarded — a tag that matches no
  * rule silently files nothing, which looks like success and is not.
  */
-function acceptModelSuggestion(suggestion, vocabulary) {
-    const vocab = (vocabulary || []).map((v) => String(v).toLowerCase());
-    const city = String((suggestion && suggestion.city) || '').trim().toLowerCase();
+function acceptModelSuggestion(suggestion, cities) {
+    const list = (cities || []).filter((c) => c && c.name);
+    const wanted = String((suggestion && suggestion.city) || '').trim().toLowerCase();
 
-    if (!city) {
+    if (!wanted) {
         return { method: 'none', city: null, confidence: 'none', candidates: [],
             reason: 'No place could be identified from the artwork — needs a human.' };
     }
-    if (!vocab.includes(city)) {
+    const hit = list.find((c) => String(c.name).toLowerCase() === wanted);
+    if (!hit) {
         return {
             method: 'none', city: null, confidence: 'none', candidates: [],
-            reason: `Suggested "${city}", which no collection files on — needs a human.`
+            reason: `Suggested "${suggestion.city}", which no collection files on — needs a human.`
         };
     }
+    const city = hit.name;
 
     const confidence = ['high', 'medium', 'low'].includes(String(suggestion.confidence).toLowerCase())
         ? String(suggestion.confidence).toLowerCase()
@@ -146,40 +152,52 @@ function acceptModelSuggestion(suggestion, vocabulary) {
  * Returns `{ tags, rejected }` — a city outside the vocabulary lands in `rejected`
  * rather than being emitted, so a tag can never claim membership it will not get.
  */
+/**
+ * Assemble the tag set.
+ *
+ * 🔴 Tags are emitted EXACTLY as the collection rules spell them — `city:Tacoma`,
+ * `T-Shirt`, `253`. Never lowercased, never slugified. An earlier version slugified
+ * everything, which produced tags matching no rule at all: the product would have
+ * published into zero collections, invisible to anyone browsing by town, with nothing
+ * reporting a problem.
+ */
 function buildTagSet({ city, styles = [] }, cfg) {
-    const vocab = (cfg.tagVocabulary || []).map((v) => String(v).toLowerCase());
-    const tags = new Set((cfg.baseTags || []).map((t) => String(t).toLowerCase()));
+    const cities = cfg.cities || [];
+    const tags = new Set((cfg.baseTags || []).map((t) => String(t).trim()));
     const rejected = [];
 
     const wanted = String(city || '').trim().toLowerCase();
     if (wanted) {
-        if (vocab.includes(wanted)) tags.add(wanted);
-        else rejected.push(wanted);
+        const hit = cities.find((c) =>
+            String(c.name).toLowerCase() === wanted ||
+            String(c.tag).toLowerCase() === wanted ||
+            String(c.collection).toLowerCase() === wanted);
+        if (hit) tags.add(hit.tag);
+        else rejected.push(city);
     }
 
     for (const option of styles) {
         const def = (cfg.styles || []).find((s) => s.option === option);
-        if (def && def.filterTag) tags.add(String(def.filterTag).toLowerCase());
+        if (def && def.filterTag) tags.add(String(def.filterTag).trim());
     }
 
     return { tags: Array.from(tags), rejected };
 }
 
 /**
- * Which collections a tag set will actually land in, per the discovered rules.
- * Used by the review pane so Steve sees the consequence, not just the tags.
+ * Which collections a tag set will actually land in, so the review pane shows the
+ * consequence rather than just the tags. Comparison is case-insensitive because
+ * Shopify matches tags that way.
  */
 function collectionsForTags(tags, cfg) {
-    const rules = cfg.collectionRules || [];
-    if (!rules.length) return { known: false, handles: [] };
+    const cities = cfg.cities || [];
+    if (!cities.length) return { known: false, handles: [] };
 
     const lower = new Set((tags || []).map((t) => String(t).toLowerCase()));
-    const handles = new Set();
-    for (const r of rules) {
-        if (String(r.column).toUpperCase() !== 'TAG') continue;
-        if (lower.has(String(r.condition).trim().toLowerCase())) handles.add(r.handle);
-    }
-    return { known: true, handles: Array.from(handles) };
+    const handles = cities
+        .filter((c) => lower.has(String(c.tag).toLowerCase()))
+        .map((c) => c.collection);
+    return { known: true, handles };
 }
 
 /** Trim an SEO field to Google's usable width without cutting mid-word. */

@@ -276,12 +276,12 @@ router.post('/classify', express.json({ limit: '64kb' }), async (req, res) => {
 
         const { buffer, contentType } = await orchestrator.fetchStoredFile(externalKey);
         const seen = await analyzeDesign(buffer, contentType, {
-            vocabulary: cfg.tagVocabulary,
+            vocabulary: (cfg.cities || []).map((c) => c.name),
             designName
         });
 
         // 1) The artwork's own words decide, when they can.
-        let verdict = classifyFromText(seen.design_text, cfg.tagVocabulary);
+        let verdict = classifyFromText(seen.design_text, cfg.cities);
 
         // 2) Only ask the model to stand in when the text said nothing.
         //    An 'ambiguous' verdict is NOT overridden — two named places is a question
@@ -289,7 +289,7 @@ router.post('/classify', express.json({ limit: '64kb' }), async (req, res) => {
         if (verdict.method === 'none' && seen.city) {
             verdict = acceptModelSuggestion(
                 { city: seen.city, confidence: seen.city_confidence, reason: seen.city_reason },
-                cfg.tagVocabulary
+                cfg.cities
             );
         }
 

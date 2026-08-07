@@ -18,7 +18,10 @@ const MAX_SHOPIFY_OPTIONS = 3;          // Shopify's hard cap (253gear CLAUDE.md
 const DESIGN_NUMBER_RE = /^\d{4,6}$/;   // matches audit.py:35
 const SEO_TITLE_MAX = 60;
 const SEO_DESCRIPTION_MAX = 155;
-const WEIGHT_UNIT = 'OUNCES';
+// GRAMS, matching every live variant on the store. The reference docs quote SanMar's
+// fabric weight in ounces per square yard, which is a different quantity entirely —
+// using it as a shipping weight would put a hoodie at ~12 oz instead of ~490 g.
+const WEIGHT_UNIT = 'GRAMS';
 
 class ProductBuildError extends Error {
     constructor(message, code, detail) {
@@ -138,11 +141,40 @@ function styleDefFor(styleOption, config) {
     return def;
 }
 
-function skuFor(styleOption, catalogColor, size, config) {
+/**
+ * SKU, matching what the 47 live products already use.
+ *
+ * Base SanMar style for S-XL, with an underscore suffix for the upsizes:
+ * PC54, then PC54_2XL / PC54_3XL / PC54_4XL. Colour is deliberately NOT in the SKU —
+ * measured off the live catalogue, and the SanMar/ShopWorks size-suffix convention is
+ * what downstream systems key on. A colour-bearing SKU would look tidier and be wrong.
+ */
+function skuFor(styleOption, size, config) {
     const def = styleDefFor(styleOption, config);
-    const color = String(catalogColor || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
-    const sz = String(size || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
-    return [def.sanmarStyle, color, sz].filter(Boolean).join('-');
+    const upsizes = config.upsizes || [];
+    const sz = String(size || '').trim().toUpperCase();
+    return upsizes.includes(sz) ? `${def.sanmarStyle}_${sz}` : def.sanmarStyle;
+}
+
+/**
+ * Shipping weight in GRAMS, laddered by size.
+ *
+ * Measured live: a tee runs 159 g at base and 295 g at 4XL; a hoodie 490 g to 680 g.
+ * A flat per-style weight would under-quote shipping on every large garment, which is
+ * money lost quietly on every order rather than an error anyone would see.
+ */
+function weightFor(styleOption, size, config) {
+    const def = styleDefFor(styleOption, config);
+    const sz = String(size || '').trim().toUpperCase();
+    const upsize = def.upsizeWeightGrams && def.upsizeWeightGrams[sz];
+    const grams = Number(upsize !== undefined ? upsize : def.weightGrams);
+    if (!Number.isFinite(grams) || grams <= 0) {
+        throw new ProductBuildError(
+            `No usable weight for ${styleOption} ${sz} — set weightGrams in the config`,
+            'MISSING_WEIGHT', { styleOption, size: sz }
+        );
+    }
+    return grams;
 }
 
 // ── Options ──────────────────────────────────────────────────────────────────
@@ -215,12 +247,12 @@ function buildVariants({ styles, sizes, colors, seasonal = false, seasons = [] }
                         { optionName: 'Color', name: color.colorName || color.name }
                     ],
                     price: priceFor(styleOption, size, config),
-                    sku: skuFor(styleOption, color.catalogColor || color.colorName || color.name, size, config),
+                    sku: skuFor(styleOption, size, config),
                     inventoryPolicy: 'CONTINUE',
                     inventoryItem: {
                         tracked: false,
                         requiresShipping: true,
-                        measurement: { weight: { value: Number(def.weightOz), unit: WEIGHT_UNIT } }
+                        measurement: { weight: { value: weightFor(styleOption, size, config), unit: WEIGHT_UNIT } }
                     },
                     // Retained for binding; stripped before the mutation is sent.
                     _key: bindingKey(styleOption, color.catalogColor || color.colorName || color.name)
@@ -307,29 +339,64 @@ function optionValue(variant, optionName) {
  * `config.tagVocabulary` is derived from the live collections' ruleSet, so an emitted
  * tag that matches nothing is a build error rather than a silently unfiled product.
  */
+/**
+ * Resolve a city to the LITERAL Shopify tag its collection keys on.
+ *
+ * 🔴 The tag is not the collection handle and is not a slug. Read live from the
+ * smart-collection ruleSets: the `tacoma` collection requires the tag `city:Tacoma` —
+ * prefixed and capitalised. Emitting a slugified `tacoma` matches no rule, so the
+ * product publishes into ZERO collections: invisible to anyone browsing by town and
+ * absent from the "Shop by City" menu, with nothing anywhere reporting an error.
+ *
+ * Accepts a display name ("Tacoma"), a handle ("washington-pnw") or the literal tag,
+ * because the classifier and the UI each hold a different one of those.
+ */
+function cityTagFor(city, config) {
+    const wanted = String(city || '').trim().toLowerCase();
+    if (!wanted) return null;
+    const cities = config.cities || [];
+    const hit = cities.find((c) =>
+        String(c.name).toLowerCase() === wanted ||
+        String(c.tag).toLowerCase() === wanted ||
+        String(c.collection).toLowerCase() === wanted);
+    return hit ? hit.tag : null;
+}
+
 function buildTags({ city, styles = [], extraTags = [], seasonal = false }, config) {
     const tags = new Set(config.baseTags || []);
 
     if (city) {
-        const citySlug = slugify(city);
-        const vocabulary = config.tagVocabulary || [];
-        if (vocabulary.length && !vocabulary.includes(citySlug)) {
+        const tag = cityTagFor(city, config);
+        if (!tag) {
             throw new ProductBuildError(
-                `"${citySlug}" is not a tag any collection files on`, 'UNKNOWN_CITY_TAG',
-                { city: citySlug, known: vocabulary }
+                `"${city}" is not a city any collection files on`, 'UNKNOWN_CITY_TAG',
+                { city, known: (config.cities || []).map((c) => c.name) }
             );
         }
-        tags.add(citySlug);
+        tags.add(tag);
     }
 
+    // Garment filter tags are literal too — 'T-Shirt' and 'Hoodie', not slugs.
     for (const styleOption of styles) {
         const def = (config.styles || []).find((s) => s.option === styleOption);
         if (def && def.filterTag) tags.add(def.filterTag);
     }
-    if (seasonal) tags.add('seasonal');
-    for (const t of extraTags) if (t) tags.add(slugify(t));
+    if (seasonal) tags.add('Seasonal');
+    for (const t of extraTags) if (t) tags.add(String(t).trim());
 
     return Array.from(tags);
+}
+
+/**
+ * Which collections a tag set will actually land in, per the discovered rules.
+ * Tag comparison is case-insensitive because Shopify matches tags that way, even
+ * though the rules are stored capitalised.
+ */
+function collectionsFor(tags, config) {
+    const lower = new Set((tags || []).map((t) => String(t).toLowerCase()));
+    return (config.cities || [])
+        .filter((c) => lower.has(String(c.tag).toLowerCase()))
+        .map((c) => c.collection);
 }
 
 function buildSeo({ seoTitle, seoDescription }) {
@@ -385,6 +452,12 @@ function buildProductSetInput(payload, config) {
     const options = buildOptions({ styles, sizes, colors, seasonal, seasons });
     const variants = buildVariants({ styles, sizes, colors, seasonal, seasons }, config);
 
+    // productType follows the primary garment ('T-Shirt' / 'Sweatshirt'), matching the
+    // live catalogue, rather than one blanket value for everything.
+    const primaryStyle = styles[0];
+    const primaryDef = (config.styles || []).find((s) => s.option === primaryStyle);
+    const productType = (primaryDef && primaryDef.productType) || config.productType || '';
+
     for (const v of variants) {
         const styleOption = seasonal ? styles[0] : optionValue(v, 'Style');
         assertPriceOnLadder(styleOption, optionValue(v, 'Size'), v.price, config);
@@ -395,7 +468,7 @@ function buildProductSetInput(payload, config) {
         handle: buildHandle(designName, city, { suffix: handleSuffix }),
         descriptionHtml: String(descriptionHtml || ''),
         vendor: config.vendor || '',
-        productType: config.productType || '',
+        productType,
         status: 'DRAFT',
         tags: buildTags({ city, styles, extraTags, seasonal }, config),
         seo: buildSeo({ seoTitle, seoDescription }),
@@ -416,6 +489,9 @@ module.exports = {
     buildOptions,
     buildVariants,
     buildTags,
+    cityTagFor,
+    collectionsFor,
+    weightFor,
     buildSeo,
     seoWarnings,
     buildVariantMediaBindings,

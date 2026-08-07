@@ -33,7 +33,15 @@ const configCache = createTtlCache({ name: 'shopify-config', ttlMs: 5 * 60 * 100
  * `styles` carries per-garment price, SanMar style, weight and filter tag together,
  * so a new garment is ONE row to edit rather than four.
  */
-const REQUIRED_KEYS = ['styles', 'size_ladder', 'size_order', 'base_tags', 'vendor', 'product_type'];
+const REQUIRED_KEYS = [
+    'styles', 'size_ladder', 'size_order', 'base_tags', 'vendor', 'product_type',
+    // `cities` maps a city to the LITERAL tag its collection keys on ("city:Tacoma").
+    // Required, because without it buildTags would have to guess a tag format, and a
+    // wrong guess files the product into no collection with no error anywhere.
+    'cities',
+    // Sizes that take a SKU suffix and a heavier shipping weight.
+    'upsizes'
+];
 
 // Written by POST /api/shopify/config/refresh-collections after reading the live
 // smart-collection ruleSets. Absent until that has run at least once.
@@ -124,6 +132,14 @@ function shapeConfig(map) {
         if (!s.sanmarStyle) {
             throw new ConfigError(`Style "${s.option}" has no sanmarStyle (needed for SKU and weight)`, 'BAD_CONFIG', { option: s.option });
         }
+        // Same absent-vs-zero rule as price: a missing shipping weight must refuse,
+        // not quietly become 0 g and under-quote every shipment.
+        if (!Number.isFinite(Number(s.weightGrams)) || Number(s.weightGrams) <= 0) {
+            throw new ConfigError(
+                `Style "${s.option}" has no usable weightGrams`, 'NOT_CONFIGURED',
+                { option: s.option, got: s.weightGrams }
+            );
+        }
         prices[s.option] = Number(s.price);
     }
 
@@ -132,6 +148,8 @@ function shapeConfig(map) {
         styles,
         sizeLadder: map.size_ladder || {},
         sizeOrder: map.size_order || [],
+        upsizes: map.upsizes || [],
+        cities: map.cities || [],
         baseTags: map.base_tags || [],
         tagVocabulary: map.tag_vocabulary || [],
         collectionRules: map.collection_rules || [],

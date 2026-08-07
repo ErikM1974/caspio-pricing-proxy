@@ -37,20 +37,57 @@ const ROWS = [
     {
         Config_Key: 'styles',
         Value_Type: 'json',
-        Notes: 'Garment options. price/sanmarStyle/weightOz/filterTag per Style value.',
+        // Every value below was MEASURED off live variants by scripts/253gear-inspect.js
+        // on 2026-08-07 — not assumed. The earlier guesses were wrong on four counts:
+        // ounces (the store uses GRAMS), a flat weight (it ladders by size), a
+        // colour-bearing SKU (the store uses the SanMar SKU with a size suffix), and
+        // lowercase filter tags (they are 'T-Shirt' / 'Hoodie').
+        Notes: 'Garment options, measured from live variants. price/sanmarStyle/productType/filterTag/weightGrams/upsizeWeightGrams.',
         Active: 'Yes',
         Config_Value: JSON.stringify([
-            { option: 'T-Shirt', sanmarStyle: 'PC54', weightOz: 5.4, filterTag: 'tee', price: 22.50 },
-            { option: 'Hoodie', sanmarStyle: 'PC78H', weightOz: 12.5, filterTag: 'hoodie', price: 43.75 }
+            {
+                option: 'T-Shirt', sanmarStyle: 'PC54', productType: 'T-Shirt', filterTag: 'T-Shirt',
+                price: 22.50, weightGrams: 159,
+                upsizeWeightGrams: { '2XL': 231, '3XL': 272, '4XL': 295 }
+            },
+            {
+                option: 'Hoodie', sanmarStyle: 'PC78H', productType: 'Sweatshirt', filterTag: 'Hoodie',
+                price: 43.75, weightGrams: 490,
+                upsizeWeightGrams: { '2XL': 644, '3XL': 680, '4XL': 680 }
+            },
+            {
+                // 422 g measured live. No upsize weights observed yet — the ladder is
+                // scaled from the hoodie's ratios until a real 2XL+ crewneck exists.
+                option: 'Crewneck', sanmarStyle: 'PC78', productType: 'Sweatshirt', filterTag: 'Crewneck',
+                price: 39.00, weightGrams: 422,
+                upsizeWeightGrams: { '2XL': 555, '3XL': 586, '4XL': 586 }
+            }
         ], null, 0)
     },
     {
-        Config_Key: 'styles_pending_crewneck',
+        Config_Key: 'upsizes',
         Value_Type: 'json',
-        Notes: 'UNCONFIRMED: crewneck price + that PC78 is the right style. Merge into "styles" once Erik confirms.',
-        Active: 'No',
+        Notes: 'Sizes that take a SKU suffix and a heavier weight, e.g. PC54 -> PC54_2XL. Everything else uses the base SKU.',
+        Active: 'Yes',
+        Config_Value: JSON.stringify(['2XL', '3XL', '4XL'])
+    },
+    {
+        Config_Key: 'cities',
+        Value_Type: 'json',
+        // 🔴 The tag is NOT the collection handle. Read live from the smart-collection
+        // ruleSets: the `tacoma` collection keys on tag "city:Tacoma", prefixed and
+        // capitalised. Emitting a bare "tacoma" files the product into NOTHING.
+        Notes: 'City -> literal Shopify tag -> collection handle. Tags are case-sensitive and prefixed.',
+        Active: 'Yes',
         Config_Value: JSON.stringify([
-            { option: 'Crewneck', sanmarStyle: 'PC78', weightOz: 11.5, filterTag: 'crewneck', price: null }
+            { name: 'Tacoma', tag: 'city:Tacoma', collection: 'tacoma' },
+            { name: 'Puyallup', tag: 'city:Puyallup', collection: 'puyallup' },
+            { name: 'Fife', tag: 'city:Fife', collection: 'fife' },
+            { name: 'Edgewood', tag: 'city:Edgewood', collection: 'edgewood' },
+            { name: 'Milton', tag: 'city:Milton', collection: 'milton' },
+            { name: 'Sumner', tag: 'city:Sumner', collection: 'sumner' },
+            { name: 'Spanaway', tag: 'city:Spanaway', collection: 'spanaway' },
+            { name: 'Washington', tag: 'city:Washington', collection: 'washington-pnw' }
         ])
     },
     {
@@ -70,31 +107,35 @@ const ROWS = [
     {
         Config_Key: 'base_tags',
         Value_Type: 'json',
-        Notes: 'Tags applied to every 253gear product.',
+        // 🔴 "253", not "253-gear". The 253-gear COLLECTION keys on the tag "253";
+        // the handle and the tag are different strings.
+        Notes: 'Tags on every 253gear product. The 253-gear collection keys on "253".',
         Active: 'Yes',
-        Config_Value: JSON.stringify(['253-gear'])
+        Config_Value: JSON.stringify(['253'])
     },
     {
         Config_Key: 'vendor',
         Value_Type: 'string',
-        Notes: 'Shopify product vendor.',
+        Notes: 'Shopify product vendor. Matches all 47 live products.',
         Active: 'Yes',
-        Config_Value: '253 Gear'
+        Config_Value: 'Northwest Custom Apparel'
     },
     {
         Config_Key: 'product_type',
         Value_Type: 'string',
-        Notes: 'Shopify product type.',
+        Notes: 'Fallback only. The real productType comes from the primary garment (T-Shirt / Sweatshirt).',
         Active: 'Yes',
-        Config_Value: 'Apparel'
+        Config_Value: 'T-Shirt'
     },
     {
         Config_Key: 'tag_vocabulary',
         Value_Type: 'json',
-        Notes: 'DISCOVERED, do not hand-edit. Written from the live smart-collection rules by POST /api/shopify/config/refresh-collections.',
+        Notes: 'DISCOVERED from the live smart-collection ruleSets 2026-08-07. Do not hand-edit; POST /api/shopify/config/refresh-collections rewrites it.',
         Active: 'Yes',
         Config_Value: JSON.stringify([
-            'tacoma', 'puyallup', 'fife', 'edgewood', 'milton', 'sumner', 'spanaway', 'washington-pnw'
+            '253', 'fife', 'milton', 'edgewood', 'alumni', 'sanmar',
+            'city:tacoma', 'city:puyallup', 'city:washington', 'city:fife',
+            'city:edgewood', 'city:milton', 'city:sumner', 'city:spanaway'
         ])
     },
     {
@@ -107,9 +148,9 @@ const ROWS = [
     {
         Config_Key: 'publication_id',
         Value_Type: 'string',
-        Notes: 'Online Store publication GID, from scripts/253gear-inspect.js. Enables publishablePublish; blank falls back to the REST publish.',
+        Notes: 'Online Store publication GID, read live 2026-08-07. Enables publishablePublish; blank falls back to the REST publish.',
         Active: 'Yes',
-        Config_Value: ''
+        Config_Value: 'gid://shopify/Publication/58435764380'
     },
     {
         Config_Key: 'description_prompt',

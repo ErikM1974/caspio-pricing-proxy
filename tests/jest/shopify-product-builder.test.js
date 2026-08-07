@@ -13,15 +13,23 @@ const CONFIG = {
     prices: { 'T-Shirt': 22.50, 'Hoodie': 43.75, 'Crewneck': 39.00 },
     sizeLadder: { '2XL': 2, '3XL': 3, '4XL': 4 },
     sizeOrder: ['S', 'M', 'L', 'XL', '2XL', '3XL', '4XL'],
+    upsizes: ['2XL', '3XL', '4XL'],
     styles: [
-        { option: 'T-Shirt', sanmarStyle: 'PC54', weightOz: 5.4, filterTag: 'tee' },
-        { option: 'Hoodie', sanmarStyle: 'PC78H', weightOz: 12.5, filterTag: 'hoodie' },
-        { option: 'Crewneck', sanmarStyle: 'PC78', weightOz: 11.5, filterTag: 'crewneck' }
+        { option: 'T-Shirt', sanmarStyle: 'PC54', productType: 'T-Shirt', filterTag: 'T-Shirt',
+          price: 22.50, weightGrams: 159, upsizeWeightGrams: { '2XL': 231, '3XL': 272, '4XL': 295 } },
+        { option: 'Hoodie', sanmarStyle: 'PC78H', productType: 'Sweatshirt', filterTag: 'Hoodie',
+          price: 43.75, weightGrams: 490, upsizeWeightGrams: { '2XL': 644, '3XL': 680, '4XL': 680 } },
+        { option: 'Crewneck', sanmarStyle: 'PC78', productType: 'Sweatshirt', filterTag: 'Crewneck',
+          price: 39.00, weightGrams: 422, upsizeWeightGrams: { '2XL': 555, '3XL': 586, '4XL': 586 } }
     ],
-    tagVocabulary: ['tacoma', 'puyallup', 'fife', 'edgewood', 'milton', 'sumner', 'spanaway', 'washington-pnw'],
-    baseTags: ['253-gear'],
-    vendor: '253 Gear',
-    productType: 'Apparel'
+    cities: [
+        { name: 'Tacoma', tag: 'city:Tacoma', collection: 'tacoma' },
+        { name: 'Sumner', tag: 'city:Sumner', collection: 'sumner' },
+        { name: 'Washington', tag: 'city:Washington', collection: 'washington-pnw' }
+    ],
+    baseTags: ['253'],
+    vendor: 'Northwest Custom Apparel',
+    productType: 'T-Shirt'
 };
 
 const COLORS = [
@@ -144,21 +152,52 @@ describe('variants', () => {
         expect(variants.every((v) => v.inventoryPolicy === 'CONTINUE')).toBe(true);
     });
 
-    test('every variant has a price, a SKU and a weight', () => {
+    test('every variant has a price, a SKU and a weight in GRAMS', () => {
+        // Grams, not ounces — matching all 47 live products. The ounce figures in the
+        // reference docs are SanMar's FABRIC weight (oz/yd²), a different quantity.
         for (const v of variants) {
             expect(v.price).toMatch(/^\d+\.\d{2}$/);
             expect(v.sku).toBeTruthy();
             expect(v.inventoryItem.measurement.weight.value).toBeGreaterThan(0);
-            expect(v.inventoryItem.measurement.weight.unit).toBe('OUNCES');
+            expect(v.inventoryItem.measurement.weight.unit).toBe('GRAMS');
         }
     });
 
-    test('SKU and weight follow the SanMar style, not the display name', () => {
+    test('SKU is the SanMar style with an upsize suffix, and carries no colour', () => {
+        // Measured off the live catalogue: PC54 / PC54_2XL, never PC54-JETBLACK-2XL.
         const hoodie2xl = variants.find((v) =>
             v.optionValues.some((o) => o.name === 'Hoodie') && v.optionValues.some((o) => o.name === '2XL'));
-        expect(hoodie2xl.sku).toBe('PC78H-JETBLACK-2XL');
-        expect(hoodie2xl.inventoryItem.measurement.weight.value).toBe(12.5);
+        const hoodieL = variants.find((v) =>
+            v.optionValues.some((o) => o.name === 'Hoodie') && v.optionValues.some((o) => o.name === 'L'));
+
+        expect(hoodie2xl.sku).toBe('PC78H_2XL');
+        expect(hoodieL.sku).toBe('PC78H');
+        expect(hoodie2xl.sku).not.toMatch(/JETBLACK|NAVY/);
         expect(hoodie2xl.price).toBe('45.75');
+    });
+
+    test('two colours of the same garment+size share one SKU, as the live store does', () => {
+        const black = variants.find((v) => v.optionValues.some((o) => o.name === 'Jet Black')
+            && v.optionValues.some((o) => o.name === 'T-Shirt') && v.optionValues.some((o) => o.name === 'L'));
+        const navy = variants.find((v) => v.optionValues.some((o) => o.name === 'Navy')
+            && v.optionValues.some((o) => o.name === 'T-Shirt') && v.optionValues.some((o) => o.name === 'L'));
+        expect(black.sku).toBe(navy.sku);
+        expect(black.sku).toBe('PC54');
+    });
+
+    test('shipping weight LADDERS by size — a flat weight under-quotes every big garment', () => {
+        // Live: tee 159 g base -> 295 g at 4XL; hoodie 490 g -> 680 g.
+        expect(B.weightFor('T-Shirt', 'L', CONFIG)).toBe(159);
+        expect(B.weightFor('T-Shirt', '2XL', CONFIG)).toBe(231);
+        expect(B.weightFor('T-Shirt', '4XL', CONFIG)).toBe(295);
+        expect(B.weightFor('Hoodie', 'L', CONFIG)).toBe(490);
+        expect(B.weightFor('Hoodie', '3XL', CONFIG)).toBe(680);
+        expect(B.weightFor('Crewneck', 'L', CONFIG)).toBe(422);
+    });
+
+    test('a style with no weight refuses rather than shipping at 0 g', () => {
+        const noWeight = { ...CONFIG, styles: [{ option: 'T-Shirt', sanmarStyle: 'PC54', price: 22.50 }] };
+        expect(() => B.weightFor('T-Shirt', 'L', noWeight)).toThrow(/No usable weight/);
     });
 
     test('a seasonal product still prices and SKUs off its one real garment', () => {
@@ -168,25 +207,44 @@ describe('variants', () => {
         );
         expect(seasonal).toHaveLength(2);
         expect(seasonal.every((v) => v.price === '22.50')).toBe(true);
-        expect(seasonal.every((v) => v.sku.startsWith('PC54-'))).toBe(true);
+        expect(seasonal.every((v) => v.sku === 'PC54')).toBe(true);   // L is not an upsize
         expect(seasonal.map((v) => v.optionValues[0].name)).toEqual(['Winter', 'Fall']);
     });
 });
 
-describe('tags drive categorisation', () => {
-    test('city, garment filter and the house tag are all emitted', () => {
+describe('tags drive categorisation — and the exact string matters', () => {
+    test('emits the LITERAL tags the collection rules key on', () => {
+        // 🔴 city:Sumner, not sumner. 253, not 253-gear. T-Shirt, not tee.
+        // These were all wrong before the live rules were read, and a wrong tag files
+        // the product into NO collection while reporting success.
         const tags = B.buildTags({ city: 'Sumner', styles: ['T-Shirt', 'Hoodie'] }, CONFIG);
-        expect(tags).toEqual(expect.arrayContaining(['253-gear', 'sumner', 'tee', 'hoodie']));
+        expect(tags.sort()).toEqual(['253', 'Hoodie', 'T-Shirt', 'city:Sumner']);
+    });
+
+    test('tags are never slugified or lowercased', () => {
+        const tags = B.buildTags({ city: 'Tacoma', styles: ['T-Shirt'] }, CONFIG);
+        expect(tags).toContain('city:Tacoma');
+        expect(tags).not.toContain('city:tacoma');
+        expect(tags).not.toContain('tacoma');
+    });
+
+    test('a city is accepted by name, by tag, or by collection handle', () => {
+        // The classifier holds a name, the UI a handle, a resume payload the tag.
+        expect(B.cityTagFor('Washington', CONFIG)).toBe('city:Washington');
+        expect(B.cityTagFor('city:Washington', CONFIG)).toBe('city:Washington');
+        expect(B.cityTagFor('washington-pnw', CONFIG)).toBe('city:Washington');
     });
 
     test('a city no collection files on is a build error, not a silently unfiled product', () => {
         expect(() => B.buildTags({ city: 'Seattle', styles: ['T-Shirt'] }, CONFIG))
-            .toThrow(/is not a tag any collection files on/);
+            .toThrow(/is not a city any collection files on/);
     });
 
-    test('multi-word cities slugify to the collection handle', () => {
-        const tags = B.buildTags({ city: 'Washington PNW', styles: [] }, CONFIG);
-        expect(tags).toContain('washington-pnw');
+    test('the emitted tags resolve to the collections they claim', () => {
+        const tags = B.buildTags({ city: 'Tacoma', styles: ['T-Shirt'] }, CONFIG);
+        expect(B.collectionsFor(tags, CONFIG)).toEqual(['tacoma']);
+        // A garment tag files nothing on its own.
+        expect(B.collectionsFor(['T-Shirt'], CONFIG)).toEqual([]);
     });
 });
 
@@ -199,7 +257,9 @@ describe('buildProductSetInput', () => {
         expect(input.handle).toBe('retro-sumner');    // city already in the name
         expect(input.productOptions).toHaveLength(3);
         expect(input.variants).toHaveLength(2 * 2 * 7);
-        expect(input.tags).toEqual(expect.arrayContaining(['253-gear', 'sumner', 'tee', 'hoodie']));
+        expect(input.tags).toEqual(expect.arrayContaining(['253', 'city:Sumner', 'T-Shirt', 'Hoodie']));
+        expect(input.vendor).toBe('Northwest Custom Apparel');
+        expect(input.productType).toBe('T-Shirt');   // follows the primary garment
         expect(input.seo.title).toBeTruthy();
         expect(input.seo.description).toBeTruthy();
     });

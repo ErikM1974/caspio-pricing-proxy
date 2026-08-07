@@ -11,9 +11,17 @@ jest.mock('../../src/utils/caspio', () => ({
 
 const C = require('../../src/utils/shopify-config');
 
+// Shapes and values measured off the live store 2026-08-07 (253gear-inspect.js).
 const STYLES = [
-    { option: 'T-Shirt', sanmarStyle: 'PC54', weightOz: 5.4, filterTag: 'tee', price: 22.50 },
-    { option: 'Hoodie', sanmarStyle: 'PC78H', weightOz: 12.5, filterTag: 'hoodie', price: 43.75 }
+    { option: 'T-Shirt', sanmarStyle: 'PC54', productType: 'T-Shirt', filterTag: 'T-Shirt',
+      price: 22.50, weightGrams: 159, upsizeWeightGrams: { '2XL': 231 } },
+    { option: 'Hoodie', sanmarStyle: 'PC78H', productType: 'Sweatshirt', filterTag: 'Hoodie',
+      price: 43.75, weightGrams: 490, upsizeWeightGrams: { '2XL': 644 } }
+];
+
+const CITIES = [
+    { name: 'Tacoma', tag: 'city:Tacoma', collection: 'tacoma' },
+    { name: 'Sumner', tag: 'city:Sumner', collection: 'sumner' }
 ];
 
 function rows(over = {}) {
@@ -21,9 +29,11 @@ function rows(over = {}) {
         styles: { v: JSON.stringify(STYLES), t: 'json' },
         size_ladder: { v: JSON.stringify({ '2XL': 2, '3XL': 3, '4XL': 4 }), t: 'json' },
         size_order: { v: JSON.stringify(['S', 'M', 'L']), t: 'json' },
-        base_tags: { v: JSON.stringify(['253-gear']), t: 'json' },
-        vendor: { v: '253 Gear', t: 'string' },
-        product_type: { v: 'Apparel', t: 'string' },
+        upsizes: { v: JSON.stringify(['2XL', '3XL', '4XL']), t: 'json' },
+        cities: { v: JSON.stringify(CITIES), t: 'json' },
+        base_tags: { v: JSON.stringify(['253']), t: 'json' },
+        vendor: { v: 'Northwest Custom Apparel', t: 'string' },
+        product_type: { v: 'T-Shirt', t: 'string' },
         ...over
     };
     return Object.entries(base)
@@ -98,20 +108,20 @@ describe('shaping', () => {
         ['negative', -5],
         ['non-numeric', 'TBD']
     ])('a %s price refuses — it never becomes $0.00', (_label, price) => {
-        const styles = [{ option: 'Crewneck', sanmarStyle: 'PC78', weightOz: 11.5, filterTag: 'crewneck', price }];
+        const styles = [{ option: 'Crewneck', sanmarStyle: 'PC78', filterTag: 'Crewneck', weightGrams: 422, price }];
         expect(() => C.shapeConfig(C.rowsToMap(rows({ styles: { v: JSON.stringify(styles), t: 'json' } }))))
             .toThrow(/no usable price/);
     });
 
     test('a price supplied as a numeric STRING is still accepted', () => {
         // Caspio hands back text; "22.50" is a set price, not a missing one.
-        const styles = [{ option: 'T-Shirt', sanmarStyle: 'PC54', weightOz: 5.4, filterTag: 'tee', price: '22.50' }];
+        const styles = [{ option: 'T-Shirt', sanmarStyle: 'PC54', filterTag: 'T-Shirt', weightGrams: 159, price: '22.50' }];
         const cfg = C.shapeConfig(C.rowsToMap(rows({ styles: { v: JSON.stringify(styles), t: 'json' } })));
         expect(cfg.prices['T-Shirt']).toBe(22.50);
     });
 
     test('a style with no SanMar mapping refuses — SKU and weight depend on it', () => {
-        const noStyle = [{ option: 'Crewneck', weightOz: 11.5, price: 39 }];
+        const noStyle = [{ option: 'Crewneck', weightGrams: 422, price: 39 }];
         expect(() => C.shapeConfig(C.rowsToMap(rows({ styles: { v: JSON.stringify(noStyle), t: 'json' } }))))
             .toThrow(/no sanmarStyle/);
     });
@@ -173,10 +183,24 @@ describe('the seed script matches what the loader requires', () => {
         expect(cfg.vendor).toBeTruthy();
     });
 
-    test('the unconfirmed crewneck row is seeded INACTIVE so it cannot ship a guessed price', () => {
+    test('every seeded style has a real price AND a real weight', () => {
+        // Both are absent-vs-zero traps: a missing price would publish at $0.00, a
+        // missing weight would ship at 0 g. Neither may fall back to a default.
         const { ROWS } = require('../../scripts/253gear-seed-config');
-        const pending = ROWS.find((r) => r.Config_Key === 'styles_pending_crewneck');
-        expect(pending).toBeTruthy();
-        expect(pending.Active).toBe('No');
+        const styles = JSON.parse(ROWS.find((r) => r.Config_Key === 'styles').Config_Value);
+        expect(styles.length).toBeGreaterThanOrEqual(3);
+        for (const s of styles) {
+            expect(Number(s.price)).toBeGreaterThan(0);
+            expect(Number(s.weightGrams)).toBeGreaterThan(0);
+            expect(s.sanmarStyle).toBeTruthy();
+        }
+    });
+
+    test('the seeded city tags are the literal prefixed ones, not slugs', () => {
+        const { ROWS } = require('../../scripts/253gear-seed-config');
+        const cities = JSON.parse(ROWS.find((r) => r.Config_Key === 'cities').Config_Value);
+        expect(cities.length).toBe(8);
+        for (const c of cities) expect(c.tag).toMatch(/^city:[A-Z]/);
+        expect(cities.find((c) => c.name === 'Washington').collection).toBe('washington-pnw');
     });
 });
