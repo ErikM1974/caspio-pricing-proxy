@@ -42,7 +42,7 @@ const ROWS = [
         // ounces (the store uses GRAMS), a flat weight (it ladders by size), a
         // colour-bearing SKU (the store uses the SanMar SKU with a size suffix), and
         // lowercase filter tags (they are 'T-Shirt' / 'Hoodie').
-        Notes: 'Garment options, measured from live variants. price/sanmarStyle/productType/filterTag/weightGrams/upsizeWeightGrams.',
+        Notes: 'Garment options. Weights are SanMar PIECE_WEIGHT (Sanmar_Bulk table), heaviest colourway per size, lb->g. Prices are Erik\'s retail.',
         Active: 'Yes',
         Config_Value: JSON.stringify([
             {
@@ -61,14 +61,12 @@ const ROWS = [
                 weightBySize: { S: 422, M: 454, L: 454, XL: 485, '2XL': 485, '3XL': 581, '4XL': 590 }
             },
             {
-                // Weights here are byte-identical to the short-sleeve tee across every
-                // size, which is what the live catalogue holds. That looks COPIED rather
-                // than measured — a long-sleeve genuinely weighs more — but it is the only
-                // real data available, and inventing a higher number would be a guess
-                // dressed as a correction. Flagged to Erik to weigh one.
+                // The only weights CHANGED from what the catalogue held. SanMar's
+                // PIECE_WEIGHT agrees across all 19 colourways at every size, and the
+                // stored values were the SHORT-sleeve tee's — 46-82 g light throughout.
                 option: 'Long Sleeve Tee', sanmarStyle: 'PC55LS', productType: 'T-Shirt', filterTag: 'Long Sleeve Tee',
-                price: 24.50, weightGrams: 159,
-                weightBySize: { S: 159, M: 181, L: 200, XL: 222, '2XL': 231, '3XL': 272, '4XL': 295 }
+                price: 24.50, weightGrams: 222,
+                weightBySize: { S: 222, M: 227, L: 249, XL: 304, '2XL': 308, '3XL': 354, '4XL': 372 }
             }
         ], null, 0)
     },

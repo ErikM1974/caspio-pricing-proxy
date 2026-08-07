@@ -106,7 +106,7 @@ query($id:ID!){
     id legacyResourceId title handle status publishedAt descriptionHtml tags
     options{ id name values }
     media(first:100){ nodes{ ... on MediaImage { id alt status mediaErrors{ code details message } image{ url width height } } } }
-    variants(first:250){ nodes{ id sku price image{ id } inventoryItem{ tracked } selectedOptions{ name value } } }
+    variants(first:250){ nodes{ id sku price image{ id url } inventoryItem{ tracked } selectedOptions{ name value } } }
   }
 }`;
 

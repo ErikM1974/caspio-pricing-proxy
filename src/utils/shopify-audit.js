@@ -47,6 +47,155 @@ function checkVariantImageBinding(product) {
 }
 
 /**
+ * Read an option off a variant in EITHER Shopify shape.
+ *
+ * The INPUT shape (what we send) is `{ optionName, name }`; the OUTPUT shape (what we get
+ * back) is `{ name, value }`. Both use the key `name`, for different things. Keying on
+ * `.name` alone reads the option's NAME as its VALUE — the bug that once put every variant
+ * in this project under "season|||color". Mirrors optionValue() in shopify-product-builder.js.
+ */
+function optionValueOf(variant, optionName) {
+    const list = (variant && (variant.optionValues || variant.selectedOptions)) || [];
+    const isInput = (o) => o && o.optionName !== undefined;
+    const found = list.find((o) => (isInput(o) ? o.optionName : o && o.name) === optionName);
+    if (!found) return '';
+    return isInput(found) ? found.name : found.value;
+}
+
+/**
+ * A picture's identity, stable across reads.
+ *
+ * Shopify CDN urls carry a `?v=` that changes between reads of the same image, so the query
+ * string must go — otherwise the same photo compares unequal to itself.
+ */
+function normaliseImageUrl(url) {
+    return url ? String(url).split('?')[0] : null;
+}
+/** Variant side: `image { url }`, falling back to the ProductImage GID. */
+function imageKeyOfVariant(v) {
+    if (!v || !v.image) return null;
+    return normaliseImageUrl(v.image.url) || v.image.id || null;
+}
+/** Media side: `... on MediaImage { image { url } }`. GIDs here are a DIFFERENT namespace. */
+function imageKeyOfMedia(m) {
+    return normaliseImageUrl(m && m.image && m.image.url);
+}
+
+/**
+ * Every (Style x Colour) pair must resolve to its OWN photo.
+ *
+ * The binding check above only asks whether each variant has *an* image. It passes
+ * cleanly when two colours share one — which is exactly what shipped: measured
+ * 2026-08-07, six of the seven live multi-colour products bound by Style alone, so a
+ * shopper picking Charcoal was shown Athletic Heather and bought on that photo. The
+ * correct picture was already uploaded and bound to nothing.
+ *
+ * Size is deliberately excluded from the key: one photo serves all sizes of a pair, so
+ * a shopper's size survives a thumbnail click.
+ */
+function checkColourImageDistinct(product) {
+    const variants = nodesOf(product.variants);
+
+    // Every pair's images, not just the last one seen. An earlier version assigned
+    // `byPair[pair] = image`, so within one colour the LAST size silently won and a pair
+    // whose sizes pointed at different photos passed clean — the exact "photo jumps when
+    // you change size" defect the binding rule exists to prevent.
+    const byPair = {};
+    let sawColourOption = false;
+    for (const v of variants) {
+        const colour = optionValueOf(v, 'Color');
+        if (colour) sawColourOption = true;
+        const key = imageKeyOfVariant(v);
+        if (!colour || !key) continue;
+        const pair = `${optionValueOf(v, 'Style') || '(single)'} / ${colour}`;
+        (byPair[pair] = byPair[pair] || new Set()).add(key);
+    }
+
+    // A product that declares a Colour option but whose variants yield no readable colour
+    // means the option shape was not understood. Say so — degrading to a quiet pass is how
+    // a gate stops being a gate.
+    const declaresColour = (product.options || []).some((o) => o && o.name === 'Color');
+    if (declaresColour && !sawColourOption) {
+        return check('colour_image_distinct', false,
+            'Product declares a Color option but no variant reports one — option shape not understood');
+    }
+
+    const pairs = Object.keys(byPair);
+    if (pairs.length < 2) {
+        return check('colour_image_distinct', true, 'Nothing to distinguish — fewer than two priced pairs', { blocking: false });
+    }
+
+    // (a) one pair whose own sizes disagree
+    const split = pairs.filter((p) => byPair[p].size > 1);
+    // (b) two pairs sharing a photo — the live defect
+    const shared = {};
+    for (const p of pairs) for (const img of byPair[p]) (shared[img] = shared[img] || []).push(p);
+    const clashes = Object.values(shared).filter((list) => list.length > 1);
+
+    const problems = [
+        ...split.map((p) => `${p} — its sizes point at ${byPair[p].size} different photos`),
+        ...clashes.map((list) => list.join('  ==  '))
+    ];
+
+    return check(
+        'colour_image_distinct',
+        problems.length === 0,
+        problems.length
+            ? `${problems.length} problem(s) — colour does not reliably change the picture`
+            : `${pairs.length} Style x Colour pair(s), each with exactly one photo of its own`,
+        { items: problems }
+    );
+}
+
+/**
+ * Every photo must reach a variant, or be declared product-level.
+ *
+ * The reciprocal of the binding check, and the gap that let the defect above hide: an
+ * uploaded-but-unbound photo passes every existing check forever. It is also not inert
+ * — the theme gives an unbound photo the options of the nearest preceding BOUND one
+ * (product-template.CURRENT.liquid:393-402), so its meaning is its POSITION. A lifestyle
+ * shot placed after the wrong flat-lay switches the shopper to the wrong colour on click.
+ *
+ * Non-blocking: product-level shots are legitimate. It reports them so the position is a
+ * decision someone made rather than an accident.
+ */
+function checkOrphanMedia(product) {
+    const variants = nodesOf(product.variants);
+    const media = nodesOf(product.media);
+    if (!media.length) return check('orphan_media', true, 'No media on this product', { blocking: false });
+
+    // 🔴 THE ONLY THING THAT JOINS THE TWO SIDES IS THE URL. A variant's image is a
+    // ProductImage GID; a media node is a MediaImage GID. They are different namespaces
+    // for the same picture, so `media.id === variant.image.id` is NEVER true — an earlier
+    // version compared them and would have reported a perfectly bound gallery as 100%
+    // orphaned. (Same trap cost a debugging round in scripts/253gear-align-media.js.)
+    const mediaUrls = media.map(imageKeyOfMedia);
+    const variantUrls = variants.map(imageKeyOfVariant).filter(Boolean);
+
+    // If either side was not fetched with `image { url }`, this check CANNOT answer. Say
+    // that, loudly, instead of reporting "no orphans" — a silent pass on data we never
+    // received is indistinguishable from success and is how a check becomes decoration.
+    if (mediaUrls.some((u) => !u) || (variants.length && !variantUrls.length)) {
+        return check('orphan_media', true,
+            'Cannot verify — this query did not request image { url } on media and variants',
+            { blocking: false });
+    }
+
+    const bound = new Set(variantUrls);
+    const orphans = [];
+    mediaUrls.forEach((url, i) => { if (!bound.has(url)) orphans.push(`position ${i + 1}`); });
+
+    return check(
+        'orphan_media',
+        true,
+        orphans.length
+            ? `${orphans.length} product-level photo(s) — each inherits its options from the photo before it, so position matters`
+            : 'Every photo is bound to a variant',
+        { blocking: false, items: orphans }
+    );
+}
+
+/**
  * publishedAt, not status.
  *
  * Setting status ACTIVE leaves publishedAt null and the storefront 404s
@@ -200,6 +349,8 @@ function auditProduct(product, opts = {}) {
 
     const checks = [
         checkVariantImageBinding(product),
+        checkColourImageDistinct(product),
+        checkOrphanMedia(product),
         checkPublished(product, { expectPublished }),
         checkAltText(product),
         checkDuplicateDesignNumber(product, catalogue),
@@ -228,6 +379,8 @@ module.exports = {
     auditProduct,
     formatAudit,
     checkVariantImageBinding,
+    checkColourImageDistinct,
+    checkOrphanMedia,
     checkPublished,
     checkAltText,
     checkDuplicateDesignNumber,
