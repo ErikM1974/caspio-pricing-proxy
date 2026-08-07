@@ -14,9 +14,9 @@ const C = require('../../src/utils/shopify-config');
 // Shapes and values measured off the live store 2026-08-07 (253gear-inspect.js).
 const STYLES = [
     { option: 'T-Shirt', sanmarStyle: 'PC54', productType: 'T-Shirt', filterTag: 'T-Shirt',
-      price: 22.50, weightGrams: 159, upsizeWeightGrams: { '2XL': 231 } },
+      price: 22.50, weightGrams: 159, weightBySize: { S: 159, XL: 222 } },
     { option: 'Hoodie', sanmarStyle: 'PC78H', productType: 'Sweatshirt', filterTag: 'Hoodie',
-      price: 43.75, weightGrams: 490, upsizeWeightGrams: { '2XL': 644 } }
+      price: 43.75, weightGrams: 490, weightBySize: { S: 490, XL: 567 } }
 ];
 
 const CITIES = [
@@ -188,7 +188,7 @@ describe('the seed script matches what the loader requires', () => {
         // missing weight would ship at 0 g. Neither may fall back to a default.
         const { ROWS } = require('../../scripts/253gear-seed-config');
         const styles = JSON.parse(ROWS.find((r) => r.Config_Key === 'styles').Config_Value);
-        expect(styles.length).toBeGreaterThanOrEqual(3);
+        expect(styles.length).toBeGreaterThanOrEqual(4);
         for (const s of styles) {
             expect(Number(s.price)).toBeGreaterThan(0);
             expect(Number(s.weightGrams)).toBeGreaterThan(0);

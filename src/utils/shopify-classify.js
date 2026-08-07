@@ -111,6 +111,35 @@ function classifyFromText(designText, cities) {
 }
 
 /**
+ * Try the DESIGN NAME first, then the artwork text.
+ *
+ * The name is the better signal of the two and was going unused. It comes from the
+ * ShopWorks Designs record — typed by a person, e.g. "Spanaway Speedway Logo
+ * (Distressed)" — whereas design_text is OCR'd off a photo of a garment and can be
+ * stylised, partly obscured, or absent entirely. A design whose artwork carries no
+ * readable words at all still classifies correctly from its name.
+ *
+ * Both paths are the same deterministic string match, so both produce a reason a
+ * person can check; the reason says which source settled it.
+ */
+function classifyFromSources({ designName, designText }, cities) {
+    const byName = classifyFromText(designName, cities);
+    if (byName.method === 'text') {
+        return { ...byName, source: 'design name', reason: `The design name says "${byName.city}".` };
+    }
+    // An ambiguous NAME is not fatal — the artwork may still name one place.
+    const byArtwork = classifyFromText(designText, cities);
+    if (byArtwork.method === 'text') {
+        return { ...byArtwork, source: 'artwork text' };
+    }
+    // Prefer whichever gave the more informative non-answer.
+    if (byName.method === 'ambiguous') return { ...byName, source: 'design name' };
+    if (byArtwork.method === 'ambiguous') return { ...byArtwork, source: 'artwork text' };
+    if (byName.method === 'unavailable') return { ...byName, source: 'none' };
+    return { ...byArtwork, source: 'none' };
+}
+
+/**
  * Fold a model suggestion in, but only if it names a place the collections actually
  * file on. A suggestion outside the vocabulary is discarded — a tag that matches no
  * rule silently files nothing, which looks like success and is not.
@@ -211,6 +240,7 @@ function trimToWidth(text, max) {
 
 module.exports = {
     classifyFromText,
+    classifyFromSources,
     acceptModelSuggestion,
     buildTagSet,
     collectionsForTags,

@@ -45,6 +45,21 @@ Look at the screenshot and extract ALL visible fields. The screenshot may show a
 - Number of locations
 - Location code (2-3 letter code like "LC", "FB", "FF", "CB", "CFC", "CLP", "CRS" — shown in the Location dropdown or field)
 
+**Designs MODULE** — a DIFFERENT screen from the order tabs above. Title bar reads
+"OnSite - Designs[Designs]"; the tab row is Design / Variations / Production / Royalties /
+Notes / Attachments / ProofStuff / Print. This is the design record itself, and it is the
+screen most often pasted when publishing a design to the web store. Look for:
+- "Design" field — the design NUMBER (e.g. 34084), with the design NAME in the wide box
+  beside it (e.g. "Spanaway Speedway Logo (Distressed)"). The name usually carries the
+  place or subject; copy it VERBATIM, parentheses and all.
+- "Customer" field — customer NUMBER then customer NAME. The name may be a sales channel
+  such as "Shopify" rather than a person or company.
+- "For Product Colors" — the garment colours this design is set up for.
+- "Locations" — the count. Each numbered block shows a code and label, e.g. "FF Full Front".
+- "Design Type" badge, top right: DTG, EMB, SCP or DTF.
+- The large free-text box at the bottom left is the design DESCRIPTION. If it is empty,
+  return null for designDescription — do NOT fall back to the design name.
+
 **Line Items tab** — look for garment/product rows:
 - Part number (e.g. PC54, PC850H, PC600LS, C110)
 - Color name

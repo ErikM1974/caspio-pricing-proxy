@@ -179,3 +179,46 @@ describe('SEO trimming', () => {
         expect(out.endsWith(' ')).toBe(false);
     });
 });
+
+describe('the design NAME classifies too, and is trusted first', () => {
+    // Real example from the ShopWorks Designs module: "Spanaway Speedway Logo
+    // (Distressed)". The name is typed by a person; design_text is OCR'd off a photo
+    // of a garment and can be stylised, obscured, or absent entirely.
+    test('a design named for a city classifies even with NO readable artwork text', () => {
+        const r = K.classifyFromSources(
+            { designName: 'Spanaway Speedway Logo (Distressed)', designText: '' }, CITIES);
+        expect(r.method).toBe('text');
+        expect(r.city).toBe('Spanaway');
+        expect(r.source).toBe('design name');
+        expect(r.reason).toMatch(/design name says "Spanaway"/);
+    });
+
+    test('the name wins when both name and artwork agree', () => {
+        const r = K.classifyFromSources(
+            { designName: 'Retro Tacoma', designText: 'TACOMA EST 1875' }, CITIES);
+        expect(r.city).toBe('Tacoma');
+        expect(r.source).toBe('design name');
+    });
+
+    test('the artwork still answers when the name says nothing', () => {
+        const r = K.classifyFromSources(
+            { designName: 'Distressed Logo v2', designText: 'PUYALLUP FAIR' }, CITIES);
+        expect(r.city).toBe('Puyallup');
+        expect(r.source).toBe('artwork text');
+    });
+
+    test('an ambiguous NAME does not block a clear artwork match', () => {
+        // "Tacoma to Milton" names two; the artwork names one.
+        const r = K.classifyFromSources(
+            { designName: 'Tacoma to Milton Run', designText: 'MILTON WA' }, CITIES);
+        expect(r.city).toBe('Milton');
+        expect(r.source).toBe('artwork text');
+    });
+
+    test('neither source naming a place still refuses rather than guessing', () => {
+        const r = K.classifyFromSources(
+            { designName: 'Clydes Water Slide', designText: 'SUMMER 1982' }, CITIES);
+        expect(r.city).toBeNull();
+        expect(r.method).toBe('none');
+    });
+});

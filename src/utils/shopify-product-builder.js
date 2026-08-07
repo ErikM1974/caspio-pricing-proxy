@@ -157,17 +157,22 @@ function skuFor(styleOption, size, config) {
 }
 
 /**
- * Shipping weight in GRAMS, laddered by size.
+ * Shipping weight in GRAMS, per SIZE.
  *
- * Measured live: a tee runs 159 g at base and 295 g at 4XL; a hoodie 490 g to 680 g.
- * A flat per-style weight would under-quote shipping on every large garment, which is
- * money lost quietly on every order rather than an error anyone would see.
+ * ⚠️ EVERY size has its own weight — not just the upsizes. Measured across the live
+ * catalogue: a tee runs 159 / 181 / 200 / 222 / 231 / 272 / 295 g from S to 4XL, and a
+ * hoodie 490 → 680 g. An earlier version of this carried one base weight plus an
+ * upsize table, which quietly under-quoted every M, L and XL — up to 77 g light on an
+ * XL hoodie. That is money lost on every order, and nothing surfaces it.
+ *
+ * `weightGrams` remains as a fallback for a size the table does not list, so a new
+ * size (5XL, 6XL) degrades to something sane rather than throwing.
  */
 function weightFor(styleOption, size, config) {
     const def = styleDefFor(styleOption, config);
     const sz = String(size || '').trim().toUpperCase();
-    const upsize = def.upsizeWeightGrams && def.upsizeWeightGrams[sz];
-    const grams = Number(upsize !== undefined ? upsize : def.weightGrams);
+    const bySize = def.weightBySize && def.weightBySize[sz];
+    const grams = Number(bySize !== undefined ? bySize : def.weightGrams);
     if (!Number.isFinite(grams) || grams <= 0) {
         throw new ProductBuildError(
             `No usable weight for ${styleOption} ${sz} — set weightGrams in the config`,
