@@ -139,9 +139,13 @@ function shapeConfig(map) {
         productType: map.product_type || '',
         publicationId: map.publication_id || '',
         descriptionPrompt: map.description_prompt || '',
-        // True only once refresh-collections has run. The classifier and the tag
-        // check both degrade to "cannot verify" rather than guessing when false.
-        collectionsKnown: COLLECTION_KEYS.every((k) => map[k] !== undefined)
+        // True only once refresh-collections has actually DISCOVERED rules from the
+        // live store. Requires non-empty, not merely present: the seed ships
+        // `collection_rules: []`, and treating a defined-but-empty array as "known"
+        // would claim the vocabulary is verified while it is still the assumed list —
+        // the same absent-vs-zero trap as a null price becoming $0.00. The classifier
+        // and the tag check degrade to "cannot verify" rather than guessing.
+        collectionsKnown: COLLECTION_KEYS.every((k) => Array.isArray(map[k]) && map[k].length > 0)
     };
 }
 

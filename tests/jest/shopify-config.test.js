@@ -129,6 +129,17 @@ describe('collection knowledge is explicit, never assumed', () => {
         expect(cfg.tagVocabulary).toEqual([]);
     });
 
+    test('an EMPTY collection_rules is not "known" — the seed ships []', () => {
+        // Defined-but-empty must not read as verified. Same absent-vs-zero trap as a
+        // null price becoming $0.00: it would claim the tag vocabulary was discovered
+        // while it is still the assumed list.
+        const seeded = C.shapeConfig(C.rowsToMap(rows({
+            tag_vocabulary: { v: JSON.stringify(['sumner']), t: 'json' },
+            collection_rules: { v: '[]', t: 'json' }
+        })));
+        expect(seeded.collectionsKnown).toBe(false);
+    });
+
     test('collectionsKnown flips only when BOTH discovered keys are present', () => {
         const partial = C.shapeConfig(C.rowsToMap(rows({
             tag_vocabulary: { v: JSON.stringify(['sumner']), t: 'json' }
