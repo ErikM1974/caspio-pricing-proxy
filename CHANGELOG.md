@@ -1,3 +1,9 @@
+## v2026.08.07.4 (2026.08.07)
+
+- 253gear: remove dead option combinations on two products
+- 253gear #33332: restore the hoodie photo, relabelled Athletic Heather
+- 253gear: make the colour-suffix fallback one rule, and visible where it moves money
+
 ## v2026.08.07.3 (2026.08.07)
 
 - 253gear: colour now changes the photo; correct SanMar weights
