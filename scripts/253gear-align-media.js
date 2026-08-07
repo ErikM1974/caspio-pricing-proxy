@@ -102,35 +102,72 @@ function inheritedOptions(mediaList, boundPairByPosition) {
     return out;
 }
 
-/** Which (Style x Colour) pairs share one photo — the defect, in one number. */
-function colourBlindPairs(variants) {
-    const byPair = {};
-    for (const v of variants) if (v.image) byPair[pairOf(v)] = fileOf(v.image.url);
-    const byStyle = {};
-    for (const [pair, f] of Object.entries(byPair)) {
-        const st = pair.split('|')[0];
-        (byStyle[st] = byStyle[st] || new Set()).add(f);
+/**
+ * TWO DIFFERENT DEFECTS, and an early version of this sweep conflated them.
+ *
+ * (a) COLOUR-BLIND BINDING — two (Style x Colour) pairs that BOTH exist point at the same
+ *     photo, so choosing a colour does not change the picture. The real defect.
+ * (b) DEAD COMBINATIONS — the dropdowns offer a (Style x Colour) that has NO variant.
+ *     Shopify options are product-level, and the theme renders every declared value with
+ *     no availability filtering, so the shopper picks it and gets "Unavailable" with a
+ *     disabled Add to Cart. Nothing here can fix that; it needs the missing garments.
+ *
+ * The first sweep flagged (b) as (a) because it asked "does this style have only one
+ * distinct photo?" — true for a style sold in only one colour, which is not a binding bug
+ * at all. Reporting a defect that is not there costs the same credibility as missing one.
+ */
+function classifyProduct(p) {
+    const styles = (p.options.find((o) => o.name === 'Style') || { optionValues: [{ name: '(single)' }] })
+        .optionValues.map((v) => v.name);
+    const colours = (p.options.find((o) => o.name === 'Color') || { optionValues: [] })
+        .optionValues.map((v) => v.name);
+
+    const photoOf = {};
+    const exists = new Set();
+    for (const v of p.variants.nodes) {
+        const k = pairOf(v);
+        exists.add(k);
+        if (v.image) photoOf[k] = fileOf(v.image.url);
     }
-    const colours = new Set(Object.keys(byPair).map((p) => p.split('|')[1]));
-    if (colours.size < 2) return [];
-    return Object.entries(byStyle).filter(([, s]) => s.size === 1).map(([st]) => st);
+
+    // (a) among pairs that EXIST, do any two share a photo?
+    const shared = {};
+    for (const [k, f] of Object.entries(photoOf)) (shared[f] = shared[f] || []).push(k);
+    const colourBlind = Object.values(shared).filter((l) => l.length > 1);
+
+    // (b) which offered combinations have no variant at all?
+    const dead = [];
+    for (const st of styles) for (const co of colours) {
+        if (!exists.has(`${st}|${co}`)) dead.push(`${st} + ${co}`);
+    }
+    return { colourBlind, dead, colours: colours.length };
 }
 
 async function auditCatalogue() {
     const d = await shopify.gql(Q_ALL, {}, { isMutation: false });
-    const bad = [];
+    const blind = [], dead = [];
     for (const p of d.products.nodes) {
-        const colours = (p.options.find((o) => o.name === 'Color') || { optionValues: [] }).optionValues.length;
-        if (colours < 2) continue;
-        const blind = colourBlindPairs(p.variants.nodes);
-        if (blind.length) bad.push({ p, blind, colours });
+        const r = classifyProduct(p);
+        if (r.colours < 2) continue;
+        if (r.colourBlind.length) blind.push({ p, r });
+        if (r.dead.length) dead.push({ p, r });
     }
-    console.log(`\nActive products with more than one colour where colour does NOT change the photo: ${bad.length}`);
-    for (const { p, blind, colours } of bad) {
-        console.log(`   ${p.legacyResourceId}  ${colours} colours, ${blind.join(' + ')} share one photo   ${p.title}`);
+
+    console.log(`\nCOLOUR-BLIND BINDING — two live pairs share one photo: ${blind.length}`);
+    for (const { p, r } of blind) {
+        console.log(`   ${p.legacyResourceId}  ${p.title}`);
+        r.colourBlind.forEach((l) => console.log(`      ${l.join('  ==  ')}`));
     }
-    console.log('\nAdd a map for a product to scripts/253gear-media-maps.json, then run with --product <id>.');
-    return bad.length;
+    if (blind.length) console.log('   Fix: add a map to 253gear-media-maps.json, then run with --product <id>.');
+
+    console.log(`\nDEAD COMBINATIONS — offered in the dropdowns, no variant behind them: ${dead.length}`);
+    for (const { p, r } of dead) {
+        console.log(`   ${p.legacyResourceId}  ${p.title}`);
+        console.log(`      ${r.dead.join(', ')}  ->  shopper gets "Unavailable" and a disabled Add to Cart`);
+    }
+    if (dead.length) console.log('   Not fixable here — those garments/photos do not exist yet.');
+
+    return blind.length;
 }
 
 async function main() {

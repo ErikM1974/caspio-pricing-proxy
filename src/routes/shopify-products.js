@@ -334,8 +334,8 @@ router.post('/products/:productId/audit', requireShopify, async (req, res) => {
             `query($id:ID!){ product(id:$id){
                id title handle status publishedAt descriptionHtml tags
                options{ name }
-               media(first:100){ nodes{ ... on MediaImage { id alt status } } }
-               variants(first:250){ nodes{ id sku price image{ id } inventoryItem{ tracked } selectedOptions{ name value } } }
+               media(first:100){ nodes{ ... on MediaImage { id alt status image{ url } } } }
+               variants(first:250){ nodes{ id sku price image{ id url } inventoryItem{ tracked } selectedOptions{ name value } } }
              } }`, { id: gid }, { isMutation: false });
 
         if (!data.product) return res.status(404).json({ success: false, code: 'NOT_FOUND', error: 'No such product' });
@@ -361,8 +361,8 @@ router.post('/products/:productId/publish', requireShopify, express.json({ limit
             `query($id:ID!){ product(id:$id){
                id title handle status publishedAt descriptionHtml tags
                options{ name }
-               media(first:100){ nodes{ ... on MediaImage { id alt status } } }
-               variants(first:250){ nodes{ id sku price image{ id } inventoryItem{ tracked } selectedOptions{ name value } } }
+               media(first:100){ nodes{ ... on MediaImage { id alt status image{ url } } } }
+               variants(first:250){ nodes{ id sku price image{ id url } inventoryItem{ tracked } selectedOptions{ name value } } }
              } }`, { id: gid }, { isMutation: false });
 
         if (!pre.product) return res.status(404).json({ success: false, code: 'NOT_FOUND', error: 'No such product' });

@@ -30,7 +30,7 @@ const Q_PRODUCTS = `
 query {
   products(first: 100, query: "status:active") {
     nodes {
-      id title
+      id legacyResourceId title
       variants(first: 100) {
         nodes { id sku selectedOptions { name value } }
       }
@@ -64,8 +64,22 @@ function sizeOf(variant) {
     return o ? o.value : '';
 }
 
+function argValue(flag) {
+    const i = process.argv.indexOf(flag);
+    return i > -1 ? process.argv[i + 1] : null;
+}
+
 async function main() {
     const live = process.argv.includes('--live');
+    const only = argValue('--product');
+
+    // Written before the sibling align scripts established this guard, and it was the only
+    // one that would rewrite SKUs across the whole catalogue from a bare --live.
+    if (live && !only) {
+        console.error('\n✖ --live requires --product <legacyId>.');
+        console.error('  Rewriting SKUs catalogue-wide should not be possible by momentum.');
+        process.exit(1);
+    }
 
     if (!shopify.isConfigured()) {
         console.error('Shopify not configured. Missing:', shopify.missingConfig().join(', '));
@@ -73,7 +87,8 @@ async function main() {
     }
 
     const data = await shopify.gql(Q_PRODUCTS, {}, { isMutation: false });
-    const products = (data.products && data.products.nodes) || [];
+    let products = (data.products && data.products.nodes) || [];
+    if (only) products = products.filter((x) => String(x.legacyResourceId) === String(only));
 
     const plan = [];
     for (const p of products) {

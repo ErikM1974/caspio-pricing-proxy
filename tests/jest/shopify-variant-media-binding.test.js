@@ -294,3 +294,148 @@ describe('an uploaded-but-unbound photo is reported, not silently ignored', () =
         expect(c.items).toEqual([]);
     });
 });
+
+// ── Defects an adversarial review found in the FIRST version of these two checks ───────
+//
+// All six were real, and every one made a check quietly weaker rather than noisy: the
+// failure mode of a bad gate is that it reports success. Each test below fails against
+// the original implementation.
+
+describe('the checks survive the shapes Shopify actually returns', () => {
+    const colour = (product) =>
+        AUDIT.auditProduct(product).checks.find((c) => c.name === 'colour_image_distinct');
+    const orphan = (product) =>
+        AUDIT.auditProduct(product).checks.find((c) => c.name === 'orphan_media');
+
+    test('sizes inside ONE colour pointing at different photos is caught', () => {
+        // Original kept only the LAST variant per pair, so this passed clean — and it is
+        // the "photo jumps when you change size" defect.
+        const c = colour({
+            variants: {
+                nodes: [
+                    { selectedOptions: [{ name: 'Style', value: 'Tee' }, { name: 'Size', value: 'S' }, { name: 'Color', value: 'Red' }],
+                      image: { url: 'https://cdn/red-a.jpg' } },
+                    { selectedOptions: [{ name: 'Style', value: 'Tee' }, { name: 'Size', value: 'M' }, { name: 'Color', value: 'Red' }],
+                      image: { url: 'https://cdn/red-b.jpg' } },   // ← different photo, same colour
+                    { selectedOptions: [{ name: 'Style', value: 'Tee' }, { name: 'Size', value: 'S' }, { name: 'Color', value: 'Blue' }],
+                      image: { url: 'https://cdn/blue.jpg' } }
+                ]
+            },
+            media: { nodes: [] }
+        });
+        expect(c.pass).toBe(false);
+        expect(c.items.join(' ')).toMatch(/sizes point at 2 different photos/);
+    });
+
+    test('a CDN ?v= that differs between reads is not mistaken for a different photo', () => {
+        const c = colour({
+            variants: {
+                nodes: [
+                    { selectedOptions: [{ name: 'Style', value: 'Tee' }, { name: 'Color', value: 'Red' }],
+                      image: { url: 'https://cdn/shared.jpg?v=111' } },
+                    { selectedOptions: [{ name: 'Style', value: 'Tee' }, { name: 'Color', value: 'Blue' }],
+                      image: { url: 'https://cdn/shared.jpg?v=999' } }   // same file, different ?v=
+                ]
+            },
+            media: { nodes: [] }
+        });
+        expect(c.pass).toBe(false);   // it IS one photo serving two colours
+    });
+
+    test("Shopify's INPUT option shape does not degrade to a silent pass", () => {
+        // {optionName, name} vs {name, value} — both use `name`, for different things.
+        const c = colour({
+            options: [{ name: 'Color' }],
+            variants: {
+                nodes: [
+                    { optionValues: [{ optionName: 'Style', name: 'Tee' }, { optionName: 'Color', name: 'Red' }],
+                      image: { url: 'https://cdn/same.jpg' } },
+                    { optionValues: [{ optionName: 'Style', name: 'Tee' }, { optionName: 'Color', name: 'Blue' }],
+                      image: { url: 'https://cdn/same.jpg' } }
+                ]
+            },
+            media: { nodes: [] }
+        });
+        expect(c.pass).toBe(false);
+    });
+
+    test('a declared Color option that no variant reports FAILS rather than passing quietly', () => {
+        const c = colour({
+            options: [{ name: 'Color' }],
+            variants: { nodes: [{ selectedOptions: [{ name: 'Whatever', value: 'x' }], image: { url: 'https://cdn/a.jpg' } }] },
+            media: { nodes: [] }
+        });
+        expect(c.pass).toBe(false);
+        expect(c.detail).toMatch(/option shape not understood/);
+    });
+
+    test('media GIDs are NOT compared against variant image GIDs', () => {
+        // A MediaImage GID and a ProductImage GID are different namespaces for one picture.
+        // The original compared them, so a fully bound gallery read as 100% orphaned.
+        const o = orphan({
+            variants: { nodes: [{ selectedOptions: [], image: { id: 'gid://shopify/ProductImage/1', url: 'https://cdn/a.jpg?v=2' } }] },
+            media: { nodes: [{ id: 'gid://shopify/MediaImage/9', image: { url: 'https://cdn/a.jpg?v=7' } }] }
+        });
+        expect(o.items).toEqual([]);           // bound, despite every id differing
+        expect(o.detail).toMatch(/Every photo is bound/);
+    });
+
+    test('a query that omits image{url} reports "cannot verify", never "no orphans"', () => {
+        // The publish gate's query really did omit it, making the check inert. Silence on
+        // data we never received must not read as success.
+        const o = orphan({
+            variants: { nodes: [{ selectedOptions: [], image: { id: 'gid://shopify/ProductImage/1' } }] },
+            media: { nodes: [{ id: 'gid://shopify/MediaImage/9', alt: 'x', status: 'READY' }] }
+        });
+        expect(o.detail).toMatch(/Cannot verify/);
+    });
+
+    test('orphan position is the GALLERY position, not an index into a filtered list', () => {
+        const o = orphan({
+            variants: { nodes: [{ selectedOptions: [], image: { url: 'https://cdn/c.jpg' } }] },
+            media: {
+                nodes: [
+                    { id: 'gid://m/1', image: { url: 'https://cdn/a.jpg' } },
+                    { id: 'gid://m/2', image: { url: 'https://cdn/b.jpg' } },
+                    { id: 'gid://m/3', image: { url: 'https://cdn/c.jpg' } }
+                ]
+            }
+        });
+        expect(o.items).toEqual(['position 1', 'position 2']);
+    });
+});
+
+describe('the audit callers fetch the fields the checks need', () => {
+    const fs = require('fs');
+    const path = require('path');
+    const read = (f) => fs.readFileSync(path.join(__dirname, '../../', f), 'utf8');
+
+    // A check is only as good as the query feeding it. This is the drift-lock: change the
+    // query and drop image{url}, and orphan_media silently becomes decoration again.
+    // Scoped to the queries whose RESULT is handed to auditProduct. Q_MEDIA_STATUS is the
+    // media-readiness poll and never reaches the audit, so requiring url there would be
+    // noise — and a drift-lock that cries wolf is one everybody learns to bypass.
+    test('every query feeding auditProduct requests image { url } on media', () => {
+        const orch = read('src/utils/shopify-orchestrator.js');
+        const qProductFull = orch.slice(orch.indexOf('const Q_PRODUCT_FULL'), orch.indexOf('const M_PRODUCT_SET'));
+        expect(qProductFull).toMatch(/media\(first:\s*\d+\)[\s\S]*?image\{\s*url/);
+
+        // Both route queries: the audit panel AND the publish gate.
+        const routes = read('src/routes/shopify-products.js');
+        const mediaSels = routes.match(/media\(first:\s*\d+\)\s*\{[^}]*\{[^}]*\}[^}]*\}/g) || [];
+        expect(mediaSels.length).toBeGreaterThanOrEqual(2);
+        for (const sel of mediaSels) expect(sel).toMatch(/image\{\s*url\s*\}/);
+    });
+
+    // The URL is the ONLY thing that joins a variant's ProductImage to a media node's
+    // MediaImage - two GID namespaces for one picture. Ask for id alone and the check
+    // cannot answer on that path.
+    test('every query feeding auditProduct asks for variant image url, not just the GID', () => {
+        for (const f of ['src/utils/shopify-orchestrator.js', 'src/routes/shopify-products.js']) {
+            const src = read(f);
+            const variantSels = src.match(/variants\(first:\s*\d+\)\{[^}]*image\{[^}]*\}/g) || [];
+            expect(variantSels.length).toBeGreaterThan(0);
+            for (const sel of variantSels) expect(sel).toMatch(/image\{\s*id url\s*\}/);
+        }
+    });
+});
