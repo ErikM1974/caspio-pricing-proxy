@@ -1,3 +1,7 @@
+## v2026.08.07.2 (2026.08.07)
+
+- 253Gear: per-size weights, PC55LS, Designs-module OCR, name-based classification
+
 ## v2026.08.07.1 (2026.08.07)
 
 - 253Gear Publisher: Shopify client, product builder, audit, Step 0 inspect
