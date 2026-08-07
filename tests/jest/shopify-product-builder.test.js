@@ -16,11 +16,11 @@ const CONFIG = {
     upsizes: ['2XL', '3XL', '4XL'],
     styles: [
         { option: 'T-Shirt', sanmarStyle: 'PC54', productType: 'T-Shirt', filterTag: 'T-Shirt',
-          price: 22.50, weightGrams: 159, upsizeWeightGrams: { '2XL': 231, '3XL': 272, '4XL': 295 } },
+          price: 22.50, weightGrams: 159, weightBySize: { S: 159, M: 181, L: 200, XL: 222, '2XL': 231, '3XL': 272, '4XL': 295 } },
         { option: 'Hoodie', sanmarStyle: 'PC78H', productType: 'Sweatshirt', filterTag: 'Hoodie',
-          price: 43.75, weightGrams: 490, upsizeWeightGrams: { '2XL': 644, '3XL': 680, '4XL': 680 } },
+          price: 43.75, weightGrams: 490, weightBySize: { S: 490, M: 490, L: 558, XL: 567, '2XL': 644, '3XL': 680, '4XL': 680 } },
         { option: 'Crewneck', sanmarStyle: 'PC78', productType: 'Sweatshirt', filterTag: 'Crewneck',
-          price: 39.00, weightGrams: 422, upsizeWeightGrams: { '2XL': 555, '3XL': 586, '4XL': 586 } }
+          price: 39.00, weightGrams: 422, weightBySize: { S: 422, M: 454, L: 454, XL: 485, '2XL': 485, '3XL': 581, '4XL': 590 } }
     ],
     cities: [
         { name: 'Tacoma', tag: 'city:Tacoma', collection: 'tacoma' },
@@ -185,14 +185,18 @@ describe('variants', () => {
         expect(black.sku).toBe('PC54');
     });
 
-    test('shipping weight LADDERS by size — a flat weight under-quotes every big garment', () => {
-        // Live: tee 159 g base -> 295 g at 4XL; hoodie 490 g -> 680 g.
-        expect(B.weightFor('T-Shirt', 'L', CONFIG)).toBe(159);
-        expect(B.weightFor('T-Shirt', '2XL', CONFIG)).toBe(231);
+    test('EVERY size has its own weight, not just the upsizes', () => {
+        // The first version keyed only 2XL/3XL/4XL off a base, so M/L/XL all shipped at
+        // the S weight — up to 77 g light on an XL hoodie, on every order, silently.
+        expect(B.weightFor('T-Shirt', 'S', CONFIG)).toBe(159);
+        expect(B.weightFor('T-Shirt', 'M', CONFIG)).toBe(181);
+        expect(B.weightFor('T-Shirt', 'XL', CONFIG)).toBe(222);
+        expect(B.weightFor('Hoodie', 'L', CONFIG)).toBe(558);
+        expect(B.weightFor('Hoodie', 'XL', CONFIG)).toBe(567);
+        expect(B.weightFor('T-Shirt', 'L', CONFIG)).toBe(200);
         expect(B.weightFor('T-Shirt', '4XL', CONFIG)).toBe(295);
-        expect(B.weightFor('Hoodie', 'L', CONFIG)).toBe(490);
         expect(B.weightFor('Hoodie', '3XL', CONFIG)).toBe(680);
-        expect(B.weightFor('Crewneck', 'L', CONFIG)).toBe(422);
+        expect(B.weightFor('Crewneck', 'L', CONFIG)).toBe(454);
     });
 
     test('a style with no weight refuses rather than shipping at 0 g', () => {

@@ -48,19 +48,27 @@ const ROWS = [
             {
                 option: 'T-Shirt', sanmarStyle: 'PC54', productType: 'T-Shirt', filterTag: 'T-Shirt',
                 price: 22.50, weightGrams: 159,
-                upsizeWeightGrams: { '2XL': 231, '3XL': 272, '4XL': 295 }
+                weightBySize: { S: 159, M: 181, L: 200, XL: 222, '2XL': 231, '3XL': 272, '4XL': 295 }
             },
             {
                 option: 'Hoodie', sanmarStyle: 'PC78H', productType: 'Sweatshirt', filterTag: 'Hoodie',
                 price: 43.75, weightGrams: 490,
-                upsizeWeightGrams: { '2XL': 644, '3XL': 680, '4XL': 680 }
+                weightBySize: { S: 490, M: 490, L: 558, XL: 567, '2XL': 644, '3XL': 680, '4XL': 680 }
             },
             {
-                // 422 g measured live. No upsize weights observed yet — the ladder is
-                // scaled from the hoodie's ratios until a real 2XL+ crewneck exists.
                 option: 'Crewneck', sanmarStyle: 'PC78', productType: 'Sweatshirt', filterTag: 'Crewneck',
                 price: 39.00, weightGrams: 422,
-                upsizeWeightGrams: { '2XL': 555, '3XL': 586, '4XL': 586 }
+                weightBySize: { S: 422, M: 454, L: 454, XL: 485, '2XL': 485, '3XL': 581, '4XL': 590 }
+            },
+            {
+                // Weights here are byte-identical to the short-sleeve tee across every
+                // size, which is what the live catalogue holds. That looks COPIED rather
+                // than measured — a long-sleeve genuinely weighs more — but it is the only
+                // real data available, and inventing a higher number would be a guess
+                // dressed as a correction. Flagged to Erik to weigh one.
+                option: 'Long Sleeve Tee', sanmarStyle: 'PC55LS', productType: 'T-Shirt', filterTag: 'Long Sleeve Tee',
+                price: 24.50, weightGrams: 159,
+                weightBySize: { S: 159, M: 181, L: 200, XL: 222, '2XL': 231, '3XL': 272, '4XL': 295 }
             }
         ], null, 0)
     },

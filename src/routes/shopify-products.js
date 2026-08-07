@@ -35,7 +35,7 @@ const { auditProduct } = require('../utils/shopify-audit');
 const { ProductBuildError, DESIGN_NUMBER_RE } = require('../utils/shopify-product-builder');
 const { analyzeDesign } = require('../utils/shopify-vision');
 const {
-    classifyFromText, acceptModelSuggestion, buildTagSet, collectionsForTags, trimToWidth
+    classifyFromText, classifyFromSources, acceptModelSuggestion, buildTagSet, collectionsForTags, trimToWidth
 } = require('../utils/shopify-classify');
 
 const JSON_LIMIT = '512kb';
@@ -281,7 +281,7 @@ router.post('/classify', express.json({ limit: '64kb' }), async (req, res) => {
         });
 
         // 1) The artwork's own words decide, when they can.
-        let verdict = classifyFromText(seen.design_text, cfg.cities);
+        let verdict = classifyFromSources({ designName, designText: seen.design_text }, cfg.cities);
 
         // 2) Only ask the model to stand in when the text said nothing.
         //    An 'ambiguous' verdict is NOT overridden — two named places is a question
