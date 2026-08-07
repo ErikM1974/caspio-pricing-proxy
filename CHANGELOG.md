@@ -1,3 +1,8 @@
+## v2026.08.07.3 (2026.08.07)
+
+- 253gear: colour now changes the photo; correct SanMar weights
+- 253gear audit: fix six defects an adversarial review found in the new checks
+
 ## v2026.08.07.2 (2026.08.07)
 
 - 253Gear: per-size weights, PC55LS, Designs-module OCR, name-based classification
