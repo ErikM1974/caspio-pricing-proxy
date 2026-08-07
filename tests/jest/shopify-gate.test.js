@@ -37,9 +37,13 @@ describe('the mount is gated', () => {
 
     test('nothing mounts /api/shopify anywhere else', () => {
         const lines = SERVER.split('\n');
+        // Closing quote required. Express treats '/api/shopify' and
+        // '/api/shopify-description-ai' as SEPARATE mounts (verified: a request to
+        // the latter never enters the former), so a prefix match would wrongly count
+        // the sibling AI route as a second mount of this surface.
         const mountIdx = lines
             .map((l, i) => ({ l, i }))
-            .filter(({ l }) => /app\.use\(\s*'\/api\/shopify/.test(l));
+            .filter(({ l }) => /app\.use\(\s*'\/api\/shopify'/.test(l));
 
         // Exactly two: the write-limiter guard, then the gated router.
         expect(mountIdx).toHaveLength(2);
@@ -51,6 +55,15 @@ describe('the mount is gated', () => {
         expect(limiterStatement).toMatch(/req\.method/);
 
         expect(mountIdx[1].l).toMatch(/requireCrmApiSecret/);
+    });
+
+    test('the sibling copy-drafter is gated AND rate-limited', () => {
+        // It spends Anthropic tokens on every call, so an open endpoint is also an
+        // open tab on the bill — the finding already written up for the AI chats.
+        const mount = SERVER.split('\n').find((l) => l.includes("app.use('/api/shopify-description-ai'"));
+        expect(mount).toBeTruthy();
+        expect(mount).toMatch(/aiChatLimiter/);
+        expect(mount).toMatch(/requireCrmApiSecret/);
     });
 
     test('the gated mount is registered ABOVE every other /api router', () => {

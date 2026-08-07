@@ -33,6 +33,10 @@ const orchestrator = require('../utils/shopify-orchestrator');
 const { loadConfig, invalidate, ConfigError, TABLE, REQUIRED_KEYS } = require('../utils/shopify-config');
 const { auditProduct } = require('../utils/shopify-audit');
 const { ProductBuildError, DESIGN_NUMBER_RE } = require('../utils/shopify-product-builder');
+const { analyzeDesign } = require('../utils/shopify-vision');
+const {
+    classifyFromText, acceptModelSuggestion, buildTagSet, collectionsForTags, trimToWidth
+} = require('../utils/shopify-classify');
 
 const JSON_LIMIT = '512kb';
 
@@ -246,6 +250,77 @@ router.post('/jobs/:designNumber/resume', requireShopify, express.json({ limit: 
         res.status(202).json({ success: true, replay, jobId: job.designNumber, status: job.status,
             pollUrl: `/api/shopify/jobs/${job.designNumber}` });
     } catch (e) { fail(res, e, 'job-resume'); }
+});
+
+// ── Classify ─────────────────────────────────────────────────────────────────
+
+/**
+ * Read the hero mockup and propose a city, tags, SEO and alt text.
+ *
+ * Deterministic first: if the artwork text names exactly one place in the live
+ * collection vocabulary, that settles it with a reason a person can check, and the
+ * model's own city guess is ignored. Inference is only consulted for the residue —
+ * designs with no place name — and is capped at medium confidence.
+ *
+ * Nothing here applies anything. The response is a SUGGESTION for Steve to confirm,
+ * because the city collections are automatic and a wrong tag files itself instantly.
+ */
+router.post('/classify', express.json({ limit: '64kb' }), async (req, res) => {
+    const { externalKey, designName, styles = [] } = req.body || {};
+    if (!externalKey) {
+        return res.status(400).json({ success: false, code: 'VALIDATION_FAILED', error: 'externalKey is required' });
+    }
+
+    try {
+        const cfg = await loadConfig();
+
+        const { buffer, contentType } = await orchestrator.fetchStoredFile(externalKey);
+        const seen = await analyzeDesign(buffer, contentType, {
+            vocabulary: cfg.tagVocabulary,
+            designName
+        });
+
+        // 1) The artwork's own words decide, when they can.
+        let verdict = classifyFromText(seen.design_text, cfg.tagVocabulary);
+
+        // 2) Only ask the model to stand in when the text said nothing.
+        //    An 'ambiguous' verdict is NOT overridden — two named places is a question
+        //    for a human, and letting the model break the tie would hide that.
+        if (verdict.method === 'none' && seen.city) {
+            verdict = acceptModelSuggestion(
+                { city: seen.city, confidence: seen.city_confidence, reason: seen.city_reason },
+                cfg.tagVocabulary
+            );
+        }
+
+        const { tags, rejected } = buildTagSet({ city: verdict.city, styles }, cfg);
+        const collections = collectionsForTags(tags, cfg);
+
+        res.json({
+            success: true,
+            city: verdict.city,
+            confidence: verdict.confidence,
+            reason: verdict.reason,
+            method: verdict.method,
+            candidates: verdict.candidates,
+            needsHuman: verdict.city === null,
+            tags,
+            rejectedTags: rejected,
+            collections,
+            collectionsKnown: cfg.collectionsKnown,
+            seo: {
+                title: trimToWidth(seen.seo_title, 60),
+                description: trimToWidth(seen.seo_description, 155)
+            },
+            altText: seen.alt_text,
+            seen: {
+                designText: seen.design_text,
+                designDescription: seen.design_description,
+                designColors: seen.design_colors
+            },
+            model: seen.model
+        });
+    } catch (e) { fail(res, e, 'classify'); }
 });
 
 // ── Audit + publish ──────────────────────────────────────────────────────────

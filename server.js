@@ -1400,6 +1400,15 @@ const dtgQuoteAIRoute = require('./src/routes/dtg-quote-ai');
 app.use('/api/dtg-quote-ai', aiChatLimiter, requireCrmApiSecret, dtgQuoteAIRoute);
 console.log('✓ DTG Quote AI route loaded (SECRET-ONLY, Claude Sonnet 4.6 + prompt caching + Tavily web search + curated top-sellers)');
 
+// 253gear product-copy drafter (2026-08-08) — drafts the storefront description
+// (hook + local history) for Steve to edit. Same SSE contract as the quote chats, so
+// the app picks it up by adding the slug to AI_CHAT_ROUTES. Web search is wired in
+// deliberately: the copy failures on that store were factual, not stylistic, so the
+// model must CHECK a claim rather than recall it and cite a source for each one.
+const shopifyDescriptionAIRoute = require('./src/routes/shopify-description-ai');
+app.use('/api/shopify-description-ai', aiChatLimiter, requireCrmApiSecret, shopifyDescriptionAIRoute);
+console.log('✓ 253Gear description AI route loaded (SECRET-ONLY, Claude Sonnet 4.6 + Tavily fact-check)');
+
 // EMB Quote AI (2026-05-24, Phase EMB Chat B) — research assistant for
 // the Embroidery Quote Builder. 3 tools: lookup_customer, recommend_top_sellers_emb
 // (Caspio EMB_Top_Sellers_2026 — Erik curates from 10yr sales),
