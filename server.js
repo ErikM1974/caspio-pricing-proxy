@@ -347,6 +347,35 @@ async function fetchAllCaspioPages(resourcePath, initialParams = {}, options = {
 // --- Load all modular routes ---
 // All endpoints are now organized into logical route modules
 
+// ── 253gear.com publisher (2026-08-08) ───────────────────────────────────────
+// Steve's dashboard tab turns a finished design into a DRAFT product on the retail
+// storefront. Mounted FIRST and gated ON THE SAME LINE so the gate can never drift
+// away from the router, and above every other '/api' mount so nothing can shadow it.
+//
+// Secret-only on ALL methods — not guardReadsOnly, whose READ_METHODS includes HEAD
+// (see the bypass documented at src/middleware/index.js:96-104). The app fronts this
+// with requirePageAccess('gear-publisher.html'), so one Caspio row governs both the
+// page and its data.
+//
+// The write limiter is scoped to this prefix only. A limiter mounted bare on '/api'
+// runs for EVERY /api request, which is how the whole proxy once ended up capped at
+// 30 req/min.
+const shopifyWriteLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  trustProxy: true,
+  message: { error: 'Too many 253gear publish operations — please slow down.' }
+});
+app.use('/api/shopify', (req, res, next) =>
+  (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS')
+    ? next()
+    : shopifyWriteLimiter(req, res, next));
+const shopifyProductsRoutes = require('./src/routes/shopify-products');
+app.use('/api/shopify', requireCrmApiSecret, shopifyProductsRoutes);
+console.log('✓ 253Gear publisher routes loaded [CRM-gated]');
+
 // Orders Routes (contains order-dashboard endpoint)
 // #9 side-door gate (2026-06-29): DEAD endpoint (the front-end serves its OWN /api/orders;
 // no proxy caller found in code, Erik confirmed no external consumers) that leaked order
