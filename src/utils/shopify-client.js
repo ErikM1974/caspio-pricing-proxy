@@ -15,7 +15,7 @@
 //   SHOPIFY_SHOP_DOMAIN       nw-custom-apparel.myshopify.com
 //   SHOPIFY_CLIENT_ID
 //   SHOPIFY_CLIENT_SECRET
-//   SHOPIFY_API_VERSION       (default 2025-01)
+//   SHOPIFY_API_VERSION       (default 2026-07 — NOT the 2025-01 in the old docs)
 //   SHOPIFY_STOREFRONT_ORIGIN (default https://253gear.com)
 //
 // THREE FAILURE-HANDLING RULES THAT ARE NOT OPTIONAL:
@@ -35,7 +35,16 @@
 
 const axios = require('axios');
 
-const DEFAULT_API_VERSION = '2025-01';
+// 🔴 NOT 2025-01, despite what Downloads/253gear-ops says.
+//
+// That reference material was written against 2025-01, but Shopify supports an Admin
+// API version for roughly 12 months and it is now August 2026 — so 2025-01 is out of
+// support. Confirmed from the Dev Dashboard while creating the 253Gear Publisher app:
+// the oldest version it will even offer is 2025-10, and it defaults new apps to
+// 2026-07. Calling a retired version fails outright or silently drops fields.
+//
+// Overridable via SHOPIFY_API_VERSION so a bump is a config change, not a deploy.
+const DEFAULT_API_VERSION = '2026-07';
 const DEFAULT_STOREFRONT = 'https://253gear.com';
 const REQUEST_TIMEOUT_MS = 60000;
 const TOKEN_BUFFER_SECONDS = 60;
