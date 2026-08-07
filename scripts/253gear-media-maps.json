@@ -1,0 +1,58 @@
+{
+  "_README": [
+    "Explicit (Style|Colour) -> media position maps for correcting products that predate the",
+    "publisher. Positions are 1-based in GALLERY order, matching what 253gear-align-media.js prints.",
+    "",
+    "🔴 NEVER infer these from filenames. Two of Spanaway's four photos are named 34082 while the",
+    "design is 34084, and Calico Cat's lifestyle shots carry generic stock filenames with no colour",
+    "in them at all. A wrong map silently sells the wrong colour.",
+    "",
+    "productLevel declares what an UNBOUND image should inherit. The theme gives an unbound photo",
+    "the options of the nearest preceding bound photo (product-template.CURRENT.liquid:393-402), so",
+    "the script simulates that walk and refuses to run if the declared value disagrees with the",
+    "position. That is the check that stops a lifestyle photo switching the shopper's colour."
+  ],
+
+  "6123423367324": {
+    "title": "Spanaway Speedway #34084",
+    "bind": {
+      "T-Shirt|Athletic Heather": 1,
+      "T-Shirt|Charcoal": 2,
+      "Hoodie|Athletic Heather": 3,
+      "Hoodie|Charcoal": 5
+    },
+    "productLevel": {
+      "4": "Hoodie|Athletic Heather"
+    },
+    "alt": {
+      "4": "Spanaway Speedway - dragster, script logo and a checkered flag, worn on a hoodie"
+    }
+  },
+
+  "6105789399196": {
+    "title": "Calico Cat Motel #34072",
+    "_note": [
+      "The two lifestyle shots are stock files named 't-shirt-mockup-of-a-bold-woman-…' and",
+      "'…man-smiling-in-a-studio-…' — nothing in the name says which colour. Opened both:",
+      "the woman wears MAROON, the man wears CHARCOAL. As they sat (positions 3 and 4, both",
+      "after the charcoal tee) BOTH would have inherited Charcoal, so clicking a maroon photo",
+      "would have switched the shopper to Charcoal. The reorder interleaves each lifestyle shot",
+      "behind its own flat-lay."
+    ],
+    "order": [1, 3, 2, 4, 5, 6],
+    "bind": {
+      "T-Shirt|Maroon": 1,
+      "T-Shirt|Charcoal": 3,
+      "Hoodie|Charcoal": 5,
+      "Hoodie|Maroon": 6
+    },
+    "productLevel": {
+      "2": "T-Shirt|Maroon",
+      "4": "T-Shirt|Charcoal"
+    },
+    "alt": {
+      "2": "Calico Cat Motel pole sign - the cat above Calico Cat script and MOTEL in block capitals, worn on a maroon t-shirt",
+      "4": "Calico Cat Motel pole sign - the cat above Calico Cat script and MOTEL in block capitals, worn on a charcoal t-shirt"
+    }
+  }
+}

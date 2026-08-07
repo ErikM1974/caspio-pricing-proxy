@@ -47,6 +47,86 @@ function checkVariantImageBinding(product) {
 }
 
 /**
+ * Every (Style x Colour) pair must resolve to its OWN photo.
+ *
+ * The binding check above only asks whether each variant has *an* image. It passes
+ * cleanly when two colours share one — which is exactly what shipped: measured
+ * 2026-08-07, six of the seven live multi-colour products bound by Style alone, so a
+ * shopper picking Charcoal was shown Athletic Heather and bought on that photo. The
+ * correct picture was already uploaded and bound to nothing.
+ *
+ * Size is deliberately excluded from the key: one photo serves all sizes of a pair, so
+ * a shopper's size survives a thumbnail click.
+ */
+function checkColourImageDistinct(product) {
+    const variants = nodesOf(product.variants);
+    const opt = (v, n) => ((v.selectedOptions || []).find((o) => o.name === n) || {}).value;
+    const imageOf = (v) => (v.image && (v.image.url || v.image.id)) || null;
+
+    const byPair = {};
+    for (const v of variants) {
+        const colour = opt(v, 'Color');
+        if (!colour) continue;
+        const pair = `${opt(v, 'Style') || '(single)'} / ${colour}`;
+        if (imageOf(v)) byPair[pair] = imageOf(v);
+    }
+    const pairs = Object.keys(byPair);
+    if (pairs.length < 2) {
+        return check('colour_image_distinct', true, 'Single colour — nothing to distinguish', { blocking: false });
+    }
+
+    const shared = {};
+    for (const [pair, img] of Object.entries(byPair)) (shared[img] = shared[img] || []).push(pair);
+    const clashes = Object.values(shared).filter((list) => list.length > 1);
+
+    return check(
+        'colour_image_distinct',
+        clashes.length === 0,
+        clashes.length
+            ? `${clashes.length} photo(s) serve more than one colour — colour does not change the picture`
+            : `${pairs.length} Style x Colour pair(s), each with its own photo`,
+        { items: clashes.map((list) => list.join('  ==  ')) }
+    );
+}
+
+/**
+ * Every photo must reach a variant, or be declared product-level.
+ *
+ * The reciprocal of the binding check, and the gap that let the defect above hide: an
+ * uploaded-but-unbound photo passes every existing check forever. It is also not inert
+ * — the theme gives an unbound photo the options of the nearest preceding BOUND one
+ * (product-template.CURRENT.liquid:393-402), so its meaning is its POSITION. A lifestyle
+ * shot placed after the wrong flat-lay switches the shopper to the wrong colour on click.
+ *
+ * Non-blocking: product-level shots are legitimate. It reports them so the position is a
+ * decision someone made rather than an accident.
+ */
+function checkOrphanMedia(product) {
+    const variants = nodesOf(product.variants);
+    const media = nodesOf(product.media).filter((m) => m.image || m.preview);
+    if (!media.length) return check('orphan_media', true, 'No media to check', { blocking: false });
+
+    const bound = new Set();
+    for (const v of variants) {
+        if (v.image && v.image.url) bound.add(String(v.image.url).split('?')[0]);
+        if (v.image && v.image.id) bound.add(v.image.id);
+    }
+    const orphans = media.filter((m) => {
+        const url = m.image && m.image.url ? String(m.image.url).split('?')[0] : null;
+        return !(url && bound.has(url)) && !bound.has(m.id);
+    });
+
+    return check(
+        'orphan_media',
+        true,
+        orphans.length
+            ? `${orphans.length} product-level photo(s) — each inherits its options from the photo before it, so position matters`
+            : 'Every photo is bound to a variant',
+        { blocking: false, items: orphans.map((m, i) => `position ${media.indexOf(m) + 1}`) }
+    );
+}
+
+/**
  * publishedAt, not status.
  *
  * Setting status ACTIVE leaves publishedAt null and the storefront 404s
@@ -200,6 +280,8 @@ function auditProduct(product, opts = {}) {
 
     const checks = [
         checkVariantImageBinding(product),
+        checkColourImageDistinct(product),
+        checkOrphanMedia(product),
         checkPublished(product, { expectPublished }),
         checkAltText(product),
         checkDuplicateDesignNumber(product, catalogue),
@@ -228,6 +310,8 @@ module.exports = {
     auditProduct,
     formatAudit,
     checkVariantImageBinding,
+    checkColourImageDistinct,
+    checkOrphanMedia,
     checkPublished,
     checkAltText,
     checkDuplicateDesignNumber,

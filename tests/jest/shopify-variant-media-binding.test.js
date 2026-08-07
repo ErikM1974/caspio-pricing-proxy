@@ -166,3 +166,131 @@ describe('seasonal products bind on Season x Color', () => {
         expect(byId['gid://v/3']).toBe('gid://m/fall');
     });
 });
+
+// ── The gap that let the defect sit live for months ───────────────────────────────────
+//
+// Every check above asks whether a variant has AN image. None asked whether two colours
+// share ONE. Measured on the live store 2026-08-07: six of the seven multi-colour
+// products bound by Style alone, so choosing Charcoal showed Athletic Heather — and the
+// correct photo was already uploaded, bound to nothing. Both existing audits passed.
+
+const AUDIT = require('../../src/utils/shopify-audit');
+
+/** Variants as the audit sees them: selectedOptions + a featured image. */
+function auditVariants(pairs, sizes = ['S', 'M', 'L']) {
+    const nodes = [];
+    for (const [style, color, imageUrl] of pairs) {
+        for (const size of sizes) {
+            nodes.push({
+                sku: `${style}-${color}-${size}`,
+                selectedOptions: [
+                    { name: 'Style', value: style },
+                    { name: 'Size', value: size },
+                    { name: 'Color', value: color }
+                ],
+                image: imageUrl ? { id: `gid://img/${imageUrl}`, url: `https://cdn/${imageUrl}` } : null
+            });
+        }
+    }
+    return { nodes };
+}
+
+describe('colour must change the picture', () => {
+    const find = (product, name) =>
+        AUDIT.auditProduct(product).checks.find((c) => c.name === name);
+
+    test('two colours sharing one photo FAILS, and names the pair', () => {
+        const product = {
+            variants: auditVariants([
+                ['T-Shirt', 'Athletic Heather', 'heather-tee.jpg'],
+                ['T-Shirt', 'Charcoal', 'heather-tee.jpg'],      // ← the live defect
+                ['Hoodie', 'Athletic Heather', 'heather-hoodie.jpg'],
+                ['Hoodie', 'Charcoal', 'heather-hoodie.jpg']
+            ]),
+            media: { nodes: [] }
+        };
+        const c = find(product, 'colour_image_distinct');
+        expect(c.pass).toBe(false);
+        expect(c.blocking).toBe(true);
+        expect(c.items.join(' ')).toContain('Charcoal');
+        // The old check is blind to it — that is precisely why this one exists.
+        expect(find(product, 'variant_image_binding').pass).toBe(true);
+    });
+
+    test('one photo per pair PASSES, and sizes sharing a photo is not a clash', () => {
+        const c = find({
+            variants: auditVariants([
+                ['T-Shirt', 'Athletic Heather', 'heather-tee.jpg'],
+                ['T-Shirt', 'Charcoal', 'charcoal-tee.jpg'],
+                ['Hoodie', 'Athletic Heather', 'heather-hoodie.jpg'],
+                ['Hoodie', 'Charcoal', 'charcoal-hoodie.jpg']
+            ], ['S', 'M', 'L', 'XL', '2XL', '3XL', '4XL']),
+            media: { nodes: [] }
+        }, 'colour_image_distinct');
+        expect(c.pass).toBe(true);
+    });
+
+    // A single-colour product is still checked, because the key is the PAIR: two styles
+    // sharing one photo is the original 644-variant defect, colour or no colour.
+    test('single colour, two styles — still blocking, and still catches a shared photo', () => {
+        const good = find({
+            variants: auditVariants([
+                ['T-Shirt', 'Black', 'tee.jpg'],
+                ['Hoodie', 'Black', 'hoodie.jpg']
+            ]),
+            media: { nodes: [] }
+        }, 'colour_image_distinct');
+        expect(good.pass).toBe(true);
+        expect(good.blocking).toBe(true);
+
+        const bad = find({
+            variants: auditVariants([
+                ['T-Shirt', 'Black', 'same.jpg'],
+                ['Hoodie', 'Black', 'same.jpg']
+            ]),
+            media: { nodes: [] }
+        }, 'colour_image_distinct');
+        expect(bad.pass).toBe(false);
+    });
+
+    test('nothing to distinguish — one pair — is a non-blocking pass', () => {
+        const c = find({
+            variants: auditVariants([['T-Shirt', 'Black', 'tee.jpg']]),
+            media: { nodes: [] }
+        }, 'colour_image_distinct');
+        expect(c.pass).toBe(true);
+        expect(c.blocking).toBe(false);
+    });
+});
+
+describe('an uploaded-but-unbound photo is reported, not silently ignored', () => {
+    test('the orphan is surfaced with its position, non-blocking', () => {
+        const product = {
+            variants: auditVariants([
+                ['T-Shirt', 'Maroon', 'maroon-tee.jpg'],
+                ['T-Shirt', 'Charcoal', 'charcoal-tee.jpg']
+            ]),
+            media: {
+                nodes: [
+                    { id: 'gid://m/1', image: { url: 'https://cdn/maroon-tee.jpg' } },
+                    { id: 'gid://m/2', image: { url: 'https://cdn/lifestyle.png' } },   // product-level
+                    { id: 'gid://m/3', image: { url: 'https://cdn/charcoal-tee.jpg' } }
+                ]
+            }
+        };
+        const c = AUDIT.auditProduct(product).checks.find((x) => x.name === 'orphan_media');
+        // Legitimate — lifestyle shots exist — so it must not block a publish...
+        expect(c.blocking).toBe(false);
+        // ...but its POSITION is what gives it meaning in the theme, so it must be named.
+        expect(c.items).toEqual(['position 2']);
+        expect(c.detail).toMatch(/position matters/);
+    });
+
+    test('a fully bound gallery reports no orphans', () => {
+        const c = AUDIT.auditProduct({
+            variants: auditVariants([['T-Shirt', 'Black', 'tee.jpg']]),
+            media: { nodes: [{ id: 'gid://m/1', image: { url: 'https://cdn/tee.jpg' } }] }
+        }).checks.find((x) => x.name === 'orphan_media');
+        expect(c.items).toEqual([]);
+    });
+});
