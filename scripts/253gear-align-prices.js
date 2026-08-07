@@ -21,7 +21,7 @@
 require('dotenv').config();
 const shopify = require('./../src/utils/shopify-client');
 const { loadConfig } = require('./../src/utils/shopify-config');
-const { priceFor } = require('./../src/utils/shopify-product-builder');
+const { priceFor, baseStyleOption } = require('./../src/utils/shopify-product-builder');
 
 const Q_PRODUCTS = `
 query {
@@ -73,6 +73,7 @@ async function main() {
 
     const plan = [];
     let unknownStyles = new Set();
+    const aliased = new Set();
 
     for (const p of products) {
         const fixes = [];
@@ -87,6 +88,15 @@ async function main() {
                 unknownStyles.add(style);      // a garment this config does not price
                 continue;
             }
+            // A Style like "T-Shirt - Royal" resolves through baseStyleOption() to the plain
+            // T-Shirt price. That is right for a colour suffix and WRONG for anything implying
+            // a different garment or grade ("T-Shirt - Premium" would silently price as a plain
+            // tee). priceFor cannot tell the two apart, so surface it here: this script is the
+            // only path that would actually rewrite a customer-facing price, and a human reads
+            // this dry run before --live.
+            if (style !== baseStyleOption(style) && !(cfg.prices || {})[style]) {
+                aliased.add(`${style}  ->  priced as "${baseStyleOption(style)}"`);
+            }
             if (String(v.price) !== expected) {
                 fixes.push({ id: v.id, style, size, from: v.price, to: expected });
             }
@@ -96,6 +106,14 @@ async function main() {
 
     if (unknownStyles.size) {
         console.log(`\nnote: no configured price for ${[...unknownStyles].join(', ')} — those variants were skipped, not guessed.`);
+    }
+
+    if (aliased.size) {
+        console.log('\n⚠️  Style(s) priced through the colour-suffix fallback. Confirm each suffix is a');
+        console.log('    COLOUR and not a different garment or grade — "T-Shirt - Premium" would be');
+        console.log('    priced as a plain tee, and this script is the one path that rewrites what a');
+        console.log('    customer pays:');
+        [...aliased].forEach((a) => console.log(`      ${a}`));
     }
 
     if (!plan.length) {

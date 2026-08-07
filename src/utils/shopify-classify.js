@@ -23,6 +23,8 @@
 
 'use strict';
 
+const { baseStyleOption } = require('./shopify-product-builder');
+
 /** Words that appear in artwork constantly and must never be read as a place. */
 const STOPWORDS = new Set([
     'the', 'and', 'of', 'a', 'an', 'in', 'at', 'on', 'to', 'for', 'est', 'since',
@@ -206,7 +208,14 @@ function buildTagSet({ city, styles = [] }, cfg) {
     }
 
     for (const option of styles) {
-        const def = (cfg.styles || []).find((s) => s.option === option);
+        // Same fallback the price / SKU / weight lookups use. A Style that names its colour
+        // ("T-Shirt - Royal", used where a garment sells in exactly one colour) matches no
+        // config entry on its own, so the product would publish with NO garment tag — absent
+        // from the T-Shirt and Hoodie collections, with nothing reporting it. Unreachable
+        // from the publisher today, which builds from config names; wired anyway so one
+        // concept keeps one rule. baseStyleOption() lives in shopify-product-builder.js.
+        const def = (cfg.styles || []).find((s) => s.option === option)
+                 || (cfg.styles || []).find((s) => s.option === baseStyleOption(option));
         if (def && def.filterTag) tags.add(String(def.filterTag).trim());
     }
 
