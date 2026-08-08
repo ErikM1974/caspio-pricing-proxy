@@ -145,7 +145,9 @@ function classifyProduct(p) {
     for (const st of styles) for (const co of colours) {
         if (!exists.has(`${st}|${co}`)) dead.push(`${st} + ${co}`);
     }
-    return { colourBlind, dead, colours: colours.length };
+    // `pairs` counts (Style x Colour) combinations that actually exist and carry a photo —
+    // the real unit of comparison. `colours` is reported separately for the dead-combo half.
+    return { colourBlind, dead, colours: colours.length, pairs: Object.keys(photoOf).length };
 }
 
 async function auditCatalogue() {
@@ -153,7 +155,14 @@ async function auditCatalogue() {
     const blind = [], dead = [];
     for (const p of d.products.nodes) {
         const r = classifyProduct(p);
-        if (r.colours < 2) continue;
+        // 🔴 Do NOT skip single-colour products. An earlier version did (`if colours < 2
+        // continue`), on the assumption that with one colour there is nothing colour-related
+        // to check. But the key is the PAIR: Fife High School Alumni #30069 sells one colour
+        // in FOUR styles, and its Long Sleeve Tee was bound to the SHORT-sleeve photo while
+        // the correct long-sleeve image sat on the product bound to nothing. The sweep
+        // reported the catalogue clean. That is the original 644-variant defect, colour or
+        // no colour — so only skip when there is genuinely nothing to compare.
+        if (r.pairs < 2) continue;
         if (r.colourBlind.length) blind.push({ p, r });
         if (r.dead.length) dead.push({ p, r });
     }

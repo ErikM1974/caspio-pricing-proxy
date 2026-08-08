@@ -32,6 +32,32 @@
     ]
   },
 
+  "6198520512668": {
+    "title": "Top of the Ocean #34089",
+    "mode": "foldIntoStyle",
+    "why": "Erik 2026-08-08: fix the dead combos. The tee is Light Blue and the hoodie is Carolina Blue - one colour each, which a shared dropdown cannot express. Option B (make the missing garments) was the alternative; it needs artwork that does not exist.",
+    "styleRenames": {
+      "T-Shirt": "T-Shirt - Light Blue",
+      "Hoodie": "Hoodie - Carolina Blue"
+    }
+  },
+
+  "6206542381212": {
+    "title": "253 Repeat #32187",
+    "mode": "foldIntoStyle",
+    "why": "Erik 2026-08-08: same shape - tee Light Blue, hoodie Royal, 14 variants behind 28 offered combinations.",
+    "_note": [
+      "Phase 1 also scored this subject vacancy 0/25, competitor type 'unrelated-collision':",
+      "the bare string '253' collides with everything, the way 'Tacoma' collides with the",
+      "Toyota pickup. Fixing the dead combos makes it buyable, but it will not rank on the",
+      "subject name whatever is done to it. That is a design-portfolio question, not a bug."
+    ],
+    "styleRenames": {
+      "T-Shirt": "T-Shirt - Light Blue",
+      "Hoodie": "Hoodie - Royal"
+    }
+  },
+
   "6014688395420": {
     "title": "Clyde's Water Slide, Puyallup WA #33958",
     "mode": "foldIntoStyle",
