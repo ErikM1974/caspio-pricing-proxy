@@ -55,6 +55,23 @@ const designOf = (s) => {
     return m ? m[1] : null;
 };
 
+/**
+ * 🔴 HELD BACK PENDING A HUMAN DECISION — never flattened, by any flag.
+ *
+ * Both name design #34082 and currently land on #34084. Unlike every other cross-design
+ * chain, the number here is NOT stale residue: #34082 (Spanaway Speedway 70s Retro) and
+ * #34084 (Spanaway Speedway) are both live, both Spanaway Speedway, and the number is the
+ * only thing telling them apart. Flattening would lock in a destination that may be the
+ * wrong artwork — and #34084 may have been converting that traffic for years, so "tidier"
+ * is not obviously "better". See reports/cross_design_redirects.md, Group C.
+ *
+ * This is a list rather than a flag because a flag can be passed by momentum.
+ */
+const HELD_FOR_DECISION = new Set([
+    '/products/spanaway-speedway-hoodie-34082',
+    '/products/spanaway-speedway-t-shirt-34082'
+]);
+
 async function fetchAll() {
     const all = [];
     let cursor = null;
@@ -104,13 +121,37 @@ async function main() {
         chains.push({ id: r.id, path: r.path, from: r.target, to: terminal, hops: hops.length - 1, trail: hops, cross: Boolean(a && b && a !== b), a, b });
     }
 
-    const same = chains.filter((c) => !c.cross);
-    const cross = chains.filter((c) => c.cross);
-    const batch = includeCross ? chains : same;
+    // A chain that ROUTES THROUGH a held-back redirect is itself undecided. Flattening it
+    // would bake in that node's current destination and quietly pre-empt the decision it is
+    // waiting on — so hold the dependants too, and say why.
+    const dependsOnHeld = (c) => c.trail.slice(1).some((h) => HELD_FOR_DECISION.has(h));
+    const held = chains.filter((c) => HELD_FOR_DECISION.has(c.path));
+    const blocked = chains.filter((c) => !HELD_FOR_DECISION.has(c.path) && dependsOnHeld(c));
+    const decidable = chains.filter((c) => !HELD_FOR_DECISION.has(c.path) && !dependsOnHeld(c));
+    const same = decidable.filter((c) => !c.cross);
+    const cross = decidable.filter((c) => c.cross);
+    const batch = includeCross ? [...same, ...cross] : same;
 
     console.log(`\nREDIRECTS: ${all.length} total, ${chains.length} chain(s), ${all.length - chains.length} already direct`);
     console.log(`   same-design  : ${same.length}   <- the default batch`);
     console.log(`   cross-design : ${cross.length}   <- excluded unless --include-cross-design`);
+
+    if (held.length) {
+        console.log(`
+🔴 HELD FOR DECISION — ${held.length}, excluded by name and not reachable by any flag:`);
+        held.forEach((c) => console.log(`   ${c.path}  ->  ${c.to}`));
+        console.log('   Both name #34082 and land on #34084; both designs are live and distinct,');
+        console.log('   so the number is the only thing separating them. reports/cross_design_redirects.md');
+    }
+
+    if (blocked.length) {
+        console.log(`
+⏸  BLOCKED BY THE ABOVE — ${blocked.length}, they route THROUGH a held redirect:`);
+        blocked.forEach((c) => console.log(`   ${c.path.slice(0, 56)}
+        via ${c.trail.find((h) => HELD_FOR_DECISION.has(h))}`));
+        console.log('   Flattening these would bake in that node\'s current destination and');
+        console.log('   pre-empt the decision they are waiting on. They follow it, whichever way it goes.');
+    }
 
     if (cross.length && !includeCross) {
         console.log('\nEXCLUDED — these end on a DIFFERENT design than the source URL implies.');
