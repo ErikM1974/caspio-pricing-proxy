@@ -38,7 +38,15 @@ const {
     classifyFromText, classifyFromSources, acceptModelSuggestion, buildTagSet, collectionsForTags, trimToWidth
 } = require('../utils/shopify-classify');
 
+const metrics = require('../utils/shopify-metrics');
+const { createTtlCache, shouldBypass } = require('../utils/ttl-cache');
+
 const JSON_LIMIT = '512kb';
+
+// The catalogue block pages through every product; a dashboard left open must not
+// re-walk it on every poll. Five minutes is fresh enough for a figure that moves
+// when somebody publishes a product.
+const metricsCache = createTtlCache({ name: 'shopify-store-metrics', ttlMs: 5 * 60 * 1000, maxEntries: 4 });
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -381,6 +389,39 @@ router.post('/products/:productId/publish', requireShopify, express.json({ limit
 
         res.json({ success: true, ...result, verified });
     } catch (e) { fail(res, e, 'publish'); }
+});
+
+// ── Store metrics ────────────────────────────────────────────────────────────
+
+/**
+ * GET /api/shopify/store-metrics — what the live shop is doing, for Steve's dashboard.
+ *
+ * Read-only. Three independent blocks (catalogue / traffic / sales), each of which
+ * reports its own availability, because they need different scopes and one being
+ * closed must not blank the others.
+ *
+ * 🔴 A missing scope returns 200 with {available:false, missing:[...]}, NOT an error
+ * status and NOT a zero. The page renders "we cannot see this, here is why" instead of
+ * a number — a traffic panel reading 0 when it means "no permission" is a fabricated
+ * measurement, and somebody will plan around it.
+ *
+ * Cached briefly: the catalogue block pages through every product, so an open dashboard
+ * tab must not re-walk the catalogue on every poll.
+ */
+router.get('/store-metrics', requireShopify, async (req, res) => {
+    try {
+        const refresh = shouldBypass(req);
+        const key = 'store-metrics';
+        if (!refresh) {
+            const hit = metricsCache.get(key);
+            if (hit) return res.json({ success: true, cached: true, ...hit });
+        }
+        const data = await metrics.storeMetrics();
+        // Only cache a payload whose catalogue block actually succeeded — a degraded
+        // response must not be pinned for the full TTL (ttl-cache's rule for callers).
+        if (data.catalogue && data.catalogue.available) metricsCache.set(key, data);
+        res.json({ success: true, cached: false, ...data });
+    } catch (e) { fail(res, e, 'store-metrics'); }
 });
 
 module.exports = router;
