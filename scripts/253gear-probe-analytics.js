@@ -45,9 +45,14 @@ const PROBES = [
     {
         name: 'ShopifyQL sessions (read_reports)',
         why: 'the actual traffic numbers, if we are allowed them',
-        q: 'query { shopifyqlQuery(query: "FROM sessions SHOW sum(sessions) SINCE -30d UNTIL today") '
-            + '{ __typename ... on TableResponse { tableData { rowData columns { name } } } parseErrors { code message } } }',
-        show: (d) => JSON.stringify(d.shopifyqlQuery).slice(0, 300)
+        // Corrected 2026-08-09 against the live API. The original guess was wrong three
+        // ways and every one of them is a trap worth keeping written down:
+        //   - there is no TableResponse union member; tableData hangs straight off
+        //   - `parseErrors` is [String!]! so a { code message } selection is rejected
+        //   - there is no sum() function; the measure is the bare column, `SHOW sessions`
+        q: 'query { shopifyqlQuery(query: "FROM sessions SHOW sessions SINCE -30d UNTIL today") '
+            + '{ parseErrors tableData { columns { name } rows } } }',
+        show: (d) => JSON.stringify(d.shopifyqlQuery.tableData.rows)
     },
     {
         name: 'product sales rank (read_orders)',
@@ -89,8 +94,10 @@ async function main() {
 
     console.log('\n─────────────────────────────────────────');
     summary.forEach((s) => console.log(`  ${s.ok ? '✔' : '✖'}  ${s.probe}`));
-    console.log('\nA ✖ on orders or ShopifyQL is a SCOPE problem, not a code problem —');
-    console.log('the app was deliberately created with write_products/read_products/read_publications only.');
+    console.log('\nA ✖ on orders or ShopifyQL is a SCOPE problem, not a code problem.');
+    console.log('read_orders + read_reports were granted 2026-08-09 (app version V4). Note that');
+    console.log('releasing a new app version is NOT enough — the token keeps reporting the OLD');
+    console.log('scope set until the install itself is re-authorised through the grant screen.');
 }
 
 main().catch((e) => {

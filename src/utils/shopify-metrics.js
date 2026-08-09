@@ -139,7 +139,27 @@ async function catalogueHealth() {
     };
 }
 
-/** Sessions and traffic sources. Needs read_reports + Level 2 protected customer data. */
+/**
+ * Sessions and traffic sources. Needs read_reports.
+ *
+ * 🔴 TWO TRAPS, both found the first time these ever executed (2026-08-09). They are
+ * recorded here because both are invisible in a passing-looking response.
+ *
+ * 1. `parseErrors` is `[String!]!` — an ARRAY, `[]` on success. **An empty array is
+ *    truthy in JavaScript**, so the obvious guard `if (r.parseErrors) throw` fires on
+ *    EVERY SUCCESSFUL QUERY. It would have reported traffic as permanently broken with
+ *    a fabricated error message the moment the scope landed. Same shape as the
+ *    `Number(null) === 0` trap, mirrored: here "no errors" reads as "error".
+ *    (Introspection calls it a LIST; a `{ code message }` selection is rejected with
+ *    "returns String" — so it is `[String!]!` and neither signal alone tells you.)
+ *
+ * 2. `rows` are OBJECTS keyed by column name — `{"sessions":"1332"}` — not positional
+ *    arrays. Rendering them as arrays yields empty cells, not an error.
+ *
+ * GRAMMAR, established by probing rather than from docs: there is no `sum()`
+ * ("Could not find valid function sum()") and no bare `BY` (the parser wants
+ * `GROUP BY`). The measure is the bare column name: `SHOW sessions`.
+ */
 async function traffic() {
     const Q = `
       query($q: String!) {
@@ -152,34 +172,56 @@ async function traffic() {
     const run = async (ql) => {
         const d = await shopify.gql(Q, { q: ql }, { isMutation: false });
         const r = d.shopifyqlQuery;
-        // parseErrors is a SCALAR String on this API version — a non-empty value means the
-        // query is wrong, and since these have never been executed that is a live possibility.
-        // Surface it verbatim rather than returning an empty table that looks like "no traffic".
-        if (r && r.parseErrors) {
-            const e = new Error('ShopifyQL rejected the query: ' + String(r.parseErrors).slice(0, 300));
+
+        // Normalise before testing. Trap 1 lives on this line.
+        const pe = Array.isArray(r && r.parseErrors)
+            ? r.parseErrors
+            : ((r && r.parseErrors) ? [r.parseErrors] : []);
+        if (pe.length) {
+            const e = new Error('ShopifyQL rejected the query: ' + pe.map(String).join('; ').slice(0, 300));
             e.code = 'SHOPIFYQL_PARSE_ERROR';
             e.query = ql;
             throw e;
         }
+
         const t = (r && r.tableData) || { columns: [], rows: [] };
-        return {
-            columns: (t.columns || []).map((c) => c.displayName || c.name),
-            rows: t.rows || []
-        };
+        const cols = t.columns || [];
+        // Trap 2: project the keyed objects into positional rows the page can render,
+        // using the column order the server declared.
+        const rows = (t.rows || []).map((row) => cols.map((c) => {
+            const v = row && Object.prototype.hasOwnProperty.call(row, c.name) ? row[c.name] : null;
+            return v === null || v === undefined ? '—' : v;
+        }));
+        return { columns: cols.map((c) => c.displayName || c.name), rows };
     };
 
-    const totals = await run(
-        `FROM sessions SHOW sum(sessions) SINCE -${WINDOW_DAYS}d UNTIL today`
-    );
-    const bySource = await run(
-        `FROM sessions SHOW sum(sessions) BY referrer_source `
-        + `SINCE -${WINDOW_DAYS}d UNTIL today ORDER BY sum(sessions) DESC LIMIT 8`
-    );
-    const daily = await run(
-        `FROM sessions SHOW sum(sessions) BY day SINCE -${WINDOW_DAYS}d UNTIL today ORDER BY day ASC`
-    );
+    const win = `SINCE -${WINDOW_DAYS}d UNTIL today`;
 
-    return { available: true, windowDays: WINDOW_DAYS, totals, bySource, daily };
+    const totals = await run(`FROM sessions SHOW sessions ${win}`);
+    const bySource = await run(
+        `FROM sessions SHOW sessions GROUP BY referrer_source ${win} ORDER BY sessions DESC LIMIT 8`);
+    const byReferrer = await run(
+        `FROM sessions SHOW sessions GROUP BY referrer_name ${win} ORDER BY sessions DESC LIMIT 8`);
+    // The one Steve can act on: which PAGES people actually land on. A design whose
+    // page nobody lands on is a drawing, not a product.
+    const byLanding = await run(
+        `FROM sessions SHOW sessions GROUP BY landing_page_path ${win} ORDER BY sessions DESC LIMIT 10`);
+    const daily = await run(
+        `FROM sessions SHOW sessions GROUP BY day ${win} ORDER BY day ASC`);
+
+    // A single day carrying a large share of the window is almost always a bot sweep or
+    // a scrape, not an audience. Flag it rather than let it inflate the headline —
+    // an unflagged spike is how "traffic tripled" gets repeated in a meeting.
+    let spike = null;
+    const total = Number(String((totals.rows[0] || [])[0] || '0').replace(/,/g, '')) || 0;
+    if (total > 0) {
+        for (const [day, n] of daily.rows) {
+            const v = Number(String(n).replace(/,/g, '')) || 0;
+            if (v / total >= 0.25) spike = { day, sessions: v, shareOfWindow: Math.round((v / total) * 100) };
+        }
+    }
+
+    return { available: true, windowDays: WINDOW_DAYS, totals, bySource, byReferrer, byLanding, daily, spike };
 }
 
 /**
