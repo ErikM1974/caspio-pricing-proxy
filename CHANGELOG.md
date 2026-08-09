@@ -1,3 +1,13 @@
+## v2026.08.09.1 (2026.08.09)
+
+- 253gear: fix the Fife long-sleeve photo and the last two dead-combo products
+- 253gear: flatten the 14 same-design redirect chains
+- 253gear: flatten 21 more redirect chains; hold 4 pending a decision
+- 253gear: archive 40 residue drafts (38 zz-marked + 2 shadowing a live design)
+- 253gear: hedge the unsourced Nyholm claims on both pages
+- 253gear: fix the Calico ownership tense, rewrite Tipperary on sourced material
+- 253gear store metrics: real figures, or the reason there aren't any
+
 ## v2026.08.07.4 (2026.08.07)
 
 - 253gear: remove dead option combinations on two products
