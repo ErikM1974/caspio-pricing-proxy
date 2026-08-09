@@ -1,3 +1,7 @@
+## v2026.08.09.2 (2026.08.09)
+
+- Traffic metrics work: fix two bugs found the first time ShopifyQL ever ran
+
 ## v2026.08.09.1 (2026.08.09)
 
 - 253gear: fix the Fife long-sleeve photo and the last two dead-combo products
