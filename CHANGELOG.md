@@ -1,3 +1,7 @@
+## v2026.08.09.3 (2026.08.09)
+
+- Find where the traffic is going: 76% of product-page sessions are broken
+
 ## v2026.08.09.2 (2026.08.09)
 
 - Traffic metrics work: fix two bugs found the first time ShopifyQL ever ran
