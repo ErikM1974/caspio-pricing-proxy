@@ -29,6 +29,29 @@
     }
   },
 
+  "6137787383964": {
+    "title": "Fife High School Alumni #30069",
+    "_note": [
+      "ONE colour, FOUR styles - and the Long Sleeve Tee was bound to the SHORT-sleeve photo",
+      "while its own photo (position 4) sat on the product bound to nothing.",
+      "",
+      "🔑 The catalogue sweep reported this product clean for a day. It skipped every product",
+      "with fewer than two colours, on the assumption that one colour means nothing to check.",
+      "But the key is the PAIR: two STYLES sharing a photo is the original 644-variant defect,",
+      "colour or no colour. The guard is now keyed on (Style x Colour) pairs.",
+      "",
+      "No reorder needed - every photo is bound, so there are no product-level images whose",
+      "meaning would depend on position."
+    ],
+    "bind": {
+      "T-Shirt|Royal": 1,
+      "Hoodie|Royal": 2,
+      "Crewneck|Royal": 3,
+      "Long Sleeve Tee|Royal": 4
+    },
+    "productLevel": {}
+  },
+
   "6105789399196": {
     "title": "Calico Cat Motel #34072",
     "_note": [
