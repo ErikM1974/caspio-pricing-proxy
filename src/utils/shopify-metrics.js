@@ -90,6 +90,7 @@ async function catalogueHealth() {
           pageInfo { hasNextPage endCursor }
           nodes {
             id title status descriptionHtml
+            handle
             seo { title description }
             publishedAt
             featuredMedia { id }
@@ -123,6 +124,10 @@ async function catalogueHealth() {
     const median = sorted.length ? sorted[Math.floor(sorted.length / 2)] : 0;
 
     return {
+        // Handed to findLeaks so the catalogue is paged once rather than twice, then
+        // deleted before the payload leaves storeMetrics — it is a join input, not data
+        // the page has any use for.
+        _products: all.map((p) => ({ handle: p.handle, title: p.title, status: p.status })),
         available: true,
         totalProducts: all.length,
         activeProducts: active.length,
@@ -283,6 +288,128 @@ async function sales() {
 }
 
 /**
+ * Where traffic is being lost. The highest-value block on the whole dashboard, and the
+ * one nothing else would have surfaced.
+ *
+ * Measured the first time it ran (90 days to 2026-08-09): of 2,126 sessions landing on
+ * product pages, 1,000 hit URLs with no product and no redirect — every one of them a
+ * BLANK GARMENT SKU (pc54 269, pc147 239, bc3001 197, pc54y 122, nkbq5230 116, lpc54 57).
+ * A further 112 landed on a redirect pointing at the wrong product. That is 52% of
+ * product-page traffic, on a store taking two orders a month.
+ *
+ * 🔴 A `copy-of-` HANDLE IN A REDIRECT IS THE SIGNATURE OF THIS BUG. Duplicating a product
+ * in the Shopify admin creates `copy-of-<original>`; renaming the duplicate makes Shopify
+ * auto-create a redirect from that handle to the NEW product. Technically right, and
+ * semantically wrong the moment Google has indexed the URL under the original's name.
+ * Pizza and Pipes traffic was being handed a motel for exactly this reason.
+ */
+function findLeaks({ landingRows, products, redirects, salesByTitle }) {
+    const activeHandles = new Set(products.filter((p) => p.status === 'ACTIVE').map((p) => p.handle));
+    const redirectByPath = new Map(redirects.map((r) => [r.path, r.target]));
+
+    const words = (s) => String(s || '').toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 2);
+    // Words that appear in half the handles on the store carry no signal about WHICH
+    // product a URL meant, so they must not count as agreement between path and target.
+    const NOISE = new Set(['products', 'copy', 'shirt', 'tshirt', 'hoodie', 'tee', 'black', 'white',
+        'gray', 'grey', 'the', 'and', 'for', 'with', 'mens', 'womens', 'youth']);
+    const signal = (s) => words(s).filter((w) => !NOISE.has(w) && !/^\d+$/.test(w));
+
+    const dead = [];
+    const misrouted = [];
+    const productSessions = new Map();
+
+    for (const row of landingRows) {
+        const path = row[0];
+        const sessions = Number(String(row[1]).replace(/,/g, '')) || 0;
+        if (!/^\/products\//.test(String(path))) continue;
+        const handle = String(path).replace(/^\/products\//, '').split('?')[0];
+
+        if (activeHandles.has(handle)) {
+            productSessions.set(handle, (productSessions.get(handle) || 0) + sessions);
+            continue;
+        }
+
+        const target = redirectByPath.get(path) || redirectByPath.get('/products/' + handle);
+        if (!target) {
+            dead.push({ path, sessions });
+            continue;
+        }
+
+        // A redirect exists. Is it pointing somewhere that has anything to do with the URL
+        // the visitor clicked?
+        //
+        // 🔑 THE DESIGN NUMBER EXONERATES. Every product carries a 4-6 digit ShopWorks
+        // design number, and it is the store's own identity key — it survives renames,
+        // which is precisely when redirects get created. If the source path and the target
+        // carry the SAME number, the redirect is a rename and is correct, however little
+        // the words resemble each other. Without this rule
+        // `253-area-code-t-shirt-32187 -> 253-repeat-32187` reads as a misroute when it is
+        // the system working exactly as intended.
+        //
+        // A `copy-of-` prefix is NOT flagged on its own. It was, briefly, and it re-flagged
+        // the Pizza and Pipes pair the moment they were fixed — a check that keeps
+        // complaining after you fix the thing is a check people learn to ignore. The real
+        // bug it was aimed at (a duplicate renamed to an unrelated product) is caught by
+        // the number test anyway, which is both stricter and quieter.
+        const num = (s) => { const m = String(s).match(/\b(\d{4,6})\b/g); return m ? m[m.length - 1] : null; };
+        const srcNum = num(handle);
+        const dstNum = num(target);
+        if (srcNum && dstNum && srcNum === dstNum) continue;   // same design, renamed — fine
+
+        const src = signal(handle);
+        const dst = signal(target);
+        const overlap = src.filter((w) => dst.includes(w));
+        if (src.length && !overlap.length) {
+            misrouted.push({
+                path, sessions, target,
+                why: srcNum && dstNum
+                    ? `design #${srcNum} redirects to #${dstNum} — a different design, and no word matches either`
+                    : 'the destination shares no word with the URL clicked'
+            });
+        }
+    }
+
+    dead.sort((a, b) => b.sessions - a.sessions);
+    misrouted.sort((a, b) => b.sessions - a.sessions);
+
+    // Traffic but no sale: the page is found and does not convert. Distinct from no
+    // traffic at all, which is a findability problem, and the two need opposite fixes.
+    const soldTitles = new Set(Object.keys(salesByTitle || {}));
+    const titleOf = new Map(products.map((p) => [p.handle, p.title]));
+    const trafficNoSales = [];
+    for (const [handle, sessions] of productSessions) {
+        const title = titleOf.get(handle) || handle;
+        if (!soldTitles.has(title) && sessions >= 10) trafficNoSales.push({ handle, title, sessions });
+    }
+    trafficNoSales.sort((a, b) => b.sessions - a.sessions);
+
+    const noTraffic = products
+        .filter((p) => p.status === 'ACTIVE' && !productSessions.has(p.handle))
+        .map((p) => ({ handle: p.handle, title: p.title }));
+
+    const productTotal = [...productSessions.values()].reduce((a, n) => a + n, 0);
+    const deadTotal = dead.reduce((a, d) => a + d.sessions, 0);
+    const misTotal = misrouted.reduce((a, d) => a + d.sessions, 0);
+    const grand = productTotal + deadTotal + misTotal;
+
+    return {
+        available: true,
+        windowDays: 90,
+        summary: {
+            productPageSessions: grand,
+            reachingALivePage: productTotal,
+            lostTo404: deadTotal,
+            misrouted: misTotal,
+            brokenPercent: grand ? Math.round(((deadTotal + misTotal) / grand) * 100) : 0
+        },
+        dead: dead.slice(0, 15),
+        misrouted: misrouted.slice(0, 15),
+        trafficNoSales: trafficNoSales.slice(0, 12),
+        noTraffic: { count: noTraffic.length, sample: noTraffic.slice(0, 10) }
+    };
+}
+
+/**
  * The whole payload. Each block fails independently: a missing scope on one must not
  * blank the block that does work.
  */
@@ -338,6 +465,80 @@ async function storeMetrics() {
         }
     }
 
+    // Leaks — needs read_reports (for landing pages) and read_products. Sales are optional:
+    // without them the traffic-no-sales list is simply omitted rather than the whole block
+    // failing, because the 404 list is the valuable part and it does not need orders.
+    if (!has('read_reports')) {
+        out.leaks = unavailable(['read_reports'], {
+            note: 'The 404 list needs landing-page data, which is the same permission as traffic.'
+        });
+    } else {
+        try {
+            const landing = await landingPages(90);
+            const redirects = await allRedirects();
+            const salesByTitle = {};
+            if (out.sales && out.sales.available) {
+                (out.sales.topDesigns || []).forEach((t) => { salesByTitle[t.title] = t.units; });
+            }
+            out.leaks = findLeaks({
+                landingRows: landing.rows,
+                products: (out.catalogue && out.catalogue._products) || [],
+                redirects,
+                salesByTitle
+            });
+        } catch (e) {
+            out.leaks = { available: false, code: e.code || 'UPSTREAM_FAILED', error: String(e.message || e).slice(0, 300) };
+        }
+    }
+
+    // The raw product list is an implementation detail of the leak join, not payload.
+    if (out.catalogue) delete out.catalogue._products;
+
+    return out;
+}
+
+/** Landing pages over an arbitrary window. Deeper list than the traffic block shows. */
+async function landingPages(days) {
+    const Q = `
+      query($q: String!) {
+        shopifyqlQuery(query: $q) {
+          parseErrors
+          tableData { columns { name displayName } rows }
+        }
+      }`;
+    const d = await shopify.gql(Q, {
+        q: `FROM sessions SHOW sessions GROUP BY landing_page_path SINCE -${days}d UNTIL today `
+            + 'ORDER BY sessions DESC LIMIT 60'
+    }, { isMutation: false });
+    const r = d.shopifyqlQuery;
+    const pe = Array.isArray(r && r.parseErrors) ? r.parseErrors : ((r && r.parseErrors) ? [r.parseErrors] : []);
+    if (pe.length) {
+        const e = new Error('ShopifyQL rejected the landing-page query: ' + pe.map(String).join('; '));
+        e.code = 'SHOPIFYQL_PARSE_ERROR';
+        throw e;
+    }
+    const t = (r && r.tableData) || { columns: [], rows: [] };
+    const cols = t.columns || [];
+    return { rows: (t.rows || []).map((row) => cols.map((c) => (row ? row[c.name] : null))) };
+}
+
+/** Every redirect on the store. 127 of them today, so one page is usually enough. */
+async function allRedirects() {
+    const Q = `
+      query($cursor: String) {
+        urlRedirects(first: 250, after: $cursor) {
+          pageInfo { hasNextPage endCursor }
+          nodes { path target }
+        }
+      }`;
+    const out = [];
+    let cursor = null;
+    for (let i = 0; i < 8; i++) {
+        const d = await shopify.gql(Q, { cursor }, { isMutation: false });
+        out.push(...d.urlRedirects.nodes);
+        if (!d.urlRedirects.pageInfo.hasNextPage) break;
+        cursor = d.urlRedirects.pageInfo.endCursor;
+    }
     return out;
 }
 
