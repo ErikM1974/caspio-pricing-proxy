@@ -19,7 +19,13 @@ const FORM_LABELS = {
   'webstore-request': '🏪 New WEBSTORE inquiry',
   'jotform-lead': '🌐 New WEBSITE LEAD',
   'manual-lead': '📞 New PHONE/WALK-IN LEAD',
+  'sample-request': '👕 New SAMPLE REQUEST',
 };
+
+// Forms whose follow-up work happens on the Leads BOARD, not the Forms Inbox.
+// A sample-request shows in both, but the job it creates is a call-them-back,
+// so point the rep at the board (2026-08-10).
+const LEADS_BOARD_FORMS = new Set(['jotform-lead', 'sample-request']);
 
 // rep + sourceTitle are optional (JotForm leads set both: auto-assigned AE or
 // the Taneisha default, and which of the 6 JotForm forms it came through).
@@ -27,7 +33,7 @@ async function notifyFormLead({ formId, submissionId, company, contactName, phon
   if (!WEBHOOK_URL) return; // not configured — silent no-op by design
 
   const label = FORM_LABELS[formId] || `📥 New ${formId}`;
-  const inboxLink = formId === 'jotform-lead'
+  const inboxLink = LEADS_BOARD_FORMS.has(formId)
     ? `<${SITE_ORIGIN}/dashboards/leads.html|Open the Leads board>`
     : `<${SITE_ORIGIN}/dashboards/form-submissions.html|Open the Forms Inbox>`;
   const lines = [

@@ -43,7 +43,7 @@ const AE_REGISTRY = {
     'ruth@nwcustomapparel.com': { fullName: 'Ruthie Nhoung', firstName: 'Ruthie' },
 };
 
-const LEAD_FORM_IDS = ['jotform-lead', 'quote-request', 'webstore-request', 'team-roster', 'manual-lead'];
+const LEAD_FORM_IDS = ['jotform-lead', 'quote-request', 'webstore-request', 'team-roster', 'manual-lead', 'sample-request'];
 // Quote_Sessions statuses that mean "no follow-up needed". Anything else
 // (Open, active, pending, sample-*, …) counts as open pipeline.
 const QUOTE_CLOSED = new Set(['completed', 'abandoned', 'expired', 'converted', 'cancelled']);
