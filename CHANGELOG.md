@@ -1,3 +1,7 @@
+## v2026.08.09.4 (2026.08.09)
+
+- The panel said 38 designs had no traffic. Every one of them had traffic.
+
 ## v2026.08.09.3 (2026.08.09)
 
 - Find where the traffic is going: 76% of product-page sessions are broken
