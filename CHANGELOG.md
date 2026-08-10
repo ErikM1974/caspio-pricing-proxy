@@ -1,3 +1,7 @@
+## v2026.08.10.3 (2026.08.10)
+
+- Past due means unshipped AND uninvoiced — the card was mostly wrong
+
 ## v2026.08.10.2 (2026.08.10)
 
 - Gate the ManageOrders PII reads — they were answering the public internet
