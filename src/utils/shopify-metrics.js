@@ -303,7 +303,7 @@ async function sales() {
  * semantically wrong the moment Google has indexed the URL under the original's name.
  * Pizza and Pipes traffic was being handed a motel for exactly this reason.
  */
-function findLeaks({ landingRows, products, redirects, salesByTitle }) {
+function findLeaks({ landingRows, products, redirects, salesByTitle, truncated, lowestSessions }) {
     const activeHandles = new Set(products.filter((p) => p.status === 'ACTIVE').map((p) => p.handle));
     const redirectByPath = new Map(redirects.map((r) => [r.path, r.target]));
 
@@ -383,9 +383,47 @@ function findLeaks({ landingRows, products, redirects, salesByTitle }) {
     }
     trafficNoSales.sort((a, b) => b.sessions - a.sessions);
 
-    const noTraffic = products
+    // 🔴 "No traffic" is only meaningful if the query saw the whole tail. When the landing
+    // list is truncated, a product's absence means "quieter than the cut", NOT zero — that
+    // conflation is what produced the false "38 designs with no traffic".
+    const absent = products
         .filter((p) => p.status === 'ACTIVE' && !productSessions.has(p.handle))
         .map((p) => ({ handle: p.handle, title: p.title }));
+
+    const noTraffic = truncated
+        ? {
+            count: 0,
+            unknown: absent.length,
+            note: `Cannot be determined: the landing-page query was truncated at `
+                + `${lowestSessions} sessions, so ${absent.length} product(s) may simply be quieter `
+                + `than the cut rather than unvisited. Raise the limit before reading anything into this.`,
+            sample: []
+        }
+        : { count: absent.length, unknown: 0, sample: absent.slice(0, 10) };
+
+    /**
+     * The crawler floor. Real visitor counts spread out; bots produce a spike of products on
+     * an IDENTICAL number. Measured 2026-08-09: 31 of 47 products sat on exactly 15–16
+     * sessions per 90 days, which is not thirty-one audiences of fifteen people.
+     *
+     * Reported separately from real traffic because the difference decides what to do. A
+     * product at the floor has a DISCOVERY problem; a product above it that does not sell has
+     * a PAGE problem, and those need opposite work.
+     */
+    const counts = new Map();
+    for (const n of productSessions.values()) counts.set(n, (counts.get(n) || 0) + 1);
+    let floor = null;
+    for (const [value, n] of counts) {
+        // A third of the catalogue landing on one number is a machine, not a coincidence.
+        if (n >= Math.max(4, Math.ceil(productSessions.size / 3)) && (!floor || value < floor.sessions)) {
+            floor = { sessions: value, products: n };
+        }
+    }
+    const atFloor = floor
+        ? [...productSessions.entries()]
+            .filter(([, n]) => n <= floor.sessions)
+            .map(([handle]) => ({ handle, title: (products.find((p) => p.handle === handle) || {}).title || handle }))
+        : [];
 
     const productTotal = [...productSessions.values()].reduce((a, n) => a + n, 0);
     const deadTotal = dead.reduce((a, d) => a + d.sessions, 0);
@@ -405,7 +443,16 @@ function findLeaks({ landingRows, products, redirects, salesByTitle }) {
         dead: dead.slice(0, 15),
         misrouted: misrouted.slice(0, 15),
         trafficNoSales: trafficNoSales.slice(0, 12),
-        noTraffic: { count: noTraffic.length, sample: noTraffic.slice(0, 10) }
+        noTraffic,
+        crawlerFloor: floor
+            ? { sessions: floor.sessions, count: atFloor.length, sample: atFloor.slice(0, 10) }
+            : null,
+        coverage: {
+            truncated: Boolean(truncated),
+            lowestSessions,
+            productsSeen: productSessions.size,
+            activeProducts: products.filter((p) => p.status === 'ACTIVE').length
+        }
     };
 }
 
@@ -484,7 +531,9 @@ async function storeMetrics() {
                 landingRows: landing.rows,
                 products: (out.catalogue && out.catalogue._products) || [],
                 redirects,
-                salesByTitle
+                salesByTitle,
+                truncated: landing.truncated,
+                lowestSessions: landing.lowestSessions
             });
         } catch (e) {
             out.leaks = { available: false, code: e.code || 'UPSTREAM_FAILED', error: String(e.message || e).slice(0, 300) };
@@ -497,8 +546,21 @@ async function storeMetrics() {
     return out;
 }
 
-/** Landing pages over an arbitrary window. Deeper list than the traffic block shows. */
-async function landingPages(days) {
+/**
+ * Landing pages over an arbitrary window.
+ *
+ * 🔴 THE LIMIT IS LOAD-BEARING AND IT SHIPPED WRONG ONCE. This asked for `LIMIT 60`. Over 90
+ * days that list runs out at 25 sessions, so every product below 25 — which is most of the
+ * catalogue — simply was not in the response. `findLeaks` read their absence as zero traffic
+ * and the dashboard announced that 38 designs had never been visited. All 47 had been.
+ *
+ * A truncated result is indistinguishable from a complete one unless you check, which is why
+ * this now returns `truncated` and `lowestSessions` and the caller is expected to look. The
+ * rule already written into this repo's workflow guidance — never let a silent cap read as
+ * full coverage — was written by the same author who then shipped this. Hence the shouting.
+ */
+async function landingPages(days, limit) {
+    const cap = limit || 500;
     const Q = `
       query($q: String!) {
         shopifyqlQuery(query: $q) {
@@ -508,7 +570,7 @@ async function landingPages(days) {
       }`;
     const d = await shopify.gql(Q, {
         q: `FROM sessions SHOW sessions GROUP BY landing_page_path SINCE -${days}d UNTIL today `
-            + 'ORDER BY sessions DESC LIMIT 60'
+            + `ORDER BY sessions DESC LIMIT ${cap}`
     }, { isMutation: false });
     const r = d.shopifyqlQuery;
     const pe = Array.isArray(r && r.parseErrors) ? r.parseErrors : ((r && r.parseErrors) ? [r.parseErrors] : []);
@@ -519,7 +581,16 @@ async function landingPages(days) {
     }
     const t = (r && r.tableData) || { columns: [], rows: [] };
     const cols = t.columns || [];
-    return { rows: (t.rows || []).map((row) => cols.map((c) => (row ? row[c.name] : null))) };
+    const rows = (t.rows || []).map((row) => cols.map((c) => (row ? row[c.name] : null)));
+    const last = rows.length ? Number(String(rows[rows.length - 1][1]).replace(/,/g, '')) : 0;
+    return {
+        rows,
+        // If we came back with exactly what we asked for, there is more behind it and the
+        // tail is cut at `lowestSessions` — anything quieter than that is missing, not zero.
+        truncated: rows.length >= cap,
+        lowestSessions: last,
+        limit: cap
+    };
 }
 
 /** Every redirect on the store. 127 of them today, so one page is usually enough. */
@@ -542,4 +613,10 @@ async function allRedirects() {
     return out;
 }
 
-module.exports = { storeMetrics, grantedScopes, catalogueHealth, traffic, sales, unavailable, SCOPE_HELP, WINDOW_DAYS };
+module.exports = {
+    storeMetrics, grantedScopes, catalogueHealth, traffic, sales, unavailable,
+    // Exported for the truncation regression test. It is pure — landing rows in, findings
+    // out — which is what makes the bug testable without touching Shopify at all.
+    findLeaks, landingPages,
+    SCOPE_HELP, WINDOW_DAYS
+};
