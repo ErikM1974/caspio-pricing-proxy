@@ -18,7 +18,7 @@
 
 'use strict';
 
-const LEAD_FORM_IDS = ['jotform-lead', 'quote-request', 'webstore-request', 'team-roster', 'manual-lead'];
+const LEAD_FORM_IDS = ['jotform-lead', 'quote-request', 'webstore-request', 'team-roster', 'manual-lead', 'sample-request'];
 // A lead in one of these states is NOT eligible for auto-Won (already closed, or
 // the rep deliberately parked it). Archived is eligible ONLY on a backfill run.
 const NON_ELIGIBLE = ['Won', 'Lost', 'Launched', 'Completed', 'Entered in ShopWorks'];

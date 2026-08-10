@@ -16,7 +16,7 @@
 
 'use strict';
 
-const LEAD_FORM_IDS = ['jotform-lead', 'quote-request', 'webstore-request', 'team-roster', 'manual-lead'];
+const LEAD_FORM_IDS = ['jotform-lead', 'quote-request', 'webstore-request', 'team-roster', 'manual-lead', 'sample-request'];
 const SUBMISSIONS_PATH = '/tables/Form_Submissions/records';
 const MODEL = process.env.LEAD_CLASSIFY_MODEL || 'claude-opus-4-8';
 const BATCH = 40;

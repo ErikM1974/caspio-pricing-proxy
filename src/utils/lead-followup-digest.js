@@ -26,7 +26,7 @@ const { resolveAEEmailLoose, resolveAEName } = require('./rep-email-map');
 
 const SITE_ORIGIN = process.env.SITE_ORIGIN || 'https://www.teamnwca.com';
 
-const LEAD_FORM_IDS = ['jotform-lead', 'quote-request', 'webstore-request', 'team-roster', 'manual-lead'];
+const LEAD_FORM_IDS = ['jotform-lead', 'quote-request', 'webstore-request', 'team-roster', 'manual-lead', 'sample-request'];
 // Mirrors the frontend's WON_STATUSES ∪ {Lost, Archived} (dashboards/js/leads.js) —
 // keep in sync if the pipeline vocabulary changes.
 const TERMINAL_STATUSES = ['Won', 'Lost', 'Archived', 'Launched', 'Completed', 'Entered in ShopWorks'];
@@ -35,6 +35,8 @@ const SOURCE_LABELS = {
   'quote-request': 'Quote Request',
   'webstore-request': 'Webstore',
   'team-roster': 'Roster',
+  'manual-lead': 'Phone/Walk-in',
+  'sample-request': 'Sample Request',
 };
 const NEW_UNTOUCHED_MIN_HOURS = 48;
 const NEW_UNTOUCHED_MAX_DAYS = 60;

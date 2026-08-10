@@ -31,7 +31,7 @@ const ITEMS_PATH = '/tables/Sample_Checkout_Items/records';
 const ACTIVITY_PATH = '/tables/Lead_Activity/records';
 // Only these Form_IDs may be hard-deleted here (Leads CRM rows). Sample-checkout
 // and the HR/finance twins have their own financial/records trail — never DELETE.
-const DELETABLE_FORM_IDS = new Set(['jotform-lead', 'quote-request', 'webstore-request', 'team-roster', 'manual-lead']);
+const DELETABLE_FORM_IDS = new Set(['jotform-lead', 'quote-request', 'webstore-request', 'team-roster', 'manual-lead', 'sample-request']);
 
 // POST is public — keep a lid on abuse (the twins are quiet pages; 20/5min/IP is generous).
 const submitLimiter = rateLimit({
@@ -156,6 +156,7 @@ router.post('/', submitLimiter, async (req, res) => {
         'webstore-request': 'Webstore Inquiry',
         'team-roster': 'Team Roster',
         'manual-lead': 'Phone/Walk-in',
+        'sample-request': 'Sample Request (free samples)',
       };
       setImmediate(async () => {
         try {
