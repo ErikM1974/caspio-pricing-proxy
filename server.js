@@ -945,6 +945,35 @@ const manageOrdersLimiter = rateLimit({
 // /lineitems keeps guardReadsOnly — it has no write callers to migrate.
 app.use('/api/manageorders/orders', requireCrmApiSecret);
 app.use('/api/manageorders/lineitems', guardReadsOnly(requireCrmApiSecret));
+// The REST of the ManageOrders read surface (2026-08-10). The gates above are
+// per-sub-prefix, but src/routes/manageorders.js mounts at '/api' — so every route in
+// that file OTHER than these four answered the public internet. Measured before this
+// change, with no credentials of any kind:
+//   GET /api/manageorders/customers      -> 200, ~85 KB. deduplicateCustomers() emits
+//                                           ContactEmail + ContactPhone (src/utils/
+//                                           manageorders.js:425-426) for every customer
+//                                           with an order in the last 60 days.
+//   GET /api/manageorders/payments/142552 -> 200, a real order's payment records.
+//   POST /api/manageorders/inventory-cache-clear -> reachable; an anonymous cache flush.
+// 🔴 DEPLOY ORDER IS REVERSED FOR THIS CHANGE: app FIRST, proxy second. The two live
+// /customers callers (art-request-detail.js, mockup-detail.js) reach the forwarder at
+// /api/mo/customers, which only exists from app v2026.08.10.x. moFetch falls back to the
+// direct proxy call, and that fallback 401s once this lands — so gating the proxy before
+// the app ships breaks both pages.
+app.use('/api/manageorders/customers', requireCrmApiSecret);
+app.use('/api/manageorders/payments', requireCrmApiSecret);
+app.use('/api/manageorders/order', requireCrmApiSecret);           // /order/:id/snapshot
+app.use('/api/manageorders/cache-info', requireCrmApiSecret);      // no callers
+app.use('/api/manageorders/inventory-cache-stats', requireCrmApiSecret);  // no callers
+app.use('/api/manageorders/inventory-cache-clear', requireCrmApiSecret);  // anonymous write
+// DELIBERATELY LEFT OPEN, both verified 2026-08-10:
+//   /inventorylevels — /calculators/laser-tumbler-polarcamel.html is customer-facing
+//     (see the "Do NOT blanket-gate /calculators" note in the app's server.js), so it has
+//     no staff session. Returns product stock — but also UnitCost/TotalCost/VendorName,
+//     i.e. our wholesale cost, which is worth a projection fix rather than a gate.
+//   /getorderno/:ext_order_id — returns an order-number lookup only, and its live caller
+//     (shared_components/js/builders/emb/save-push.js:967, the ShopWorks push verifier)
+//     is an ES module with no access to the global moFetch. Needs a forwarder first.
 // Tracking (2026-08-05). Was fully anonymous: GET /api/manageorders/tracking
 // returned ~911 KB of tracking records — customer shipment identifiers and
 // addresses — to anyone, and the push router's /tracking/{pull,push,verify}

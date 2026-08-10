@@ -1771,7 +1771,10 @@ router.post('/sync', async (req, res) => {
 
     if (isWeekly) {
       // Full sync: allOpen
-      const soapBody = buildOrderStatusRequest('allOpen', { returnProductDetail: true });
+      const soapBody = buildOrderStatusRequest('allOpen', {
+        returnProductDetail: true,
+        returnIssueDetailType: 'allIssues'   // see fetchOrderByPO - without it, no <issues>
+      });
       const xml = await makeSoapRequest(ENDPOINTS.orderStatus, soapBody, {
         timeout: 60000,
         namespaces: { ns: NS.orderStatus, shar: NS.orderStatusShared }
@@ -1789,7 +1792,8 @@ router.post('/sync', async (req, res) => {
 
       const soapBody = buildOrderStatusRequest('lastUpdate', {
         statusTimeStamp: timestamp,
-        returnProductDetail: true
+        returnProductDetail: true,
+        returnIssueDetailType: 'allIssues'   // see fetchOrderByPO - without it, no <issues>
       });
       const xml = await makeSoapRequest(ENDPOINTS.orderStatus, soapBody, {
         timeout: 60000,
@@ -2147,7 +2151,8 @@ async function runRecentCompletedBackground(daysBack) {
     try {
       const since = new Date(Date.now() - daysBack * 86400000).toISOString().replace('Z', '');
       const xml = await makeSoapRequest(ENDPOINTS.orderStatus,
-        buildOrderStatusRequest('lastUpdate', { statusTimeStamp: since, returnProductDetail: true }),
+        buildOrderStatusRequest('lastUpdate', { statusTimeStamp: since, returnProductDetail: true,
+          returnIssueDetailType: 'allIssues' }),   // see fetchOrderByPO - without it, no <issues>
         { timeout: 60000, namespaces: { ns: NS.orderStatus, shar: NS.orderStatusShared } });
       const err = checkSoapError(xml);
       const orders = (err && err.code !== 160) ? [] : parseOrderStatusResponse(xml);
@@ -2467,7 +2472,12 @@ async function fetchOrderByPO(po) {
   try {
     const soapBody = buildOrderStatusRequest('poSearch', {
       referenceNumber: po,
-      returnProductDetail: true
+      returnProductDetail: true,
+      // Without this SanMar returns no <issues>, so Issue_Details would be written
+      // empty no matter what the writer does — a backorder or hold on a
+      // backfill-ingested order printed as a clean issue column. /sync has always
+      // asked for these; the backfill paths did not. (2026-08-10)
+      returnIssueDetailType: 'allIssues'
     });
     const xml = await makeSoapRequest(ENDPOINTS.orderStatus, soapBody, {
       timeout: 30000,
@@ -2502,6 +2512,21 @@ async function upsertOrderToCaspio(po, order, matchedBy) {
     { 'q.where': `SanMar_PO='${xmlEscape(po)}'` }
   );
 
+  // The inbound board reads Issue_Details and renders a backorder/hold flag from it
+  // (deriveIssueFlags). This writer used to omit the field entirely while /sync wrote
+  // it, so every order ingested by the backfill or invoice catch-up printed with a
+  // CLEAN issue column whatever SanMar actually reported — and blank reads as
+  // "no problem". Measured 2026-08-10: 12 of 12 of that Monday's POs were blank.
+  // A Complete order rarely re-enters allOpen, so nothing ever filled it in later.
+  const allIssues = [];
+  let estDelivery = '';
+  for (const detail of order.details) {
+    if (detail.issues) allIssues.push(...detail.issues);
+    for (const prod of (detail.products || [])) {
+      if (prod.estimatedDeliveryDate && !estDelivery) estDelivery = prod.estimatedDeliveryDate;
+    }
+  }
+
   const orderData = {
     SanMar_PO: po,
     ShopWorks_PO: extractPONumber(po) || '',
@@ -2509,6 +2534,8 @@ async function upsertOrderToCaspio(po, order, matchedBy) {
     SanMar_Status: overallStatus,
     Status_Updated_Date: order.details[0]?.validTimestamp || new Date().toISOString(),
     Last_Sync_Date: new Date().toISOString(),
+    Issue_Details: allIssues.length > 0 ? JSON.stringify(allIssues) : '',
+    Estimated_Delivery: estDelivery,
     Matched_By: matchedBy
   };
 
@@ -2561,7 +2588,10 @@ async function runBackfillBackground(daysBack) {
     // Phase 1: Get all open orders
     backfillStatus.progress.phase = 'fetching allOpen orders';
     console.log('[Backfill] Phase 1: Fetching all open orders...');
-    const allOpenBody = buildOrderStatusRequest('allOpen', { returnProductDetail: true });
+    const allOpenBody = buildOrderStatusRequest('allOpen', {
+      returnProductDetail: true,
+      returnIssueDetailType: 'allIssues'   // see fetchOrderByPO — without it, no <issues>
+    });
     const allOpenXml = await makeSoapRequest(ENDPOINTS.orderStatus, allOpenBody, {
       timeout: 60000,
       namespaces: { ns: NS.orderStatus, shar: NS.orderStatusShared }
@@ -2581,7 +2611,9 @@ async function runBackfillBackground(daysBack) {
 
     const lastUpdateBody = buildOrderStatusRequest('lastUpdate', {
       statusTimeStamp: sinceTimestamp,
-      returnProductDetail: true
+      returnProductDetail: true,
+      returnIssueDetailType: 'allIssues'   // see fetchOrderByPO — without it, no <issues>
+
     });
     const lastUpdateXml = await makeSoapRequest(ENDPOINTS.orderStatus, lastUpdateBody, {
       timeout: 60000,
@@ -3109,7 +3141,8 @@ async function runQuickMatch() {
       try {
         const soapBody = buildOrderStatusRequest('poSearch', {
           referenceNumber: po,
-          returnProductDetail: true
+          returnProductDetail: true,
+          returnIssueDetailType: 'allIssues'   // see fetchOrderByPO - without it, no <issues>
         });
         const xml = await makeSoapRequest(ENDPOINTS.orderStatus, soapBody, {
           timeout: 15000,
