@@ -1,3 +1,7 @@
+## v2026.08.10.4 (2026.08.10)
+
+- Reconcile ORDER_ODBC nightly — deleting in ShopWorks now actually removes the order
+
 ## v2026.08.10.3 (2026.08.10)
 
 - Past due means unshipped AND uninvoiced — the card was mostly wrong
