@@ -14,6 +14,18 @@
 //   POST /parse        → accepts the packet PDF, starts a background job, returns {jobId}
 //   GET  /parse/:jobId → poll; when done returns HOURS + LEAVE + a reconciliation verdict
 //   POST /import       → commits the job's SERVER-SIDE payload (never the browser's copy)
+//
+// TWO upload modes, chosen by the caller — never guessed (Erik 2026-08-10):
+//   mode 'packet' — the full monthly packet (Payroll Register + Check Register + the
+//                   vacation/sick page). Writes Payroll_Register rows AND refreshes leave.
+//   mode 'leave'  — the "Available Vacation And Sick Time" page ON ITS OWN. Refreshes the
+//                   leave columns on Employees and writes NO register row, because a page
+//                   with no Register prints no hours, wages or check date to put in one.
+// 🔴 WHY THE MODE IS EXPLICIT: reconcile() gates on the packet's printed money totals, and
+// a leave-only page prints none of them. Fed through the packet path it extracted 0 for
+// gross/net/deductions/check-count, compared 0 to 0, and PASSED — a green gate that had
+// verified nothing, one click away from writing 21 all-zero rows and a phantom pay period.
+// A sum-based gate cannot detect a document that simply has no sums in it.
 // Heroku demands a first byte within 30s and vision extraction of a scan takes longer, so
 // the parse cannot block. Keeping the parsed payload server-side also means the browser
 // can't tamper with payroll figures between review and commit.
@@ -173,7 +185,8 @@ const PACKET_SCHEMA = {
     printedTotals: {
       type: 'object', additionalProperties: false,
       required: ['grossWages', 'netPayroll', 'checkCount', 'totalDeductions',
-        'vacationAccrued', 'vacationUsed', 'vacationAvailable'],
+        'vacationAccrued', 'vacationUsed', 'vacationAvailable',
+        'sickAccrued', 'sickUsed', 'sickAvailable'],
       properties: {
         grossWages: { type: 'number', description: 'The packet\'s own printed Total wages' },
         netPayroll: { type: 'number', description: 'The packet\'s own printed Net Payroll' },
@@ -182,6 +195,13 @@ const PACKET_SCHEMA = {
         vacationAccrued: { type: 'number', description: 'Vacation report Total row, Accum. column, decimal hours' },
         vacationUsed: { type: 'number' },
         vacationAvailable: { type: 'number' },
+        // The sick half of that same Total: row. Added 2026-08-10 — the packet gate checked
+        // the three vacation columns and NOTHING on the sick side, so every sick figure was
+        // written to Employees unverified. The import saves the printed Hrs Avail. now, so
+        // it has to be reconciled like every other saved figure.
+        sickAccrued: { type: 'number', description: 'Vacation report Total row, Sick Accum. column' },
+        sickUsed: { type: 'number', description: 'Vacation report Total row, Sick Hrs Used column' },
+        sickAvailable: { type: 'number', description: 'Vacation report Total row, Sick Hrs Avail. column' },
       },
     },
   },
@@ -202,8 +222,70 @@ Critical rules:
 - An employee on the vacation report with no check has paid=false and 0 for every hours/wages/deduction field. Their leave figures still matter.
 - Salaried staff show wages with no Rate. Set payRate to 0 for them — do not compute one.
 - A deduction line absent for an employee is 0, not omitted.
-- printedTotals must be the figures the packet ITSELF prints (the "Total All Employee(s)" line, the Net Payroll line, and the vacation report's Total row) — do NOT sum the rows yourself. These are used to verify the extraction, so copying them from your own arithmetic defeats the check.
+- 🔴 "Hrs Avail." is a PRINTED COLUMN on the vacation/sick report — copy what is on the page for BOTH vacation and sick. Do NOT compute it as Accum. minus Used. The two legitimately disagree: an employee who has taken leave they have not yet accrued can print 00:00 available rather than a negative. Copying your own arithmetic into that column would hide exactly the case the reader needs to see.
+- printedTotals must be the figures the packet ITSELF prints (the "Total All Employee(s)" line, the Net Payroll line, and ALL SIX columns of the vacation report's Total row — vacation Accum./Used/Avail. AND sick Accum./Used/Avail.) — do NOT sum the rows yourself. These are used to verify the extraction, so copying them from your own arithmetic defeats the check.
 - The pages are scans. If a digit is genuinely unreadable, still return your best reading — a downstream reconciliation will catch errors.
+- The vacation/sick page may be slightly skewed. Each employee's six leave figures are the ones on that employee's own line — check your row alignment against the ID column, because a gate built on column totals cannot detect figures attributed to the wrong person.
+
+Return the data in the required schema. Dates as YYYY-MM-DD.`;
+
+// ---- leave-only mode: the "Available Vacation And Sick Time" page on its own ----
+// No money anywhere in this schema. There is none on the page, and inventing a zero is
+// exactly what let the packet gate pass on nothing.
+const LEAVE_SCHEMA = {
+  type: 'object', additionalProperties: false,
+  required: ['asOfDate', 'employees', 'printedTotals'],
+  properties: {
+    asOfDate: { type: 'string', description: 'The "As of Date:" printed under the title, YYYY-MM-DD' },
+    employees: {
+      type: 'array',
+      items: {
+        type: 'object', additionalProperties: false,
+        required: ['payrollEmployeeId', 'nameOnPacket', 'hoursPerDay',
+          'vacationAccrued', 'vacationUsed', 'vacationAvailable',
+          'sickAccrued', 'sickUsed', 'sickAvailable'],
+        properties: {
+          payrollEmployeeId: { type: 'integer', description: 'The ID column, e.g. 6366' },
+          nameOnPacket: { type: 'string', description: 'Name exactly as printed, e.g. "BEARDSLEY BRIAN"' },
+          hoursPerDay: { type: 'number', description: 'The "Hrs/1 Day" column, usually 8' },
+          vacationAccrued: { type: 'number', description: 'Vacation Accum. Hrs as DECIMAL hours (107:24 -> 107.4)' },
+          vacationUsed: { type: 'number', description: 'Vacation Hrs Used' },
+          vacationAvailable: { type: 'number', description: 'Vacation Hrs Avail. EXACTLY AS PRINTED; negatives are real' },
+          sickAccrued: { type: 'number', description: 'Sick Accum. Hrs' },
+          sickUsed: { type: 'number', description: 'Sick Hrs Used' },
+          sickAvailable: { type: 'number', description: 'Sick Hrs Avail. EXACTLY AS PRINTED; negatives are real' },
+        },
+      },
+    },
+    printedTotals: {
+      type: 'object', additionalProperties: false,
+      required: ['vacationAccrued', 'vacationUsed', 'vacationAvailable',
+        'sickAccrued', 'sickUsed', 'sickAvailable'],
+      properties: {
+        vacationAccrued: { type: 'number', description: 'The Total: row, Vacation Accum. column' },
+        vacationUsed: { type: 'number', description: 'The Total: row, Vacation Hrs Used column' },
+        vacationAvailable: { type: 'number', description: 'The Total: row, Vacation Hrs Avail. column' },
+        sickAccrued: { type: 'number', description: 'The Total: row, Sick Accum. column' },
+        sickUsed: { type: 'number', description: 'The Total: row, Sick Hrs Used column' },
+        sickAvailable: { type: 'number', description: 'The Total: row, Sick Hrs Avail. column' },
+      },
+    },
+  },
+};
+
+const LEAVE_PROMPT = `You are reading a single report from NW Regional Accounting Services for Northwest Embroidery Inc: "Available Vacation And Sick Time".
+
+It is one row per employee: Employee Name, ID, Hrs/1 Day, then Accum. Hrs / Hrs Used / Hrs Avail. for VACATION, then Accum. Hrs / Hrs Used / Hrs Avail. for SICK. A "Total:" row closes all six numeric columns.
+
+Extract EVERY employee row, and the Total: row into printedTotals.
+
+Critical rules:
+- Hours print as HH:MM. Convert to DECIMAL hours: 107:24 -> 107.4, 00:49 -> 0.8167. Round to 4 decimals.
+- NEGATIVE values are real (-08:00 -> -8, -40:04 -> -40.0667). Preserve the sign. Never clamp to zero.
+- 🔴 "Hrs Avail." is a PRINTED COLUMN — copy what is on the page. Do NOT compute it as Accum. minus Used. On this report the two legitimately disagree: an employee who has taken vacation they have not yet accrued can print 00:00 available rather than a negative. Copying your own arithmetic into that column would hide exactly the case the reader needs to see.
+- printedTotals must be the figures on the report's own "Total:" row — do NOT sum the rows yourself. These verify the extraction, so deriving them defeats the check.
+- This is a photograph of a printed page and the rows may be slightly skewed. Each employee's six figures are the ones on that employee's own line — check your row alignment against the ID column before committing to a value.
+- asOfDate is the "As of Date:" under the title, NOT the date in the bottom-right corner (that is the print date).
 
 Return the data in the required schema. Dates as YYYY-MM-DD.`;
 
@@ -219,6 +301,30 @@ function sweepJobs() {
   for (const [id, j] of jobs) if (j.createdAt < cutoff) jobs.delete(id);
 }
 
+// ⚠️ NOT failures — shared by both gates. The report floors an over-drawn balance at 00:00
+// instead of printing a negative, so Accum. minus Used and the printed Hrs Avail. genuinely
+// disagree. On the 2026-08-07 page that is Taneisha Clark: 0 accrued, 16 used, printed as
+// 0 available — the whole 16-hour gap between the 1112/796 vacation totals and the 332 the
+// report prints. Erik 2026-08-10: save "exactly what Liesl's payroll packet says", so the
+// PRINTED figure is what lands in Caspio and this note exists so the difference is SEEN
+// rather than silently resolved by arithmetic.
+function flooredRowNotes(emps) {
+  const notes = [];
+  for (const x of emps) {
+    const vd = r2(Number(x.vacationAccrued) - Number(x.vacationUsed));
+    if (Math.abs(vd - Number(x.vacationAvailable)) > 0.02) {
+      notes.push(`${x.nameOnPacket}: vacation available is printed as ${x.vacationAvailable}h, `
+        + `but accrued minus used is ${vd}h — saving the printed ${x.vacationAvailable}h`);
+    }
+    const sd = r2(Number(x.sickAccrued) - Number(x.sickUsed));
+    if (Math.abs(sd - Number(x.sickAvailable)) > 0.02) {
+      notes.push(`${x.nameOnPacket}: sick available is printed as ${x.sickAvailable}h, `
+        + `but accrued minus used is ${sd}h — saving the printed ${x.sickAvailable}h`);
+    }
+  }
+  return notes;
+}
+
 // Re-derive the packet's totals from the extracted rows and compare to what the packet
 // printed. This is the gate that makes a vision read of a SCAN safe to commit.
 function reconcile(p) {
@@ -226,15 +332,21 @@ function reconcile(p) {
   const sum = (f) => r2(emps.reduce((a, x) => a + (Number(f(x)) || 0), 0));
   const t = p.printedTotals || {};
   const checks = [
-    ['Gross wages', sum(x => x.grossWages), Number(t.grossWages)],
-    ['Net payroll', sum(x => x.netPay), Number(t.netPayroll)],
-    ['Total deductions', sum(x => x.totalDeductions), Number(t.totalDeductions)],
-    ['Check count', emps.filter(x => x.paid).length, Number(t.checkCount)],
-    ['Vacation accrued', sum(x => x.vacationAccrued), Number(t.vacationAccrued)],
-    ['Vacation used', sum(x => x.vacationUsed), Number(t.vacationUsed)],
-    ['Vacation available', sum(x => x.vacationAvailable), Number(t.vacationAvailable)],
-  ].map(([label, derived, printed]) => ({
-    label, derived, printed, ok: Math.abs(derived - printed) <= 0.02,
+    ['Gross wages', sum(x => x.grossWages), Number(t.grossWages), 'money'],
+    ['Net payroll', sum(x => x.netPay), Number(t.netPayroll), 'money'],
+    ['Total deductions', sum(x => x.totalDeductions), Number(t.totalDeductions), 'money'],
+    ['Check count', emps.filter(x => x.paid).length, Number(t.checkCount), 'count'],
+    ['Vacation accrued', sum(x => x.vacationAccrued), Number(t.vacationAccrued), 'hours'],
+    ['Vacation used', sum(x => x.vacationUsed), Number(t.vacationUsed), 'hours'],
+    ['Vacation available', sum(x => x.vacationAvailable), Number(t.vacationAvailable), 'hours'],
+    // Sick added 2026-08-10 with the switch to saving the PRINTED Hrs Avail. Before that the
+    // packet gate checked nothing on the sick side at all, so all three sick figures reached
+    // Employees unverified.
+    ['Sick accrued', sum(x => x.sickAccrued), Number(t.sickAccrued), 'hours'],
+    ['Sick used', sum(x => x.sickUsed), Number(t.sickUsed), 'hours'],
+    ['Sick available', sum(x => x.sickAvailable), Number(t.sickAvailable), 'hours'],
+  ].map(([label, derived, printed, unit]) => ({
+    label, derived, printed, unit, ok: Math.abs(derived - printed) <= 0.02,
   }));
 
   // 🔒 rowIssues is rendered in the BROWSER (toSafeReview attaches the whole verdict), so
@@ -253,7 +365,43 @@ function reconcile(p) {
   if (new Set(ids).size !== ids.length) rowIssues.push('duplicate payroll employee IDs in the packet');
   if (!emps.length) rowIssues.push('no employees extracted');
 
-  return { checks, rowIssues, passed: checks.every(c => c.ok) && rowIssues.length === 0 };
+  return {
+    checks, rowIssues, notes: flooredRowNotes(emps),
+    passed: checks.every(c => c.ok) && rowIssues.length === 0,
+  };
+}
+
+// Leave-only gate. All six columns of the report's own Total: row are checked against the
+// sum of the rows — no money check to pass vacuously, because nothing here is money.
+function reconcileLeave(p) {
+  const emps = Array.isArray(p.employees) ? p.employees : [];
+  const sum = (f) => r2(emps.reduce((a, x) => a + (Number(f(x)) || 0), 0));
+  const t = p.printedTotals || {};
+  const checks = [
+    ['Vacation accrued', sum(x => x.vacationAccrued), Number(t.vacationAccrued)],
+    ['Vacation used', sum(x => x.vacationUsed), Number(t.vacationUsed)],
+    ['Vacation available', sum(x => x.vacationAvailable), Number(t.vacationAvailable)],
+    ['Sick accrued', sum(x => x.sickAccrued), Number(t.sickAccrued)],
+    ['Sick used', sum(x => x.sickUsed), Number(t.sickUsed)],
+    ['Sick available', sum(x => x.sickAvailable), Number(t.sickAvailable)],
+  ].map(([label, derived, printed]) => ({
+    label, derived, printed, unit: 'hours', ok: Math.abs(derived - printed) <= 0.02,
+  }));
+
+  const rowIssues = [];
+  if (!emps.length) rowIssues.push('no employees extracted');
+  const ids = emps.map(x => x.payrollEmployeeId);
+  if (new Set(ids).size !== ids.length) rowIssues.push('duplicate payroll employee IDs on the report');
+  for (const x of emps) {
+    if (!Number.isFinite(Number(x.payrollEmployeeId)) || !Number(x.payrollEmployeeId)) {
+      rowIssues.push(`${x.nameOnPacket || 'a row'}: no readable employee ID`);
+    }
+  }
+
+  return {
+    checks, rowIssues, notes: flooredRowNotes(emps),
+    passed: checks.every(c => c.ok) && rowIssues.length === 0,
+  };
 }
 
 // What the browser is allowed to see: hours, leave, and the verdict. No money.
@@ -275,8 +423,25 @@ function toSafeReview(p, rec) {
   };
 }
 
-async function runParseJob(jobId, base64, filename) {
+// Leave-only review. Same no-money rule, and nothing to strip — the payload never held any.
+function toSafeLeaveReview(p, rec) {
+  return {
+    mode: 'leave',
+    asOfDate: p.asOfDate,
+    employees: (p.employees || []).map(x => ({
+      payrollEmployeeId: x.payrollEmployeeId, nameOnPacket: x.nameOnPacket,
+      hoursPerDay: x.hoursPerDay,
+      vacationAccrued: x.vacationAccrued, vacationUsed: x.vacationUsed,
+      vacationAvailable: x.vacationAvailable,
+      sickAccrued: x.sickAccrued, sickUsed: x.sickUsed, sickAvailable: x.sickAvailable,
+    })),
+    reconciliation: rec,
+  };
+}
+
+async function runParseJob(jobId, base64, filename, mode) {
   const job = jobs.get(jobId);
+  const leave = mode === 'leave';
   try {
     if (!process.env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY not configured');
     const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -285,12 +450,15 @@ async function runParseJob(jobId, base64, filename) {
     const stream = client.messages.stream({
       model: MODEL_ID,
       max_tokens: 32000,
-      output_config: { effort: 'high', format: { type: 'json_schema', schema: PACKET_SCHEMA } },
+      output_config: {
+        effort: 'high',
+        format: { type: 'json_schema', schema: leave ? LEAVE_SCHEMA : PACKET_SCHEMA },
+      },
       messages: [{
         role: 'user',
         content: [
           { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } },
-          { type: 'text', text: EXTRACT_PROMPT },
+          { type: 'text', text: leave ? LEAVE_PROMPT : EXTRACT_PROMPT },
         ],
       }],
     });
@@ -304,12 +472,12 @@ async function runParseJob(jobId, base64, filename) {
     try { payload = JSON.parse(text); }
     catch (_) { throw new Error('Extraction did not return valid JSON.'); }
 
-    const rec = reconcile(payload);
+    const rec = leave ? reconcileLeave(payload) : reconcile(payload);
     job.payload = payload;
-    job.safe = toSafeReview(payload, rec);
+    job.safe = leave ? toSafeLeaveReview(payload, rec) : toSafeReview(payload, rec);
     job.safe.sourceFile = filename;
     job.status = 'done';
-    console.log(`[payroll] parse ${jobId}: ${payload.employees?.length || 0} employees, reconciled=${rec.passed}`);
+    console.log(`[payroll] parse ${jobId} (${leave ? 'leave' : 'packet'}): ${payload.employees?.length || 0} employees, reconciled=${rec.passed}`);
   } catch (e) {
     job.status = 'error';
     job.error = e.message || 'parse failed';
@@ -317,9 +485,15 @@ async function runParseJob(jobId, base64, filename) {
   }
 }
 
-// POST /api/payroll/parse  { filename, dataBase64 } -> { jobId }
+// POST /api/payroll/parse  { filename, dataBase64, mode } -> { jobId }
+// mode: 'packet' (default) or 'leave'. Unknown values are rejected rather than defaulted —
+// silently falling back to 'packet' is how a leave page reaches the vacuous money gate.
 router.post('/parse', async (req, res) => {
   sweepJobs();
+  const mode = String(req.body?.mode || 'packet');
+  if (mode !== 'packet' && mode !== 'leave') {
+    return res.status(400).json({ error: `mode must be 'packet' or 'leave'` });
+  }
   const filename = String(req.body?.filename || 'payroll-packet.pdf').slice(0, 200);
   const raw = String(req.body?.dataBase64 || '');
   const base64 = raw.includes(',') ? raw.slice(raw.indexOf(',') + 1) : raw; // tolerate a data: URL
@@ -331,9 +505,9 @@ router.post('/parse', async (req, res) => {
   }
 
   const jobId = `pj_${Date.now().toString(36)}_${(++jobSeq).toString(36)}`;
-  jobs.set(jobId, { status: 'running', createdAt: Date.now() });
-  runParseJob(jobId, base64, filename); // deliberately not awaited — the HTTP response returns now
-  res.status(202).json({ jobId, status: 'running' });
+  jobs.set(jobId, { status: 'running', createdAt: Date.now(), mode });
+  runParseJob(jobId, base64, filename, mode); // deliberately not awaited — the HTTP response returns now
+  res.status(202).json({ jobId, status: 'running', mode });
 });
 
 // GET /api/payroll/parse/:jobId — poll. Returns hours/leave + verdict, never money.
@@ -355,14 +529,25 @@ router.post('/import', async (req, res) => {
   if (job.status !== 'done') return res.status(409).json({ error: `job is ${job.status}` });
 
   const p = job.payload;
-  const rec = reconcile(p); // re-run server-side; never trust a verdict computed earlier
+  const leave = job.mode === 'leave';
+  const rec = leave ? reconcileLeave(p) : reconcile(p); // re-run server-side; never trust a verdict computed earlier
   if (!rec.passed) {
     return res.status(422).json({
-      error: 'packet does not reconcile — refusing to write payroll',
+      error: leave
+        ? 'the leave report does not reconcile — refusing to write balances'
+        : 'packet does not reconcile — refusing to write payroll',
       reconciliation: rec,
     });
   }
-  if (!isDate(p.checkDate)) return res.status(422).json({ error: 'extracted checkDate is not a valid date' });
+  // The date the balances are "as of". In leave mode it is the report's own As of Date and
+  // it only ever stamps Leave_Balances_As_Of — there is no check date on a leave page, so
+  // there is nothing to key a pay period on and none is created.
+  const effectiveDate = leave ? p.asOfDate : p.checkDate;
+  if (!isDate(effectiveDate)) {
+    return res.status(422).json({
+      error: leave ? 'extracted As of Date is not a valid date' : 'extracted checkDate is not a valid date',
+    });
+  }
 
   try {
     const token = await getCaspioAccessToken();
@@ -401,14 +586,14 @@ router.post('/import', async (req, res) => {
       console.warn('[payroll] could not probe Vacation_Hours_Remaining editability:', e.message);
     }
 
-    const stamp = `${p.checkDate} 00:00:00`;
-    const dateKey = p.checkDate.replace(/-/g, '');
+    const stamp = `${effectiveDate} 00:00:00`;
+    const dateKey = effectiveDate.replace(/-/g, '');
     let written = 0;
     const failures = [];
 
     for (const x of p.employees) {
       const emp = byPayrollId.get(Number(x.payrollEmployeeId));
-      const rec2 = {
+      const rec2 = leave ? null : {
         Register_Key: `${x.payrollEmployeeId}-${dateKey}`,
         Payroll_Employee_ID: x.payrollEmployeeId,
         ID_Record_Employee: emp.ID_Record_Employee,
@@ -437,10 +622,15 @@ router.post('/import', async (req, res) => {
         Source_File: job.safe.sourceFile || '', Imported_At: stamp,
       };
       try {
-        try { await axios.post(`${BASE}/tables/${REGISTER}/records`, rec2, H); }
-        catch (_) {
-          const { Register_Key, ...upd } = rec2;
-          await axios.put(`${BASE}/tables/${REGISTER}/records?q.where=${encodeURIComponent(`Register_Key='${esc(Register_Key)}'`)}`, upd, H);
+        // 🔴 Leave mode writes NO register row. A leave page prints no hours, no wages and
+        // no check date, so a row built from it would be 21 zeros under a made-up date —
+        // a pay period that never happened, sitting in the Pay Periods tab forever.
+        if (!leave) {
+          try { await axios.post(`${BASE}/tables/${REGISTER}/records`, rec2, H); }
+          catch (_) {
+            const { Register_Key, ...upd } = rec2;
+            await axios.put(`${BASE}/tables/${REGISTER}/records?q.where=${encodeURIComponent(`Register_Key='${esc(Register_Key)}'`)}`, upd, H);
+          }
         }
         // Refresh CURRENT state on Employees. Pay fields are touched only for paid staff —
         // an unpaid employee's packet row says nothing about their rate.
@@ -453,11 +643,18 @@ router.post('/import', async (req, res) => {
           Vacation_Hours_Used: x.vacationUsed || 0,
           Sick_Accum_Hours_Available: x.sickAccrued || 0,
           Sick_Hours_Used: x.sickUsed || 0,
-          Sick_Hours_Remaining: r2((x.sickAccrued || 0) - (x.sickUsed || 0)),
-          Leave_Balances_As_Of: p.checkDate,
+          // 🔴 BOTH paths save the report's PRINTED Hrs Avail. column — never accrued minus
+          // used. Erik 2026-08-10, asked directly: "exactly what Liesls payroll packet says".
+          // They differ only where the report floors an over-drawn balance at 00:00 instead
+          // of printing a negative, and deriving it there would silently contradict the page
+          // the accountant sent. flooredRowNotes() surfaces every such row on the review
+          // screen first. Both figures are reconciled against the report's own Total: row.
+          Sick_Hours_Remaining: Number(x.sickAvailable) || 0,
+          Leave_Balances_As_Of: effectiveDate,
         };
-        if (vacRemainingWritable) upd.Vacation_Hours_Remaining = r2((x.vacationAccrued || 0) - (x.vacationUsed || 0));
-        if (x.paid && x.payRate > 0) { upd.Pay = x.payRate; upd.Pay_Rate_Effective_Date = p.checkDate; }
+        if (vacRemainingWritable) upd.Vacation_Hours_Remaining = Number(x.vacationAvailable) || 0;
+        // No pay rate on a leave page — never touch Pay from one.
+        if (!leave && x.paid && x.payRate > 0) { upd.Pay = x.payRate; upd.Pay_Rate_Effective_Date = p.checkDate; }
         await axios.put(`${BASE}/tables/${EMPLOYEES}/records?q.where=${encodeURIComponent(`ID_Record_Employee='${esc(emp.ID_Record_Employee)}'`)}`, upd, H);
         written++;
       } catch (err) {
@@ -466,8 +663,12 @@ router.post('/import', async (req, res) => {
     }
 
     jobs.delete(String(req.body.jobId)); // one-shot: a committed packet can't be re-committed
+    console.log(`[payroll] import ${leave ? 'leave' : 'packet'} ${effectiveDate}: ${written}/${p.employees.length} written, ${failures.length} failed`);
     res.json({
-      imported: written, total: p.employees.length, checkDate: p.checkDate,
+      imported: written, total: p.employees.length,
+      mode: leave ? 'leave' : 'packet',
+      effectiveDate, checkDate: leave ? null : p.checkDate,
+      registerRowsWritten: leave ? 0 : written,
       failures, reconciliation: rec,
     });
   } catch (e) {
@@ -477,3 +678,7 @@ router.post('/import', async (req, res) => {
 });
 
 module.exports = router;
+// Exposed for tests only — the gates decide what reaches payroll, so both are locked by
+// tests/jest/payroll-leave-reconcile.test.js rather than trusted by inspection.
+module.exports._reconcileLeave = reconcileLeave;
+module.exports._reconcile = reconcile;
