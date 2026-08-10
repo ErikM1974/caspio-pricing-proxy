@@ -1293,7 +1293,13 @@ router.get('/due-dates', async (req, res) => {
     // 60-day payload, or worse, poison the card's cache with a shorter list.
     const key = `${email}:${days}`;
     const entry = dueCache.get(key);
-    if (entry && Date.now() - entry.fetchedAt < DUE_CACHE_TTL_MS) {
+    // ?refresh honoured here too (2026-08-10). It was added to /due-dates-all and missed
+    // here, so after four cancelled orders were deleted in ShopWorks and reconciled away,
+    // the company-wide page dropped them instantly while this card kept serving them for
+    // the full 10-minute TTL with no way to force it — a Refresh button that refreshes
+    // nothing is worse than no button.
+    const force = req.query.refresh === '1' || req.query.refresh === 'true';
+    if (!force && entry && Date.now() - entry.fetchedAt < DUE_CACHE_TTL_MS) {
         return res.json({ ...entry.data, cacheHit: true });
     }
     try {
