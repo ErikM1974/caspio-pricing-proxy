@@ -1,3 +1,7 @@
+## v2026.08.10.2 (2026.08.10)
+
+- Gate the ManageOrders PII reads — they were answering the public internet
+
 ## v2026.08.10.1 (2026.08.10)
 
 - Phase 1+2: link the page that works, draft the three that could
