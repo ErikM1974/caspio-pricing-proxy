@@ -871,6 +871,14 @@ app.use('/api/shopworks-odbc/sync-payables', requireCrmApiSecret);
 // Read feed for the SanMar Payables page (AP data) — secret-gated. Segment-boundary
 // match: does NOT catch '/payables-health' (its own segment), which stays open for the watchdog.
 app.use('/api/shopworks-odbc/payables', requireCrmApiSecret);
+// Reconcile DELETES rows from ORDER_ODBC (orders removed in ShopWorks, which the
+// modification-bounded feed can never see). Gated here for the same reason as the write
+// paths above, and doubly so — this is the only destructive route in the file. The gates
+// in this block are per-sub-prefix while the router mounts at '/api', so a route missing
+// from this list answers the public internet; that exact gap left
+// /api/manageorders/customers serving names, emails and phones anonymously until it was
+// closed earlier today (v2026.08.10.2). Nothing here may rely on being "obviously internal".
+app.use('/api/shopworks-odbc/reconcile-orders', requireCrmApiSecret);
 app.use('/api', shopworksOdbcSyncRoutes);
 console.log('✓ ShopWorks ODBC sync routes loaded (sync-orders + sync-purchase-orders secret-gated)');
 
@@ -2182,6 +2190,47 @@ const server = app.listen(PORT, async () => {
         }
     } catch (err) {
         console.error('⏰ Failed to schedule lead AI-classify cron:', err.message);
+    }
+
+    // Schedule: nightly ORDER_ODBC reconcile at 4:20 AM Pacific — remove orders that
+    // were DELETED in ShopWorks. sync-orders.ps1 queries on timestamp_Modification, so
+    // a deleted order has no modification to report and simply stops appearing; the
+    // ingest route is upsert-only. Without this the mirror is a one-way ratchet and
+    // deleted orders sit on the Past Due page forever (2026-08-10: Erik deleted five
+    // and they were still listed days later).
+    //
+    // 4:20 is deliberate: BEFORE the 5:30 SanMar sync and well before anyone prints at
+    // 7:30, so the morning's numbers are already reconciled. Guards live in the route —
+    // empty live set aborts, scope is the order-date window, and >25% ghosts refuses.
+    try {
+        const cron = require('node-cron');
+        if (process.env.ORDER_RECONCILE_DISABLED === '1') {
+            console.log('⏰ ORDER_ODBC reconcile cron DISABLED via ORDER_RECONCILE_DISABLED=1');
+        } else {
+            cron.schedule('20 4 * * *', async () => {
+                try {
+                    const base = process.env.BASE_URL || 'http://127.0.0.1:' + (process.env.PORT || 3002);
+                    const r = await fetch(`${base}/api/shopworks-odbc/reconcile-orders?days=240&apply=1`, {
+                        method: 'POST',
+                        headers: { 'X-CRM-API-Secret': process.env.CRM_API_SECRET || '' },
+                        signal: AbortSignal.timeout(280000),
+                    });
+                    const body = await r.json().catch(() => ({}));
+                    if (body.error) {
+                        // A refusal is the guards working — log it loudly, do not retry.
+                        console.warn('[Order Reconcile] refused:', body.reason || body.error);
+                    } else {
+                        console.log(`[Order Reconcile] ${body.deleted || 0} deleted of ${body.ghosts || 0} ghosts `
+                            + `(${body.mirrorInRange || 0} in window, ${body.liveOrders || 0} live)`);
+                    }
+                } catch (err) {
+                    console.error('[Order Reconcile] Cron failed:', err.message);
+                }
+            }, { timezone: 'America/Los_Angeles' });
+            console.log('⏰ ORDER_ODBC reconcile cron scheduled: daily 4:20 AM Pacific');
+        }
+    } catch (err) {
+        console.error('⏰ Failed to schedule ORDER_ODBC reconcile cron:', err.message);
     }
 });
 

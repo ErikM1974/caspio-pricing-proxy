@@ -792,4 +792,153 @@ router.get('/shopworks-odbc/payables', async (req, res) => {
     }
 });
 
+// ==============================================
+// RECONCILE — drop orders that no longer exist in ShopWorks
+// ==============================================
+// POST /api/shopworks-odbc/reconcile-orders?days=240&apply=1   (x-crm-api-secret)
+//
+// WHY (2026-08-10). sync-orders.ps1 queries
+//     WHERE timestamp_Modification >= last-sync minus overlap
+// so it only ever sees orders that were MODIFIED. A DELETED order has no modification
+// to report — it just stops appearing — and the ingest route is upsert-only. The mirror
+// was a one-way ratchet: it could add and update, never remove. Measured the day this
+// was written: ORDER_ODBC held 3,321 orders across an ID range where ShopWorks had
+// 2,760. 561 ghosts, 12 of them showing as past due on the staff dashboard, five of
+// which Erik had deleted himself and then found still listed.
+//
+// Authority is the live ManageOrders API, NOT the ODBC feed — the feed is precisely the
+// thing that cannot see deletions, so re-asking it would prove nothing.
+//
+// 🔴 THIS DELETES ROWS. The bad outcome is not "561 removed", it is a short live fetch
+// removing 3,000. Four guards, in order of how badly each one would end:
+//   1. Empty live set aborts, always. "Nothing came back" must never resolve to "delete
+//      everything" — that is the shape of every accidental table wipe.
+//   2. Only rows whose date_OrderPlaced falls INSIDE the same window the live query
+//      used are eligible. A row outside the window is out of scope, not missing.
+//      🔴 This guard was originally written as "inside the live ID range", on the
+//      assumption that ShopWorks IDs are sequential by order date. THEY ARE NOT.
+//      Measured 2026-08-10: id 139304 was ordered 2026-01-29 while 139305 was ordered
+//      2025-11-26 — a higher id, two months earlier. Because 139304 happened to be the
+//      lowest id the live query returned, ~530 completed November orders fell "inside
+//      the range", were absent from a December-start window, and would have been
+//      deleted. All three guards passed at the time (non-empty, in-range, 16.3% under
+//      the 25% ceiling); only reading the dry-run sample caught it. Scope by DATE.
+//   3. Ghosts over GHOST_ABORT_PCT of the in-range rows abort. A correct run trims a
+//      tail; a quarter of the table means the fetch was short, not that the shop purged
+//      a quarter of its orders.
+//   4. Dry run by DEFAULT. Deleting takes an explicit ?apply=1.
+// Deletes one row at a time by ID_Order — a q.where covering a set is one typo away
+// from matching everything, and 561 calls once a night is not worth that risk.
+const GHOST_ABORT_PCT = 25;
+const RECONCILE_SYNC_NAME = 'shopworks-odbc-orders-reconcile';
+
+router.post('/shopworks-odbc/reconcile-orders', async (req, res) => {
+    const days = Math.min(Math.max(parseInt(req.query.days, 10) || 240, 30), 400);
+    const apply = req.query.apply === '1' || req.query.apply === 'true';
+    try {
+        const { fetchOrders } = require('../utils/manageorders');
+        const end = new Date().toISOString().slice(0, 10);
+        const start = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+
+        const liveRows = await fetchOrders({ date_Ordered_start: start, date_Ordered_end: end });
+        const live = new Set((liveRows || []).map((r) => String(r.id_Order)).filter(Boolean));
+
+        // GUARD 1
+        if (live.size === 0) {
+            return res.status(502).json({
+                error: 'refused',
+                reason: 'ManageOrders returned zero orders. Treating that as a failed fetch, not as an empty shop. Nothing deleted.',
+                window: { start, end },
+            });
+        }
+
+        const nums = [...live].map(Number).filter(Number.isFinite).sort((a, b) => a - b);
+        const loId = nums[0];
+        const hiId = nums[nums.length - 1];
+
+        // GUARD 2 — scope by ORDER DATE, matching the live query's own filter exactly.
+        const mirror = await fetchAllCaspioPages(`/tables/${TABLE_ORDERS}/records`, {
+            'q.where': `date_OrderPlaced>='${start}' AND date_OrderPlaced<='${end}'`,
+            'q.select': 'ID_Order,CompanyName,CustomerServiceRep,date_OrderPlaced,date_OrderRequestedToShip',
+            'q.pageSize': 1000,
+            'q.orderBy': 'PK_ID',
+        }, { maxPages: 20, strict: true });
+
+        const seen = new Map();
+        for (const r of mirror) {
+            const k = String(r.ID_Order);
+            if (!seen.has(k)) seen.set(k, r);
+        }
+        // Secondary: an order created BETWEEN the live fetch and this read would be a
+        // false ghost. Anything above the highest live id is too new to judge.
+        const ghosts = [...seen.keys()].filter((id) => !live.has(id) && Number(id) <= hiId);
+        const pct = seen.size ? Math.round((ghosts.length / seen.size) * 1000) / 10 : 0;
+
+        // GUARD 3
+        if (pct > GHOST_ABORT_PCT) {
+            return res.status(409).json({
+                error: 'refused',
+                reason: `${ghosts.length} of ${seen.size} in-range rows (${pct}%) look deleted, above the ${GHOST_ABORT_PCT}% ceiling. `
+                    + 'A short live fetch is far likelier than a real purge that size. Nothing deleted.',
+                idRange: { from: loId, to: hiId }, liveOrders: live.size,
+            });
+        }
+
+        const sample = ghosts.slice(0, 25).map((id) => {
+            const r = seen.get(id);
+            return {
+                idOrder: id,
+                company: r.CompanyName || '',
+                rep: r.CustomerServiceRep || '',
+                dueDate: String(r.date_OrderRequestedToShip || '').slice(0, 10),
+            };
+        });
+
+        // GUARD 4
+        if (!apply) {
+            return res.json({
+                dryRun: true, window: { start, end }, idRange: { from: loId, to: hiId },
+                liveOrders: live.size, mirrorInRange: seen.size,
+                ghosts: ghosts.length, ghostPct: pct, sample,
+                note: 'Nothing was deleted. Re-send with ?apply=1 to remove these.',
+            });
+        }
+
+        const token = await getCaspioAccessToken();
+        const H = { Authorization: `Bearer ${token}` };
+        let deleted = 0;
+        const failures = [];
+        for (const id of ghosts) {
+            const n = Number(id);
+            if (!Number.isFinite(n)) { failures.push({ idOrder: id, error: 'non-numeric id' }); continue; }
+            try {
+                const r = await axios.delete(
+                    `${caspioApiBaseUrl}/tables/${TABLE_ORDERS}/records?q.where=${encodeURIComponent(`ID_Order=${n}`)}`,
+                    { headers: H, timeout: 15000 });
+                deleted += (r.data && r.data.RecordsAffected) || 0;
+            } catch (e) {
+                failures.push({ idOrder: id, error: e.message });
+            }
+        }
+
+        // Heartbeat even on a zero-ghost run, so "reconcile is dead" and "nothing to do"
+        // stay distinguishable — the same failure this whole endpoint exists to fix.
+        try {
+            await stampHeartbeat(token, deleted,
+                `reconcile: ${deleted} deleted, ${failures.length} failed of ${ghosts.length} ghosts`,
+                RECONCILE_SYNC_NAME);
+        } catch (e) { console.error('[reconcile-orders] heartbeat failed:', e.message); }
+
+        res.json({
+            dryRun: false, window: { start, end }, idRange: { from: loId, to: hiId },
+            liveOrders: live.size, mirrorInRange: seen.size,
+            ghosts: ghosts.length, deleted, failed: failures.length,
+            failures: failures.slice(0, 10), sample,
+        });
+    } catch (error) {
+        console.error('[reconcile-orders] failed:', error.message);
+        res.status(500).json({ error: 'Reconcile failed', details: error.message });
+    }
+});
+
 module.exports = router;
