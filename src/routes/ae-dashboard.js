@@ -29,10 +29,18 @@ const { buildDigestModel, todayPT, TERMINAL_STATUSES } = require('../utils/lead-
 // (EMAIL_TO_REP). NOTE: do NOT source full names from
 // config/manageorders-emb-config.js SALES_REP_MAP — its ShopWorks-push variant
 // spells Taneisha "Jones", which matches nothing in the CRM tables.
+// 🔴 fullName must match ORDER_ODBC.CustomerServiceRep EXACTLY — it is a string join,
+// and a near-miss returns an empty list rather than an error. Ruth is the trap: she is
+// spelled THREE different ways across this codebase — 'Ruthie Nhoung'
+// (manageorders-emb-config.js), 'Ruth Nhong' (dashboards/js/leads-common.js) and
+// 'Ruth Nhoung' (lib/staff-saml.js). ORDER_ODBC holds **Ruthie Nhoung**, verified
+// against live data 2026-08-10 (190 orders under that spelling, 0 under the others).
+// Same class of bug as Taneisha-as-"Jones", which matched nothing until 2026-07-19.
 const AE_REGISTRY = {
     'taneisha@nwcustomapparel.com': { fullName: 'Taneisha Clark', firstName: 'Taneisha' },
     'nika@nwcustomapparel.com': { fullName: 'Nika Lao', firstName: 'Nika' },
     'erik@nwcustomapparel.com': { fullName: 'Erik Mickelson', firstName: 'Erik' },
+    'ruth@nwcustomapparel.com': { fullName: 'Ruthie Nhoung', firstName: 'Ruthie' },
 };
 
 const LEAD_FORM_IDS = ['jotform-lead', 'quote-request', 'webstore-request', 'team-roster', 'manual-lead'];
@@ -1102,13 +1110,23 @@ const DUE_LIMIT = 30;
 const DUE_CACHE_TTL_MS = 10 * 60 * 1000;
 const dueCache = new Map(); // email → { data, fetchedAt }
 
-async function buildDueDates(rep) {
+// rep = an AE_REGISTRY entry → just that rep's orders (the Mission Control card).
+// rep = null → company-wide, every rep, grouped by rep (the morning sheets and the
+// owner/purchasing roll-up). Same shape either way, so one rule can never drift into
+// two. Mirrors buildPurchasing(rep) above.
+// lookbackDays overrides DUE_LOOKBACK_DAYS — the card wants 60, the printed sheet 30.
+async function buildDueDates(rep, lookbackDays) {
+    const lookback = Math.min(Math.max(parseInt(lookbackDays, 10) || DUE_LOOKBACK_DAYS, 1), 180);
+    const repClause = rep ? `CustomerServiceRep='${escWhere(rep.fullName)}' AND ` : '';
     const rows = await fetchAllCaspioPages('/tables/ORDER_ODBC/records', {
-        'q.where': `CustomerServiceRep='${escWhere(rep.fullName)}' AND date_OrderRequestedToShip>='${isoDaysAgo(DUE_LOOKBACK_DAYS)}'`,
-        'q.select': 'ID_Order,id_Customer,CompanyName,ORDER_TYPE,date_OrderPlaced,date_OrderRequestedToShip,cur_Subtotal,sts_Invoiced,sts_Shipped',
+        'q.where': `${repClause}date_OrderRequestedToShip>='${isoDaysAgo(lookback)}'`,
+        'q.select': 'ID_Order,id_Customer,CompanyName,CustomerServiceRep,ORDER_TYPE,date_OrderPlaced,date_OrderRequestedToShip,cur_Subtotal,sts_Invoiced,sts_Shipped',
         'q.pageSize': 1000,
         'q.orderBy': 'PK_ID',
-    }, { maxPages: 4 });
+        // Company-wide is every rep at once and ORDER_ODBC repeats a row per design
+        // block, so 4 pages would silently truncate — and a past-due list that quietly
+        // drops orders is worse than none. strict:true throws instead.
+    }, rep ? { maxPages: 4 } : { maxPages: 16, strict: true });
 
     // ORDER_ODBC repeats an order row per design block — dedupe by ID_Order.
     const orders = new Map();
@@ -1127,6 +1145,16 @@ async function buildDueDates(rep) {
     let dueSoonTotal = 0;
     for (const o of orders.values()) {
         if (parseInt(o.sts_Shipped, 10) === 1) continue;
+        // An invoiced order is finished, whether or not the ship flag caught up.
+        // This line was missing until 2026-08-10, and the card was mostly wrong:
+        // Nika 42 "late" of which 29 (69%) were already invoiced or produced,
+        // Taneisha 12 of 34, Ruthie 2 of 3. `sts_Invoiced` was already SELECTed and
+        // reported on each item — it just never filtered anything.
+        // No production status is needed here: produced ⊆ invoiced in every case
+        // measured (29/29, 12/12, 2/2), which matches produced orders being 99%
+        // invoiced. So ORDER_ODBC alone settles it, and this stays single-source —
+        // no join to the once-a-day ManageOrders mirror, no staleness to reason about.
+        if (parseInt(o.sts_Invoiced, 10) === 1) continue;
         const due = String(o.date_OrderRequestedToShip || '').slice(0, 10);
         if (!due) continue;
         const d = daysUntil(due);
@@ -1176,6 +1204,9 @@ async function buildDueDates(rep) {
             idOrder: o.ID_Order,
             idCustomer: parseInt(o.id_Customer, 10) || null,
             company: o.CompanyName || '',
+            // Carried on every item, not just the company-wide call, so a consumer
+            // never has to infer ownership from which endpoint it happened to use.
+            rep: String(o.CustomerServiceRep || '').trim() || '(unassigned)',
             orderType: o.ORDER_TYPE || '',
             placedDate: day(o.date_OrderPlaced),
             dueDate: due,
@@ -1196,15 +1227,28 @@ async function buildDueDates(rep) {
     late.sort((a, b) => a.daysUntilDue - b.daysUntilDue);
     atRisk.sort((a, b) => a.daysUntilDue - b.daysUntilDue);
 
-    const lateTop = late.slice(0, DUE_LIMIT);
-    const riskTop = atRisk.slice(0, DUE_LIMIT);
+    // Company-wide is a working list, not a dashboard card — truncating it to 30 would
+    // silently hide the tail across every rep at once. Per-rep keeps the card's cap.
+    const limit = rep ? DUE_LIMIT : late.length + atRisk.length;
+    const lateTop = late.slice(0, limit);
+    const riskTop = atRisk.slice(0, limit);
+
+    // Grouped for the company-wide callers so each rep's sheet is one lookup.
+    const byRep = {};
+    if (!rep) {
+        for (const it of lateTop) (byRep[it.rep] = byRep[it.rep] || { late: [], atRisk: [] }).late.push(it);
+        for (const it of riskTop) (byRep[it.rep] = byRep[it.rep] || { late: [], atRisk: [] }).atRisk.push(it);
+    }
+
     return {
-        rep: { email: rep.email, fullName: rep.fullName, firstName: rep.firstName },
+        rep: rep ? { email: rep.email, fullName: rep.fullName, firstName: rep.firstName } : null,
+        scope: rep ? 'rep' : 'company',
         generatedAt: new Date().toISOString(),
         today,
         dueSoonDays: DUE_SOON_DAYS,
-        lookbackDays: DUE_LOOKBACK_DAYS,
+        lookbackDays: lookback,
         ordersScanned: orders.size,
+        ...(rep ? {} : { byRep, reps: Object.keys(byRep).sort() }),
         counts: {
             late: late.length,
             atRisk: atRisk.length,
@@ -1217,20 +1261,44 @@ async function buildDueDates(rep) {
     };
 }
 
-// GET /due-dates?email=  (mounted at /api/ae-dashboard, secret-gated)
+// GET /due-dates-all?days=  — company-wide, every rep, grouped by rep. Secret-gated at
+// the mount; browsers come through the main app's requireStaff forwarder, same as
+// /purchasing-all. Feeds the morning inbound sheets and the owner roll-up.
+router.get('/due-dates-all', async (req, res) => {
+    const days = Math.min(Math.max(parseInt(req.query.days, 10) || DUE_LOOKBACK_DAYS, 1), 180);
+    const key = `__all__:${days}`;
+    const entry = dueCache.get(key);
+    if (entry && Date.now() - entry.fetchedAt < DUE_CACHE_TTL_MS && req.query.refresh !== '1' && req.query.refresh !== 'true') {
+        return res.json({ ...entry.data, cacheHit: true });
+    }
+    try {
+        const data = await buildDueDates(null, days);
+        dueCache.set(key, { data, fetchedAt: Date.now() });
+        res.json({ ...data, cacheHit: false });
+    } catch (error) {
+        console.error('[ae-dashboard] due-dates-all failed:', error.message);
+        res.status(500).json({ error: 'Failed to build company-wide due dates', details: error.message });
+    }
+});
+
+// GET /due-dates?email=&days=  (mounted at /api/ae-dashboard, secret-gated)
 router.get('/due-dates', async (req, res) => {
     const email = String(req.query.email || '').toLowerCase().trim();
     const reg = AE_REGISTRY[email];
     if (!reg) return res.status(404).json({ error: 'Unknown AE email' });
     const rep = { email, ...reg };
+    const days = Math.min(Math.max(parseInt(req.query.days, 10) || DUE_LOOKBACK_DAYS, 1), 180);
 
-    const entry = dueCache.get(email);
+    // Key on the window too — otherwise a ?days=30 call would be served a cached
+    // 60-day payload, or worse, poison the card's cache with a shorter list.
+    const key = `${email}:${days}`;
+    const entry = dueCache.get(key);
     if (entry && Date.now() - entry.fetchedAt < DUE_CACHE_TTL_MS) {
         return res.json({ ...entry.data, cacheHit: true });
     }
     try {
-        const data = await buildDueDates(rep);
-        dueCache.set(email, { data, fetchedAt: Date.now() });
+        const data = await buildDueDates(rep, days);
+        dueCache.set(key, { data, fetchedAt: Date.now() });
         res.json({ ...data, cacheHit: false });
     } catch (error) {
         console.error('[ae-dashboard] due-dates failed:', error.message);
