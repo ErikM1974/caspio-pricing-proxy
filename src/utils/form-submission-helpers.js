@@ -25,6 +25,7 @@ const FORM_PREFIX = {
   'quote-request': 'QRQ',      // PUBLIC customer lead form — Slack-notified on arrival
   'jotform-lead': 'JFL',       // JotForm website leads (6 forms) — ingested by src/routes/jotform.js, never posted by a twin
   'manual-lead': 'MNL',        // phone/walk-in leads typed by an AE on the Leads board (CRM v2)
+  'sample-request': 'SRQ',     // PUBLIC free-sample cart (/sample-cart.html) — SAM is a quote prefix, so SRQ avoids the collision
 };
 
 const DEFAULT_STATUS = {
@@ -47,6 +48,7 @@ const DEFAULT_STATUS = {
   'quote-request': 'New',
   'jotform-lead': 'New',
   'manual-lead': 'New',
+  'sample-request': 'New',
 };
 
 // PUBLIC lead forms → Slack ping on arrival (the Inbox is pull; a quote lead
@@ -54,7 +56,10 @@ const DEFAULT_STATUS = {
 // staff twin AND the public inquiry — both are worth a ping. team-roster is
 // linked from the webstore spokes' names-and-numbers sections (2026-07-16) —
 // a customer roster arriving silently would read as "order placed" to them.
-const LEAD_NOTIFY_FORMS = new Set(['quote-request', 'webstore-request', 'team-roster', 'jotform-lead', 'manual-lead']);
+// sample-request (2026-08-10): free samples used to be EMAIL-ONLY — no row, no
+// rep, invisible to Leads — so a request that should have been a follow-up call
+// died in one inbox. The ShopWorks order ships the samples; the lead sells them.
+const LEAD_NOTIFY_FORMS = new Set(['quote-request', 'webstore-request', 'team-roster', 'jotform-lead', 'manual-lead', 'sample-request']);
 
 // Forms whose payloads must NEVER carry card data — stripCardFields() runs
 // server-side on these regardless of what the client sends. credit-card-auth
