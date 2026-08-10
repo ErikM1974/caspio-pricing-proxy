@@ -124,6 +124,32 @@ async function caspioRequest(endpoint, method = 'GET', body = null) {
   return resp.data || { RecordsAffected: 0, Result: [] };
 }
 
+// ── Heartbeat ─────────────────────────────────────────────────────────────────
+// This sync writes ONLY rows that changed, so a quiet weekend leaves no trace and
+// looks exactly like a dead job. It has been dead before — silently, 7/4→7/16 2026,
+// twelve days — and nothing noticed. Anything reading Last_Sync_Date to judge
+// freshness therefore false-alarms every Monday AND misses a real freeze.
+// The heartbeat records the RUN, including a zero-change run, which is the only
+// signal that separates the two. Same table and shape the ODBC syncs already use.
+//
+// Timestamps are written WITHOUT a trailing 'Z' — Caspio timestamp fields mangle it
+// (see caspio_pacific_timestamps.md). UTC wall-clock, read back on a UTC dyno.
+const HEARTBEAT_SYNC_NAME = 'manageorders-orders';
+
+async function stampHeartbeat(rows, summary) {
+  const data = {
+    Last_Success: new Date().toISOString().slice(0, 19),
+    Last_Rows: rows,
+    Last_Summary: String(summary).slice(0, 250),
+  };
+  const where = encodeURIComponent(`Sync_Name='${HEARTBEAT_SYNC_NAME}'`);
+  const put = await caspioRequest(`/tables/Sync_Heartbeats/records?q.where=${where}`, 'PUT', data);
+  if (((put && put.RecordsAffected) || 0) === 0) {
+    await caspioRequest('/tables/Sync_Heartbeats/records', 'POST',
+      Object.assign({ Sync_Name: HEARTBEAT_SYNC_NAME }, data));
+  }
+}
+
 // q.orderBy=PK_ID is MANDATORY, not cosmetic: Caspio's paged reads are not
 // stably ordered without it, so rows silently drop and duplicate across page
 // boundaries. Both callers here read multi-page tables, and the line-item
@@ -492,6 +518,18 @@ async function main() {
   // because the archived line items were already identical to ManageOrders.
   console.log(`  Line-item re-writes skipped (already identical): ${stats.lineItemsUnchanged}`);
   console.log(`  Total in archive:  ${caspioOrders.length + stats.new}`);
+
+  // Last, and never fatal: a sync that did the work must not be reported as failed
+  // because the bookkeeping write failed. A missed heartbeat ages into a stale
+  // warning on its own, which is the safe direction.
+  const touched = stats.new + stats.updated;
+  try {
+    await stampHeartbeat(touched,
+      `${stats.new} new, ${stats.updated} updated, ${stats.unchanged} unchanged, ${stats.errors} errored`);
+    console.log(`  Heartbeat: ${HEARTBEAT_SYNC_NAME} stamped (${touched} row(s) touched)`);
+  } catch (e) {
+    console.error(`  Heartbeat FAILED to stamp (sync itself succeeded): ${e.message}`);
+  }
 }
 
 // Guarded so the pure helpers can be require()d by a test WITHOUT running a live
