@@ -1,3 +1,10 @@
+## v2026.08.10.1 (2026.08.10)
+
+- Phase 1+2: link the page that works, draft the three that could
+- Publish the three posts; repair every copy-of redirect by rule
+- Nine blank-SKU 404s now land on the garment they searched for
+- Archive the library reference photographs so Steve keeps them
+
 ## v2026.08.09.4 (2026.08.09)
 
 - The panel said 38 designs had no traffic. Every one of them had traffic.
