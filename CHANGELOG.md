@@ -1,3 +1,7 @@
+## v2026.08.10.6 (2026.08.10)
+
+- Honour ?refresh on the per-rep due-dates card too
+
 ## v2026.08.10.5 (2026.08.10)
 
 
