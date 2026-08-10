@@ -11,6 +11,7 @@
 
 const payrollRouter = require('../../src/routes/payroll');
 const reconcileLeave = payrollRouter._reconcileLeave;
+const reconcile = payrollRouter._reconcile;
 
 // The page prints HH:MM; the extractor converts to decimal hours at 4dp.
 const hm = (h, m) => Math.round((h + m / 60) * 10000) / 10000;
@@ -121,5 +122,112 @@ describe('payroll leave-only reconciliation', () => {
     const rec = reconcileLeave(p);
     expect(rec.passed).toBe(false);
     expect(rec.rowIssues.join(' ')).toMatch(/duplicate/i);
+  });
+});
+
+// --------------------------------------------------------------------- packet path
+//
+// The full-packet gate now covers the sick columns too, and the import saves the report's
+// PRINTED Hrs Avail. for both vacation and sick — the same rule as the leave path (Erik
+// 2026-08-10: "exactly what Liesls payroll packet says"). Before that change the packet gate
+// checked the three vacation columns and NOTHING on the sick side, so every sick figure
+// reached the Employees table unverified.
+
+// Three employees: two paid, plus Taneisha with no check and a floored vacation balance.
+const PACKET_EMPLOYEES = [
+  {
+    payrollEmployeeId: 6087, nameOnPacket: 'MICKELSON ERIK J', paid: true, payRate: 0,
+    hoursRegular: 80, hoursOvertime: 0, hoursSick: 0, hoursVacationPTO: 0, hoursHoliday: 0,
+    wagesRegular: 2000, wagesOvertime: 0, wagesSick: 0, wagesVacationPTO: 0, wagesHoliday: 0,
+    wagesCommissions: 0, grossWages: 2000,
+    dedFederalWH: 300, dedSocialSecurity: 120, dedMedicare: 30, dedStateOther: 40,
+    dedWAFamMedLeave: 8, dedWACaresFund: 2, totalDeductions: 500, netPay: 1500,
+    vacationAccrued: 80, vacationUsed: 56, vacationAvailable: 24,
+    sickAccrued: hm(109, 24), sickUsed: 0, sickAvailable: hm(109, 24),
+  },
+  {
+    payrollEmployeeId: 6366, nameOnPacket: 'BEARDSLEY BRIAN', paid: true, payRate: 25,
+    hoursRegular: 60, hoursOvertime: 0, hoursSick: 0, hoursVacationPTO: 0, hoursHoliday: 0,
+    wagesRegular: 1500, wagesOvertime: 0, wagesSick: 0, wagesVacationPTO: 0, wagesHoliday: 0,
+    wagesCommissions: 0, grossWages: 1500,
+    dedFederalWH: 240, dedSocialSecurity: 93, dedMedicare: 22, dedStateOther: 37,
+    dedWAFamMedLeave: 6, dedWACaresFund: 2, totalDeductions: 400, netPay: 1100,
+    vacationAccrued: 80, vacationUsed: 40, vacationAvailable: 40,
+    sickAccrued: 50, sickUsed: 10, sickAvailable: 40,
+  },
+  {
+    // 🔴 The floored row: 0 accrued, 16 used, available printed 00:00 rather than -16:00.
+    payrollEmployeeId: 6391, nameOnPacket: 'CLARK TANEISHA', paid: false, payRate: 0,
+    hoursRegular: 0, hoursOvertime: 0, hoursSick: 0, hoursVacationPTO: 0, hoursHoliday: 0,
+    wagesRegular: 0, wagesOvertime: 0, wagesSick: 0, wagesVacationPTO: 0, wagesHoliday: 0,
+    wagesCommissions: 0, grossWages: 0,
+    dedFederalWH: 0, dedSocialSecurity: 0, dedMedicare: 0, dedStateOther: 0,
+    dedWAFamMedLeave: 0, dedWACaresFund: 0, totalDeductions: 0, netPay: 0,
+    vacationAccrued: 0, vacationUsed: 16, vacationAvailable: 0,
+    sickAccrued: hm(38, 26), sickUsed: hm(78, 30), sickAvailable: -hm(40, 4),
+  },
+];
+
+// What the packet itself prints. Vacation: 160 accrued / 112 used, but 64 available — the
+// 16-hour gap is Taneisha's floored row, exactly as on the real page.
+const PACKET_TOTALS = {
+  grossWages: 3500, netPayroll: 2600, checkCount: 2, totalDeductions: 900,
+  vacationAccrued: 160, vacationUsed: 112, vacationAvailable: 64,
+  sickAccrued: hm(197, 50), sickUsed: 88.5, sickAvailable: hm(109, 20),
+};
+
+const packet = () => ({
+  checkDate: '2026-08-07', periodStart: '2026-07-16', periodEnd: '2026-07-31',
+  checkNumber: '20481',
+  employees: PACKET_EMPLOYEES.map(e => ({ ...e })),
+  printedTotals: { ...PACKET_TOTALS },
+});
+
+describe('payroll packet reconciliation', () => {
+  test('a clean packet reconciles, sick columns included', () => {
+    const rec = reconcile(packet());
+    expect(rec.checks.filter(c => !c.ok)).toEqual([]);
+    expect(rec.rowIssues).toEqual([]);
+    expect(rec.passed).toBe(true);
+  });
+
+  test('the sick half of the vacation report is now checked', () => {
+    const labels = reconcile(packet()).checks.map(c => c.label);
+    expect(labels).toContain('Sick accrued');
+    expect(labels).toContain('Sick used');
+    expect(labels).toContain('Sick available');
+  });
+
+  test('a misread sick figure fails the gate — it used to sail through unverified', () => {
+    const p = packet();
+    p.employees[1].sickAccrued = 5; // 50 misread as 5
+    const rec = reconcile(p);
+    expect(rec.passed).toBe(false);
+    expect(rec.checks.filter(c => !c.ok).map(c => c.label)).toContain('Sick accrued');
+  });
+
+  test('a floored vacation row is a note on the packet path too, not a failure', () => {
+    const rec = reconcile(packet());
+    expect(rec.passed).toBe(true); // 160 - 112 = 48, but the packet prints 64 — and that is fine
+    expect(rec.notes).toHaveLength(1);
+    expect(rec.notes[0]).toContain('CLARK TANEISHA');
+    expect(rec.notes[0]).toContain('saving the printed 0h');
+  });
+
+  test('both gates describe a floored row identically', () => {
+    // The two paths share flooredRowNotes(), so the same employee cannot be explained one way
+    // on the packet screen and another way on the leave screen.
+    const fromPacket = reconcile(packet()).notes.find(n => n.includes('CLARK TANEISHA'));
+    const fromLeave = reconcileLeave(payload()).notes.find(n => n.includes('CLARK TANEISHA'));
+    expect(fromPacket).toBe(fromLeave);
+  });
+
+  test('money checks still carry their own unit, so hours never render as dollars', () => {
+    const byLabel = {};
+    reconcile(packet()).checks.forEach(c => { byLabel[c.label] = c.unit; });
+    expect(byLabel['Gross wages']).toBe('money');
+    expect(byLabel['Check count']).toBe('count');
+    expect(byLabel['Vacation available']).toBe('hours');
+    expect(byLabel['Sick available']).toBe('hours');
   });
 });

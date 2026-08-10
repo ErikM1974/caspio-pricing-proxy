@@ -185,7 +185,8 @@ const PACKET_SCHEMA = {
     printedTotals: {
       type: 'object', additionalProperties: false,
       required: ['grossWages', 'netPayroll', 'checkCount', 'totalDeductions',
-        'vacationAccrued', 'vacationUsed', 'vacationAvailable'],
+        'vacationAccrued', 'vacationUsed', 'vacationAvailable',
+        'sickAccrued', 'sickUsed', 'sickAvailable'],
       properties: {
         grossWages: { type: 'number', description: 'The packet\'s own printed Total wages' },
         netPayroll: { type: 'number', description: 'The packet\'s own printed Net Payroll' },
@@ -194,6 +195,13 @@ const PACKET_SCHEMA = {
         vacationAccrued: { type: 'number', description: 'Vacation report Total row, Accum. column, decimal hours' },
         vacationUsed: { type: 'number' },
         vacationAvailable: { type: 'number' },
+        // The sick half of that same Total: row. Added 2026-08-10 — the packet gate checked
+        // the three vacation columns and NOTHING on the sick side, so every sick figure was
+        // written to Employees unverified. The import saves the printed Hrs Avail. now, so
+        // it has to be reconciled like every other saved figure.
+        sickAccrued: { type: 'number', description: 'Vacation report Total row, Sick Accum. column' },
+        sickUsed: { type: 'number', description: 'Vacation report Total row, Sick Hrs Used column' },
+        sickAvailable: { type: 'number', description: 'Vacation report Total row, Sick Hrs Avail. column' },
       },
     },
   },
@@ -214,8 +222,10 @@ Critical rules:
 - An employee on the vacation report with no check has paid=false and 0 for every hours/wages/deduction field. Their leave figures still matter.
 - Salaried staff show wages with no Rate. Set payRate to 0 for them — do not compute one.
 - A deduction line absent for an employee is 0, not omitted.
-- printedTotals must be the figures the packet ITSELF prints (the "Total All Employee(s)" line, the Net Payroll line, and the vacation report's Total row) — do NOT sum the rows yourself. These are used to verify the extraction, so copying them from your own arithmetic defeats the check.
+- 🔴 "Hrs Avail." is a PRINTED COLUMN on the vacation/sick report — copy what is on the page for BOTH vacation and sick. Do NOT compute it as Accum. minus Used. The two legitimately disagree: an employee who has taken leave they have not yet accrued can print 00:00 available rather than a negative. Copying your own arithmetic into that column would hide exactly the case the reader needs to see.
+- printedTotals must be the figures the packet ITSELF prints (the "Total All Employee(s)" line, the Net Payroll line, and ALL SIX columns of the vacation report's Total row — vacation Accum./Used/Avail. AND sick Accum./Used/Avail.) — do NOT sum the rows yourself. These are used to verify the extraction, so copying them from your own arithmetic defeats the check.
 - The pages are scans. If a digit is genuinely unreadable, still return your best reading — a downstream reconciliation will catch errors.
+- The vacation/sick page may be slightly skewed. Each employee's six leave figures are the ones on that employee's own line — check your row alignment against the ID column, because a gate built on column totals cannot detect figures attributed to the wrong person.
 
 Return the data in the required schema. Dates as YYYY-MM-DD.`;
 
@@ -291,6 +301,30 @@ function sweepJobs() {
   for (const [id, j] of jobs) if (j.createdAt < cutoff) jobs.delete(id);
 }
 
+// ⚠️ NOT failures — shared by both gates. The report floors an over-drawn balance at 00:00
+// instead of printing a negative, so Accum. minus Used and the printed Hrs Avail. genuinely
+// disagree. On the 2026-08-07 page that is Taneisha Clark: 0 accrued, 16 used, printed as
+// 0 available — the whole 16-hour gap between the 1112/796 vacation totals and the 332 the
+// report prints. Erik 2026-08-10: save "exactly what Liesl's payroll packet says", so the
+// PRINTED figure is what lands in Caspio and this note exists so the difference is SEEN
+// rather than silently resolved by arithmetic.
+function flooredRowNotes(emps) {
+  const notes = [];
+  for (const x of emps) {
+    const vd = r2(Number(x.vacationAccrued) - Number(x.vacationUsed));
+    if (Math.abs(vd - Number(x.vacationAvailable)) > 0.02) {
+      notes.push(`${x.nameOnPacket}: vacation available is printed as ${x.vacationAvailable}h, `
+        + `but accrued minus used is ${vd}h — saving the printed ${x.vacationAvailable}h`);
+    }
+    const sd = r2(Number(x.sickAccrued) - Number(x.sickUsed));
+    if (Math.abs(sd - Number(x.sickAvailable)) > 0.02) {
+      notes.push(`${x.nameOnPacket}: sick available is printed as ${x.sickAvailable}h, `
+        + `but accrued minus used is ${sd}h — saving the printed ${x.sickAvailable}h`);
+    }
+  }
+  return notes;
+}
+
 // Re-derive the packet's totals from the extracted rows and compare to what the packet
 // printed. This is the gate that makes a vision read of a SCAN safe to commit.
 function reconcile(p) {
@@ -305,6 +339,12 @@ function reconcile(p) {
     ['Vacation accrued', sum(x => x.vacationAccrued), Number(t.vacationAccrued), 'hours'],
     ['Vacation used', sum(x => x.vacationUsed), Number(t.vacationUsed), 'hours'],
     ['Vacation available', sum(x => x.vacationAvailable), Number(t.vacationAvailable), 'hours'],
+    // Sick added 2026-08-10 with the switch to saving the PRINTED Hrs Avail. Before that the
+    // packet gate checked nothing on the sick side at all, so all three sick figures reached
+    // Employees unverified.
+    ['Sick accrued', sum(x => x.sickAccrued), Number(t.sickAccrued), 'hours'],
+    ['Sick used', sum(x => x.sickUsed), Number(t.sickUsed), 'hours'],
+    ['Sick available', sum(x => x.sickAvailable), Number(t.sickAvailable), 'hours'],
   ].map(([label, derived, printed, unit]) => ({
     label, derived, printed, unit, ok: Math.abs(derived - printed) <= 0.02,
   }));
@@ -325,7 +365,10 @@ function reconcile(p) {
   if (new Set(ids).size !== ids.length) rowIssues.push('duplicate payroll employee IDs in the packet');
   if (!emps.length) rowIssues.push('no employees extracted');
 
-  return { checks, rowIssues, passed: checks.every(c => c.ok) && rowIssues.length === 0 };
+  return {
+    checks, rowIssues, notes: flooredRowNotes(emps),
+    passed: checks.every(c => c.ok) && rowIssues.length === 0,
+  };
 }
 
 // Leave-only gate. All six columns of the report's own Total: row are checked against the
@@ -355,24 +398,10 @@ function reconcileLeave(p) {
     }
   }
 
-  // ⚠️ NOT a failure. The report floors an over-drawn balance at 00:00 instead of printing
-  // a negative, so Accum. minus Used and the printed Hrs Avail. genuinely disagree — on the
-  // 2026-08-07 page that is Taneisha Clark, 0 accrued and 16 used printed as 0 available,
-  // the whole 16-hour gap between the 1112/796 and 332 totals. The PRINTED figure is what
-  // gets saved; this note exists so the difference is seen rather than silently resolved.
-  const notes = [];
-  for (const x of emps) {
-    const vd = r2(Number(x.vacationAccrued) - Number(x.vacationUsed));
-    if (Math.abs(vd - Number(x.vacationAvailable)) > 0.02) {
-      notes.push(`${x.nameOnPacket}: vacation available is printed as ${x.vacationAvailable}h, but accrued minus used is ${vd}h — saving the printed ${x.vacationAvailable}h`);
-    }
-    const sd = r2(Number(x.sickAccrued) - Number(x.sickUsed));
-    if (Math.abs(sd - Number(x.sickAvailable)) > 0.02) {
-      notes.push(`${x.nameOnPacket}: sick available is printed as ${x.sickAvailable}h, but accrued minus used is ${sd}h — saving the printed ${x.sickAvailable}h`);
-    }
-  }
-
-  return { checks, rowIssues, notes, passed: checks.every(c => c.ok) && rowIssues.length === 0 };
+  return {
+    checks, rowIssues, notes: flooredRowNotes(emps),
+    passed: checks.every(c => c.ok) && rowIssues.length === 0,
+  };
 }
 
 // What the browser is allowed to see: hours, leave, and the verdict. No money.
@@ -614,20 +643,16 @@ router.post('/import', async (req, res) => {
           Vacation_Hours_Used: x.vacationUsed || 0,
           Sick_Accum_Hours_Available: x.sickAccrued || 0,
           Sick_Hours_Used: x.sickUsed || 0,
-          // Leave mode saves the report's PRINTED Hrs Avail. column. The packet path still
-          // derives it — changing that is a separate call, since it would move balances on
-          // the monthly import too. The two disagree only where the report floors an
-          // over-drawn balance at zero; see the note in reconcileLeave().
-          Sick_Hours_Remaining: leave
-            ? (Number(x.sickAvailable) || 0)
-            : r2((x.sickAccrued || 0) - (x.sickUsed || 0)),
+          // 🔴 BOTH paths save the report's PRINTED Hrs Avail. column — never accrued minus
+          // used. Erik 2026-08-10, asked directly: "exactly what Liesls payroll packet says".
+          // They differ only where the report floors an over-drawn balance at 00:00 instead
+          // of printing a negative, and deriving it there would silently contradict the page
+          // the accountant sent. flooredRowNotes() surfaces every such row on the review
+          // screen first. Both figures are reconciled against the report's own Total: row.
+          Sick_Hours_Remaining: Number(x.sickAvailable) || 0,
           Leave_Balances_As_Of: effectiveDate,
         };
-        if (vacRemainingWritable) {
-          upd.Vacation_Hours_Remaining = leave
-            ? (Number(x.vacationAvailable) || 0)
-            : r2((x.vacationAccrued || 0) - (x.vacationUsed || 0));
-        }
+        if (vacRemainingWritable) upd.Vacation_Hours_Remaining = Number(x.vacationAvailable) || 0;
         // No pay rate on a leave page — never touch Pay from one.
         if (!leave && x.paid && x.payRate > 0) { upd.Pay = x.payRate; upd.Pay_Rate_Effective_Date = p.checkDate; }
         await axios.put(`${BASE}/tables/${EMPLOYEES}/records?q.where=${encodeURIComponent(`ID_Record_Employee='${esc(emp.ID_Record_Employee)}'`)}`, upd, H);
@@ -653,6 +678,7 @@ router.post('/import', async (req, res) => {
 });
 
 module.exports = router;
-// Exposed for tests only — the gate is the whole point of the leave path, so it is locked
-// by tests/unit/payroll-leave-reconcile.test.js rather than trusted by inspection.
+// Exposed for tests only — the gates decide what reaches payroll, so both are locked by
+// tests/jest/payroll-leave-reconcile.test.js rather than trusted by inspection.
 module.exports._reconcileLeave = reconcileLeave;
+module.exports._reconcile = reconcile;
