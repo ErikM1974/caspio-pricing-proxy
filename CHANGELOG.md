@@ -1,3 +1,12 @@
+## v2026.08.10.7 (2026.08.10)
+
+- feat(leads): accept 'sample-request' as a lead source (SRQ)
+- Honour ?refresh on the per-rep due-dates card too
+- feat(payroll): read the vacation/sick page on its own, and stop the gate passing on nothing
+- feat(payroll): save the leave balance the packet prints, and start checking the sick half
+- Merge sample-request lead source into develop
+- Merge payroll leave-only upload into develop
+
 ## v2026.08.10.6 (2026.08.10)
 
 - Honour ?refresh on the per-rep due-dates card too
