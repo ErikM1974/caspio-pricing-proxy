@@ -65,11 +65,21 @@ describe('mockup router — prefix inventory', () => {
 });
 
 describe('mockup reads are gated on EVERY PII prefix', () => {
-    // thread-colors is a static RA colour catalogue and mockup-notifications is a
-    // staff notification feed keyed by explicit ids — neither carries customer PII,
-    // so they are deliberately left open. The three below all return customer or
-    // internal data and must be gated.
-    const PII_PREFIXES = ['/api/mockups', '/api/mockup-notes', '/api/mockup-versions'];
+    // Everything this router serves EXCEPT /api/thread-colors, which is a static RA
+    // colour catalogue with no customer data in it.
+    //
+    // mockup-notifications is on this list because checking beat assuming: the feed
+    // looks like transient toast plumbing, but each entry carries companyName and
+    // designNumber (mockup-routes.js:1642-1650), and the handler only filters by
+    // ?user= when that param is supplied — so an anonymous poll with no user returns
+    // every queued notification. It is in-memory and usually empty, which is exactly
+    // why it read as harmless.
+    const PII_PREFIXES = [
+        '/api/mockups',
+        '/api/mockup-notes',
+        '/api/mockup-versions',
+        '/api/mockup-notifications',
+    ];
 
     test.each(PII_PREFIXES)('%s has a gate', (prefix) => {
         expect(gateLineFor(prefix)).not.toBeNull();
