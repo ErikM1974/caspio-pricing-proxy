@@ -86,7 +86,13 @@ async function runDailyDigest() {
     var port = (config.server && config.server.port) || process.env.PORT || 3002;
     var scanUrl = 'http://localhost:' + port + '/api/mockups/broken-mockups?refresh=true';
 
-    var scanResp = await axios.get(scanUrl, { timeout: 60000 });
+    // Loopback still goes through the gate — 2026-08-11 made /api/mockups reads
+    // secret-only, and "it's localhost" is not an exemption Express knows about.
+    // Without this header the nightly digest 401s and simply reports nothing broken.
+    var scanResp = await axios.get(scanUrl, {
+        timeout: 60000,
+        headers: { 'X-CRM-API-Secret': process.env.CRM_API_SECRET }
+    });
     var data = scanResp.data || {};
     var broken = data.broken || 0;
     var results = data.results || [];
