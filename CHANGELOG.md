@@ -1,3 +1,9 @@
+## v2026.08.11.1 (2026.08.11)
+
+- Gate the mockup router's other two prefixes — they were never covered
+- Mockup reads are secret-only — the Origin bypass is closed
+- Merge mockup read gate: cover all router prefixes, then go secret-only
+
 ## v2026.08.10.7 (2026.08.10)
 
 - feat(leads): accept 'sample-request' as a lead source (SRQ)
