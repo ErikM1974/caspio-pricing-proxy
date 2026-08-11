@@ -837,8 +837,35 @@ console.log('✓ Finished Photos routes loaded (POST open+limited, GET/PATCH sec
 // Digitizing Mockup Routes (Ruth's mockup workflow)
 // SECURITY (2026-07-04): mockup GET reads carry the same internal fields as art
 // rows; gate reads behind secret-or-browser-origin (writes untouched).
+//
+// 🔴 2026-08-11: that 2026-07-04 gate is a PATH-PREFIX gate, and this router serves
+// THREE sibling prefixes. `/api/mockup-notes` and `/api/mockup-versions` are not
+// under `/api/mockups`, so they were never covered — both answered a bare
+// anonymous curl with AE note text, author emails, thread colours, file names and
+// Box file ids. Same shape as the four gated sub-prefixes that once left the rest
+// of `/api` anonymous: a prefix gate covers exactly its prefix and nothing beside it.
+// Every sibling prefix a router serves needs its own line.
+//
+// guardReadsOnly is load-bearing: the CUSTOMER approval view (?view=customer) does
+// PUT /api/mockups/:id/status and POST /api/mockup-notes from the browser with no
+// secret, so gating every method here would break customer approve/revise.
+//
+// 🔴 2026-08-11 part 2 — reads are now SECRET-ONLY, not secret-or-origin. An Origin
+// header is caller-controlled: `curl -H 'Origin: https://www.teamnwca.com'`
+// reproduced a staff browser exactly and returned Company_Name, Id_Customer,
+// Work_Order_Number and AE_Notes, 500 rows at a time from the list route. Origin is
+// a CSRF signal, never an authentication one.
+//
+// This is safe only because every browser caller now goes through the app's
+// session-gated forwarder (Pricing Index server.js `mockupForward`), which holds
+// the secret server-side. DEPLOY ORDER IS LOAD-BEARING: the app ships first. Ship
+// this first and art-hub-ruth, ae-dashboard, portal-directory, design-gallery and
+// the mockup detail page all go blank at once.
 const mockupRoutes = require('./src/routes/mockup-routes');
-app.use('/api/mockups', guardReadsOnly(requireCrmSecretOrBrowserOrigin));
+app.use('/api/mockups', guardReadsOnly(requireCrmApiSecret));
+app.use('/api/mockup-notes', guardReadsOnly(requireCrmApiSecret));
+app.use('/api/mockup-versions', guardReadsOnly(requireCrmApiSecret));
+app.use('/api/mockup-notifications', guardReadsOnly(requireCrmApiSecret));
 app.use('/api', mockupRoutes);
 console.log('✓ Digitizing Mockup routes loaded');
 
