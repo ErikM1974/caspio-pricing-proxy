@@ -1,3 +1,7 @@
+## v2026.08.12.1 (2026.08.12)
+
+- Stop forwarding upstream Content-Length in /api/jotform/file
+
 ## v2026.08.11.1 (2026.08.11)
 
 - Gate the mockup router's other two prefixes — they were never covered
