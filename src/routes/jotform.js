@@ -180,7 +180,17 @@ router.get('/jotform/file', async (req, res) => {
       ctype = EXT_MIME[ext] || ctype || 'application/octet-stream';
     }
     res.set('Content-Type', ctype);
-    if (upstream.headers['content-length']) res.set('Content-Length', upstream.headers['content-length']);
+    // content-length is deliberately NOT forwarded. axios inflates a gzipped
+    // upstream transparently, so its content-length describes the COMPRESSED
+    // bytes while the pipe below sends the decompressed ones — copying it frames
+    // the response short and the client reads a truncated file. The app hit
+    // exactly this in its Box forwarder (2026-08-12, "Unterminated string in
+    // JSON at position 476"); this route is the same shape.
+    //
+    // Do NOT "improve" this into `copy it unless content-encoding is set`:
+    // axios DELETES content-encoding after inflating while keeping the stale
+    // length, so here there is no header left to test. Never forward a length
+    // you did not measure; let Node frame the response.
     // filename from the upload URL's basename; ?download=1 → save-as instead of inline view
     let baseName = '';
     try { baseName = decodeURIComponent(u.split('?')[0].split('/').pop() || ''); } catch (_) { baseName = u.split('/').pop() || ''; }
