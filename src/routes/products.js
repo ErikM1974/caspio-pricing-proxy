@@ -101,6 +101,39 @@ router.get('/stylesearch', async (req, res) => {
       value: r.STYLE,
       label: `${r.STYLE} - ${r.PRODUCT_TITLE}`
     }));
+
+    // ── Non-SanMar merge (2026-08-14) ──────────────────────────────────────
+    // Vendor styles (S&S Activewear et al.) live in Non_SanMar_Products. Without
+    // this they never autocomplete, so a rep has to type the style blind and wait
+    // for the not-found path. Mirrors the merges already in /api/product-details
+    // and /api/products/search, reusing the same 5-min cache.
+    //
+    // 🔴 APPENDED and DEDUPED, never prepended. The EMB builder resolves a style as
+    // `data.find(exact) || data[0]`, so a non-SanMar row sitting at index 0 for a
+    // style that ALSO exists in SanMar would price that style off the vendor row.
+    // SanMar always wins; the cap mirrors /products/search's NS_BROWSE_CAP.
+    try {
+      const seen = new Set(suggestions.map(s => String(s.value).toUpperCase()));
+      const needle = String(term).toLowerCase();
+      const nsRows = await getNonSanmarCatalogRows();
+      for (const row of nsRows) {
+        if (suggestions.length >= records.length + 8) break;
+        const style = String(row.StyleNumber || '').trim();
+        if (!style || seen.has(style.toUpperCase())) continue;
+        const hay = `${style} ${row.ProductName || ''} ${row.Brand || ''}`.toLowerCase();
+        if (!hay.includes(needle)) continue;
+        seen.add(style.toUpperCase());
+        suggestions.push({
+          value: style,
+          label: `${style} - ${row.ProductName || style}`,
+          source: 'non-sanmar'
+        });
+      }
+    } catch (nsErr) {
+      // A non-SanMar lookup failure must never break SanMar autocomplete.
+      console.warn('[stylesearch] Non-SanMar merge failed:', nsErr.message);
+    }
+
     console.log(`Style search for "${term}": ${suggestions.length} result(s)`);
     styleSearchCache.set(cacheKey, suggestions);
     res.json(suggestions);
