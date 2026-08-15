@@ -1,3 +1,7 @@
+## v2026.08.15.2 (2026.08.15)
+
+- Lock the manual-item vendor decision (description carries it)
+
 ## v2026.08.15.1 (2026.08.15)
 
 - Vendor + customer-supplied support for EMB quotes (proxy side)
