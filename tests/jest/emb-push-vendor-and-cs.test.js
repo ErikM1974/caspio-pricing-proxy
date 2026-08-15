@@ -110,6 +110,28 @@ describe('vendor (non-SanMar) provenance reaches the order', () => {
     });
   });
 
+  test('a MANUAL item carries no vendor note — the description carries the vendor instead', () => {
+    // Decision, not a gap (Erik 2026-08-15). A manual vendor item is typed straight onto
+    // the line and has no VendorCode, so ns.v is ''. The vendor travels in the rep's
+    // description, which is already sent as Description. Confirmed live on the TEST push
+    // EMB-TEST-2026-315, where LineItemNotes came back empty exactly as expected.
+    const order = transformQuoteToOrder(baseSession(), [garment({
+      StyleNumber: 'SS-LIVE-CHECK',
+      ProductName: 'S&S Bella+Canvas Jersey Tee - Navy',
+      SizeBreakdown: JSON.stringify({ L: 24 }),
+      LogoSpecs: JSON.stringify({ ns: { v: '', mode: 'costPlus', cost: 8.42 } }),
+    })]);
+
+    const line = order.LinesOE.find(l => l.PartNumber === 'SS-LIVE-CHECK');
+    expect(line).toBeTruthy();
+    expect(line.LineItemNotes).toBe('');
+    expect(line.DisplayAsDescription).toBe('');
+    // …but the vendor still reaches the buyer, in the field they actually read.
+    expect(line.Description).toBe('S&S Bella+Canvas Jersey Tee - Navy');
+    // And the arbitrary vendor style goes through verbatim — OnSite accepted this.
+    expect(line.PartNumber).toBe('SS-LIVE-CHECK');
+  });
+
   test('malformed LogoSpecs never blocks a push', () => {
     const order = transformQuoteToOrder(baseSession(), [garment({ LogoSpecs: '{not json' })]);
     expect(productLines(order)).toHaveLength(3);
