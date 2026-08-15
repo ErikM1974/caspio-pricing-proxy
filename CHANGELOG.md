@@ -1,3 +1,8 @@
+## v2026.08.15.1 (2026.08.15)
+
+- Vendor + customer-supplied support for EMB quotes (proxy side)
+- Full back: one price ladder for every surface (proxy side)
+
 ## v2026.08.12.1 (2026.08.12)
 
 - Stop forwarding upstream Content-Length in /api/jotform/file
