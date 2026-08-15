@@ -12,6 +12,26 @@ const { fetchAllCaspioPages, makeCaspioRequest } = require('../utils/caspio');
 const productsCache = new Map();
 const CACHE_TTL = 5 * 60 * 1000;
 
+// Escape a value before interpolating it into a Caspio WHERE clause (injection guard).
+// NOT sanitizeStyleNumber() — these style numbers are rep-entered vendor SKUs and may
+// legitimately contain spaces or slashes, which that helper would silently strip and
+// turn into a lookup for a DIFFERENT product. Doubling the quote preserves the value
+// exactly while closing the injection.
+function escapeCaspioValue(input) {
+    return String(input == null ? '' : input).replace(/'/g, "''").substring(0, 100);
+}
+
+// PricingMethod has drifted to three spellings in production ('FIXED' from the builder
+// modal and the seed row, 'FixedPrice' and 'Margin' from the staff Product Manager).
+// Readers are tolerant (resolveNonSanmarPricingMode in quote-builder-utils.js); writers
+// must be canonical, so the drift stops here.
+function normalizePricingMethod(input, hasCost) {
+    const pm = String(input || '').toUpperCase();
+    if (pm.includes('MARGIN')) return 'Margin';
+    if (pm.includes('FIX')) return 'FixedPrice';
+    return hasCost ? 'Margin' : 'FixedPrice';
+}
+
 /**
  * Fetch all non-SanMar products from Caspio with caching
  * @param {boolean} forceRefresh - Bypass cache if true
@@ -136,7 +156,7 @@ router.get('/non-sanmar-products/style/:style', async (req, res) => {
 
     try {
         const records = await fetchAllCaspioPages('/tables/Non_SanMar_Products/records', {
-            'q.where': `StyleNumber='${style}'`
+            'q.where': `StyleNumber='${escapeCaspioValue(style)}'`
         });
 
         if (records.length === 0) {
@@ -231,15 +251,51 @@ router.post('/non-sanmar-products', async (req, res) => {
         });
     }
 
+    // A row with neither a cost nor a sell price is UNQUOTABLE: the builder shows a
+    // $0.00 price cell and the save gate blocks the quote, with nothing on screen
+    // explaining why. Reject it here rather than letting a rep create dead data.
+    const postCost = parseFloat(record.DefaultCost) || 0;
+    const postSell = parseFloat(record.DefaultSellPrice) || 0;
+    if (postCost <= 0 && postSell <= 0) {
+        return res.status(400).json({
+            success: false,
+            error: 'Either DefaultCost (cost-plus pricing) or DefaultSellPrice (fixed price) must be greater than 0'
+        });
+    }
+
+    // Duplicate guard. GET /style/:style returns records[0], so a second row for the
+    // same StyleNumber makes which price wins a coin flip — and a double-clicked Save
+    // in the builder modal creates exactly that. (The /seed route already de-dupes;
+    // the plain POST did not.)
+    try {
+        const existing = await fetchAllCaspioPages('/tables/Non_SanMar_Products/records', {
+            'q.where': `StyleNumber='${escapeCaspioValue(record.StyleNumber)}'`
+        });
+        if (existing.length > 0) {
+            return res.status(409).json({
+                success: false,
+                error: `Product with StyleNumber '${record.StyleNumber}' already exists`,
+                data: existing[0]
+            });
+        }
+    } catch (dupError) {
+        console.error('[Non-SanMar Products] Duplicate check failed:', dupError);
+        return res.status(500).json({
+            success: false,
+            error: 'Could not verify the style is unique — not creating the product',
+            details: dupError.message
+        });
+    }
+
     // Build record with defaults for optional fields
     const newRecord = {
         StyleNumber: record.StyleNumber,
         Brand: record.Brand,
         ProductName: record.ProductName,
         Category: record.Category || '',
-        DefaultCost: record.DefaultCost || 0,
-        DefaultSellPrice: record.DefaultSellPrice || 0,
-        PricingMethod: record.PricingMethod || 'FIXED',
+        DefaultCost: postCost,
+        DefaultSellPrice: postSell,
+        PricingMethod: normalizePricingMethod(record.PricingMethod, postCost > 0),
         MarginPercent: record.MarginPercent || 0,
         SizeUpchargeXL: record.SizeUpchargeXL || 0,
         SizeUpcharge2XL: record.SizeUpcharge2XL || 0,
