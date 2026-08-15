@@ -47,6 +47,72 @@ const baseItemCostsCache = createTtlCache({ name: 'base-item-costs', ttlMs: 15 *
 const sizePricingCache = createTtlCache({ name: 'size-pricing', ttlMs: 15 * 60 * 1000, maxEntries: 300 });
 const maxPricesCache = createTtlCache({ name: 'max-prices-by-style', ttlMs: 15 * 60 * 1000, maxEntries: 200 });
 
+// ─── Full back: ONE ladder, one source (2026-08-15, Erik) ────────────────────
+// Full-back embroidery used to have FIVE price sources across three Caspio tables
+// (Embroidery_Costs DECG-FB / CTR-FB / FB, Service_Codes 'FB', and per-design
+// fbPrice* columns), so what a customer paid depended on WHICH SCREEN the rep used.
+// Erik's decision: ONE ladder for everyone, contract included —
+//   Embroidery_Costs where ItemType='DECG-FB'.
+// Every endpoint's `.fullBack` block is now built from this single read, so the
+// surfaces are incapable of disagreeing. CTR-FB and FB rows are retired.
+//
+// 🔴 Two column traps, both verified against live data — do not "tidy" either:
+//   • The rate is in `EmbroideryCost`. `PerThousandRate` is NULL on every DECG-FB
+//     row, so preferring it (as the CTR path does) prices full backs at $0.
+//   • The small-batch fee is in `LTM`. There is NO `LTM_Fee` column on this table;
+//     reading it returned undefined and silently swallowed a real $50 for years.
+const fullBackLadderCache = createTtlCache({ name: 'full-back-ladder', ttlMs: 15 * 60 * 1000, maxEntries: 1 });
+
+// Each caller gets its OWN copy. The three endpoints decorate the block with their
+// own back-compat key names (`perThousandRates`, `ratePerThousand`), and handing out
+// the cached object by reference would let those decorations — and any future rate
+// mutation — leak into every other endpoint's response through the shared cache.
+function cloneLadder(l) {
+  return { ...l, ratesPerThousand: { ...l.ratesPerThousand } };
+}
+
+async function getFullBackLadder({ force = false } = {}) {
+  if (!force) {
+    const cached = fullBackLadderCache.get('decg-fb');
+    if (cached !== undefined) return cloneLadder(cached);
+  }
+
+  const records = await fetchAllCaspioPages('/tables/Embroidery_Costs/records', {
+    'q.where': "ItemType='DECG-FB'"
+  });
+
+  const ladder = { ratesPerThousand: {}, minStitches: 25000, ltmFee: 0, ltmThreshold: 0 };
+  records.forEach(record => {
+    const tier = record.TierLabel;
+    if (!tier) return;
+    const rate = parseFloat(record.EmbroideryCost) || 0;
+    if (rate > 0) ladder.ratesPerThousand[tier] = rate;
+
+    const baseStitches = parseInt(record.BaseStitchCount, 10);
+    if (Number.isFinite(baseStitches) && baseStitches > 0) ladder.minStitches = baseStitches;
+
+    // The fee is stamped on the small-batch tier only; that tier is also the threshold.
+    const ltm = parseFloat(record.LTM) || 0;
+    if (ltm > 0) {
+      ladder.ltmFee = ltm;
+      const upper = parseInt(String(tier).split('-')[1], 10);
+      if (Number.isFinite(upper)) ladder.ltmThreshold = upper;
+    }
+  });
+
+  // Never fall back to a guessed rate — a missing ladder must surface as an error
+  // banner on every consumer, not as a silently cheap full back (Erik's #1 rule).
+  if (!Object.keys(ladder.ratesPerThousand).length) {
+    throw new Error(
+      "No DECG-FB rows found in Embroidery_Costs. Full-back pricing is unavailable; " +
+      "refusing to serve a fallback rate."
+    );
+  }
+
+  fullBackLadderCache.set('decg-fb', ladder);
+  return cloneLadder(ladder);
+}
+
 // GET /api/pricing-tiers
 router.get('/pricing-tiers', async (req, res) => {
   const { method } = req.query;
@@ -232,6 +298,9 @@ router.get('/contract-pricing', async (req, res) => {
       });
     }
 
+    // Full back is shared across every surface — fetched once, from DECG-FB (see below).
+    const fullBackLadder = await getFullBackLadder();
+
     // Extract $/1K rates from records (using PerThousandRate or calculating from EmbroideryCost/StitchCount)
     // New structure returns perThousandRates by tier for easy frontend calculations
     const pricing = {
@@ -245,22 +314,26 @@ router.get('/contract-pricing', async (req, res) => {
         ltmFee: 50.00,
         ltmThreshold: 23
       },
-      fullBack: {
-        perThousandRates: {},
-        minStitches: 25000,
-        ltmFee: 50.00,
-        ltmThreshold: 23
-      },
+      // 🔴 READ THIS BEFORE "FIXING" IT. These full-back numbers are NOT contract rates
+      // and are NOT derived from the CTR-FB rows. Full back is ONE ladder for everyone —
+      // contract included — sourced from Embroidery_Costs ItemType='DECG-FB'
+      // (Erik, 2026-08-15). ShopWorks has exactly one full-back part, 'DECG-FB', so one
+      // part = one price. The key stays `perThousandRates` purely for back-compat with
+      // the contract calculator and the reference page; only the SOURCE changed.
+      // The CTR-FB rows are retired and should be deleted from Caspio.
+      fullBack: fullBackLadder,
       source: 'caspio',
       pricingModel: 'linear-per-thousand'
     };
+    // Back-compat alias: this endpoint's consumers read `perThousandRates`, the shared
+    // ladder exposes `ratesPerThousand`. Same object, both spellings.
+    pricing.fullBack.perThousandRates = fullBackLadder.ratesPerThousand;
 
     // Process records to extract $/1K rates (one rate per tier)
     // We only need one record per ItemType+TierLabel to get the rate
     const processedTiers = {
       garments: new Set(),
-      caps: new Set(),
-      fullBack: new Set()
+      caps: new Set()
     };
 
     records.forEach(record => {
@@ -283,11 +356,8 @@ router.get('/contract-pricing', async (req, res) => {
         pricing.caps.perThousandRates[tier] = parseFloat(perThousandRate.toFixed(2));
         processedTiers.caps.add(tier);
         if (ltmFee > 0) pricing.caps.ltmFee = ltmFee;
-      } else if (itemType === 'CTR-FB' && !processedTiers.fullBack.has(tier)) {
-        pricing.fullBack.perThousandRates[tier] = parseFloat(perThousandRate.toFixed(2));
-        processedTiers.fullBack.add(tier);
-        if (ltmFee > 0) pricing.fullBack.ltmFee = ltmFee;
       }
+      // CTR-FB is deliberately ignored — full back comes from the shared DECG-FB ladder.
     });
 
     console.log(`Contract pricing: ${records.length} record(s) found - Garment tiers: ${Object.keys(pricing.garments.perThousandRates).length}, Cap tiers: ${Object.keys(pricing.caps.perThousandRates).length}, FB tiers: ${Object.keys(pricing.fullBack.perThousandRates).length}`);
@@ -320,11 +390,15 @@ router.get('/decg-pricing', async (req, res) => {
       });
     }
 
-    // Process Caspio records into structured pricing object
+    // Process Caspio records into structured pricing object.
+    // `fullBack` comes from the shared ladder below so this endpoint, /api/contract-pricing
+    // and /api/al-pricing cannot disagree. `minQuantity` is deliberately GONE: the rows
+    // carried both "min 8 pieces" and a 1-7 tier with a $50 fee, which contradicted.
+    // Erik's ruling (2026-08-15): full backs under 8 are allowed and carry the fee.
     const pricing = {
-      garments: { basePrices: {}, perThousandUpcharge: 1.25, ltmFee: 50.00, ltmThreshold: 7 },
-      caps: { basePrices: {}, perThousandUpcharge: 1.00, ltmFee: 50.00, ltmThreshold: 7 },
-      fullBack: { ratesPerThousand: {}, minStitches: 25000, minQuantity: 8 },
+      garments: { basePrices: {}, perThousandUpcharge: 1.25, ltmFee: 0, ltmThreshold: 7 },
+      caps: { basePrices: {}, perThousandUpcharge: 1.00, ltmFee: 0, ltmThreshold: 7 },
+      fullBack: await getFullBackLadder(),
       heavyweightSurcharge: 10.00,
       source: 'caspio'
     };
@@ -333,7 +407,11 @@ router.get('/decg-pricing', async (req, res) => {
       const itemType = record.ItemType;
       const tier = record.TierLabel;
       const cost = parseFloat(record.EmbroideryCost) || 0;
-      const ltmFee = parseFloat(record.LTM_Fee) || 0;
+      // 🔴 `LTM`, not `LTM_Fee` — there is NO LTM_Fee column on Embroidery_Costs. Reading
+      // it returned undefined, so this fee was always 0 and the garment/cap $50 you saw
+      // came from a hardcoded default, NOT from Caspio. Editing the fee in Caspio did
+      // nothing. Verified live 2026-08-15: DECG-Garmt and DECG-Cap 1-7 rows both hold 50.
+      const ltmFee = parseFloat(record.LTM) || 0;
 
       if (itemType === 'DECG-Garmt') {
         pricing.garments.basePrices[tier] = cost;
@@ -341,10 +419,8 @@ router.get('/decg-pricing', async (req, res) => {
       } else if (itemType === 'DECG-Cap') {
         pricing.caps.basePrices[tier] = cost;
         if (ltmFee > 0) pricing.caps.ltmFee = ltmFee;
-      } else if (itemType === 'DECG-FB') {
-        pricing.fullBack.ratesPerThousand[tier] = cost;
-        if (ltmFee > 0) pricing.fullBack.ltmFee = ltmFee;
       }
+      // DECG-FB is intentionally NOT handled here — see fullBack above.
     });
 
     console.log(`DECG pricing: ${records.length} record(s) found`);
@@ -377,6 +453,9 @@ router.get('/al-pricing', async (req, res) => {
       });
     }
 
+    // Full back is shared across every surface — fetched once, from DECG-FB.
+    const fullBackLadder = await getFullBackLadder();
+
     // Process Caspio records into structured pricing object
     const pricing = {
       garments: {
@@ -393,16 +472,19 @@ router.get('/al-pricing', async (req, res) => {
         ltmFee: 50.00,
         ltmThreshold: 7
       },
-      fullBack: {
-        ratePerThousand: 1.25,
-        minStitches: 25000
-      },
+      // Full back is the ONE shared ladder (Embroidery_Costs ItemType='DECG-FB'), not the
+      // flat `FB` row this endpoint used to read. `ratesPerThousand` (tiered) is the real
+      // answer and is what the quote builder now uses; `ratePerThousand` is kept as a
+      // back-compat scalar for older readers and is the *highest* tier's rate so a stale
+      // consumer under-quotes nobody. The FB rows are retired — delete them from Caspio.
+      fullBack: fullBackLadder,
       fees: {
         ltm: { threshold: 7, amount: 50.00 },
         extraColors: { threshold: 5, perColorPerPiece: 1.00 }
       },
       source: 'caspio'
     };
+    pricing.fullBack.ratePerThousand = Math.max(...Object.values(fullBackLadder.ratesPerThousand));
 
     records.forEach(record => {
       const itemType = record.ItemType;
@@ -425,10 +507,9 @@ router.get('/al-pricing', async (req, res) => {
         if (ltmFee > 0) pricing.caps.ltmFee = ltmFee;
         if (additionalRate > 0) pricing.caps.perThousandUpcharge = additionalRate;
         if (baseStitches > 0) pricing.caps.baseStitches = baseStitches;
-      } else if (itemType === 'FB') {
-        pricing.fullBack.ratePerThousand = cost;
-        if (baseStitches > 0) pricing.fullBack.minStitches = baseStitches;
       }
+      // ItemType 'FB' is deliberately ignored — full back comes from the shared
+      // DECG-FB ladder above. The FB rows are retired; delete them from Caspio.
     });
 
     // Update fee structure from actual data
@@ -1220,3 +1301,6 @@ router.get('/pricing-bundle', async (req, res) => {
 });
 
 module.exports = router;
+// Exported for tests: full back is one ladder for every surface, and nothing else
+// pinned its rates before 2026-08-15. See tests/jest/full-back-one-ladder.test.js.
+module.exports.getFullBackLadder = getFullBackLadder;
