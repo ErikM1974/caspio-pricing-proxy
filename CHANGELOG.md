@@ -1,3 +1,8 @@
+## v2026.08.16.1 (2026.08.16)
+
+- Remove the Art_Invoices routes — the table is gone
+- Remove the pricing-matrix and transfer-pricing routes — tables are gone
+
 ## v2026.08.15.2 (2026.08.15)
 
 - Lock the manual-item vendor decision (description carries it)
