@@ -510,17 +510,13 @@ app.use('/api/gift-certificates', requireCrmApiSecret);
 app.use('/api', giftCertificatesRoutes);
 console.log('✓ Gift Certificates routes loaded (requireCrmApiSecret-gated)');
 
-// Pricing Matrix Routes
-const pricingMatrixRoutes = require('./src/routes/pricing-matrix');
-app.use('/api', pricingMatrixRoutes);
-console.log('✓ Pricing Matrix routes loaded');
+// Pricing Matrix + Transfer-pricing routes REMOVED 2026-08-16: their Caspio tables
+// (PricingMatrix, transfer_pricing_2025) no longer exist, so every route 500'd on a
+// Caspio 404. Neither had an app consumer — /api/pricing-matrix/lookup was called
+// only by cart-ui.js, which no HTML page loads. NOTE: transfer-orders.js is a
+// DIFFERENT, live feature (Supacolor_Jobs) and is untouched.
 
-// Transfers Routes
-const transferRoutes = require('./src/routes/transfers');
-app.use('/api', transferRoutes);
-console.log('✓ Transfer routes loaded');
-
-// Art Routes (artrequests and art-invoices)
+// Art Routes (artrequests)
 // Rate-limit the art WRITE paths (create + field/status updates). Defined here
 // (not next to writeLimiter at ~L421) because artRoutes mount on this line and
 // the limiter must be registered first. GET is exempt so the Saved-Mockups
