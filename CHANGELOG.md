@@ -1,3 +1,7 @@
+## v2026.08.17.1 (2026.08.17)
+
+- syncCandidates: IS NOT NULL matched every row, so the filter was a no-op
+
 ## v2026.08.16.1 (2026.08.16)
 
 - Remove the Art_Invoices routes — the table is gone
