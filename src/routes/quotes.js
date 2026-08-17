@@ -496,8 +496,23 @@ router.get('/quote_sessions', async (req, res) => {
       // the OR. Cancelled rows are excluded at the source: re-syncing one every
       // hour re-stamped ShopWorks_Last_Synced, which reset its 30-day purge
       // countdown daily (2026-07-18).
+      //
+      // ⚠️ `PushedToShopWorks IS NOT NULL` does NOT mean "was pushed" (2026-08-17).
+      // Caspio stores the unset column as an EMPTY STRING, and '' IS NOT NULL — so
+      // that clause matched every row, the OR swallowed the Status test, and the
+      // whole predicate collapsed to "not cancelled". Measured live: 9 of 9 rows
+      // came back, including a 'Web Quote Request' that has never been near
+      // ShopWorks and never can be. The <>'' test is what actually means pushed.
+      //
+      // ShopWorks_Order_Number>0 (Int32) is the third, DEFINITIVE signal, and it is
+      // load-bearing: two DTG rows sit at Status='Accepted' with an empty
+      // PushedToShopWorks but a real WO#, so they matched only by the bug. Tightening
+      // the empty-string test WITHOUT this clause would have silently dropped them —
+      // and with them their deletion detection and the ShipStation cancel-cascade.
+      // It also covers any WO# a rep types in by hand.
       whereConditions.push(
-        "(Status='Processed' OR PushedToShopWorks IS NOT NULL) AND Status<>'Cancelled_in_ShopWorks'"
+        "(Status='Processed' OR (PushedToShopWorks IS NOT NULL AND PushedToShopWorks<>'') " +
+        "OR ShopWorks_Order_Number>0) AND Status<>'Cancelled_in_ShopWorks'"
       );
     }
 

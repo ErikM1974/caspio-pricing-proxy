@@ -79,6 +79,28 @@ describe('GET /api/quote_sessions — named cron filters', () => {
     expect(where).toContain("Status<>'Cancelled_in_ShopWorks'");
   });
 
+  // 2026-08-17. Caspio stores an unset PushedToShopWorks as an EMPTY STRING, and
+  // '' IS NOT NULL — so the NULL test alone matched every row, the OR swallowed the
+  // Status test, and the predicate degenerated to "not cancelled". Live proof: a
+  // 'Web Quote Request' row with no WO# was being synced hourly forever.
+  //
+  // The assertion above (`toContain('PushedToShopWorks IS NOT NULL')`) passes either
+  // way, which is exactly why it did not catch this — a substring test cannot see a
+  // MISSING conjunct. These two lock the parts that actually carry the meaning.
+  test('syncCandidates excludes never-pushed rows — IS NOT NULL is not enough', async () => {
+    await request('/api/quote_sessions?syncCandidates=true&refresh=true');
+    const where = lastCaspioParams()['q.where'];
+
+    // The empty-string test is what distinguishes "pushed" from "column exists".
+    expect(where).toContain("PushedToShopWorks<>''");
+
+    // ...and rows that ARE real ShopWorks orders but carry neither marker (the DTG
+    // Status='Accepted' rows, plus any hand-typed WO#) must still be picked up.
+    // Without this clause, fixing the empty-string test silently stops syncing them
+    // — losing deletion detection and the ShipStation cancel-cascade with it.
+    expect(where).toContain('ShopWorks_Order_Number>0');
+  });
+
   test('shipstationPending=true builds the tracking-sweep predicate', async () => {
     const res = await request('/api/quote_sessions?shipstationPending=true');
     expect(res.status).toBe(200);
