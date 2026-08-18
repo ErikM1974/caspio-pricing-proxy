@@ -108,3 +108,26 @@ describe('cache keys and registry', () => {
         expect(SRC).toMatch(/'ruth@nwcustomapparel\.com':\s*\{\s*fullName:\s*'Ruthie Nhoung'/);
     });
 });
+
+describe('sts_Shipped is not a boolean', () => {
+    // Erik, 2026-08-18: 0.5 means PARTIALLY shipped. Measured over 90 days —
+    // 1 = 808, 0 = 212, 0.5 = 18, 8 = 13, 222 = 4 (a typo nobody had caught).
+    // A partial belongs on the list, because the remainder really is late; it just
+    // must not read as though nothing shipped. Two were on the live list when this
+    // was written: WO 142207 (In Graphic Detail) and WO 142649 (New Dimension Lawn).
+    test('a partial is still open — it is not filtered out', () => {
+        expect(isStillOpen({ sts_Shipped: '0.5', sts_Invoiced: 0 })).toBe(true);
+    });
+
+    test('but it is flagged, so the sheet can say so', () => {
+        expect(FN).toMatch(/partiallyShipped: String\(o\.sts_Shipped\)\.trim\(\) === '0\.5'/);
+        expect(FN).toMatch(/PARTIALLY SHIPPED/);
+    });
+
+    test('only an exact 1 counts as shipped — 0.5, 8 and 222 must not', () => {
+        for (const v of ['0.5', '8', '222', '0']) {
+            expect(isStillOpen({ sts_Shipped: v, sts_Invoiced: 0 })).toBe(true);
+        }
+        expect(isStillOpen({ sts_Shipped: '1', sts_Invoiced: 0 })).toBe(false);
+    });
+});

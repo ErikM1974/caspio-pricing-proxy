@@ -1213,12 +1213,19 @@ async function buildDueDates(rep, lookbackDays) {
             daysUntilDue: d,
             subtotal: num(o.cur_Subtotal),
             invoiced: parseInt(o.sts_Invoiced, 10) === 1,
+            // sts_Shipped is NOT a boolean (Erik, 2026-08-18): 0.5 means PARTIALLY
+            // shipped. Those orders belong on this list — the remainder really is late
+            // — but reading as though nothing had gone out misrepresents them. Measured
+            // over a 90-day window: 1 = 808, 0 = 212, 0.5 = 18, 8 = 13, and 222 on four
+            // orders, which is a typo nobody has caught.
+            partiallyShipped: String(o.sts_Shipped).trim() === '0.5',
             blanks,
             poCount: pos.length,
             vendors: [...new Set(pos.map((p) => p.VendorName).filter(Boolean))],
             flag: isLate ? 'late' : 'risk',
             reason: isLate
-                ? `${Math.abs(d)}d past due` + (blanks !== 'received' ? ' · ' + blanksText : '')
+                ? `${Math.abs(d)}d past due` + (String(o.sts_Shipped).trim() === '0.5' ? ' · PARTIALLY SHIPPED' : '')
+                    + (blanks !== 'received' ? ' · ' + blanksText : '')
                 : (d === 0 ? 'due TODAY' : `due in ${d}d`) + ' · ' + blanksText,
         };
         (isLate ? late : atRisk).push(item);
