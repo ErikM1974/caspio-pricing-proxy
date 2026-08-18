@@ -1,3 +1,7 @@
+## v2026.08.18.1 (2026.08.18)
+
+- Tell a drop-ship from an arrival — store the whole destination, not just the street
+
 ## v2026.08.17.1 (2026.08.17)
 
 - syncCandidates: IS NOT NULL matched every row, so the filter was a no-op
