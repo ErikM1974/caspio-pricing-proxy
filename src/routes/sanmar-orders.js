@@ -1505,7 +1505,7 @@ router.get('/inbound-today', async (req, res) => {
 
     const payload = {
       date, today, generatedAt: new Date().toISOString(),
-      totals: { pos: totals.pos, workOrders: wos.size, boxes: totals.boxes, piecesShipped: totals.piecesShipped, piecesOrdered: totals.piecesOrdered, lines: totals.lines, cost: Math.round(totals.cost * 100) / 100, received: receivedCount, rush: totals.rush, pastDue: totals.pastDue },
+      totals: { pos: totals.pos, workOrders: wos.size, boxes: totals.boxes, piecesShipped: totals.piecesShipped, piecesOrdered: totals.piecesOrdered, lines: totals.lines, cost: Math.round(totals.cost * 100) / 100, received: receivedCount, rush: totals.rush, pastDue: totals.pastDue, dropship: totals.dropship },
       orders,
       note: 'Arriving = UPS\'s real scheduled/rescheduled/delivered date whenever UPS has scanned the boxes (marked ✓ UPS); otherwise a SanMar ship-date + ground-transit ESTIMATE (marked ~ est., business days; weekends & holidays skipped — we receive Mon–Fri only). Per-box contents come live from SanMar\'s shipment feed; colors/sizes from the SanMar product table.',
     };

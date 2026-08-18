@@ -94,6 +94,14 @@ describe('the route and the writers implement it', () => {
         expect(block).toMatch(/if \(c\.dest === 'ours'\) cur\.dest = 'ours'/);
     });
 
+    test('totals.dropship reaches the PAYLOAD, not just the reducer', () => {
+        // The payload lists totals keys explicitly instead of spreading, so a new counter
+        // is computed and then silently dropped. It shipped that way once: the per-order
+        // flag was right while totals.dropship came back undefined.
+        const block = SRC.slice(SRC.indexOf("router.get('/inbound-today'"), SRC.indexOf("router.get('/label-data/:identifier'"));
+        expect(block).toMatch(/dropship: totals\.dropship/);
+    });
+
     test('BOTH shipment writers persist city/state/zip, not just the street', () => {
         // The route can only classify what the writer stored.
         expect((SRC.match(/Ship_To_Zip: /g) || []).length).toBeGreaterThanOrEqual(2);
