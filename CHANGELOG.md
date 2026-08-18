@@ -1,3 +1,7 @@
+## v2026.08.18.3 (2026.08.18)
+
+- Flag partially-shipped orders instead of showing them as untouched
+
 ## v2026.08.18.2 (2026.08.18)
 
 - Carry totals.dropship into the payload, not just the reducer
