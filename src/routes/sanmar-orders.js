@@ -150,6 +150,15 @@ async function pullAndStoreShipments(po) {
               Ship_From_Zip: loc.shipFrom.postalCode || '',
               Ship_From_Address: loc.shipFrom.address1 || '',
               Ship_To_Address: loc.shipTo.address1 || '',
+              // The WHOLE destination, not just the street (2026-08-18). A drop-ship
+              // goes straight to the customer and never reaches Milton, so it must not
+              // sit on the receiving sheet as an expected arrival — PO 113977 (Inland
+              // Beef) shipped to Sequim and was listed here as inbound. The street alone
+              // is a brittle key: our own address is stored as both '2025 Freeman Rd'
+              // and '2025 FREEMAN RD E'. The ZIP is what the board matches on.
+              Ship_To_City: loc.shipTo.city || '',
+              Ship_To_State: loc.shipTo.region || '',
+              Ship_To_Zip: loc.shipTo.postalCode || '',
               Package_Weight: pkg.weight || '',
               Package_Dimensions: pkg.dimensions || '',
               Package_Class: pkg.packageClass || ''
@@ -271,6 +280,10 @@ async function sweepRecentShipments(daysBack) {
         Ship_From_Zip: shipFrom.postalCode || '',
         Ship_From_Address: shipFrom.address1 || '',
         Ship_To_Address: shipTo.address1 || '',
+        // See pullAndStoreShipments — same fields, same reason.
+        Ship_To_City: shipTo.city || '',
+        Ship_To_State: shipTo.region || '',
+        Ship_To_Zip: shipTo.postalCode || '',
         Package_Weight: pkg.weight || '',
         Package_Dimensions: pkg.dimensions || '',
         Package_Class: pkg.packageClass || '',
@@ -1214,6 +1227,34 @@ function labelRushAnchor(arrivalIso, todayIso) {
   return a > todayIso ? a : todayIso;
 }
 
+// Where is this carton actually going? (2026-08-18)
+//
+// PO 113977 (Inland Beef) was drop-shipped straight to the customer in Sequim and still
+// sat on the receiving sheet as freight arriving at Milton. SanMar reports the
+// destination on every shipment — we simply were not storing or reading it.
+//
+// Matched on ZIP, not street. Our own address is stored as BOTH '2025 Freeman Rd' and
+// '2025 FREEMAN RD E', so a street comparison is wrong before it ships; the ZIP is
+// stable. Address/city are a fallback for rows written before Ship_To_Zip existed.
+//
+// 🔴 Returns 'unknown' — NOT 'dropship' — when the destination is missing, and the board
+// keeps showing those as arrivals. 83 of 174 stored cartons were blank when this was
+// written (they predate the fields), and hiding a carton because we do not know where
+// it is going is how a real delivery goes missing. A wrong guess here costs a wasted
+// look; the opposite guess costs a lost box.
+const OUR_ZIP = '98354';                 // 2025 Freeman Rd, Milton WA 98354-8819
+const OUR_STREET_RE = /2025\s+freeman/i;
+function classifyDestination(row) {
+  const zip = String(row.Ship_To_Zip || '').trim();
+  if (zip) return zip.slice(0, 5) === OUR_ZIP ? 'ours' : 'dropship';
+  const addr = String(row.Ship_To_Address || '').trim();
+  const city = String(row.Ship_To_City || '').trim();
+  if (!addr && !city) return 'unknown';                       // pre-backfill row
+  if (OUR_STREET_RE.test(addr)) return 'ours';
+  if (city && city.toLowerCase() === 'milton') return 'ours';
+  return 'dropship';
+}
+
 router.get('/inbound-today', async (req, res) => {
   try {
     const today = new Date().toISOString().slice(0, 10);
@@ -1230,7 +1271,8 @@ router.get('/inbound-today', async (req, res) => {
     const lookback = addDaysISO(date, -12);
     const shipRows = await fetchAllCaspioPages(`/tables/${TABLES.shipments}/records`, {
       'q.where': `Ship_Date>='${lookback}' AND Ship_Date<='${date}'`,
-      'q.select': 'SanMar_PO,Ship_Date,Ship_From_State,Ship_From_City,Carrier,Ship_Method,Tracking_Number',
+      'q.select': 'SanMar_PO,Ship_Date,Ship_From_State,Ship_From_City,Carrier,Ship_Method,Tracking_Number,'
+        + 'Ship_To_Address,Ship_To_City,Ship_To_State,Ship_To_Zip',
       'q.limit': 1000,
     }) || [];
 
@@ -1257,6 +1299,11 @@ router.get('/inbound-today', async (req, res) => {
         tracking: String(s.Tracking_Number || '').trim(),
         carrier: s.Carrier || '',
         fromCity: s.Ship_From_City || '', fromState: s.Ship_From_State || '',
+        // Where the carton is actually GOING (2026-08-18) — a drop-ship never
+        // reaches Milton, so receiving must not be told to expect it.
+        dest: classifyDestination(s),
+        destCity: String(s.Ship_To_City || '').trim(),
+        destState: String(s.Ship_To_State || '').trim(),
         upsDelivery: null,
       });
     }
@@ -1288,6 +1335,7 @@ router.get('/inbound-today', async (req, res) => {
           carrier: c.carrier, tracking: c.tracking, arrivingTracking: new Set(),
           fromCity: c.fromCity, fromState: c.fromState,
           estArrival: c.estArrival, upsDelivery: c.upsDelivery,
+          dest: c.dest, destCity: c.destCity, destState: c.destState,
         };
         poShip.set(c.po, cur);
       }
@@ -1302,6 +1350,12 @@ router.get('/inbound-today', async (req, res) => {
       // shipped, so without this a split shipment reports its whole history on one arrival day
       // (PO 113682: 70 pcs / 3 boxes shown when only 6 pcs / 1 box was inbound).
       if (c.tracking) cur.arrivingTracking.add(c.tracking.toUpperCase());
+      // A PO can split between our dock and a customer. If ANY carton is coming here
+      // the PO stays an arrival; it is only a drop-ship when every carton goes
+      // elsewhere. Erring the other way would hide a box we really do receive.
+      if (c.dest === 'ours') cur.dest = 'ours';
+      else if (c.dest === 'unknown' && cur.dest === 'dropship') cur.dest = 'unknown';
+      if (!cur.destCity && c.destCity) { cur.destCity = c.destCity; cur.destState = c.destState; }
     }
 
     if (poShip.size === 0) {
@@ -1420,6 +1474,11 @@ router.get('/inbound-today', async (req, res) => {
         estArrival: sh.estArrival || '',
         upsDelivery: sh.upsDelivery || null,
         shipDate: sh.shipDate, fromCity: sh.fromCity, fromState: sh.fromState,
+        // 'ours' | 'dropship' | 'unknown'. The sheet marks a drop-ship rather than
+        // hiding it: receiving needs to know the carton is NOT coming, and the rep
+        // still wants to see the order moved.
+        destination: sh.dest || 'unknown',
+        destCity: sh.destCity || '', destState: sh.destState || '',
         carrier: sh.carrier, tracking: sh.tracking, trackingUrl: buildCarrierTrackingUrl(sh.carrier, sh.tracking),
         boxes: (boxDetailByPo.get(po) || []).length || sh.boxes,
         boxDetail: boxDetailByPo.get(po) || null,
@@ -1441,8 +1500,8 @@ router.get('/inbound-today', async (req, res) => {
     const totals = orders.reduce((t, o) => {
       if (o.received) { receivedCount++; return t; }   // counted in by receiving — not an "arriving" box
       wos.add(o.workOrder || ('po:' + o.sanmarPO));
-      return { pos: t.pos + 1, boxes: t.boxes + o.boxes, piecesShipped: t.piecesShipped + o.piecesShipped, piecesOrdered: t.piecesOrdered + o.piecesOrdered, lines: t.lines + o.lines.length, cost: t.cost + (o.cost || 0), rush: t.rush + (o.rush ? 1 : 0), pastDue: t.pastDue + (o.pastDue ? 1 : 0) };
-    }, { pos: 0, boxes: 0, piecesShipped: 0, piecesOrdered: 0, lines: 0, cost: 0, rush: 0, pastDue: 0 });
+      return { pos: t.pos + 1, boxes: t.boxes + o.boxes, piecesShipped: t.piecesShipped + o.piecesShipped, piecesOrdered: t.piecesOrdered + o.piecesOrdered, lines: t.lines + o.lines.length, cost: t.cost + (o.cost || 0), rush: t.rush + (o.rush ? 1 : 0), pastDue: t.pastDue + (o.pastDue ? 1 : 0), dropship: t.dropship + (o.destination === 'dropship' ? 1 : 0) };
+    }, { pos: 0, boxes: 0, piecesShipped: 0, piecesOrdered: 0, lines: 0, cost: 0, rush: 0, pastDue: 0, dropship: 0 });
 
     const payload = {
       date, today, generatedAt: new Date().toISOString(),
