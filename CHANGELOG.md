@@ -1,3 +1,7 @@
+## v2026.08.18.2 (2026.08.18)
+
+- Carry totals.dropship into the payload, not just the reducer
+
 ## v2026.08.18.1 (2026.08.18)
 
 - Tell a drop-ship from an arrival — store the whole destination, not just the street
