@@ -1,3 +1,7 @@
+## v2026.08.26.6 (2026.08.26)
+
+- Remove the require/mount of deleted box-labels-data — the prior commit shipped the file deletion without this edit and crashed the dyno (rolled back)
+
 ## v2026.08.26.5 (2026.08.26)
 
 - Delete legacy box-labels-data routes — served ContactEmail/Phone + balances anonymously; repack station uses /api/sanmar-orders/label-data
