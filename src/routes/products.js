@@ -8,6 +8,7 @@ const { getActiveColors } = require('./sanmar-product-data');
 const { computeDisplayPrice, formatDisplayPriceLabel, getDecoratedDisplayPricingConfig } = require('../utils/catalog-display-price');
 const { createTtlCache, shouldBypass, makeKey, clearAll } = require('../utils/ttl-cache');
 const { clearStaticTableCaches } = require('../utils/caspio-static-tables');
+const { getStyleSearchIndex, searchIndex } = require('../utils/style-search-index');
 
 // Cache for product search (5 minute TTL).
 // Migrated off a bespoke Map onto the shared TTL cache 2026-07-26 for three
@@ -895,14 +896,19 @@ router.get('/products/search', async (req, res) => {
 
     // Text search across multiple fields
     if (q && q.trim()) {
-      const searchTerm = q.trim().replace(/'/g, "''");
-      whereConditions.push(`(
-        STYLE LIKE '%${searchTerm}%' OR 
-        PRODUCT_TITLE LIKE '%${searchTerm}%' OR 
-        PRODUCT_DESCRIPTION LIKE '%${searchTerm}%' OR
-        KEYWORDS LIKE '%${searchTerm}%' OR
-        BRAND_NAME LIKE '%${searchTerm}%'
-      )`);
+      // In-memory style index instead of a five-column LIKE scan over the
+      // 181k-row bulk table — that scan cost 10-22 SECONDS per uncached term
+      // (measured 2026-08-25), and autocomplete fires one per keystroke.
+      // Same five fields, same phrase semantics; ranked and capped, then
+      // handed to Caspio as an exact STYLE IN (...) the table answers fast.
+      const styleIndex = await getStyleSearchIndex(fetchAllCaspioPages);
+      const matchedStyles = searchIndex(styleIndex, q);
+      if (matchedStyles.length === 0) {
+        // Keep the normal (fast, empty) pipeline — response shape unchanged.
+        whereConditions.push(`STYLE='__NO_MATCH__'`);
+      } else {
+        whereConditions.push(`STYLE IN (${matchedStyles.map(s => `'${s.replace(/'/g, "''")}'`).join(',')})`);
+      }
     }
 
     // Category filter
