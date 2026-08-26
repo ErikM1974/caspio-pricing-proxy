@@ -1030,8 +1030,9 @@ router.get('/daily-inbound', async (req, res) => {
 // ── GET /inbound-today — detailed POs ARRIVING on a given day (default today) ──
 // Powers the dashboard "Today's Inbound" detail view + printable PDF report. Per PO:
 // work order #, company, decoration method, carrier/tracking, box count, and full line
-// items WITH color/size resolved from the Sanmar_Bulk product table (Part_ID = UNIQUE_KEY,
-// the same join box-labels-data.js uses in prod). Caspio-only, no SOAP. Cached 10 min.
+// items WITH color/size resolved from the Sanmar_Bulk product table (Part_ID = UNIQUE_KEY).
+// Caspio-only, no SOAP. Cached 10 min. (A legacy box-labels-data.js route used the same
+// join until it was deleted 2026-08-27 — this is the surviving home of that lookup.)
 const SANMAR_BULK_TABLE = '/tables/Sanmar_Bulk_251816_Feb2024/records';
 
 // Resolve SanMar Part_IDs (uniqueKey) → {style,colorName,catalogColor,size,title,brand}

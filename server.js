@@ -1183,10 +1183,11 @@ const sanmarShipmentRoutes = require('./src/routes/sanmar-shipments');
 app.use('/api/sanmar-shipments', sanmarLimiter, sanmarShipmentRoutes);
 console.log('✓ SanMar Shipment routes loaded (box labels, tracking, shipment notifications)');
 
-// Box Labels Data Routes (Caspio order lookup + partId resolution)
-const boxLabelsDataRoutes = require('./src/routes/box-labels-data');
-app.use('/api/box-labels', boxLabelsDataRoutes);
-console.log('✓ Box Labels Data routes loaded (order lookup, partId resolution)');
+// Box Labels Data routes DELETED 2026-08-27. They were the legacy half of the
+// box-labels rebuild: /api/box-labels/{order-by-po,order,lineitems,resolve-parts}
+// served ContactEmail/ContactPhone + order balances ANONYMOUSLY, and their only
+// caller was the app's equally-legacy /api/box-label-data route (deleted in the
+// same change). The live repack station uses /api/sanmar-orders/label-data.
 
 // Thumbnail Lookup Routes
 // #9 side-door gate (2026-06-29): gate WRITES (upload-with-stub, reconcile-files,
