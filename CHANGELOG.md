@@ -1,3 +1,9 @@
+## v2026.08.26.2 (2026.08.26)
+
+- psst-audit: three ways it reported a clean manifest as 26 missing POs
+- Quote-plane gate: secret-only lockdown of the quote surface (mode-switched)
+- Inbound report: anchor the day to Pacific, and stamp the printed sheets
+
 ## v2026.08.26.1 (2026.08.26)
 
 - fix(catalog): honest counts — totals, pagination, facets and price sorts count STYLES, not price-split rows (M-1)
