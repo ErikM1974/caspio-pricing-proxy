@@ -1,3 +1,11 @@
+## v2026.08.26.3 (2026.08.26)
+
+- Backfill Ship_To on 165 carton rows — drop-ship detection is now 100%
+- Caspio paginator: one paging model — it was losing a quarter of every big table
+- Clamp Caspio page size to 5..1000 — q.pageSize is fussier than q.limit
+- psst-audit: note that third-party POs are excluded by decision, not oversight
+- Test harness sends X-CRM-API-Secret — quote-plane gate 401s anonymous integration tests by design
+
 ## v2026.08.26.2 (2026.08.26)
 
 - psst-audit: three ways it reported a clean manifest as 26 missing POs
