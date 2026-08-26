@@ -1,3 +1,7 @@
+## v2026.08.26.7 (2026.08.26)
+
+- perf(search): Top Sellers listing 18s -> ~6s cold — index narrows the scan, hydration chunks in parallel
+
 ## v2026.08.26.6 (2026.08.26)
 
 - Remove the require/mount of deleted box-labels-data — the prior commit shipped the file deletion without this edit and crashed the dyno (rolled back)
