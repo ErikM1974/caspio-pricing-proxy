@@ -1,3 +1,7 @@
+## v2026.08.25.2 (2026.08.25)
+
+- feat(catalog): sort=featured — proven sellers first, never the brand-alphabetical wall (M-4, Erik-approved)
+
 ## v2026.08.25.1 (2026.08.25)
 
 - psst-audit: derive the arrival window instead of guessing it
