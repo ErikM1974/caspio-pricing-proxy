@@ -89,7 +89,9 @@ router.get('/stylesearch', async (req, res) => {
     }
 
     const safeTerm = String(term).replace(/'/g, "''"); // escape quotes for the LIKE clause
-    const whereClause = `STYLE LIKE '%${safeTerm}%'`;
+    // Status filter (M-1, 2026-08-25): autocomplete used to suggest styles the
+    // grid then refuses to show (default grid filter hides Discontinued).
+    const whereClause = `STYLE LIKE '%${safeTerm}%' AND PRODUCT_STATUS<>'Discontinued'`;
     const records = await fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
       'q.where': whereClause,
       'q.select': 'STYLE,PRODUCT_TITLE',
@@ -98,7 +100,13 @@ router.get('/stylesearch', async (req, res) => {
       'q.limit': 20
     });
 
-    const suggestions = records.map(r => ({
+    // One suggestion per STYLE — a style whose title varies across variant
+    // rows (LPC54 appears twice with different names) grouped into two rows.
+    const seenSuggestion = new Set();
+    const suggestions = records.filter(r => {
+      const key = String(r.STYLE).toUpperCase();
+      return seenSuggestion.has(key) ? false : seenSuggestion.add(key);
+    }).map(r => ({
       value: r.STYLE,
       label: `${r.STYLE} - ${r.PRODUCT_TITLE}`
     }));
@@ -875,11 +883,13 @@ router.get('/products/search', async (req, res) => {
     // PRODUCT_STATUS='New' row — all ~495 Fall-2026 arrivals were invisible to
     // catalog search while stylesearch/product-colors (no status filter) found
     // them. Explicit ?status=X still filters exactly; ?status=all disables.
+    let statusCondition = null;   // reused by the Phase-2 variant fetch
     if (status && status !== 'all') {
-      whereConditions.push(`PRODUCT_STATUS='${String(status).replace(/'/g, "''")}'`);
+      statusCondition = `PRODUCT_STATUS='${String(status).replace(/'/g, "''")}'`;
     } else if (!status) {
-      whereConditions.push(`PRODUCT_STATUS<>'Discontinued'`);
+      statusCondition = `PRODUCT_STATUS<>'Discontinued'`;
     }
+    if (statusCondition) whereConditions.push(statusCondition);
 
     // Exact style-list filter (2026-07-23 — Fall Catalog '26 card hydration):
     // ?styleNumbers=NF0A8JEV,FF6277,… (max 60/request). Tokens are
@@ -1028,15 +1038,43 @@ router.get('/products/search', async (req, res) => {
 
     console.log(`Found ${stylesQuery.length} unique styles matching filters`);
 
-    // styleNumbers callers need EXACT per-style results: the Phase-1 groupBy
-    // emits one row per (style × piece-price), so a 50-style list can exceed
-    // the page size in ROWS and silently paginate real styles away
-    // (2026-07-23). Dedupe to one row per STYLE for list requests only —
-    // general searches keep the longstanding row-based pagination.
-    let styleRows = stylesQuery;
-    if (styleNumbersParam) {
-      const seenStyles = new Set();
-      styleRows = stylesQuery.filter(r => !seenStyles.has(r.STYLE) && seenStyles.add(r.STYLE));
+    // HONEST COUNTS (M-1, 2026-08-25): the Phase-1 groupBy emits one row per
+    // (style × piece-price), so a style appears ~3×. Dedupe to ONE row per
+    // STYLE for EVERY request — totals, pagination and facets count STYLES
+    // now. Before this, a category page rendered ~21 cards in a 48-slot grid
+    // and claimed "1,537 products" for ~470 real styles, and price sorts
+    // scrambled. First occurrence wins, so the Phase-1 orderBy stays
+    // authoritative (price_asc keeps each style's cheapest split first).
+    const seenStyles = new Set();
+    // style → cheapest NON-ZERO split (facet buckets + price sorts). Zero /
+    // NULL price splits are data noise, never a real price.
+    const minPriceByStyle = new Map();
+    stylesQuery.forEach(r => {
+      const price = parseFloat(r.PIECE_PRICE) || 0;
+      if (price <= 0) return;
+      const prev = minPriceByStyle.get(r.STYLE);
+      if (prev === undefined || price < prev) minPriceByStyle.set(r.STYLE, price);
+    });
+    const styleRows = stylesQuery.filter(r => !seenStyles.has(r.STYLE) && seenStyles.add(r.STYLE));
+
+    // Price sorts are decided HERE, per style, on real numbers: the DB order
+    // puts NULL/$0 price splits first (CTK87 ships an Active row with no
+    // price), which made "price: low to high" open on an $18 Carhartt tee.
+    // Zero/NULL-priced styles sink to the end; ties break alphabetically.
+    if (sort === 'price_asc' || sort === 'price_desc') {
+      const maxPriceByStyle = new Map();
+      stylesQuery.forEach(r => {
+        const price = parseFloat(r.PIECE_PRICE) || 0;
+        if (price > (maxPriceByStyle.get(r.STYLE) || 0)) maxPriceByStyle.set(r.STYLE, price);
+      });
+      const realMin = s => minPriceByStyle.get(s) || 0;   // 0 = no real price
+      styleRows.sort((a, b) => {
+        const pa = sort === 'price_asc' ? realMin(a.STYLE) : maxPriceByStyle.get(a.STYLE) || 0;
+        const pb = sort === 'price_asc' ? realMin(b.STYLE) : maxPriceByStyle.get(b.STYLE) || 0;
+        if (pa > 0 && pb > 0 && pa !== pb) return sort === 'price_asc' ? pa - pb : pb - pa;
+        if ((pa > 0) !== (pb > 0)) return pa > 0 ? -1 : 1;   // priceless junk last
+        return (a.PRODUCT_TITLE || '').localeCompare(b.PRODUCT_TITLE || '');
+      });
     }
 
     // Calculate total count for pagination
@@ -1053,7 +1091,11 @@ router.get('/products/search', async (req, res) => {
     if (styleNumbers.length > 0) {
       const styleList = styleNumbers.map(s => `'${s.replace(/'/g, "''")}'`).join(',');
       allRecords = await fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
-        'q.where': `STYLE IN (${styleList})`,
+        // Same status filter as Phase 1 — without it, a style that passed on
+        // one Active row was labeled/colored/priced from its DISCONTINUED
+        // variants (the first row by PK_ID), leaking retired colors and
+        // stale prices onto live cards (M-1 status leakage).
+        'q.where': `STYLE IN (${styleList})` + (statusCondition ? ` AND ${statusCondition}` : ''),
         // Stable orderBy REQUIRED on any >1-page query (memory 2026-07-12):
         // 50 styles × ~40 variants spans Caspio pages; without it, rows drop
         // silently and whole styles vanish from results (caught 2026-07-23:
@@ -1243,33 +1285,13 @@ router.get('/products/search', async (req, res) => {
 
     console.log(`Grouped into ${products.length} unique products`);
 
-    // Sort products based on the requested sort parameter
-    products.sort((a, b) => {
-      switch (sort) {
-        case 'name_asc':
-          return (a.productName || '').localeCompare(b.productName || '');
-        case 'name_desc':
-          return (b.productName || '').localeCompare(a.productName || '');
-        case 'price_asc':
-          return (a.pricing?.current || 0) - (b.pricing?.current || 0);
-        case 'price_desc':
-          return (b.pricing?.current || 0) - (a.pricing?.current || 0);
-        case 'style':
-          return (a.styleNumber || '').localeCompare(b.styleNumber || '');
-        case 'featured':
-          // Catalog landing default: proven sellers first, A-Z within each
-          // band — mirrors the Phase-1 orderBy (this post-sort would
-          // otherwise re-alphabetize and bury the top sellers).
-          return ((b.features?.isTopSeller === true) - (a.features?.isTopSeller === true))
-            || (a.productName || '').localeCompare(b.productName || '');
-        case 'newest':
-          // For newest, we'd need to track Date_Updated in the product object
-          // For now, maintain existing order
-          return 0;
-        default:
-          return (a.productName || '').localeCompare(b.productName || '');
-      }
-    });
+    // Order = the Phase-1 orderBy, verbatim (name/style/price/newest/
+    // featured are all decided by the DATABASE now). The old client-side
+    // re-sort here keyed price sorts on pricing.current — the arbitrary
+    // first variant by PK_ID — which is what scrambled them (M-1).
+    const byStyleOrder = new Map(styleNumbers.map((s, idx) => [s, idx]));
+    products.sort((a, b) =>
+      (byStyleOrder.get(a.styleNumber) ?? 1e9) - (byStyleOrder.get(b.styleNumber) ?? 1e9));
 
     // ── Non-SanMar merge (2026-07-06) — appended to page 1 after SanMar
     // relevance results; counted into totals on every page. Fail-soft: a
@@ -1360,7 +1382,7 @@ router.get('/products/search', async (req, res) => {
       // OPTIMIZATION: Calculate facets from lightweight stylesQuery (all styles) instead of fetching all variants
       // This gives accurate counts across ALL results, not just current page
       // Note: Colors and sizes would require fetching all variants (expensive), so we exclude them
-      stylesQuery.forEach(styleRecord => {
+      styleRows.forEach(styleRecord => {
         // Categories
         if (styleRecord.CATEGORY_NAME) {
           facets.categories.set(styleRecord.CATEGORY_NAME, (facets.categories.get(styleRecord.CATEGORY_NAME) || 0) + 1);
@@ -1376,8 +1398,9 @@ router.get('/products/search', async (req, res) => {
         // Colors and Sizes - skipped in optimized version (would require fetching all variants)
         // If needed, could make separate lightweight query for just color/size facets
 
-        // Price ranges
-        const price = styleRecord.PIECE_PRICE || 0;
+        // Price ranges — bucket each STYLE once, by its cheapest split
+        // (matches the "from $" the card shows)
+        const price = minPriceByStyle.get(styleRecord.STYLE) || 0;
         if (price < 25) facets.priceRanges[0].count++;
         else if (price < 50) facets.priceRanges[1].count++;
         else if (price < 100) facets.priceRanges[2].count++;
