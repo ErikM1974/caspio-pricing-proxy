@@ -102,3 +102,26 @@ describe('getStyleSearchIndex — cache behavior', () => {
     expect(calls).toBe(1);
   });
 });
+
+describe('warmOnBoot', () => {
+  beforeEach(() => _resetCacheForTests());
+  const { warmOnBoot } = require('../../src/utils/style-search-index');
+
+  test('no-ops under jest (JEST_WORKER_ID) so tests never fire live fetches', () => {
+    expect(warmOnBoot(async () => { throw new Error('must not be called'); })).toBeNull();
+  });
+
+  test('schedules the build when enabled, and the timer is unref-ed (never holds the process open)', () => {
+    const saved = process.env.JEST_WORKER_ID;
+    delete process.env.JEST_WORKER_ID;
+    jest.useFakeTimers();
+    let calls = 0;
+    const timer = warmOnBoot(async () => { calls++; return []; });
+    expect(timer).not.toBeNull();
+    expect(calls).toBe(0);           // jittered delay — nothing fires synchronously
+    jest.advanceTimersByTime(61000); // past max jitter (20-60s)
+    expect(calls).toBe(1);
+    jest.useRealTimers();
+    process.env.JEST_WORKER_ID = saved;
+  });
+});

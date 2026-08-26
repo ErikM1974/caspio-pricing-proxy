@@ -117,7 +117,24 @@ async function getStyleSearchIndex(fetchAllCaspioPages) {
   return _cache.building;
 }
 
+/** Warm the index shortly after boot so no customer ever pays the ~40s
+ *  build (first search after a Heroku dyno restart would otherwise).
+ *  Same pattern + jitter as design-search-index.warmOnBoot: misses the
+ *  bandit sync windows; one retry after 60s absorbs a transient 429. */
+function warmOnBoot(fetchAllCaspioPages) {
+  if (process.env.JEST_WORKER_ID || process.env.STYLE_SEARCH_WARM === 'off') return null;
+  const delay = 20000 + Math.floor(Math.random() * 40000);
+  const timer = setTimeout(() => {
+    getStyleSearchIndex(fetchAllCaspioPages).catch(() => {
+      setTimeout(() => getStyleSearchIndex(fetchAllCaspioPages).catch(() => { }), 60000).unref();
+    });
+  }, delay);
+  timer.unref();
+  console.log(`[style-search-index] Boot warm scheduled in ${Math.round(delay / 1000)}s`);
+  return timer;
+}
+
 /** Test hook — never used by the route. */
 function _resetCacheForTests() { _cache = { at: 0, index: null, building: null }; }
 
-module.exports = { buildIndex, searchIndex, getStyleSearchIndex, MAX_MATCHES, _resetCacheForTests };
+module.exports = { buildIndex, searchIndex, getStyleSearchIndex, warmOnBoot, MAX_MATCHES, _resetCacheForTests };

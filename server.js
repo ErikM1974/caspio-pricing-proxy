@@ -2022,6 +2022,12 @@ const server = app.listen(PORT, async () => {
     // makes this the de-facto daily rebuild — no Scheduler job to hand-manage.
     require('./src/utils/design-search-index').warmOnBoot();
 
+    // Catalog search: warm the style index too (jittered 20-60s) — without
+    // this, the first /api/products/search?q= after a dyno restart pays the
+    // ~40s grouped-fetch build while a customer stares at "Searching…".
+    require('./src/utils/style-search-index').warmOnBoot(
+        require('./src/utils/caspio').fetchAllCaspioPages);
+
     // Schedule: daily broken-mockups digest email to Steve at 8 AM Pacific.
     // Runs in-dyno. Skipped when not in production or when EmailJS config
     // is missing (so local dev doesn't try to send real email).
