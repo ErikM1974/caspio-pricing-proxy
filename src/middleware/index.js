@@ -74,7 +74,8 @@ const requireCrmSecretOrBrowserOrigin = (req, res, next) => {
   const providedSecret = req.headers['x-crm-api-secret'];
   const expectedSecret = process.env.CRM_API_SECRET;
 
-  if (expectedSecret && providedSecret === expectedSecret) return next();
+  // Timing-safe like requireCrmApiSecret (was a plain === until 2026-08-26).
+  if (secretsMatch(providedSecret, expectedSecret)) return next();
 
   const origin = req.headers.origin;
   if (origin && isOriginAllowed(origin)) return next();
@@ -87,6 +88,42 @@ const requireCrmSecretOrBrowserOrigin = (req, res, next) => {
   }
 
   console.warn('[CRM Auth] Blocked unauthenticated access:', req.method, req.originalUrl);
+  return res.status(401).json({ error: 'Unauthorized' });
+};
+
+// ── Quote data plane gate (2026-08-26 lockdown) ─────────────────────────────
+// Secret-only gate for the quote surface (quote_sessions / quote_items /
+// quote_analytics / quote_change_log / quote-sequence / the three ShopWorks
+// push families). Every legitimate caller is either the main app's dyno or a
+// same-origin app relay, and all of them send X-CRM-API-Secret; the browser
+// call sites were migrated to those relays in app v2026.08 (quote-plane
+// lockdown, step 2 of the 2026-08-17 review).
+//
+// Mode comes from the QUOTE_PLANE_GATE config var — flippable WITHOUT a
+// deploy:
+//   off      (default/unset) — gate does nothing; deploying this code changes
+//            no behavior until the var is set.
+//   log      — pass every request, but log would-be blocks with a grep-able
+//            '[quote-gate] WOULD-BLOCK' line (method, path, IP, origin, UA).
+//            Run here first: a quiet log is the proof no caller was missed.
+//   enforce  — 401 anything without the secret, every method (GET and HEAD
+//            included — the customer book was readable anonymously).
+const quotePlaneGate = (req, res, next) => {
+  const mode = String(process.env.QUOTE_PLANE_GATE || 'off').toLowerCase();
+  if (mode === 'off') return next();
+
+  const ok = secretsMatch(req.headers['x-crm-api-secret'], process.env.CRM_API_SECRET);
+  if (ok) return next();
+
+  if (mode === 'log') {
+    console.warn('[quote-gate] WOULD-BLOCK', req.method, req.originalUrl,
+      'ip=' + (req.ip || ''), 'origin=' + (req.headers.origin || '-'),
+      'ua=' + String(req.headers['user-agent'] || '-').slice(0, 80));
+    return next();
+  }
+
+  console.warn('[quote-gate] BLOCKED', req.method, req.originalUrl,
+    'ip=' + (req.ip || ''), 'origin=' + (req.headers.origin || '-'));
   return res.status(401).json({ error: 'Unauthorized' });
 };
 
@@ -121,5 +158,6 @@ module.exports = {
   applyMiddleware,
   requireCrmApiSecret,
   requireCrmSecretOrBrowserOrigin,
-  guardReadsOnly
+  guardReadsOnly,
+  quotePlaneGate
 };

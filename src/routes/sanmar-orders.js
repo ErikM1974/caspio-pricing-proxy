@@ -27,6 +27,8 @@
 
 const express = require('express');
 const router = express.Router();
+// 'What day is it' on the MILTON clock, not the dyno's. See localDay() below.
+const { accountDay } = require('../utils/account-time');
 const NodeCache = require('node-cache');
 const {
   ENDPOINTS, NS,
@@ -732,6 +734,23 @@ const METHOD_ORDER = ['Embroidery', 'Screen Print', 'DTG', 'DTF', 'Sticker', 'Em
 // warehouse state to Milton, WA. ESTIMATES ONLY — SanMar provides no delivery ETA; UPS ground
 // transit is quoted in business days. Warehouses: WA Seattle · NV Reno · AZ Phoenix · TX Dallas
 // · MN Minneapolis · OH Cincinnati · NJ Robbinsville · FL Jacksonville · VA Richmond.
+// 🔴 THE REPORT'S DAY IS PACIFIC, NOT UTC.
+// Every seed below used to be `new Date().toISOString().slice(0, 10)`. Heroku runs UTC and
+// Milton is UTC-7/-8, so from about 5 PM Pacific the default board silently became TOMORROW's
+// sheet -- and it moved everything with it: the default date, the rush anchor that decides
+// which orders carry the RUSH badge, the past-due count, and the received comparison. A rep
+// checking at 5:30 PM to answer a customer saw a day that had not happened, and because the
+// rest of the date maths is UTC-internally-consistent nothing looked wrong. That is the hard
+// kind of error to notice, which is why it survived so long.
+//
+// accountDay() is the existing Caspio account clock (src/utils/account-time.js) -- the same
+// America/Los_Angeles definition the call meter and the pacing math already share, DST
+// included. Reuse it rather than minting a second idea of "today".
+// Locked by tests/jest/inbound-pacific-day.test.js.
+function localDay() {
+  return accountDay();
+}
+
 const TRANSIT_DAYS_BY_STATE = {
   WA: 1, OR: 1, NV: 2, AZ: 2, TX: 3, MN: 3, OH: 4, NJ: 5, FL: 5, VA: 5
 };
@@ -846,7 +865,7 @@ function isFollowOnShipment(receivedDate, lastShipDate) {
 
 router.get('/daily-inbound', async (req, res) => {
   try {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localDay();
     // The calendar can request an explicit month range via ?start=&end= (YYYY-MM-DD); otherwise
     // a rolling window via ?past=&future= (defaults today-3 … today+21). Span capped at 92 days.
     const isISO = v => /^\d{4}-\d{2}-\d{2}$/.test(v || '');
@@ -1257,7 +1276,7 @@ function classifyDestination(row) {
 
 router.get('/inbound-today', async (req, res) => {
   try {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localDay();
     const date = /^\d{4}-\d{2}-\d{2}$/.test(req.query.date || '') ? req.query.date : today;
 
     const cacheKey = `sanmar-inbound-today-${date}`;
@@ -1505,6 +1524,12 @@ router.get('/inbound-today', async (req, res) => {
 
     const payload = {
       date, today, generatedAt: new Date().toISOString(),
+      // Pacific stamp for the printed sheets. A sheet picked up off the printer at noon
+      // cannot otherwise be told from one printed at 6 AM, and these get handed round.
+      generatedAtLocal: new Date().toLocaleString('en-US', {
+        timeZone: 'America/Los_Angeles', month: 'short', day: 'numeric',
+        hour: 'numeric', minute: '2-digit',
+      }),
       totals: { pos: totals.pos, workOrders: wos.size, boxes: totals.boxes, piecesShipped: totals.piecesShipped, piecesOrdered: totals.piecesOrdered, lines: totals.lines, cost: Math.round(totals.cost * 100) / 100, received: receivedCount, rush: totals.rush, pastDue: totals.pastDue, dropship: totals.dropship },
       orders,
       note: 'Arriving = UPS\'s real scheduled/rescheduled/delivered date whenever UPS has scanned the boxes (marked ✓ UPS); otherwise a SanMar ship-date + ground-transit ESTIMATE (marked ~ est., business days; weekends & holidays skipped — we receive Mon–Fri only). Per-box contents come live from SanMar\'s shipment feed; colors/sizes from the SanMar product table.',
@@ -1538,7 +1563,7 @@ router.get('/label-data/:identifier', async (req, res) => {
     const type = req.query.type === 'wo' ? 'wo' : 'po';
     if (!identifier) return res.status(400).json({ error: 'identifier required' });
 
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localDay();
     const cacheKey = `sanmar-label-data-${type}-${identifier.toUpperCase()}`;
     if (!req.query.refresh) { const c = orderCache.get(cacheKey); if (c) return res.json(c); }
 
@@ -3097,7 +3122,7 @@ let deliveryDatesStatus = { running: false, lastRun: null, lastResult: null, pro
 
 async function syncDeliveryDates({ sinceDate, force } = {}) {
   const { trackOne } = require('./ups-tracking');
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDay();
   const since = /^\d{4}-\d{2}-\d{2}$/.test(sinceDate || '') ? sinceDate : addDaysISO(today, -45);
   const rows = await fetchAllCaspioPages(`/tables/${TABLES.shipments}/records`, {
     'q.where': `Ship_Date>='${since}' AND Tracking_Number LIKE '1Z%'`,
