@@ -108,10 +108,45 @@ Note: full Jest suite (21 test files). Typical runtime 30–60s. Cost vs. shippi
 ```bash
 SHORT_SHA=$(git rev-parse --short HEAD)
 TODAY=$(date +%Y.%m.%d)
-N=$(( $(git tag -l "v${TODAY}.*" | wc -l) + 1 ))
+TODAY_RE=${TODAY//./\.}
+
+# Highest N already used today, +1. NEVER a count.
+MAX=$(git tag -l "v${TODAY}.*" | sed -nE "s/^v${TODAY_RE}\.([0-9]+)$/\1/p" | sort -n | tail -1)
+N=$(( ${MAX:-0} + 1 ))
 DEPLOY_TAG="v${TODAY}.${N}"
-echo "Deploy tag: $DEPLOY_TAG"
+echo "Deploy tag: $DEPLOY_TAG  (highest today: ${MAX:-none})"
 ```
+
+🔴 **Take the MAX already used and add one — never count.** `N=$(git tag -l ... | wc -l)+1`
+answers "how many releases happened today", but the question is "what is the next UNUSED
+version". Those differ the moment a number is skipped, and then `count+1` lands on a number
+that already exists:
+
+| Today's tags | `count+1` | Correct |
+|---|---|---|
+| `.1 .2 .3` | `.4` ✓ | `.4` |
+| `.1 .3` (`.2` skipped) | **`.3` — collides** | `.4` |
+| `.1 .4` | **`.3` — below the max** | `.5` |
+
+Both failure modes are silent and land mid-deploy: `git tag` either refuses (`tag already
+exists`, after `main` has already been pushed) or succeeds out of order, and then
+`git describe --tags` picks the wrong baseline so the NEXT release's CHANGELOG re-lists
+commits that already shipped.
+
+How a day goes sparse: a run that dies between Step 9 (tag) and Step 10 (push tag) leaves a
+local-only tag someone later deletes; a tag pushed from another machine that this clone has
+not fetched (Step 0.1's `--tags` is what usually saves you); or two sessions deploying from
+this shared checkout within the same minute. **Measured 2026-08-26: 58 tagged days in this
+repo, 0 sparse — so this has never actually bitten HERE.** It is fixed anyway because the
+cost is six lines and the failure is a half-finished release. The app repo's skill was fixed
+for exactly this on 2026-08-18 after it bit twice in one day, in both directions.
+
+The regex is anchored (`^v…\.([0-9]+)$`) so a decorated tag like `v2026.08.26.1-rc1` cannot
+be miscounted, and `sort -n` is numeric — a lexical sort would put `.10` below `.9`.
+
+⚠️ Unlike the app repo, there is no second source to check: the proxy serves JSON and has no
+`?v=` asset refs, so tags are the only record of a used version. That makes Step 0.1's
+`git fetch --tags` load-bearing here — without it `git tag -l` sees only local tags.
 
 ### Step 2 — Stage changes precisely
 

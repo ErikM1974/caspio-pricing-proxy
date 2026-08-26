@@ -378,6 +378,44 @@ async function fetchInventoryLevels(params = {}) {
 }
 
 /**
+ * Public field whitelist for /api/manageorders/inventorylevels responses.
+ *
+ * That route stays ANONYMOUS on purpose — its one live caller is the
+ * customer-facing laser-tumbler calculator (no staff session; see the
+ * "DELIBERATELY LEFT OPEN" block in server.js) — but the upstream rows carry
+ * our wholesale costs (UnitCost/TotalCost), the supplier's name (VendorName),
+ * and internal accounting fields (GLAccount, FindCode, id_Vendor, …).
+ * Everything NOT in this list is stripped before the response leaves the API.
+ *
+ * The calculator's service (app shared_components/js/
+ * manageorders-inventory-service.js) reads: PartNumber, SKU, Color,
+ * Size01–Size06. date_Modification stays because the route's stale-data
+ * warning is computed from it and honest data age is customer-safe.
+ * If a STAFF surface ever needs the cost fields, give it a secret-gated
+ * route — never widen this list.
+ */
+const INVENTORY_PUBLIC_FIELDS = [
+  'PartNumber', 'SKU', 'Color', 'ColorRange', 'PartDescription', 'ProductType',
+  'Size01', 'Size02', 'Size03', 'Size04', 'Size05', 'Size06',
+  'date_Modification',
+];
+
+/**
+ * Projects inventory rows down to the anonymous-safe whitelist above.
+ * @param {Array<Object>} rows - Raw inventory rows from ManageOrders
+ * @returns {Array<Object>} - Rows containing only INVENTORY_PUBLIC_FIELDS
+ */
+function projectInventoryRows(rows) {
+  return (rows || []).map((row) => {
+    const out = {};
+    for (const f of INVENTORY_PUBLIC_FIELDS) {
+      if (row[f] !== undefined) out[f] = row[f];
+    }
+    return out;
+  });
+}
+
+/**
  * Cleans phone numbers by removing common prefixes like "W " and "C".
  * @param {string} phone - Raw phone number
  * @returns {string} - Cleaned phone number
@@ -475,6 +513,8 @@ module.exports = {
   fetchPayments,
   fetchTracking,
   fetchInventoryLevels,
+  INVENTORY_PUBLIC_FIELDS,
+  projectInventoryRows,
   deduplicateCustomers,
   cleanPhoneNumber,
   getDateDaysAgo,

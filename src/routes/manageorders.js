@@ -11,6 +11,7 @@ const {
   fetchPayments,
   fetchTracking,
   fetchInventoryLevels,
+  projectInventoryRows,
   deduplicateCustomers,
   getDateDaysAgo,
   getTodayDate,
@@ -864,8 +865,11 @@ router.get('/manageorders/inventorylevels', async (req, res) => {
         }
       }
 
+      // Anonymous route — strip cost/supplier/accounting fields (projection
+      // whitelist in src/utils/manageorders.js). Cache keeps full rows; the
+      // projection is applied at the response boundary.
       return res.json({
-        result: cached.data,
+        result: projectInventoryRows(cached.data),
         count: cached.data.length,
         cached: true,
         cacheDate: new Date(cached.timestamp).toISOString(),
@@ -901,8 +905,9 @@ router.get('/manageorders/inventorylevels', async (req, res) => {
       timestamp: now
     });
 
+    // Anonymous route — same projection as the cache-hit path above.
     res.json({
-      result: inventory,
+      result: projectInventoryRows(inventory),
       count: inventory.length,
       cached: false,
       warnings: warnings.length > 0 ? warnings : undefined
