@@ -5,6 +5,7 @@
 const express = require('express');
 const router = express.Router();
 const { fetchAllCaspioPages } = require('../utils/caspio');
+const { applyRounding, getDecoratedDisplayPricingConfig } = require('../utils/catalog-display-price');
 
 // Cache (5 min TTL - cap prices don't change frequently)
 const decoratedCapPricesCache = new Map();
@@ -82,14 +83,17 @@ router.get('/decorated-cap-prices', async (req, res) => {
     }
     console.log(`Margin denominator for EmbroideryCaps tier ${tier}: ${marginDenominator}`);
 
-    // 4. Calculate decorated price for each style
-    // Formula: decoratedPrice = Math.ceil((baseCapPrice / marginDenominator) + embroideryCost)
+    // 4. Calculate decorated price for each style — rounded with the SAME
+    // Caspio RoundingMethod the PDP/quote engine uses (Rule 9: one price
+    // voice). A hardcoded Math.ceil here showed $23.00 on catalog cards for
+    // a cap every other surface priced at $22.50 (2026-08-26 CX audit).
+    const displayCfg = await getDecoratedDisplayPricingConfig();
+    const roundingMethod = displayCfg?.cap?.roundingMethod;
     const prices = {};
     products.forEach(product => {
       if (product.STYLE && product.MAX_PRICE) {
         const basePrice = parseFloat(product.MAX_PRICE);
-        const decoratedPrice = Math.ceil((basePrice / marginDenominator) + embroideryCost);
-        prices[product.STYLE] = decoratedPrice;
+        prices[product.STYLE] = applyRounding((basePrice / marginDenominator) + embroideryCost, roundingMethod);
       }
     });
     console.log(`Calculated prices for ${Object.keys(prices).length} styles`);
