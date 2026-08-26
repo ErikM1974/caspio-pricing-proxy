@@ -979,7 +979,11 @@ router.get('/products/search', async (req, res) => {
         orderBy = 'PIECE_PRICE DESC';
         break;
       case 'newest':
-        orderBy = 'Date_Updated DESC';
+        // Date_Updated isn't a grouped column, so ordering on it 400s the
+        // grouped Phase-1 query (every 'Newest' click 500'd the catalog,
+        // 2026-08-26 audit). Order by the aggregate alias instead — the
+        // Phase-1 select adds MAX(Date_Updated) AS LAST_UPDATED for this sort.
+        orderBy = 'LAST_UPDATED DESC';
         break;
       case 'style':
         orderBy = 'STYLE ASC';
@@ -1000,9 +1004,12 @@ router.get('/products/search', async (req, res) => {
     // Phase 2: For those specific styles, fetch all variants to aggregate colors/sizes
 
     // Phase 1: Fetch unique styles (grouped, sorted, and paginated at database level)
+    const phase1Select = sort === 'newest'
+      ? 'STYLE, PRODUCT_TITLE, BRAND_NAME, CATEGORY_NAME, PIECE_PRICE, MAX(Date_Updated) AS LAST_UPDATED'
+      : 'STYLE, PRODUCT_TITLE, BRAND_NAME, CATEGORY_NAME, PIECE_PRICE';
     const stylesQuery = await fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
       'q.where': whereClause,
-      'q.select': 'STYLE, PRODUCT_TITLE, BRAND_NAME, CATEGORY_NAME, PIECE_PRICE',
+      'q.select': phase1Select,
       'q.groupBy': 'STYLE, PRODUCT_TITLE, BRAND_NAME, CATEGORY_NAME, PIECE_PRICE',
       'q.orderBy': orderBy
     });
