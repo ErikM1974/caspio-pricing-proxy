@@ -15,6 +15,20 @@ const BASE_URL = process.env.TEST_BASE_URL || 'https://caspio-pricing-proxy-ab30
 // X-CRM-API-Secret). Send the secret so these tests exercise the routes as a
 // legitimate caller; without it every quote_* suite fails with 401 BY DESIGN.
 // The header is harmless on ungated routes.
+//
+// 🔴 SAY SO WHEN THE SECRET IS MISSING. Falling back to no header is right — the ungated
+// suites must still run — but dropping it SILENTLY turns one config problem into fourteen
+// unexplained 401s across three suites, which reads like a broken gate or a broken API.
+// That is exactly how it presented on 2026-08-26 and it cost real time to attribute.
+// Warn, never throw: almost every suite here needs no secret at all.
+if (!process.env.CRM_API_SECRET) {
+  console.warn(
+    '[tests/setup] CRM_API_SECRET is not set (no .env?). The quote data plane is gated, so '
+    + 'quote-sessions / quote-items / quote-sequence WILL fail with 401 — that is configuration, '
+    + 'not a regression. Every other suite is unaffected.'
+  );
+}
+
 const api = axios.create({
   baseURL: BASE_URL,
   timeout: 25000,
