@@ -271,8 +271,22 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     if (bx !== p.tracking.size) issues.push(po + ': cartons ' + bx + ' vs ' + p.tracking.size);
     for (const t of missing) issues.push(po + ': tracking ' + t + ' missing');
   }
+  // 🔴 THIRD-PARTY POs STAY OFF THE BOARD — DECIDED, NOT AN OVERSIGHT (Erik, 2026-08-26).
+  //
+  // 8 of 12 manifests carry POs on somebody else's SanMar account: Custom Prints NW,
+  // Premium Products NW, Northwest Souvenirs, Donahue Graphics, In Graphic Detail,
+  // Armageddon Graphics. Six of the seven are OUR contract-decorating customers (all
+  // Ruthie's accounts), they name us as decorator, and the freight does reach Freeman Road —
+  // so it looks like a hole in the receiving sheet. It is not one we are filling.
+  //
+  // Ruthie receives the PSST manifest by email every morning and reads it directly. The
+  // SanMar API cannot help either way: our PromoStandards credentials are scoped to account
+  // 6920, so a PO on another account returns ZERO shipments (verified on PO 10646). The only
+  // source is the CSV she already has.
+  //
+  // If you are about to "fix" this: don't. Ask Erik first. This has been raised and closed.
   for (const t of new Set(theirs.map((x) => x['Customer PO'] + ' - ' + x['Customer Name']))) {
-    console.log('  (third-party) ' + t + '  — expected absent');
+    console.log('  (third-party) ' + t + '  — expected absent, by decision');
   }
 
   console.log('');
