@@ -123,13 +123,41 @@ async function fetchAllCaspioPages(resourcePath, initialParams = {}, options = {
   let allResults = [];
   let fetchedCount = 0; // counts rows even when discardResults skips accumulation
   let params = { ...initialParams };
-  // Store desired page size for pagination logic. Keep q.limit for page 1 (universally compatible).
-  // Only switch to q.pageSize + q.pageNumber for pages 2+ (avoids v3 q.limit conflict).
-  // NOTE: Caspio rejects q.pageSize < 5 with IncorrectQueryParameter.
+  // 🔴 ONE PAGING MODEL, FROM PAGE 1. Do not go back to q.limit-then-q.pageNumber.
+  //
+  // This used to request page 1 with `q.limit` and pages 2+ with `q.pageSize`+`q.pageNumber`,
+  // on the theory that q.limit is "universally compatible" for the first page. They are two
+  // DIFFERENT paging models and Caspio does not agree between them about which rows are the
+  // first N. Measured live on SanMar_Shipments (1,626 rows) 2026-08-26:
+  //
+  //     q.limit=1000                    -> 1000 rows, PK 1119..1271
+  //     q.pageSize=1000&q.pageNumber=1  -> 1000 rows, PK    6..1005
+  //     q.pageSize=1000&q.pageNumber=2  ->  626 rows, PK 1006..1631
+  //
+  // Page 2 therefore continued from a baseline page 1 never delivered: the call returned
+  // 1,626 rows of which 326 were DUPLICATES, while 326 real rows were never returned at all.
+  // Silent, and only on result sets larger than one page — so it hid behind every query with
+  // a narrow q.where. Found while backfilling Ship_To, where it made the target count read
+  // 202 instead of the true 165.
+  //
+  // Caspio rejects q.pageSize < 5 with IncorrectQueryParameter, and 51 call sites pass
+  // `q.limit: 1` as an existence check. Those keep q.limit and are treated as SINGLE PAGE —
+  // which is also what they always were in practice, just expensively: page 1 succeeded,
+  // the fallback saw a "full" page and asked for q.pageSize=1&q.pageNumber=2, Caspio 400'd,
+  // the 400-handler burned a token refresh and retried, and it 400'd again. Measured: FOUR
+  // Caspio requests to read one row. Now it is one.
+  const CASPIO_MIN_PAGE_SIZE = 5;   // below this Caspio rejects q.pageSize outright
   const pageSize = params['q.limit'] || params['q.pageSize'] || config.pagination.defaultLimit;
-  delete params['q.pageSize']; // Don't send q.pageSize on page 1
-  if (!params['q.limit']) {
-    params['q.limit'] = pageSize; // Ensure q.limit is set for page 1
+  const pageable = pageSize >= CASPIO_MIN_PAGE_SIZE;
+  delete params['q.limit'];
+  delete params['q.pageSize'];
+  delete params['q.pageNumber'];
+  if (pageable) {
+    params['q.pageSize'] = pageSize;
+    params['q.pageNumber'] = 1;
+  } else {
+    // Too small for Caspio to page. Ask once, return what comes back.
+    params['q.limit'] = pageSize;
   }
   let nextPageUrl = `${config.caspio.apiBaseUrl}${resourcePath}`;
 
@@ -169,12 +197,14 @@ async function fetchAllCaspioPages(resourcePath, initialParams = {}, options = {
       let currentUrl = nextPageUrl;
 
       if (pageCount === 1 || !nextPageUrl || !nextPageUrl.includes('@nextpage')) {
-        if (pageCount > 1) {
-          // Pages 2+: switch to q.pageSize + q.pageNumber (q.limit conflicts with q.pageNumber on v3)
-          delete currentRequestParams['q.limit'];
-          currentRequestParams['q.pageSize'] = pageSize;
-          currentRequestParams['q.pageNumber'] = pageCount;
-        }
+        // A FRESH object per page. This used to mutate one shared params object in place,
+        // so every request alias-shared the same reference — harmless in production but it
+        // made the outgoing params unobservable after the fact (a test reading axios's
+        // recorded calls saw the LAST page number on all of them). Same model as page 1,
+        // only the page number advances.
+        currentRequestParams = pageable
+          ? { ...params, 'q.pageNumber': pageCount }
+          : { ...params };
         currentUrl = `${config.caspio.apiBaseUrl}${resourcePath}`;
       } else {
         currentRequestParams = undefined;
@@ -262,7 +292,12 @@ async function fetchAllCaspioPages(resourcePath, initialParams = {}, options = {
         } else {
           // Fallback pagination for Caspio v3 API
           const resultsThisPage = response.data.Result ? response.data.Result.length : 0;
-          if (resultsThisPage >= pageSize) {
+          if (!pageable) {
+            // q.limit-only mode: Caspio cannot page at this size, so a "full" page is the
+            // whole answer. Continuing here is what cost three wasted calls per lookup.
+            console.log(`[Pagination] q.limit=${pageSize} (< ${CASPIO_MIN_PAGE_SIZE}) — single page by design.`);
+            morePages = false;
+          } else if (resultsThisPage >= pageSize) {
             console.log(`[Pagination] No NextPageUrl, but got full page (${resultsThisPage} results). Continuing with pageNumber pagination.`);
             // Continue to next page - pageNumber will be set at top of next loop iteration
             nextPageUrl = `${config.caspio.apiBaseUrl}${resourcePath}`;
