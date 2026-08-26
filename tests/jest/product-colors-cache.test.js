@@ -184,7 +184,9 @@ describe('GET /api/stylesearch', () => {
     const quoted = await axios.get(`${baseUrl}/api/stylesearch?term=${encodeURIComponent("o'br")}`, { validateStatus: () => true });
     expect(quoted.status).toBe(200);
     const quotedCall = fetchAllCaspioPages.mock.calls.find(([, params]) => params['q.where'].includes('br'));
-    expect(quotedCall[1]['q.where']).toBe("STYLE LIKE '%o''br%'");
+    // Status filter added 2026-08-25 (M-1, Erik-approved): autocomplete must
+    // not suggest Discontinued styles the grid then refuses to show.
+    expect(quotedCall[1]['q.where']).toBe("STYLE LIKE '%o''br%' AND PRODUCT_STATUS<>'Discontinued'");
   });
 
   test('empty suggestion lists ARE cached (legit result, not an error)', async () => {

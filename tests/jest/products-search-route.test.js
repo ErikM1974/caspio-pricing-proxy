@@ -234,3 +234,77 @@ describe('GET /api/products/search — featured sort (catalog landing default, 2
     expect(p['q.orderBy']).toBe('PRODUCT_TITLE ASC');
   });
 });
+
+describe('GET /api/products/search — honest counts (M-1, 2026-08-25)', () => {
+  function sanmarCalls() {
+    return fetchAllCaspioPages.mock.calls.filter(([path]) => String(path).includes('Sanmar_Bulk'));
+  }
+
+  test('totals and pagination count STYLES, not price-split rows', async () => {
+    // One real style emitting three grouped price rows (the ~3x inflation)
+    fetchAllCaspioPages.mockImplementation((path) => {
+      if (String(path).includes('Non_SanMar_Products')) return Promise.resolve([]);
+      return Promise.resolve([
+        bulkRow({ PIECE_PRICE: 3.7 }), bulkRow({ PIECE_PRICE: 4.0 }), bulkRow({ PIECE_PRICE: 4.5 })
+      ]);
+    });
+    const res = await axios.get(`${baseUrl}/api/products/search?q=NF0A8JEV&refresh=true`, { validateStatus: () => true });
+    expect(res.status).toBe(200);
+    expect(res.data.data.products).toHaveLength(1);
+    expect(res.data.data.pagination.total).toBe(1);       // was 3 (rows)
+    expect(res.data.data.pagination.totalPages).toBe(1);
+  });
+
+  test('Phase-2 variant fetch carries the SAME status filter as Phase 1', async () => {
+    mockBulk([bulkRow()]);
+    await axios.get(`${baseUrl}/api/products/search?q=NF0A8JEV&refresh=true`, { validateStatus: () => true });
+    const phase2 = sanmarCalls().map(([, p]) => p).filter(p => p && String(p['q.where'] || '').includes('STYLE IN'))[0];
+    expect(phase2['q.where']).toContain("PRODUCT_STATUS<>'Discontinued'");
+  });
+
+  test('product order = Phase-1 (database) order, immune to Phase-2 row order', async () => {
+    const rowB = bulkRow({ PK_ID: 9, STYLE: 'BBB', PRODUCT_TITLE: 'Bravo Tee' });
+    const rowA = bulkRow({ PK_ID: 1, STYLE: 'AAA', PRODUCT_TITLE: 'Alpha Tee' });
+    fetchAllCaspioPages.mockImplementation((path, params) => {
+      if (String(path).includes('Non_SanMar_Products')) return Promise.resolve([]);
+      const where = (params && params['q.where']) || '';
+      const grouped = !!(params && params['q.groupBy']);
+      // index build: grouped, no where → B,A. Phase 1: grouped WITH where
+      // (its where ALSO contains STYLE IN via the search index) → B first.
+      // Phase 2: ungrouped variant fetch → A first (PK order).
+      if (grouped) return Promise.resolve([rowB, rowA]);
+      return Promise.resolve([rowA, rowB]);
+    });
+    const res = await axios.get(`${baseUrl}/api/products/search?q=tee&refresh=true`, { validateStatus: () => true });
+    expect(res.data.data.products.map(p => p.styleNumber)).toEqual(['BBB', 'AAA']);
+  });
+
+  test('facet counts are style counts (three price rows = category count 1)', async () => {
+    fetchAllCaspioPages.mockImplementation((path) => {
+      if (String(path).includes('Non_SanMar_Products')) return Promise.resolve([]);
+      return Promise.resolve([
+        bulkRow({ CATEGORY_NAME: 'T-Shirts', PIECE_PRICE: 3.7 }),
+        bulkRow({ CATEGORY_NAME: 'T-Shirts', PIECE_PRICE: 4.0 }),
+        bulkRow({ CATEGORY_NAME: 'T-Shirts', PIECE_PRICE: 4.5 })
+      ]);
+    });
+    const res = await axios.get(`${baseUrl}/api/products/search?q=NF0A8JEV&includeFacets=true&refresh=true`, { validateStatus: () => true });
+    const cat = res.data.data.facets.categories.find(c => c.name === 'T-Shirts');
+    expect(cat.count).toBe(1);                            // was 3 (rows)
+  });
+});
+
+describe('GET /api/stylesearch — status filter + one suggestion per style (M-1)', () => {
+  test('filters Discontinued and dedupes styles whose titles vary across rows', async () => {
+    fetchAllCaspioPages.mockImplementation(() => Promise.resolve([
+      { STYLE: 'LPC54', PRODUCT_TITLE: 'Ladies Core Cotton Tee' },
+      { STYLE: 'LPC54', PRODUCT_TITLE: 'Port & Co Ladies Core Cotton Tee' },
+      { STYLE: 'PC54', PRODUCT_TITLE: 'Core Cotton Tee' }
+    ]));
+    const res = await axios.get(`${baseUrl}/api/stylesearch?term=pc54&refresh=true`, { validateStatus: () => true });
+    expect(res.status).toBe(200);
+    expect(res.data.map(s => s.value)).toEqual(['LPC54', 'PC54']);
+    const call = fetchAllCaspioPages.mock.calls.find(([p]) => String(p).includes('Sanmar_Bulk'));
+    expect(call[1]['q.where']).toContain("PRODUCT_STATUS<>'Discontinued'");
+  });
+});
