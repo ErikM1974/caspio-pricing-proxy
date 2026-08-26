@@ -206,3 +206,31 @@ describe('GET /api/products/search — displayPrice cap fallback', () => {
     expect(byStyle.FF6277.displayPriceLabel).toContain('22');
   });
 });
+
+describe('GET /api/products/search — featured sort (catalog landing default, 2026-08-25)', () => {
+  function bulkParams() {
+    return fetchAllCaspioPages.mock.calls
+      .filter(([path]) => String(path).includes('Sanmar_Bulk'))
+      .filter(([, params]) => params && params['q.where'] !== undefined)
+      .map(([, params]) => params);
+  }
+
+  test('sort=featured orders top sellers first (A-Z tiebreak) and groups by IsTopSeller', async () => {
+    mockBulk([bulkRow()]);
+    const res = await axios.get(`${baseUrl}/api/products/search?sort=featured&refresh=true`, { validateStatus: () => true });
+    expect(res.status).toBe(200);
+    const p = bulkParams()[0];
+    expect(p['q.orderBy']).toBe('IsTopSeller DESC, PRODUCT_TITLE ASC');
+    expect(p['q.select']).toContain('IsTopSeller');
+    expect(p['q.groupBy']).toContain('IsTopSeller');
+  });
+
+  test('other sorts keep the original groupBy (no IsTopSeller split)', async () => {
+    mockBulk([bulkRow()]);
+    const res = await axios.get(`${baseUrl}/api/products/search?sort=name_asc&refresh=true`, { validateStatus: () => true });
+    expect(res.status).toBe(200);
+    const p = bulkParams()[0];
+    expect(p['q.groupBy']).not.toContain('IsTopSeller');
+    expect(p['q.orderBy']).toBe('PRODUCT_TITLE ASC');
+  });
+});
