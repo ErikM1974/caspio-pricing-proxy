@@ -4,13 +4,24 @@
  */
 const axios = require('axios');
 
+// Load .env so CRM_API_SECRET is available when jest runs outside the server
+// process (dotenv is a server dependency; harmless if the file is absent).
+require('dotenv').config();
+
 const BASE_URL = process.env.TEST_BASE_URL || 'https://caspio-pricing-proxy-ab30a049961a.herokuapp.com';
 
-// Axios instance — never throws on HTTP errors so we can assert status codes
+// The quote data plane is secret-gated since 2026-08-27 (QUOTE_PLANE_GATE=
+// enforce — sessions/items/analytics/change_log/sequence/push all 401 without
+// X-CRM-API-Secret). Send the secret so these tests exercise the routes as a
+// legitimate caller; without it every quote_* suite fails with 401 BY DESIGN.
+// The header is harmless on ungated routes.
 const api = axios.create({
   baseURL: BASE_URL,
   timeout: 25000,
   validateStatus: () => true, // Don't throw on 4xx/5xx
+  headers: process.env.CRM_API_SECRET
+    ? { 'X-CRM-API-Secret': process.env.CRM_API_SECRET }
+    : {},
 });
 
 // Retry interceptor for 429 rate limits
