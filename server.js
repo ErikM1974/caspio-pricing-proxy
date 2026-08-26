@@ -1022,8 +1022,10 @@ app.use('/api/manageorders/inventory-cache-clear', requireCrmApiSecret);  // ano
 // DELIBERATELY LEFT OPEN, both verified 2026-08-10:
 //   /inventorylevels — /calculators/laser-tumbler-polarcamel.html is customer-facing
 //     (see the "Do NOT blanket-gate /calculators" note in the app's server.js), so it has
-//     no staff session. Returns product stock — but also UnitCost/TotalCost/VendorName,
-//     i.e. our wholesale cost, which is worth a projection fix rather than a gate.
+//     no staff session. PROJECTED since 2026-08-27: responses are whitelisted to
+//     stock-only fields (INVENTORY_PUBLIC_FIELDS in src/utils/manageorders.js) —
+//     UnitCost/TotalCost/VendorName/GLAccount etc. no longer leave the API. Jest-locked
+//     by tests/jest/inventory-projection.test.js.
 //   /getorderno/:ext_order_id — returns an order-number lookup only, and its live caller
 //     (shared_components/js/builders/emb/save-push.js:967, the ShopWorks push verifier)
 //     is an ES module with no access to the global moFetch. Needs a forwarder first.
