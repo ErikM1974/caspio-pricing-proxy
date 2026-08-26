@@ -8,7 +8,7 @@ const { getActiveColors } = require('./sanmar-product-data');
 const { computeDisplayPrice, formatDisplayPriceLabel, getDecoratedDisplayPricingConfig } = require('../utils/catalog-display-price');
 const { createTtlCache, shouldBypass, makeKey, clearAll } = require('../utils/ttl-cache');
 const { clearStaticTableCaches } = require('../utils/caspio-static-tables');
-const { getStyleSearchIndex, searchIndex } = require('../utils/style-search-index');
+const { getStyleSearchIndex, searchIndex, topSellerStyles, MAX_MATCHES } = require('../utils/style-search-index');
 
 // Cache for product search (5 minute TTL).
 // Migrated off a bespoke Map onto the shared TTL cache 2026-07-26 for three
@@ -965,9 +965,28 @@ router.get('/products/search', async (req, res) => {
     }
 
     // Top seller filter — Caspio rejects `IsTopSeller=true` (400); the
-    // Yes/No field filters as =1, same as the /products/top-sellers endpoint
+    // Yes/No field filters as =1, same as the /products/top-sellers endpoint.
+    //
+    // A bare IsTopSeller=1 forces Caspio to scan the whole 181k-row table
+    // (measured 10-15s cold — customers clicking the header's Top Sellers
+    // link watched skeletons, then a refresh "fixed" it via the 5-min response
+    // cache). When the style index is up, narrow with STYLE IN (...) so the
+    // scan dies: same trick that took q= searches from 10-22s to <1s.
+    // IsTopSeller=1 STAYS in the WHERE — every row is still verified live by
+    // Caspio (a style unflagged since the index built drops out correctly;
+    // one newly flagged appears within the index TTL, ≤30 min). Index down →
+    // exact old behavior.
     if (isTopSeller === 'true') {
       whereConditions.push(`IsTopSeller=1`);
+      try {
+        const styleIndex = await getStyleSearchIndex(fetchAllCaspioPages);
+        const tops = topSellerStyles(styleIndex);
+        if (tops.length && tops.length <= MAX_MATCHES) {
+          whereConditions.push(`STYLE IN (${tops.map(s => `'${s.replace(/'/g, "''")}'`).join(',')})`);
+        }
+      } catch (err) {
+        console.warn('[products/search] style index unavailable for top-seller narrowing — full scan:', err.message);
+      }
     }
 
     // Build final WHERE clause
@@ -1086,23 +1105,38 @@ router.get('/products/search', async (req, res) => {
 
     console.log(`Page ${pageNum}: Need detailed data for ${styleNumbers.length} styles:`, styleNumbers.join(', '));
 
-    // Phase 2: Fetch all color/size variants for ONLY the paginated styles
+    // Phase 2: Fetch all color/size variants for ONLY the paginated styles.
+    //
+    // Chunked-PARALLEL (2026-08-26): variant-heavy pages (top sellers,
+    // featured browse page 1) hydrate ~10k rows = 10 sequential Caspio pages
+    // ≈ 9-10s cold — customers clicking the header's Top Sellers link watched
+    // skeletons until the 5-min cache saved the NEXT visitor. Styles are
+    // disjoint, so partitioning the STYLE IN across concurrent fetches
+    // returns identical rows in ~1/4 the wall clock with the SAME total
+    // Caspio call count (quota-neutral). Each chunk keeps its own strict
+    // sequential paging + stable orderBy (both traps below still apply).
     let allRecords = [];
     if (styleNumbers.length > 0) {
-      const styleList = styleNumbers.map(s => `'${s.replace(/'/g, "''")}'`).join(',');
-      allRecords = await fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
-        // Same status filter as Phase 1 — without it, a style that passed on
-        // one Active row was labeled/colored/priced from its DISCONTINUED
-        // variants (the first row by PK_ID), leaking retired colors and
-        // stale prices onto live cards (M-1 status leakage).
-        'q.where': `STYLE IN (${styleList})` + (statusCondition ? ` AND ${statusCondition}` : ''),
-        // Stable orderBy REQUIRED on any >1-page query (memory 2026-07-12):
-        // 50 styles × ~40 variants spans Caspio pages; without it, rows drop
-        // silently and whole styles vanish from results (caught 2026-07-23:
-        // 50-style styleNumbers batches returned 42-43 products).
-        'q.orderBy': 'PK_ID'
-      });
-      console.log(`Fetched ${allRecords.length} variant records for ${styleNumbers.length} styles (avg ${Math.round(allRecords.length / styleNumbers.length)} variants per style)`);
+      const CHUNK = 12;  // ~2-3 Caspio pages per chunk at top-seller variant counts
+      const chunks = [];
+      for (let i = 0; i < styleNumbers.length; i += CHUNK) chunks.push(styleNumbers.slice(i, i + CHUNK));
+      const chunkResults = await Promise.all(chunks.map((chunkStyles) => {
+        const styleList = chunkStyles.map(s => `'${s.replace(/'/g, "''")}'`).join(',');
+        return fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
+          // Same status filter as Phase 1 — without it, a style that passed on
+          // one Active row was labeled/colored/priced from its DISCONTINUED
+          // variants (the first row by PK_ID), leaking retired colors and
+          // stale prices onto live cards (M-1 status leakage).
+          'q.where': `STYLE IN (${styleList})` + (statusCondition ? ` AND ${statusCondition}` : ''),
+          // Stable orderBy REQUIRED on any >1-page query (memory 2026-07-12):
+          // 50 styles × ~40 variants spans Caspio pages; without it, rows drop
+          // silently and whole styles vanish from results (caught 2026-07-23:
+          // 50-style styleNumbers batches returned 42-43 products).
+          'q.orderBy': 'PK_ID'
+        });
+      }));
+      allRecords = chunkResults.flat();
+      console.log(`Fetched ${allRecords.length} variant records for ${styleNumbers.length} styles in ${chunks.length} parallel chunks (avg ${Math.round(allRecords.length / styleNumbers.length)} variants per style)`);
     }
 
     // Group records by STYLE to create unique products
