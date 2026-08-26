@@ -1,3 +1,9 @@
+## v2026.08.26.4 (2026.08.26)
+
+- Proxy deploy skill: version is MAX+1, never count+1
+- Test harness: say when CRM_API_SECRET is missing instead of dropping it silently
+- inventorylevels: project anonymous responses to stock-only fields — UnitCost/TotalCost/VendorName/GLAccount no longer leak
+
 ## v2026.08.26.3 (2026.08.26)
 
 - Backfill Ship_To on 165 carton rows — drop-ship detection is now 100%
