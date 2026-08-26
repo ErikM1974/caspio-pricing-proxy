@@ -135,6 +135,49 @@ describe('q.limit below Caspio\'s minimum page size is a single request', () => 
     });
 });
 
+describe('page size is clamped to what Caspio actually accepts', () => {
+    // q.pageSize is fussier than q.limit, and the gap is a live regression trap. Measured
+    // 2026-08-26: q.limit=5000 -> OK (Caspio caps it, returns 1000); q.pageSize=5000 and
+    // even 1001 -> REJECTED with IncorrectQueryParameter. Six call sites pass q.limit:5000.
+    test('q.limit 5000 becomes q.pageSize 1000, not a 400', async () => {
+        axios.mockResolvedValueOnce({ data: { Result: rows(20) } });
+        await fetchAllCaspioPages('/tables/T/records', { 'q.limit': 5000 });
+        expect(sent()[0]['q.pageSize']).toBe(1000);
+    });
+
+    test('those six sites used to STOP after one page — now they page to the end', async () => {
+        // Old code: page 1 returned 1000, the fallback compared 1000 >= 5000, called it a
+        // partial page and stopped. They were silently truncated to their first 1000 rows.
+        axios
+            .mockResolvedValueOnce({ data: { Result: rows(1000, 0) } })
+            .mockResolvedValueOnce({ data: { Result: rows(1000, 1000) } })
+            .mockResolvedValueOnce({ data: { Result: rows(120, 2000) } });
+        const out = await fetchAllCaspioPages('/tables/T/records', { 'q.limit': 5000 });
+        expect(out).toHaveLength(2120);
+        expect(sent().map((x) => x['q.pageNumber'])).toEqual([1, 2, 3]);
+    });
+
+    test('a string page size (routes forward req.query verbatim) is parsed', async () => {
+        axios.mockResolvedValueOnce({ data: { Result: rows(3) } });
+        await fetchAllCaspioPages('/tables/T/records', { 'q.limit': '250' });
+        expect(sent()[0]['q.pageSize']).toBe(250);
+    });
+
+    test('a non-numeric page size falls back to the default instead of 400-ing', async () => {
+        // garment-tracker.js:119 and art.js:498 forward an unvalidated client value.
+        // Caspio rejects q.limit=abc outright; the default is a better answer than a 500.
+        axios.mockResolvedValueOnce({ data: { Result: rows(3) } });
+        await fetchAllCaspioPages('/tables/T/records', { 'q.limit': 'abc' });
+        expect(sent()[0]['q.pageSize']).toBe(1000);
+    });
+
+    test('a zero or negative page size falls back too', async () => {
+        axios.mockResolvedValueOnce({ data: { Result: rows(3) } });
+        await fetchAllCaspioPages('/tables/T/records', { 'q.limit': 0 });
+        expect(sent()[0]['q.pageSize']).toBe(1000);
+    });
+});
+
 describe('behaviour that must NOT change', () => {
     test('maxPages still caps, and strict still throws on truncation', async () => {
         axios.mockResolvedValue({ data: { Result: rows(10) } });   // always full -> never ends

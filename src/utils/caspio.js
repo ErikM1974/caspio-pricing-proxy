@@ -146,8 +146,27 @@ async function fetchAllCaspioPages(resourcePath, initialParams = {}, options = {
   // the fallback saw a "full" page and asked for q.pageSize=1&q.pageNumber=2, Caspio 400'd,
   // the 400-handler burned a token refresh and retried, and it 400'd again. Measured: FOUR
   // Caspio requests to read one row. Now it is one.
-  const CASPIO_MIN_PAGE_SIZE = 5;   // below this Caspio rejects q.pageSize outright
-  const pageSize = params['q.limit'] || params['q.pageSize'] || config.pagination.defaultLimit;
+  // 🔴 CLAMP. q.pageSize is FUSSIER than q.limit and the difference is a live regression
+  // trap. Measured against Caspio 2026-08-26:
+  //     q.limit=5000     -> OK  (Caspio silently caps it and returns 1000)
+  //     q.pageSize=5000  -> REJECTED, IncorrectQueryParameter
+  //     q.pageSize=1001  -> REJECTED
+  //     q.pageSize=1000  -> OK
+  // Six call sites pass `q.limit: 5000` (house/nika/taneisha accounts + daily-sales) and two
+  // routes forward an UNCLAMPED client value (garment-tracker.js:119, art.js:498), so without
+  // this clamp the switch to q.pageSize would 400 on their very first page. Clamping to 1000
+  // is not a behaviour change for them -- Caspio was already capping q.limit at 1000. It is
+  // in fact a repair: under the old code page 1 returned 1000, the fallback compared
+  // 1000 >= 5000, called it a partial page and STOPPED, so those six routes have been
+  // silently truncating to their first 1000 rows. They now page to the end.
+  // parseInt guards the string values those two routes forward verbatim; a non-numeric one
+  // falls back to the default instead of 400-ing the way `q.limit=abc` does today.
+  const CASPIO_MIN_PAGE_SIZE = 5;      // below this Caspio rejects q.pageSize outright
+  const CASPIO_MAX_PAGE_SIZE = 1000;   // above this too
+  const requestedSize = parseInt(params['q.limit'] || params['q.pageSize'], 10);
+  const pageSize = Number.isFinite(requestedSize) && requestedSize > 0
+    ? Math.min(requestedSize, CASPIO_MAX_PAGE_SIZE)
+    : config.pagination.defaultLimit;
   const pageable = pageSize >= CASPIO_MIN_PAGE_SIZE;
   delete params['q.limit'];
   delete params['q.pageSize'];
