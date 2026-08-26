@@ -32,8 +32,12 @@ const MAX_MATCHES = 300;         // cap handed to STYLE IN (...) — URL-length 
 // per STYLE. NO status filter here: the route's own WHERE applies it, so
 // ?status=all / ?status=New behave exactly as before.
 const FETCH_PARAMS = {
-  'q.select': 'STYLE, PRODUCT_TITLE, BRAND_NAME, KEYWORDS, PRODUCT_DESCRIPTION',
-  'q.groupBy': 'STYLE, PRODUCT_TITLE, BRAND_NAME, KEYWORDS, PRODUCT_DESCRIPTION',
+  // IsTopSeller rides along (style-level, so it never splits styles — same
+  // reasoning as products.js's phase-1) so the Top Sellers LISTING can hand
+  // Caspio STYLE IN (...) instead of scanning 181k rows for IsTopSeller=1
+  // (measured 10-15s cold; customers saw skeletons + late images).
+  'q.select': 'STYLE, PRODUCT_TITLE, BRAND_NAME, KEYWORDS, PRODUCT_DESCRIPTION, IsTopSeller',
+  'q.groupBy': 'STYLE, PRODUCT_TITLE, BRAND_NAME, KEYWORDS, PRODUCT_DESCRIPTION, IsTopSeller',
   // Stable orderBy is REQUIRED on any >1-page Caspio query — without it,
   // pagination skips/duplicates rows silently (~420 styles vanished on the
   // first run; same trap documented at products.js Phase-2).
@@ -52,6 +56,7 @@ function buildIndex(rows) {
     const cur = byStyle.get(style);
     if (cur) {
       cur.hay += ' ' + chunk.toLowerCase();
+      cur.top = cur.top || !!r.IsTopSeller; // OR across rows: any flagged row marks the style
     } else {
       byStyle.set(style, {
         style,
@@ -59,10 +64,19 @@ function buildIndex(rows) {
         titleLower: String(r.PRODUCT_TITLE || '').toLowerCase(),
         brandLower: String(r.BRAND_NAME || '').toLowerCase(),
         hay: chunk.toLowerCase(),
+        top: !!r.IsTopSeller,
       });
     }
   }
   return [...byStyle.values()];
+}
+
+/** Style numbers flagged IsTopSeller in the index — lets the Top Sellers
+ *  LISTING narrow its Caspio WHERE to STYLE IN (...). Membership can lag a
+ *  flag flip by up to the index TTL (30 min); every price/field in the
+ *  response still comes live from Caspio (Rule 4 untouched). Pure. */
+function topSellerStyles(index) {
+  return (index || []).filter(e => e.top).map(e => e.style);
 }
 
 /** Case-insensitive phrase match (parity with LIKE '%q%'), ranked:
@@ -137,4 +151,4 @@ function warmOnBoot(fetchAllCaspioPages) {
 /** Test hook — never used by the route. */
 function _resetCacheForTests() { _cache = { at: 0, index: null, building: null }; }
 
-module.exports = { buildIndex, searchIndex, getStyleSearchIndex, warmOnBoot, MAX_MATCHES, _resetCacheForTests };
+module.exports = { buildIndex, searchIndex, topSellerStyles, getStyleSearchIndex, warmOnBoot, MAX_MATCHES, _resetCacheForTests };
