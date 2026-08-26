@@ -1,3 +1,7 @@
+## v2026.08.26.5 (2026.08.26)
+
+- Delete legacy box-labels-data routes — served ContactEmail/Phone + balances anonymously; repack station uses /api/sanmar-orders/label-data
+
 ## v2026.08.26.4 (2026.08.26)
 
 - Proxy deploy skill: version is MAX+1, never count+1
