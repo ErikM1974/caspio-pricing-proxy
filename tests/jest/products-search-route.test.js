@@ -34,6 +34,7 @@ jest.mock('../../src/utils/catalog-display-price', () => {
 const express = require('express');
 const axios = require('axios');
 const { fetchAllCaspioPages } = require('../../src/utils/caspio');
+const { _resetCacheForTests: resetStyleIndex } = require('../../src/utils/style-search-index');
 const { getDecoratedDisplayPricingConfig } = require('../../src/utils/catalog-display-price');
 const productsRouter = require('../../src/routes/products');
 
@@ -73,6 +74,10 @@ afterAll(() => new Promise((resolve) => {
 
 beforeEach(() => {
   fetchAllCaspioPages.mockReset();
+  // q= searches build the in-memory style index through the same mocked
+  // fetcher (2026-08-26) — reset it so each test's index comes from its
+  // OWN mocked rows, never a previous test's.
+  resetStyleIndex();
   getDecoratedDisplayPricingConfig.mockReset();
   getDecoratedDisplayPricingConfig.mockResolvedValue(PRICING_CONFIG);
 });
@@ -89,6 +94,10 @@ function mockBulk(rows) {
 function bulkWhereClauses() {
   return fetchAllCaspioPages.mock.calls
     .filter(([path]) => String(path).includes('Sanmar_Bulk'))
+    // The style-search-index build is the one Sanmar_Bulk fetch with no
+    // q.where — every route query sends one ('1=1' minimum). Skip it so
+    // clause[0] stays the Phase-1 WHERE these assertions were written for.
+    .filter(([, params]) => params && params['q.where'] !== undefined)
     .map(([, params]) => params['q.where']);
 }
 
