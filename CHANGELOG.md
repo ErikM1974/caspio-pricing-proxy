@@ -1,3 +1,11 @@
+## v2026.08.25.1 (2026.08.25)
+
+- psst-audit: derive the arrival window instead of guessing it
+- perf(catalog-search): in-memory style index replaces 5-column LIKE scan — 10-22s per uncached term drops to <1s
+- perf+fix(catalog): style-index boot warm-up; cap card prices use real RoundingMethod (Rule 9)
+- fix(catalog): 'Newest' sort 500'd every time — order the grouped Phase-1 query by MAX(Date_Updated)
+- test(products-search): harness accounts for the style-index build fetch
+
 ## v2026.08.18.3 (2026.08.18)
 
 - Flag partially-shipped orders instead of showing them as untouched
