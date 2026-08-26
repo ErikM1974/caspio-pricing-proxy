@@ -978,6 +978,13 @@ router.get('/products/search', async (req, res) => {
       case 'price_desc':
         orderBy = 'PIECE_PRICE DESC';
         break;
+      case 'featured':
+        // Catalog landing default (M-4, Erik 2026-08-25): proven sellers
+        // first, alphabetical within each band — never the A4 brand wall.
+        // IsTopSeller is style-level, so adding it to the groupBy does not
+        // split styles; MAX() is invalid on bit columns (probed).
+        orderBy = 'IsTopSeller DESC, PRODUCT_TITLE ASC';
+        break;
       case 'newest':
         // Date_Updated isn't a grouped column, so ordering on it 400s the
         // grouped Phase-1 query (every 'Newest' click 500'd the catalog,
@@ -1006,11 +1013,16 @@ router.get('/products/search', async (req, res) => {
     // Phase 1: Fetch unique styles (grouped, sorted, and paginated at database level)
     const phase1Select = sort === 'newest'
       ? 'STYLE, PRODUCT_TITLE, BRAND_NAME, CATEGORY_NAME, PIECE_PRICE, MAX(Date_Updated) AS LAST_UPDATED'
+      : (sort === 'featured'
+        ? 'STYLE, PRODUCT_TITLE, BRAND_NAME, CATEGORY_NAME, PIECE_PRICE, IsTopSeller'
+        : 'STYLE, PRODUCT_TITLE, BRAND_NAME, CATEGORY_NAME, PIECE_PRICE');
+    const phase1GroupBy = sort === 'featured'
+      ? 'STYLE, PRODUCT_TITLE, BRAND_NAME, CATEGORY_NAME, PIECE_PRICE, IsTopSeller'
       : 'STYLE, PRODUCT_TITLE, BRAND_NAME, CATEGORY_NAME, PIECE_PRICE';
     const stylesQuery = await fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
       'q.where': whereClause,
       'q.select': phase1Select,
-      'q.groupBy': 'STYLE, PRODUCT_TITLE, BRAND_NAME, CATEGORY_NAME, PIECE_PRICE',
+      'q.groupBy': phase1GroupBy,
       'q.orderBy': orderBy
     });
 
@@ -1244,6 +1256,12 @@ router.get('/products/search', async (req, res) => {
           return (b.pricing?.current || 0) - (a.pricing?.current || 0);
         case 'style':
           return (a.styleNumber || '').localeCompare(b.styleNumber || '');
+        case 'featured':
+          // Catalog landing default: proven sellers first, A-Z within each
+          // band — mirrors the Phase-1 orderBy (this post-sort would
+          // otherwise re-alphabetize and bury the top sellers).
+          return ((b.features?.isTopSeller === true) - (a.features?.isTopSeller === true))
+            || (a.productName || '').localeCompare(b.productName || '');
         case 'newest':
           // For newest, we'd need to track Date_Updated in the product object
           // For now, maintain existing order
