@@ -1,3 +1,7 @@
+## v2026.08.26.1 (2026.08.26)
+
+- fix(catalog): honest counts — totals, pagination, facets and price sorts count STYLES, not price-split rows (M-1)
+
 ## v2026.08.25.2 (2026.08.25)
 
 - feat(catalog): sort=featured — proven sellers first, never the brand-alphabetical wall (M-4, Erik-approved)
