@@ -4,7 +4,7 @@ const express = require('express');
 const axios = require('axios');
 const rateLimit = require('express-rate-limit');
 const config = require('./config'); // Use unified configuration
-const { requireCrmApiSecret, requireCrmSecretOrBrowserOrigin, guardReadsOnly } = require('./src/middleware');
+const { requireCrmApiSecret, requireCrmSecretOrBrowserOrigin, guardReadsOnly, quotePlaneGate } = require('./src/middleware');
 
 // #9 side-door: gate WRITE methods (POST/PUT/DELETE) on a path prefix while leaving
 // GET reads public — for endpoints that mix a public read (pricing/catalog, Rule 9)
@@ -474,6 +474,28 @@ const quoteWriteOnly = (req, res, next) =>
   (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS')
     ? next()
     : writeLimiter(req, res, next);
+
+// ── QUOTE-PLANE GATE (2026-08-26 lockdown) ──────────────────────────────────
+// Secret-only gate over the ENTIRE quote surface — sessions, items, analytics,
+// change log, the sequence mint, and the three ShopWorks push families. Every
+// legitimate caller (the main app's dyno + its same-origin relays; e2e
+// harnesses with CRM_API_SECRET in env) sends X-CRM-API-Secret. Mode is the
+// QUOTE_PLANE_GATE config var: off (default) → log (watch for stragglers) →
+// enforce (401). Flip with `heroku config:set QUOTE_PLANE_GATE=…` — no deploy.
+// The gate covers ALL methods on purpose: anonymous GETs were the customer-
+// book dump, and HEAD routes to GET handlers (the 2026-08-05 bypass lesson).
+// OPTIONS passes for CORS preflight (harmless — carries no data).
+const quotePlaneGateAllMethods = (req, res, next) =>
+  (req.method === 'OPTIONS') ? next() : quotePlaneGate(req, res, next);
+app.use('/api/quote_sessions', quotePlaneGateAllMethods);
+app.use('/api/quote_items', quotePlaneGateAllMethods);
+app.use('/api/quote_analytics', quotePlaneGateAllMethods);
+app.use('/api/quote_change_log', quotePlaneGateAllMethods);
+app.use('/api/quote-sequence', quotePlaneGateAllMethods);
+app.use('/api/embroidery-push', quotePlaneGateAllMethods);
+app.use('/api/dtf-push', quotePlaneGateAllMethods);
+app.use('/api/scp-push', quotePlaneGateAllMethods);
+
 app.use('/api/quote_sessions', quoteWriteOnly);
 app.use('/api/quote_items', quoteWriteOnly);
 app.use('/api/quote_analytics', quoteWriteOnly);
