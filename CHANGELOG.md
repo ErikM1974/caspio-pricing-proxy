@@ -1,3 +1,8 @@
+## v2026.09.02.8 (2026.09.02)
+
+- portal-reorder: notify a human on every portal request — Slack DM to the rep (fallback Erik) + email to sales@
+- tests: move portal-request-notify under tests/jest (the configured testMatch)
+
 ## v2026.09.02.7 (2026.09.02)
 
 - customer-rewards: GET /balances — every customer's reward balance in one read (admin console Rewards column)
