@@ -397,6 +397,14 @@ const orderRoutes = require('./src/routes/orders');
 app.use('/api', orderRoutes);
 console.log('✓ Orders routes loaded [order-odbc/order-dashboard/customers CRM-gated; POST /api/customers public]');
 
+// Order Lines mirror (2026-09-02): ShopWorks line items in Caspio ORDER_LINES, read by the
+// customer-portal reward engine instead of one ManageOrders call per order (30/min limiter).
+// Customer PII + financials → secret-only, same as /api/order-odbc.
+app.use('/api/order-lines', requireCrmApiSecret);
+const orderLinesRoutes = require('./src/routes/order-lines');
+app.use('/api', orderLinesRoutes);
+console.log('✓ Order Lines routes loaded [/api/order-lines CRM-gated]');
+
 // Miscellaneous Routes (contains staff-announcements endpoint)
 const miscRoutes = require('./src/routes/misc');
 app.use('/api', miscRoutes);
