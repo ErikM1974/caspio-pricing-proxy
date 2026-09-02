@@ -41,6 +41,16 @@ const CASPIO_CLIENT_SECRET = process.env.CASPIO_CLIENT_SECRET;
 const CRM_API_SECRET = process.env.CRM_API_SECRET;
 const DAYS_BACK = 60;
 const LINE_ITEM_DELAY_MS = 250;
+// Extended line-item columns (Erik 2026-09-02): Line_Key (id_Order-SortOrder, UNIQUE), id_Customer,
+// id_OrderType, Style, Is_Garment, SanMar_PieceCost — read by the customer-portal reward engine and
+// Caspio reports. Written ONLY when LINEITEMS_EXTENDED=1 (Heroku config var), because a POST that
+// names a column the table does not have is a 400 — flip the var AFTER the six columns exist.
+const LINEITEMS_EXTENDED = process.env.LINEITEMS_EXTENDED === '1';
+// Orders present in the archive with ZERO archived lines (a failed line fetch that was never
+// retried) are repaired, at most this many per run, so a bad day cannot snowball into a crawl.
+const REPAIR_MISSING_LINES_MAX = 25;
+// Part numbers that are decoration / fees / setup, never a garment (mirrors the app's rule).
+const NON_GARMENT_RE = /^(SETUP|LTM|FEE|TAX|SHIP|DISC|RUSH|ART|GRT|MOCK|DIGI|RWD|AL$|AL-|DECG|DECC|DD$|DDE|DDT|SPSU|SEG|SECC|CDP|3D-|LASER|TRANSFER|FREIGHT|MONOGRAM|NAME|EMBLEM|VELLUM|COLOR)/i;
 const RATE_LIMIT_WAIT_MS = 62000;
 const TIMEOUT = 30000;
 
@@ -258,6 +268,44 @@ function mapOrder(o) {
   };
 }
 
+// SanMar piece cost per style (lowest PIECE_PRICE of the ordered color = base-size cost), via the
+// proxy's own /api/product-details (Caspio-backed, one call per distinct style per run).
+const _styleRows = new Map();
+async function pieceCost(style, color) {
+  const key = String(style).toUpperCase();
+  if (!_styleRows.has(key)) {
+    try {
+      const r = await axios.get(`${BASE_URL}/api/product-details?styleNumber=${encodeURIComponent(style)}`, { headers: { 'X-CRM-API-Secret': CRM_API_SECRET }, timeout: TIMEOUT });
+      _styleRows.set(key, Array.isArray(r.data) ? r.data : []);
+    } catch (_) { _styleRows.set(key, []); }
+  }
+  const rows = _styleRows.get(key);
+  if (!rows.length) return null;
+  const n = (v) => String(v || '').toLowerCase().replace(/[^a-z0-9]/g, ''); const w = n(color);
+  const m = rows.find((x) => n(x.COLOR_NAME) === w) || rows.find((x) => n(x.CATALOG_COLOR) === w) || rows.find((x) => { const c = n(x.COLOR_NAME); return c && (c.includes(w) || w.includes(c)); });
+  const pool = m ? rows.filter((x) => x.COLOR_NAME === m.COLOR_NAME) : rows;
+  const costs = pool.map((x) => Number(x.PIECE_PRICE)).filter((v) => v > 0);
+  return costs.length ? Math.min(...costs) : null;
+}
+function garmentStyle(li) {
+  const pn = cleanStr(li.PartNumber).trim(); const color = cleanStr(li.PartColor).trim();
+  if (!pn || !color || NON_GARMENT_RE.test(pn)) return null;
+  return pn.split('_')[0];
+}
+// Extended columns for one line; `order` is the ManageOrders header the line belongs to.
+async function extendedLineFields(li, orderId, order) {
+  const style = garmentStyle(li);
+  const cost = style ? await pieceCost(style, li.PartColor) : null;
+  return {
+    Line_Key: `${parseInt(orderId) || 0}-${parseInt(li.SortOrder) || 0}`,
+    id_Customer: order ? (parseInt(order.id_Customer) || 0) : 0,
+    id_OrderType: order ? (parseInt(order.id_OrderType) || 0) : 0,
+    Style: style || '',
+    Is_Garment: style ? 'Yes' : 'No',
+    SanMar_PieceCost: cost == null ? null : cost,
+  };
+}
+
 function mapLineItem(li, orderId) {
   return {
     id_Order: parseInt(orderId) || 0,
@@ -332,7 +380,7 @@ function lineItemsUnchanged(freshItems, orderId, existingRows) {
 }
 
 // ── Sync Line Items for One Order ───────────────────────────────────────
-async function syncLineItems(orderId, existingRows) {
+async function syncLineItems(orderId, existingRows, order) {
   // Fetch BEFORE deleting. The old order was delete-then-fetch, so a failed or
   // rate-limited ManageOrders read (fetchWithRetry throws after 3 attempts) left
   // the archive rows destroyed and nothing to put back — silent data loss on a
@@ -351,7 +399,9 @@ async function syncLineItems(orderId, existingRows) {
   } catch (e) { /* OK if none exist */ }
 
   for (const li of items) {
-    await caspioRequest('/tables/ManageOrders_LineItems/records', 'POST', mapLineItem(li, orderId));
+    const row = mapLineItem(li, orderId);
+    if (LINEITEMS_EXTENDED) Object.assign(row, await extendedLineFields(li, orderId, order));
+    await caspioRequest('/tables/ManageOrders_LineItems/records', 'POST', row);
   }
   return { count: items.length, skipped: false };
 }
@@ -430,7 +480,7 @@ async function main() {
         // New order
         console.log(`  [${orderIndex}/${total}] + NEW: ${id} (${cleanStr(mo.CustomerName)})`);
         await caspioRequest('/tables/ManageOrders_Orders/records', 'POST', mapped);
-        const li = await syncLineItems(mo.id_Order, lineItemMap.get(id));
+        const li = await syncLineItems(mo.id_Order, lineItemMap.get(id), mo);
         stats.lineItems += li.count;
         if (li.skipped) stats.lineItemsUnchanged++;
         stats.new++;
@@ -453,7 +503,7 @@ async function main() {
           `/tables/ManageOrders_Orders/records?q.where=${encodeURIComponent(`id_Order=${id}`)}`,
           'PUT', mapped
         );
-        const li = await syncLineItems(mo.id_Order, lineItemMap.get(id));
+        const li = await syncLineItems(mo.id_Order, lineItemMap.get(id), mo);
         stats.lineItems += li.count;
         if (li.skipped) stats.lineItemsUnchanged++;
         stats.updated++;
@@ -473,7 +523,7 @@ async function main() {
             `/tables/ManageOrders_Orders/records?q.where=${encodeURIComponent(`id_Order=${id}`)}`,
             'PUT', mapped
           );
-          const li = await syncLineItems(mo.id_Order, lineItemMap.get(id));
+          const li = await syncLineItems(mo.id_Order, lineItemMap.get(id), mo);
         stats.lineItems += li.count;
         if (li.skipped) stats.lineItemsUnchanged++;
           stats.updated++;
@@ -498,6 +548,17 @@ async function main() {
           // `--backfill` (without --force) would skip every one of them as
           // "already synced today".
           stats.unchanged++;
+          // REPAIR (2026-09-02): an order whose line fetch failed on an earlier run stays in the
+          // archive with zero lines forever, because "unchanged" never re-syncs lines. Measured
+          // on the customer-portal coverage check: 1–4 such orders per GOLD account. Fetch them
+          // now, bounded per run.
+          if (!(lineItemMap.get(id) || []).length && (parseInt(mo.TotalProductQuantity) || 0) > 0 && (stats.repaired || 0) < REPAIR_MISSING_LINES_MAX) {
+            console.log(`  ! REPAIR: ${id} (${cleanStr(mo.CustomerName)}) — archived with no line items`);
+            const li = await syncLineItems(mo.id_Order, [], mo);
+            stats.lineItems += li.count;
+            stats.repaired = (stats.repaired || 0) + 1;
+            await sleep(LINE_ITEM_DELAY_MS);
+          }
         }
       }
     } catch (err) {
@@ -517,6 +578,8 @@ async function main() {
   // The saving is this number: each one is a DELETE + N POSTs that did not happen
   // because the archived line items were already identical to ManageOrders.
   console.log(`  Line-item re-writes skipped (already identical): ${stats.lineItemsUnchanged}`);
+  console.log(`  Repaired (archived orders that had no lines): ${stats.repaired || 0}`);
+  console.log(`  Extended line columns: ${LINEITEMS_EXTENDED ? 'ON' : 'off (set LINEITEMS_EXTENDED=1 after the 6 columns exist)'}`);
   console.log(`  Total in archive:  ${caspioOrders.length + stats.new}`);
 
   // Last, and never fatal: a sync that did the work must not be reported as failed
