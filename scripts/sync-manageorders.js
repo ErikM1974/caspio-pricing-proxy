@@ -315,7 +315,7 @@ async function extendedLineFields(li, orderId, order) {
     id_Customer: order ? (parseInt(order.id_Customer) || 0) : 0,
     id_OrderType: order ? (parseInt(order.id_OrderType) || 0) : 0,
     Style: style || '',
-    Is_Garment: !!style,   // Caspio Yes/No via REST = boolean (a 'Yes' string can 400 the whole line POST)
+    Is_Garment: style ? 1 : 0,   // the Caspio column is INTEGER (Erik's design 2026-09-02) — 1/0, never 'Yes'/true
     SanMar_PieceCost: cost == null ? null : cost,
   };
 }
