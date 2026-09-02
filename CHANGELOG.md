@@ -1,3 +1,7 @@
+## v2026.09.02.5 (2026.09.02)
+
+- sync-manageorders: Is_Garment is an INTEGER column — write 1/0
+
 ## v2026.09.02.4 (2026.09.02)
 
 - sync-manageorders: write Is_Garment as a boolean (Caspio Yes/No via REST)
