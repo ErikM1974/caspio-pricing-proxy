@@ -1,3 +1,7 @@
+## v2026.09.02.9 (2026.09.02)
+
+- Deploy v2026.09.02.9: contract AI prompt reads fee from context; contract card update script
+
 ## v2026.09.02.8 (2026.09.02)
 
 - portal-reorder: notify a human on every portal request — Slack DM to the rep (fallback Erik) + email to sales@
