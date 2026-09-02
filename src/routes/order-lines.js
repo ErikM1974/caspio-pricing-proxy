@@ -26,7 +26,8 @@ const { fetchAllCaspioPages } = require('../utils/caspio');
 
 const LINES_TABLE = process.env.ORDER_LINES_TABLE || 'ManageOrders_LineItems';
 const ORDERS_TABLE = process.env.ORDER_HEADERS_TABLE || 'ManageOrders_Orders';
-const LINE_SELECT = 'id_Order,PartNumber,PartDescription,PartColor,LineQuantity,LineUnitPrice,SortOrder,Size01,Size02,Size03,Size04,Size05,Size06';
+// The six extended columns exist since Erik's 2026-09-02 re-import (a q.select naming a missing column 400s).
+const LINE_SELECT = 'id_Order,PartNumber,PartDescription,PartColor,LineQuantity,LineUnitPrice,SortOrder,Size01,Size02,Size03,Size04,Size05,Size06,Line_Key,id_Customer,id_OrderType,Style,Is_Garment,SanMar_PieceCost';
 const MAX_IDS = 200;
 const CHUNK = 50;   // ids per Caspio IN (...) clause — keeps the q.where short and the pages small
 
