@@ -1,3 +1,10 @@
+## v2026.09.02.1 (2026.09.02)
+
+- Product_Copy: EB200 Eddie Bauer full-zip fleece (blog autopilot 2026-09-01)
+- Order Lines mirror: GET /api/order-lines (+ /coverage) over Caspio ORDER_LINES, secret-gated
+- API changelog: 1.10.0 — /api/order-lines mirror
+- Order Lines: read the existing ManageOrders_LineItems archive by order id (no new table)
+
 ## v2026.08.26.7 (2026.08.26)
 
 - perf(search): Top Sellers listing 18s -> ~6s cold — index narrows the scan, hydration chunks in parallel
