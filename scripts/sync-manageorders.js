@@ -49,6 +49,13 @@ const LINEITEMS_EXTENDED = process.env.LINEITEMS_EXTENDED === '1';
 // Orders present in the archive with ZERO archived lines (a failed line fetch that was never
 // retried) are repaired, at most this many per run, so a bad day cannot snowball into a crawl.
 const REPAIR_MISSING_LINES_MAX = 25;
+// Orders OLDER than DAYS_BACK that ShopWorks reopened and re-invoiced (price change, credit,
+// zeroed after a rejection) would keep stale lines forever — the daily pull is by date_Ordered.
+// ORDER_ODBC (bandit agent, delta by timestamp_Modification every 15 min) carries the CURRENT
+// subtotal / invoice date for any order touched, whatever its age; a mismatch against the
+// archive re-pulls that order from ManageOrders. Bounded per run; look back this many months.
+const REOPENED_LOOKBACK_MONTHS = 13;
+const REOPENED_MAX = 25;
 // Part numbers that are decoration / fees / setup, never a garment (mirrors the app's rule).
 const NON_GARMENT_RE = /^(SETUP|LTM|FEE|TAX|SHIP|DISC|RUSH|ART|GRT|MOCK|DIGI|RWD|AL$|AL-|DECG|DECC|DD$|DDE|DDT|SPSU|SEG|SECC|CDP|3D-|LASER|TRANSFER|FREIGHT|MONOGRAM|NAME|EMBLEM|VELLUM|COLOR)/i;
 const RATE_LIMIT_WAIT_MS = 62000;
@@ -208,6 +215,13 @@ async function fetchOrders(startDate, endDate) {
     `${BASE_URL}/api/manageorders/orders?date_Ordered_start=${startDate}&date_Ordered_end=${endDate}`,
     'orders fetch'
   );
+}
+
+// One order header by number, bypassing the proxy's cache (a reopened order must not read stale).
+async function fetchOrderFresh(orderId) {
+  const j = await fetchWithRetry(`${BASE_URL}/api/manageorders/orders/${orderId}?refresh=true`, `order/${orderId}`);
+  const arr = Array.isArray(j) ? j : (Array.isArray(j.result) ? j.result : (j.result ? [j.result] : []));
+  return arr.find((o) => String(o.id_Order) === String(orderId)) || null;
 }
 
 async function fetchLineItems(orderId) {
@@ -567,6 +581,40 @@ async function main() {
     }
   }
 
+  // Step 4: older orders reopened in ShopWorks (see REOPENED_LOOKBACK_MONTHS).
+  if (!isBackfill) {
+    try {
+      const pulled = new Set(moOrders.map((o) => String(o.id_Order)));
+      const since = new Date(); since.setMonth(since.getMonth() - REOPENED_LOOKBACK_MONTHS);
+      const odbc = await caspioReadAll('ORDER_ODBC', `date_OrderInvoiced>='${since.toISOString().slice(0, 10)}'`);
+      const candidates = [];
+      for (const r of odbc) {
+        const id = String(r.ID_Order); const ex = caspioMap.get(id);
+        if (!ex || pulled.has(id)) continue;                       // not archived / already compared above
+        const sub = parseFloat(r.cur_Subtotal); const exSub = parseFloat(ex.cur_SubTotal);
+        const inv = String(r.date_OrderInvoiced || '').slice(0, 10); const exInv = String(ex.date_Invoiced || '').slice(0, 10);
+        if ((Number.isFinite(sub) && Number.isFinite(exSub) && Math.abs(sub - exSub) > 0.5) || (inv && exInv && inv !== exInv)) candidates.push({ id, sub, exSub, inv, exInv });
+      }
+      console.log(`\nStep 4: reopened older orders — ${candidates.length} archive/ShopWorks mismatch(es) among ${odbc.length} ORDER_ODBC rows`);
+      stats.reopened = 0;
+      for (const c of candidates.slice(0, REOPENED_MAX)) {
+        try {
+          const mo = await fetchOrderFresh(c.id);
+          if (!mo) { console.log(`  ? ${c.id}: not returned by ManageOrders — skipped`); continue; }
+          const mapped = mapOrder(mo);
+          console.log(`  ~ REOPENED: ${c.id} (${cleanStr(mo.CustomerName)}) subtotal ${c.exSub} → ${mapped.cur_SubTotal}, invoiced ${c.exInv || '-'} → ${String(mapped.date_Invoiced || '').slice(0, 10) || '-'}`);
+          await caspioRequest(`/tables/ManageOrders_Orders/records?q.where=${encodeURIComponent(`id_Order=${c.id}`)}`, 'PUT', mapped);
+          const li = await syncLineItems(mo.id_Order, lineItemMap.get(c.id), mo);
+          stats.lineItems += li.count;
+          if (li.skipped) stats.lineItemsUnchanged++;
+          stats.reopened++;
+          await sleep(LINE_ITEM_DELAY_MS);
+        } catch (err) { console.error(`  ! ERROR (reopened) ${c.id}: ${err.message}`); stats.errors++; }
+      }
+      if (candidates.length > REOPENED_MAX) console.log(`  (${candidates.length - REOPENED_MAX} more deferred to the next run)`);
+    } catch (err) { console.error(`Step 4 skipped — ORDER_ODBC read failed: ${err.message}`); }
+  }
+
   // Summary
   console.log(`\n=== SYNC COMPLETE ===`);
   console.log(`  New:       ${stats.new}`);
@@ -579,6 +627,7 @@ async function main() {
   // because the archived line items were already identical to ManageOrders.
   console.log(`  Line-item re-writes skipped (already identical): ${stats.lineItemsUnchanged}`);
   console.log(`  Repaired (archived orders that had no lines): ${stats.repaired || 0}`);
+  console.log(`  Reopened older orders re-pulled: ${stats.reopened || 0}`);
   console.log(`  Extended line columns: ${LINEITEMS_EXTENDED ? 'ON' : 'off (set LINEITEMS_EXTENDED=1 after the 6 columns exist)'}`);
   console.log(`  Total in archive:  ${caspioOrders.length + stats.new}`);
 
