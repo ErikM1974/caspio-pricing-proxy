@@ -1,3 +1,7 @@
+## v2026.09.02.7 (2026.09.02)
+
+- customer-rewards: GET /balances — every customer's reward balance in one read (admin console Rewards column)
+
 ## v2026.09.02.6 (2026.09.02)
 
 - order-lines: return the six extended columns (Line_Key, id_Customer, id_OrderType, Style, Is_Garment, SanMar_PieceCost)
