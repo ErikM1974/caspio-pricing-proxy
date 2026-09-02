@@ -30,6 +30,20 @@ function projectEntry(r) {
   return { amount: round2(r.Amount), type: r.Type || '', reason: r.Reason || '', orderRef: r.Order_Ref || '', created: r.Created || '', by: r.Created_By || '' };
 }
 
+// GET /api/customer-rewards/balances → { balances: { [id_Customer]: balance }, customers, total }
+// ONE paged read of the whole ledger (small, append-only) so the admin console can show and sort a
+// Rewards column for every portal customer without a call per row. Zero balances are omitted.
+router.get('/balances', async (req, res) => {
+  try {
+    const rows = (await fetchAllCaspioPages(`/tables/${TABLE}/records`, { 'q.select': 'id_Customer,Amount', 'q.pageSize': 1000 })) || [];
+    const sums = new Map();
+    rows.forEach((r) => { const id = digits(r.id_Customer); if (!id) return; sums.set(id, (sums.get(id) || 0) + (Number(r.Amount) || 0)); });
+    const balances = {}; let total = 0;
+    sums.forEach((v, id) => { const b = round2(v); if (Math.abs(b) >= 0.005) { balances[id] = b; total += b; } });
+    res.json({ balances, customers: Object.keys(balances).length, total: round2(total), entries: rows.length });
+  } catch (e) { console.error('[rewards] balances failed:', e.message); res.status(502).json({ error: 'balances failed', detail: e.message }); }
+});
+
 // GET /api/customer-rewards/balance/:idCustomer → { balance, entries } (recent 20).
 router.get('/balance/:idCustomer', async (req, res) => {
   const cid = digits(req.params.idCustomer);
