@@ -8,8 +8,50 @@ const router = express.Router();
 const { fetchAllCaspioPages, getCaspioAccessToken } = require('../utils/caspio');
 const config = require('../config');
 const axios = require('axios');
+const { sendSlackDM } = require('../utils/slack-dm-notify');
+const { REP_EMAIL_MAP } = require('../utils/rep-email-map');
 
 const BASE = config.caspio.apiBaseUrl;
+
+// Who hears about a portal request (Erik 2026-09-02: "how does it notify people at NWCA?").
+// The saved Portal_Reorder_Requests row is the queue of record (admin console → Re-order Requests,
+// "New" badge). On top of that, DM the customer's rep on Slack — the same bot-token path
+// notify-art-completion uses — and fall back to Erik when the rep is unassigned or not on Slack.
+// Optional: a channel webhook (SLACK_PORTAL_REQUESTS_WEBHOOK_URL / SLACK_SALES_WEBHOOK_URL).
+// Fire-and-forget: the request is already saved; a Slack outage must never fail the customer.
+const FALLBACK_NOTIFY_EMAIL = process.env.PORTAL_REQUEST_FALLBACK_EMAIL || 'erik@nwcustomapparel.com';
+function repEmailFor(repName) {
+  const n = String(repName || '').trim();
+  if (!n) return '';
+  if (REP_EMAIL_MAP[n]) return REP_EMAIL_MAP[n];
+  const first = n.split(/\s+/)[0];
+  return REP_EMAIL_MAP[first] || '';
+}
+// Email copy to the shared sales inbox (never depends on who the rep is). EmailJS template
+// EMAILJS_TEMPLATE_PORTAL_REQUEST must exist with these params: to_email, subject, kind,
+// company_name, customer_number, request_num, summary, note, rep, customer_email, queue_link.
+const PORTAL_REQUEST_EMAIL = process.env.PORTAL_REQUEST_EMAIL || 'sales@nwcustomapparel.com';
+async function emailPortalRequest(fields) {
+  const serviceId = process.env.EMAILJS_SERVICE_ID, templateId = process.env.EMAILJS_TEMPLATE_PORTAL_REQUEST;
+  const publicKey = process.env.EMAILJS_PUBLIC_KEY, privateKey = process.env.EMAILJS_PRIVATE_KEY;
+  if (!serviceId || !templateId || !publicKey || !privateKey) { console.log('[portal-reorder] email skipped — EMAILJS_TEMPLATE_PORTAL_REQUEST not configured'); return; }
+  try {
+    const emailjs = require('@emailjs/nodejs');
+    await emailjs.send(serviceId, templateId, Object.assign({ to_email: PORTAL_REQUEST_EMAIL }, fields), { publicKey, privateKey });
+    console.log('[portal-reorder] emailed', PORTAL_REQUEST_EMAIL, fields.request_num);
+  } catch (e) { console.warn('[portal-reorder] email failed:', e && e.text ? e.text : (e && e.message) || e); }
+}
+function notifyPortalRequest(repName, text, fields) {
+  const hook = process.env.SLACK_PORTAL_REQUESTS_WEBHOOK_URL || process.env.SLACK_SALES_WEBHOOK_URL;
+  if (hook) axios.post(hook, { text }).catch(() => {});
+  if (fields) emailPortalRequest(Object.assign({ rep: repName || '(unassigned)' }, fields)).catch(() => {});
+  const to = repEmailFor(repName) || FALLBACK_NOTIFY_EMAIL;
+  sendSlackDM(to, text).then((r) => {
+    if (r.sent || to === FALLBACK_NOTIFY_EMAIL) return;
+    // Rep exists but could not be reached (no Slack id / API error) — make sure SOMEONE sees it.
+    return sendSlackDM(FALLBACK_NOTIFY_EMAIL, `(rep ${repName || '?'} unreachable on Slack: ${r.skipped || r.error})\n` + text);
+  }).catch(() => {});
+}
 
 function digits(v) { const s = String(v == null ? '' : v).trim(); return /^\d+$/.test(s) ? s : null; }
 function clean(v, n) { return String(v == null ? '' : v).slice(0, n || 255); }
@@ -68,15 +110,20 @@ router.post('/request', express.json(), async (req, res) => {
   };
   try {
     await axios.post(`${BASE}/tables/Portal_Reorder_Requests/records`, row, { headers: await authHeaders() });
-    // Best-effort Slack ping — the SAVED row (rep queue / DataPage) is the reliable channel;
-    // this just makes it active. Skips silently if no webhook is configured.
-    const hook = process.env.SLACK_PORTAL_REQUESTS_WEBHOOK_URL || process.env.SLACK_SALES_WEBHOOK_URL;
-    if (hook) {
-      const txt = `🛒 *Portal re-order request* — ${row.Company_Name} (#${idCustomer})\n`
-        + `*${row.Style}* ${row.Color}${row.Method ? ` · ${row.Method}` : ''}${row.Design_Number ? ` · Design #${row.Design_Number}` : ''} · qty ${row.Qty || '?'}\n`
-        + `Rep: ${row.Rep || '(unassigned)'} · ${row.Email}${row.Note ? `\nNote: ${row.Note}` : ''}`;
-      axios.post(hook, { text: txt }).catch(() => {});
-    }
+    // Portal "general" requests reuse this row with Style = QUOTE / NEWLOGO / LOGOCHG / ACCOUNT.
+    const kind = /^(QUOTE|NEWLOGO|LOGOCHG|ACCOUNT)$/.test(row.Style)
+      ? ({ QUOTE: '💬 *Portal quote request*', NEWLOGO: '🎨 *Portal new-logo request*', LOGOCHG: '✏️ *Portal logo-change request*', ACCOUNT: '👤 *Portal account update*' })[row.Style]
+      : '🛒 *Portal re-order request*';
+    const what = /^(QUOTE|NEWLOGO|LOGOCHG|ACCOUNT)$/.test(row.Style)
+      ? `${row.Product_Title || ''}${row.Method ? ` · ${row.Method}` : ''}${row.Qty ? ` · qty ${row.Qty}` : ''}${row.Design_Number ? ` · Design #${row.Design_Number}` : ''}`
+      : `*${row.Style}* ${row.Color}${row.Method ? ` · ${row.Method}` : ''}${row.Design_Number ? ` · Design #${row.Design_Number}` : ''} · qty ${row.Qty || '?'}`;
+    const queueLink = 'https://www.teamnwca.com/dashboards/customer-portal-admin.html';
+    const kindText = kind.replace(/[*_]/g, '').replace(/^\S+\s/, '');
+    notifyPortalRequest(row.Rep, `${kind} — ${row.Company_Name} (#${idCustomer}) · ${row.Request_Num}\n`
+      + `${what}\nRep: ${row.Rep || '(unassigned)'} · ${row.Email}${row.Note ? `\nNote: ${row.Note}` : ''}\n`
+      + `Queue: ${queueLink} (Re-order Requests)`,
+      { subject: `${kindText}: ${row.Company_Name} · ${row.Request_Num}`, kind: kindText, company_name: row.Company_Name, customer_number: idCustomer,
+        request_num: row.Request_Num, summary: what.replace(/[*_]/g, ''), note: row.Note || '', customer_email: row.Email, queue_link: queueLink });
     res.json({ success: true, request: row });
   } catch (e) {
     console.error('[portal-reorder] create failed:', e.response ? JSON.stringify(e.response.data) : e.message);
@@ -122,13 +169,13 @@ router.post('/batch', express.json(), async (req, res) => {
     const headers = await authHeaders();
     // Caspio inserts one record per POST — fan out in parallel; any failure fails the batch.
     await Promise.all(rows.map(row => axios.post(`${BASE}/tables/Portal_Reorder_Requests/records`, row, { headers })));
-    const hook = process.env.SLACK_PORTAL_REQUESTS_WEBHOOK_URL || process.env.SLACK_SALES_WEBHOOK_URL;
-    if (hook) {
-      const lines = rows.map(r => `• *${r.Style}* ${r.Color}${r.Method ? ` · ${r.Method}` : ''} · qty ${r.Qty || '?'}`).join('\n');
-      const txt = `🧾 *Portal re-order LIST* (${rows.length} item${rows.length === 1 ? '' : 's'}) — ${rows[0].Company_Name} (#${idCustomer}) · Batch ${batchNum}\n`
-        + `${lines}\nRep: ${rows[0].Rep || '(unassigned)'} · ${rows[0].Email}${note ? `\nNote: ${note}` : ''}`;
-      axios.post(hook, { text: txt }).catch(() => {});
-    }
+    const lines = rows.map(r => `• *${r.Style}* ${r.Color}${r.Method ? ` · ${r.Method}` : ''} · qty ${r.Qty || '?'}`).join('\n');
+    const queueLink = 'https://www.teamnwca.com/dashboards/customer-portal-admin.html';
+    notifyPortalRequest(rows[0].Rep, `🧾 *Portal re-order LIST* (${rows.length} item${rows.length === 1 ? '' : 's'}) — ${rows[0].Company_Name} (#${idCustomer}) · Batch ${batchNum}\n`
+      + `${lines}\nRep: ${rows[0].Rep || '(unassigned)'} · ${rows[0].Email}${note ? `\nNote: ${note}` : ''}\n`
+      + `Queue: ${queueLink} (Re-order Requests)`,
+      { subject: `Portal re-order list (${rows.length}): ${rows[0].Company_Name} · ${batchNum}`, kind: 'Portal re-order list', company_name: rows[0].Company_Name, customer_number: idCustomer,
+        request_num: batchNum, summary: lines.replace(/[*_•]/g, '').trim(), note: note || '', customer_email: rows[0].Email, queue_link: queueLink });
     res.json({ success: true, batchNum, count: rows.length, rep });
   } catch (e) {
     console.error('[portal-reorder] batch create failed:', e.response ? JSON.stringify(e.response.data) : e.message);
