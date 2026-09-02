@@ -1,3 +1,7 @@
+## v2026.09.02.10 (2026.09.02)
+
+- Deploy v2026.09.02.10: contract fee default 0 (order minimum replaces it); AI email knows the $250 minimum
+
 ## v2026.09.02.9 (2026.09.02)
 
 - Deploy v2026.09.02.9: contract AI prompt reads fee from context; contract card update script
