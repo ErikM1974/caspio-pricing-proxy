@@ -4,7 +4,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'routes', 'portal-reorder.js'), 'utf8');
+const src = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'routes', 'portal-reorder.js'), 'utf8');
 
 describe('portal-reorder — request notifications', () => {
   test('uses the Slack DM helper (bot token), not only the never-configured channel webhook', () => {
