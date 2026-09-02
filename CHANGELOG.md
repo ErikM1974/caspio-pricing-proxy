@@ -1,3 +1,7 @@
+## v2026.09.02.4 (2026.09.02)
+
+- sync-manageorders: write Is_Garment as a boolean (Caspio Yes/No via REST)
+
 ## v2026.09.02.3 (2026.09.02)
 
 - sync-manageorders: Step 4 re-pulls older orders that ShopWorks reopened/re-invoiced
