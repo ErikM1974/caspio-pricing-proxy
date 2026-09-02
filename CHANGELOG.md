@@ -1,3 +1,7 @@
+## v2026.09.02.2 (2026.09.02)
+
+- sync-manageorders: extended line columns behind LINEITEMS_EXTENDED, repair orders archived with no lines
+
 ## v2026.09.02.1 (2026.09.02)
 
 - Product_Copy: EB200 Eddie Bauer full-zip fleece (blog autopilot 2026-09-01)
