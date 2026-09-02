@@ -1,3 +1,7 @@
+## v2026.09.02.6 (2026.09.02)
+
+- order-lines: return the six extended columns (Line_Key, id_Customer, id_OrderType, Style, Is_Garment, SanMar_PieceCost)
+
 ## v2026.09.02.5 (2026.09.02)
 
 - sync-manageorders: Is_Garment is an INTEGER column — write 1/0
