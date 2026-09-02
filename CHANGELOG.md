@@ -1,3 +1,7 @@
+## v2026.09.02.3 (2026.09.02)
+
+- sync-manageorders: Step 4 re-pulls older orders that ShopWorks reopened/re-invoiced
+
 ## v2026.09.02.2 (2026.09.02)
 
 - sync-manageorders: extended line columns behind LINEITEMS_EXTENDED, repair orders archived with no lines
