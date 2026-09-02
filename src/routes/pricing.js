@@ -304,14 +304,18 @@ router.get('/contract-pricing', async (req, res) => {
     // Extract $/1K rates from records (using PerThousandRate or calculating from EmbroideryCost/StitchCount)
     // New structure returns perThousandRates by tier for easy frontend calculations
     const pricing = {
+      // Fee defaults are ZERO (2026-09-02, Erik): contract small orders are governed by the
+      // $250 order minimum (Service_Codes CTR-MIN-ORDER, applied by the calculator), not a
+      // fee. A fee only exists if a CTR row carries LTM > 0 in Caspio. The old default of
+      // 50.00 meant "no LTM in Caspio" still produced a $50 fee — a hardcoded price.
       garments: {
         perThousandRates: {},
-        ltmFee: 50.00,
+        ltmFee: 0,
         ltmThreshold: 23
       },
       caps: {
         perThousandRates: {},
-        ltmFee: 50.00,
+        ltmFee: 0,
         ltmThreshold: 23
       },
       // 🔴 READ THIS BEFORE "FIXING" IT. These full-back numbers are NOT contract rates
