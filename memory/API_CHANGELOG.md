@@ -5,6 +5,21 @@ All notable changes to the Caspio Pricing Proxy API will be documented in this f
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.0] - 2026-09-02
+
+### Added - Order Lines mirror (customer-portal reward engine)
+
+- **`GET /api/order-lines?orders=140567,140568,…`** (CRM secret, ≤200 ids) — ShopWorks line items
+  from the existing Caspio archive **`ManageOrders_LineItems`** (kept current by
+  `scripts/sync-manageorders.js`, Heroku Scheduler daily 12:00 UTC), ordered by
+  `id_Order,SortOrder`. The archive has no customer column, so callers pass the order ids they
+  already hold; paid status stays live from ManageOrders (the archive's `sts_Paid` is ≤1 day old).
+- **`GET /api/order-lines/coverage?id_Customer=[&from=&to=]`** — the customer's orders in
+  `ManageOrders_Orders` for the window vs. which of them have archived lines (`missingOrders`).
+- Why: the customer-portal reward accrual crawled ManageOrders one order at a time behind the
+  shared 30/min limiter (a 600-order web-store account = 25 min; Heroku H12 = 30 s). Env
+  `ORDER_LINES_TABLE` / `ORDER_HEADERS_TABLE` override the table names.
+
 ## [1.9.0] - 2026-07-18
 
 ### Added - Leads CRM extras (manual capture + one-click outreach)
