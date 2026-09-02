@@ -217,6 +217,11 @@ function buildCalcContextBlock(ctx) {
         ltmFee: Number(ctx.ltmFee) || 0,
         ltmPerPiece: Number(ctx.ltmPerPiece) || 0,
         orderTotal: Number(ctx.orderTotal) || 0,
+        // 2026-09-02: contract orders carry a $250 minimum (Service_Codes CTR-MIN-ORDER).
+        // The calculator applies it before this context is built, so orderTotal/finalUnit
+        // already include it; these two fields let the email SAY so.
+        orderMinimum: Number(ctx.orderMinimum) || 0,
+        minimumApplied: ctx.minimumApplied === true,
         // Phase 4 (2026-05-14): pre-generated CEMB quote ID so the AI can
         // reference it in the subject + intro. Frontend pre-fetches one ID
         // per AI panel session via /api/quote-sequence/CEMB.

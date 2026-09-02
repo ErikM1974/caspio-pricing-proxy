@@ -6,10 +6,11 @@
  * and 24-71 is thin. Erik approved the recommended card:
  *   garments  $1.25 / 1.10 / 1.00 / 0.90 / 0.85 per 1K   (was 1.10 / 1.00 / 0.90 / 0.85 / 0.80)
  *   caps      $1.10 / 1.00 / 0.90 / 0.80 / 0.75 per 1K   (was 1.00 / 0.90 / 0.80 / 0.75 / 0.70)
- *   small-order fee $100 under 24 pcs                     (was $50)
- *   full back (DECG-FB): rates unchanged, fee $100 on the 1-7 row (was $50)
- * The $150 order minimum lives in Service_Codes (CTR-MIN-ORDER) and is applied by the
- * calculator, not here.
+ *   small-order fee: NONE (LTM = 0 on every CTR row). Erik's same-day revision: a fee plus a
+ *   minimum was two rules and a price cliff at 24 pcs, so the contract structure is a single
+ *   $250 order minimum (Service_Codes CTR-MIN-ORDER, applied by the calculator).
+ *   full back (DECG-FB): untouched here — its ladder fee serves the CUSTOM quote builder; the
+ *   contract calculator ignores it and follows the CTR fee (0).
  *
  * HOW the proxy reads these rows (src/routes/pricing.js GET /contract-pricing):
  *   - rate per tier = first CTR-Garmt / CTR-Cap row per TierLabel: PerThousandRate,
@@ -30,7 +31,7 @@ const { fetchAllCaspioPages, makeCaspioRequest } = require('../src/utils/caspio'
 const LIVE = process.argv.includes('--live');
 const GARMENT = { '1-7': 1.25, '8-23': 1.10, '24-47': 1.00, '48-71': 0.90, '72+': 0.85 };
 const CAP     = { '1-7': 1.10, '8-23': 1.00, '24-47': 0.90, '48-71': 0.80, '72+': 0.75 };
-const FEE = 100;
+const FEE = 0;                       // no contract small-order fee since 2026-09-02 (order minimum instead)
 const FEE_TIERS = new Set(['1-7', '8-23']);
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -59,8 +60,7 @@ async function main() {
         LTM: FEE_TIERS.has(tier) ? FEE : 0,
       };
     } else if (r.ItemType === 'DECG-FB') {
-      if (tier === '1-7') body = { LTM: FEE };
-      else if (num(r.LTM)) body = { LTM: 0 };   // fee lives on the 1-7 row only (band = 1-7)
+      continue;   // shared ladder (custom builder's full-back fee lives here) — not a contract setting
     } else if (r.ItemType === 'CTR-FB') {
       console.log(`  note: retired CTR-FB row id ${id} tier ${tier} left untouched (proxy ignores it)`);
       continue;
