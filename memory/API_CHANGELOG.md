@@ -5,6 +5,23 @@ All notable changes to the Caspio Pricing Proxy API will be documented in this f
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.0] - 2026-09-02
+
+### Added - Order Lines mirror (customer-portal reward engine)
+
+- **`GET /api/order-lines?id_Customer=&from=&to=[&limit=]`** (CRM secret) — ShopWorks line items
+  from the Caspio table `ORDER_LINES` (env `ORDER_LINES_TABLE` overrides), one query per customer +
+  invoice-date window, ordered by `ID_Order,SortOrder`. Rows carry the exporter-resolved
+  `SanMar_PieceCost` / `Line_Gross`. `sts_Paid`/`cur_Balance` in the table are an export-time
+  snapshot — callers take paid status live from ManageOrders.
+- **`GET /api/order-lines/coverage?id_Customer=`** — orders/lines held + min/max invoice date.
+- A missing table answers **404** (`table ORDER_LINES not found`) so the app falls back to its
+  per-order ManageOrders path. Why: the reward accrual crawled MO one order at a time behind the
+  shared 30/min limiter (a 600-order web-store account = 25 min; Heroku H12 = 30 s).
+- Rows arrive by Caspio CSV import (app repo `scratchpad/export-order-lines-2026.js` →
+  `Order_Lines_2026.csv`, upsert key `Line_Key` = `ID_Order-SortOrder`); a bandit ODBC
+  `LinesOE` delta agent is the planned durable path.
+
 ## [1.9.0] - 2026-07-18
 
 ### Added - Leads CRM extras (manual capture + one-click outreach)
