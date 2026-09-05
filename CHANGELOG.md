@@ -1,3 +1,9 @@
+## v2026.09.05.1 (2026.09.05)
+
+- Contract card script: garments 24-47 1.10, 48-71 0.95 (Erik 2026-09-02)
+- Contract card script: caps 24-47 1.00, 48-71 0.85 (Erik 2026-09-02)
+- purchasing-all: honour ?refresh=1 (Purchasing Portal Refresh button rebuilt nothing inside the 15-min cache)
+
 ## v2026.09.02.10 (2026.09.02)
 
 - Deploy v2026.09.02.10: contract fee default 0 (order minimum replaces it); AI email knows the $250 minimum
