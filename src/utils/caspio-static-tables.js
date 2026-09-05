@@ -93,17 +93,107 @@ async function getDtgCostRows({ force = false } = {}) {
   return rows;
 }
 
+// ---------------------------------------------------------------------------
+// /api/pricing-bundle method-keyed tables (2026-09-05 Caspio quota reduction).
+//
+// The bundle caches its RESPONSE on {method, styleNumber}, but only ONE of its
+// queries actually varies by style (Sanmar_Bulk). Tiers / rules / location /
+// cost-table depend on the METHOD alone, so browsing a second style in the same
+// method used to re-fetch ~9 identical calls to get 1 new one. Embroidery_Costs
+// alone is ~6 pages (it passes neither q.limit nor q.select), which is why it was
+// the single largest table on the account.
+//
+// 🔴 THE KEY MUST CARRY EVERY INPUT THAT CHANGES THE QUERY. A key that is coarser
+// than its query serves ANOTHER METHOD'S PRICES — a silent wrong price, which is
+// the worst failure this repo has. That is why getCostTableRows() holds the whole
+// switch itself instead of taking a caller-supplied key: the key and the query are
+// chosen in one place and cannot drift apart.
+//
+// 15-min TTL (PRICE_TABLE_TTL_MS), NOT the 1 h static TTL — these hold the rows
+// Erik edits in Caspio and CLAUDE.md promises those land with no deploy.
+const bundleTableCache = new Map(); // cacheKey -> { rows, timestamp }
+
+async function cachedBundleRows(cacheKey, resource, params, { force = false } = {}) {
+  const now = Date.now();
+  if (!force) {
+    const hit = bundleTableCache.get(cacheKey);
+    if (hit && (now - hit.timestamp) < PRICE_TABLE_TTL_MS) return hit.rows;
+  }
+  const rows = await fetchAllCaspioPages(resource, params);
+  // Only pin non-empty reads — an empty pricing table is suspicious, and pinning
+  // one for 15 minutes would price a quote off nothing.
+  if (Array.isArray(rows) && rows.length > 0) {
+    bundleTableCache.set(cacheKey, { rows, timestamp: now });
+  }
+  return rows;
+}
+
+// Pricing_Tiers for one decoration method. Select is the bundle's superset.
+async function getPricingTierRows(dbMethod, opts = {}) {
+  return cachedBundleRows(`tiers:${dbMethod}`, '/tables/Pricing_Tiers/records', {
+    'q.where': `DecorationMethod='${dbMethod}'`,
+    'q.select': 'PK_ID,TierID,DecorationMethod,TierLabel,MinQuantity,MaxQuantity,MarginDenominator,TargetMargin,LTM_Fee',
+    'q.limit': 100
+  }, opts);
+}
+
+// Pricing_Rules for one decoration method (rounding rules).
+async function getPricingRuleRows(ruleMethod, opts = {}) {
+  return cachedBundleRows(`rules:${ruleMethod}`, '/tables/Pricing_Rules/records', {
+    'q.where': `DecorationMethod='${ruleMethod}'`
+  }, opts);
+}
+
+// location rows for one location Type.
+async function getLocationRows(locationType, opts = {}) {
+  return cachedBundleRows(`location:${locationType}`, '/tables/location/records', {
+    'q.where': `Type='${locationType}'`,
+    'q.select': 'location_code,location_name',
+    'q.orderBy': 'PK_ID ASC',
+    'q.limit': 100
+  }, opts);
+}
+
+async function getTransferFreightRows(opts = {}) {
+  return cachedBundleRows('transfer-freight', '/tables/Transfer_Freight/records', undefined, opts);
+}
+
+// The method -> cost-table mapping, verbatim from the pricing-bundle switch.
+// 🔴 Returns undefined for an unknown costMethod, matching the route's switch,
+// which has NO default case. Do not "fix" this to []: an empty cost table would
+// price a bundle off nothing, where undefined fails loudly downstream.
+const COST_TABLE_QUERIES = {
+  'DTG':         ['/tables/DTG_Costs/records', undefined],
+  'EMB':         ['/tables/Embroidery_Costs/records', { 'q.where': "ItemType='Shirt' OR ItemType='AS-Garm' OR ItemType='AS-Cap'" }],
+  'CAP':         ['/tables/Embroidery_Costs/records', { 'q.where': "ItemType='Cap'" }],
+  'EMB-AL':      ['/tables/Embroidery_Costs/records', { 'q.where': "ItemType='AL'" }],
+  'CAP-AL':      ['/tables/Embroidery_Costs/records', { 'q.where': "ItemType='AL-CAP'" }],
+  'ScreenPrint': ['/tables/Screenprint_Costs/records', undefined],
+  'DTF':         ['/tables/DTF_Pricing/records', undefined],
+  'PATCH':       ['/tables/Embroidery_Costs/records', { 'q.where': "ItemType='Patch'" }],
+  'CAP-PUFF':    ['/tables/Embroidery_Costs/records', { 'q.where': "ItemType='Cap' OR ItemType='3D-Puff'" }]
+};
+
+async function getCostTableRows(costMethod, opts = {}) {
+  if (costMethod === 'BLANK') return [];               // route resolves [] without a fetch
+  const spec = COST_TABLE_QUERIES[costMethod];
+  if (!spec) return undefined;                          // matches the switch's missing default
+  return cachedBundleRows(`cost:${costMethod}`, spec[0], spec[1], opts);
+}
+
 function clearStaticTableCaches() {
   const cleared = {
     'standard-size-upcharges': upchargeCache ? 1 : 0,
     'size-display-order': sizeOrderCache ? 1 : 0,
     'dtg-pricing-tiers': dtgTierCache ? 1 : 0,
-    'dtg-costs': dtgCostCache ? 1 : 0
+    'dtg-costs': dtgCostCache ? 1 : 0,
+    'pricing-bundle-tables': bundleTableCache.size
   };
   upchargeCache = null;
   sizeOrderCache = null;
   dtgTierCache = null;
   dtgCostCache = null;
+  bundleTableCache.clear();
   return cleared;
 }
 
@@ -112,5 +202,10 @@ module.exports = {
   getSizeDisplayOrderRows,
   getDtgPricingTierRows,
   getDtgCostRows,
+  getPricingTierRows,
+  getPricingRuleRows,
+  getLocationRows,
+  getTransferFreightRows,
+  getCostTableRows,
   clearStaticTableCaches
 };
