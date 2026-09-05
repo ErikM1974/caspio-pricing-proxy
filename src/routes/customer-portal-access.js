@@ -78,6 +78,26 @@ router.get('/by-email/:email', async (req, res) => {
   }
 });
 
+// POST /api/customer-portal-access/touch-login — best-effort LastLogin stamp on a
+// successful magic-link verify. Never fails the login (fire-and-forget caller).
+// Mirrors vendor-portal-access; added 2026-09-05 — before this nothing wrote LastLogin,
+// so the staff console's "Have Signed In" / "Last Sign-In" were always 0 / Never.
+router.post('/touch-login', express.json(), async (req, res) => {
+  const email = sanitizeEmail(req.body && req.body.email);
+  if (!email) return res.status(400).json({ error: 'valid email required' });
+  try {
+    await axios.put(
+      `${BASE}/tables/${TABLE}/records?q.where=${encodeURIComponent(`Email='${email}'`)}`,
+      { LastLogin: new Date().toISOString() },
+      { headers: await authHeaders() }
+    );
+    res.json({ success: true });
+  } catch (e) {
+    console.error('[customer-portal-access] touch-login failed:', e.message);
+    res.status(502).json({ error: 'touch-login failed' });
+  }
+});
+
 // GET /api/customer-portal-access → { rows: [...] } — every invite, for the admin console.
 // Each row is enriched with the AUTHORITATIVE owning rep + tier from Sales_Reps_2026
 // (CRM source-of-truth, keyed by ID_Customer) so the console shows whose account it is and
