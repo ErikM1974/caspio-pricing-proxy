@@ -4,8 +4,8 @@
  * WHY: the stitch-cost study (Pricing Index memory/EMBROIDERY_STITCH_COST_2026-09.md) showed
  * the 1-7 and 8-23 contract tiers lose money per ORDER once the $100 order cost is counted,
  * and 24-71 is thin. Erik approved the recommended card:
- *   garments  $1.25 / 1.10 / 1.00 / 0.90 / 0.85 per 1K   (was 1.10 / 1.00 / 0.90 / 0.85 / 0.80)
- *   caps      $1.10 / 1.00 / 0.90 / 0.80 / 0.75 per 1K   (was 1.00 / 0.90 / 0.80 / 0.75 / 0.70)
+ *   garments  $1.25 / 1.10 / 1.10 / 0.95 / 0.85 per 1K   (was 1.10 / 1.00 / 0.90 / 0.85 / 0.80; 24-47 and 48-71 raised again later on 2026-09-02)
+ *   caps      $1.10 / 1.00 / 1.00 / 0.85 / 0.75 per 1K   (was 1.00 / 0.90 / 0.80 / 0.75 / 0.70; mid tiers raised later on 2026-09-02)
  *   small-order fee: NONE (LTM = 0 on every CTR row). Erik's same-day revision: a fee plus a
  *   minimum was two rules and a price cliff at 24 pcs, so the contract structure is a single
  *   $250 order minimum (Service_Codes CTR-MIN-ORDER, applied by the calculator).
@@ -29,8 +29,11 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const { fetchAllCaspioPages, makeCaspioRequest } = require('../src/utils/caspio');
 
 const LIVE = process.argv.includes('--live');
-const GARMENT = { '1-7': 1.25, '8-23': 1.10, '24-47': 1.00, '48-71': 0.90, '72+': 0.85 };
-const CAP     = { '1-7': 1.10, '8-23': 1.00, '24-47': 0.90, '48-71': 0.80, '72+': 0.75 };
+// 2026-09-02 (later the same day, Erik): 24-47 1.00 → 1.10 and 48-71 0.90 → 0.95 to close the
+// mid-tier dip the break-even grid exposed (setup + order cost spread over 36-60 pcs at a $1.00 rate).
+const GARMENT = { '1-7': 1.25, '8-23': 1.10, '24-47': 1.10, '48-71': 0.95, '72+': 0.85 };
+// Caps mid tiers raised too (Erik, 2026-09-02): 24-47 0.90 → 1.00, 48-71 0.80 → 0.85.
+const CAP     = { '1-7': 1.10, '8-23': 1.00, '24-47': 1.00, '48-71': 0.85, '72+': 0.75 };
 const FEE = 0;                       // no contract small-order fee since 2026-09-02 (order minimum instead)
 const FEE_TIERS = new Set(['1-7', '8-23']);
 

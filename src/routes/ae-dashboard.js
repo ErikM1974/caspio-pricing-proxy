@@ -1058,8 +1058,13 @@ async function buildPurchasing(rep) {
 // Bradley in the window, requester attached). Secret-gated at the mount;
 // browsers come through the main app's requireStaff forwarder (any staff).
 router.get('/purchasing-all', async (req, res) => {
+    // ?refresh=1 bypasses the 15-minute cache (2026-09-05): the Purchasing Portal's
+    // Refresh button used to re-serve the same entry, so a click inside the window
+    // changed nothing — a Refresh button that refreshes nothing is worse than none
+    // (same fix /due-dates got on 2026-08-10).
+    const force = req.query.refresh === '1' || req.query.refresh === 'true';
     const entry = purchasingCache.get('__all__');
-    if (entry && Date.now() - entry.fetchedAt < PURCHASING_CACHE_TTL_MS) {
+    if (!force && entry && Date.now() - entry.fetchedAt < PURCHASING_CACHE_TTL_MS) {
         return res.json({ ...entry.data, cacheHit: true });
     }
     try {
