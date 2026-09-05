@@ -126,7 +126,15 @@ app.use((req, res, next) => {
     }
     // else: no ACAO header → browser blocks the cross-origin response.
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, x-crm-api-secret');
+    // If-None-Match / Range / Cache-Control (2026-09-05): the Design Vault sends
+    // If-None-Match for its 3.8 MB index so a 304 saves the download. That header
+    // triggers a preflight, and a preflight that does not list it makes the browser
+    // drop the real request as a CORS failure — "Failed to fetch", index 31 days stale,
+    // nothing in the server log because the GET never arrived.
+    res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, x-crm-api-secret, If-None-Match, If-Modified-Since, Range, Cache-Control, Pragma');
+    // Let cross-origin JS read the headers the clients actually use (ETag for the
+    // index, Content-Length for the download progress bar, Retry-After while building).
+    res.setHeader('Access-Control-Expose-Headers', 'ETag, Content-Length, Retry-After, Content-Type');
     res.setHeader('Access-Control-Allow-Credentials', 'true');
 
     // Baseline security headers. nosniff matters most on GET /api/files/:key,
