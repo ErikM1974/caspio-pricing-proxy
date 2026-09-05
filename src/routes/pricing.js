@@ -5,7 +5,11 @@ const router = express.Router();
 const rateLimit = require('express-rate-limit');
 const { makeCaspioRequest, fetchAllCaspioPages } = require('../utils/caspio');
 const { createTtlCache, shouldBypass, makeKey } = require('../utils/ttl-cache');
-const { getSizeUpchargeRows, getSizeDisplayOrderRows } = require('../utils/caspio-static-tables');
+const {
+  getSizeUpchargeRows, getSizeDisplayOrderRows,
+  getPricingTierRows, getPricingRuleRows, getLocationRows,
+  getTransferFreightRows, getCostTableRows
+} = require('../utils/caspio-static-tables');
 
 // Rate limiter scoped to pricing routes only (not all /api routes)
 const pricingLimiter = rateLimit({
@@ -887,122 +891,42 @@ router.get('/pricing-bundle', async (req, res) => {
     // Base queries that always run - wrapped to handle failures gracefully
     const baseQueries = [
       // Fetch pricing tiers
-      fetchAllCaspioPages('/tables/Pricing_Tiers/records', {
-        'q.where': `DecorationMethod='${dbMethod}'`,
-        'q.select': 'PK_ID,TierID,DecorationMethod,TierLabel,MinQuantity,MaxQuantity,MarginDenominator,TargetMargin,LTM_Fee',
-        'q.limit': 100
-      }).catch(err => {
+      getPricingTierRows(dbMethod, { force: forceRefresh }).catch(err => {
         console.error('Failed to fetch pricing tiers:', err.message);
         return [];
       }),
       
       // Fetch pricing rules (DTG_Store reuses DTG's rounding rule via costMethod)
-      fetchAllCaspioPages('/tables/Pricing_Rules/records', {
-        'q.where': `DecorationMethod='${methodMapping[costMethod]}'`
-      }).catch(err => {
+      getPricingRuleRows(methodMapping[costMethod], { force: forceRefresh }).catch(err => {
         console.error('Failed to fetch pricing rules:', err.message);
         return [];
       }),
 
       // Fetch locations (skip if locationType is null - e.g., BLANK products)
       locationType ?
-        fetchAllCaspioPages('/tables/location/records', {
-          'q.where': `Type='${locationType}'`,
-          'q.select': 'location_code,location_name',
-          'q.orderBy': 'PK_ID ASC',
-          'q.limit': 100
-        }).catch(err => {
+        getLocationRows(locationType, { force: forceRefresh }).catch(err => {
           console.error('Failed to fetch locations:', err.message);
           return [];
         }) :
         Promise.resolve([])
     ];
 
-    // Add method-specific cost table query with error handling
-    let costTableQuery;
-    switch (costMethod) {
-      case 'DTG':
-        costTableQuery = fetchAllCaspioPages('/tables/DTG_Costs/records')
-          .catch(err => {
-            console.error('Failed to fetch DTG costs:', err.message);
-            return [];
-          });
-        break;
-      case 'EMB':
-        costTableQuery = fetchAllCaspioPages('/tables/Embroidery_Costs/records', {
-          'q.where': "ItemType='Shirt' OR ItemType='AS-Garm' OR ItemType='AS-Cap'"
-        }).catch(err => {
-          console.error('Failed to fetch embroidery costs:', err.message);
-          return [];
-        });
-        break;
-      case 'CAP':
-        costTableQuery = fetchAllCaspioPages('/tables/Embroidery_Costs/records', {
-          'q.where': "ItemType='Cap'"
-        }).catch(err => {
-          console.error('Failed to fetch cap embroidery costs:', err.message);
-          return [];
-        });
-        break;
-      case 'EMB-AL':
-        costTableQuery = fetchAllCaspioPages('/tables/Embroidery_Costs/records', {
-          'q.where': "ItemType='AL'"
-        }).catch(err => {
-          console.error('Failed to fetch additional logo embroidery costs:', err.message);
-          return [];
-        });
-        break;
-      case 'CAP-AL':
-        costTableQuery = fetchAllCaspioPages('/tables/Embroidery_Costs/records', {
-          'q.where': "ItemType='AL-CAP'"
-        }).catch(err => {
-          console.error('Failed to fetch additional logo cap costs:', err.message);
-          return [];
-        });
-        break;
-      case 'ScreenPrint':
-        costTableQuery = fetchAllCaspioPages('/tables/Screenprint_Costs/records')
-          .catch(err => {
-            console.error('Failed to fetch screenprint costs:', err.message);
-            return [];
-          });
-        break;
-      case 'DTF':
-        costTableQuery = fetchAllCaspioPages('/tables/DTF_Pricing/records')
-          .catch(err => {
-            console.error('Failed to fetch DTF costs:', err.message);
-            return [];
-          });
-        break;
-      case 'BLANK':
-        // Blank products have no decoration costs
-        costTableQuery = Promise.resolve([]);
-        break;
-      case 'PATCH':
-        // Laser leatherette patches - fetch from Embroidery_Costs with ItemType='Patch'
-        costTableQuery = fetchAllCaspioPages('/tables/Embroidery_Costs/records', {
-          'q.where': "ItemType='Patch'"
-        }).catch(err => {
-          console.error('Failed to fetch patch costs:', err.message);
-          return [];
-        });
-        break;
-      case 'CAP-PUFF':
-        // 3D Puff embroidery - fetch both regular cap costs and puff upcharge config
-        costTableQuery = fetchAllCaspioPages('/tables/Embroidery_Costs/records', {
-          'q.where': "ItemType='Cap' OR ItemType='3D-Puff'"
-        }).catch(err => {
-          console.error('Failed to fetch 3D puff costs:', err.message);
-          return [];
-        });
-        break;
-    }
+    // Add method-specific cost table query with error handling.
+    // The method -> table mapping now lives in caspio-static-tables.js so the
+    // cache key and the query are chosen in one place and cannot drift apart
+    // (a coarser key would serve another method's prices). BLANK yields [];
+    // an unknown costMethod yields undefined, exactly as the old switch did.
+    const costTableQuery = Promise.resolve(getCostTableRows(costMethod, { force: forceRefresh }))
+      .catch(err => {
+        console.error(`Failed to fetch cost table for ${costMethod}:`, err.message);
+        return [];
+      });
     baseQueries.push(costTableQuery);
 
     // For DTF, also fetch Transfer_Freight table
     if (method === 'DTF') {
       baseQueries.push(
-        fetchAllCaspioPages('/tables/Transfer_Freight/records')
+        getTransferFreightRows({ force: forceRefresh })
           .catch(err => {
             console.error('Failed to fetch DTF freight costs:', err.message);
             return [];
