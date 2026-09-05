@@ -1,3 +1,7 @@
+## v2026.09.05.2 (2026.09.05)
+
+- CORS: allow If-None-Match/If-Modified-Since/Range on preflight, expose ETag/Content-Length/Retry-After
+
 ## v2026.09.05.1 (2026.09.05)
 
 - Contract card script: garments 24-47 1.10, 48-71 0.95 (Erik 2026-09-02)
