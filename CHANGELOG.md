@@ -1,3 +1,7 @@
+## v2026.09.05.3 (2026.09.05)
+
+- customer-portal-access: POST /touch-login stamps LastLogin on a customer magic-link sign-in (mirrors vendor-portal-access) — the staff console's Have Signed In / Last Sign-In had been 0 / Never since launch
+
 ## v2026.09.05.2 (2026.09.05)
 
 - CORS: allow If-None-Match/If-Modified-Since/Range on preflight, expose ETag/Content-Length/Retry-After
