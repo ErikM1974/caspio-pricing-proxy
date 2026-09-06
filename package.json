@@ -6,6 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "test": "jest --config jest.config.js",
+    "test:unit": "jest --config jest.unit.config.js",
+    "test:live": "jest --config jest.live.config.js",
     "test:local": "TEST_BASE_URL=http://localhost:3002 jest --config jest.config.js",
     "test:prod": "jest --config jest.config.js",
     "sync-sales": "node scripts/sync-all-sales.js",

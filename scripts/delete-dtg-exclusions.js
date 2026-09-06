@@ -45,7 +45,7 @@ async function findRows(token, style, color) {
     const domain = process.env.CASPIO_ACCOUNT_DOMAIN;
     const where = `style='${style}' AND color_name='${color.replace(/'/g, "''")}'`;
     const r = await axios.get(
-        `https://${domain}/rest/v2/tables/${TABLE}/records`,
+        `https://${domain}/integrations/rest/v3/tables/${TABLE}/records`,
         {
             headers: { Authorization: `Bearer ${token}` },
             params: { 'q.where': where, 'q.select': 'PK_ID,style,color_name,catalog_color,color_units_sold,color_rank' },
@@ -57,7 +57,7 @@ async function deleteRows(token, style, color) {
     const domain = process.env.CASPIO_ACCOUNT_DOMAIN;
     const where = `style='${style}' AND color_name='${color.replace(/'/g, "''")}'`;
     const r = await axios.delete(
-        `https://${domain}/rest/v2/tables/${TABLE}/records`,
+        `https://${domain}/integrations/rest/v3/tables/${TABLE}/records`,
         {
             headers: { Authorization: `Bearer ${token}` },
             params: { 'q.where': where },

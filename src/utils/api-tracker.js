@@ -37,6 +37,16 @@ const CASPIO_HOST = /(^|\.)caspio\.com$/i;
 
 // Non-table Caspio surfaces get a stable synthetic label so they still show up
 // in the breakdown instead of being lumped under a meaningless path.
+// Route attribution (2026-09-06): every Caspio call made while an Express request
+// is being handled is also counted under that request's ROUTE PATTERN, and under
+// route × table. The meter could say "Embroidery_Costs = 2,209" but never which
+// route drove it — the project notes record three wrong guesses about exactly that.
+// AsyncLocalStorage carries the request through every await down to the axios
+// interceptor. Calls made outside a request (crons, scripts) land under
+// '__background__' unless wrapped with runWithLabel().
+const { AsyncLocalStorage } = require('async_hooks');
+const routeContext = new AsyncLocalStorage();
+const LABEL_BACKGROUND = '__background__';
 const LABEL_TOKEN = '__oauth_token__';
 const LABEL_FILES = '__files__';
 const LABEL_UNKNOWN = '__unknown__';
@@ -105,6 +115,8 @@ class APITracker {
       callsByEndpoint: new Map(),
       callsByTable: new Map(),
       callsByMethod: new Map(),
+      callsByRoute: new Map(),        // 'GET /api/dtg/top-sellers' -> count
+      callsByRouteTable: new Map(),   // 'GET /api/dtg/top-sellers | DTG_Top_Sellers_2026' -> count
       callsByHour: new Map(),
       callsByDay: new Map(),
       // Caspio-bound requests that produced NO response, so Caspio never billed
@@ -137,6 +149,9 @@ class APITracker {
     bump(this.stats.callsByEndpoint, endpoint);
     bump(this.stats.callsByTable, table);
     bump(this.stats.callsByMethod, method);
+    const route = currentRouteLabel();
+    bump(this.stats.callsByRoute, route);
+    bump(this.stats.callsByRouteTable, `${route} | ${table}`);
     // Keyed on the CASPIO ACCOUNT CLOCK (Pacific), not UTC — see utils/account-time.
     // Caspio's usage bars bucket on the account timezone, so a UTC key made our
     // daily total non-comparable with the number on their chart. The rollup looks
@@ -261,6 +276,14 @@ class APITracker {
       summary.callsByHour = Object.fromEntries(
         Array.from(this.stats.callsByHour.entries()).sort()
       );
+      // Which ROUTE drove which table — the attribution the per-table view cannot give.
+      summary.callsByRoute = this._sortedEntries(this.stats.callsByRoute, 100)
+        .map(({ key, count }) => ({ route: key, count }));
+      summary.routeTableCrosstab = this._sortedEntries(this.stats.callsByRouteTable, 200)
+        .map(({ key, count }) => {
+          const i = key.lastIndexOf(' | ');
+          return { route: key.slice(0, i), table: key.slice(i + 3), count };
+        });
     }
 
     return summary;
@@ -301,6 +324,8 @@ class APITracker {
     // but endpoint keys can drift, and these two used to grow forever.
     this._boundMap(this.stats.callsByEndpoint, 1000);
     this._boundMap(this.stats.callsByTable, 500);
+    this._boundMap(this.stats.callsByRoute, 500);
+    this._boundMap(this.stats.callsByRouteTable, 2000);
   }
 
   _boundMap(map, maxEntries) {
@@ -318,6 +343,8 @@ class APITracker {
       callsByEndpoint: new Map(),
       callsByTable: new Map(),
       callsByMethod: new Map(),
+      callsByRoute: new Map(),        // 'GET /api/dtg/top-sellers' -> count
+      callsByRouteTable: new Map(),   // 'GET /api/dtg/top-sellers | DTG_Top_Sellers_2026' -> count
       callsByHour: new Map(),
       callsByDay: new Map(),
       // Caspio-bound requests that produced NO response, so Caspio never billed
@@ -330,6 +357,35 @@ class APITracker {
 }
 
 const tracker = new APITracker();
+
+// The label for the Caspio call being made right now: the Express route pattern
+// of the request in flight ('GET /api/sanmar-orders/status/:po'), an explicit
+// runWithLabel() label, or '__background__'.
+function currentRouteLabel() {
+  const store = routeContext.getStore();
+  if (!store) return LABEL_BACKGROUND;
+  if (store.label) return store.label;
+  const req = store.req;
+  if (!req) return LABEL_BACKGROUND;
+  const base = req.baseUrl || '';
+  const pattern = req.route && req.route.path ? base + req.route.path : base + (req.path || '');
+  return `${req.method} ${pattern}`;
+}
+
+// Express middleware: run the rest of the request inside a context that carries req.
+function routeContextMiddleware() {
+  return (req, res, next) => routeContext.run({ req }, () => next());
+}
+
+// For crons and scripts: attribute every Caspio call inside fn to `label`.
+function runWithLabel(label, fn) {
+  return routeContext.run({ label }, fn);
+}
+
+tracker.currentRouteLabel = currentRouteLabel;
+tracker.routeContextMiddleware = routeContextMiddleware;
+tracker.runWithLabel = runWithLabel;
+tracker.LABEL_BACKGROUND = LABEL_BACKGROUND;
 
 // ---------------------------------------------------------------------------
 // Global axios interceptor — the single counting path.
@@ -431,13 +487,18 @@ installOn(require('axios'));
 // which requires THIS module — running it inline would hit a half-initialised
 // require graph. By the next tick everything is resolved. start() is idempotent,
 // so server.js calling it explicitly is harmless.
-setImmediate(() => {
-  try {
-    require('./api-usage-rollup').start();
-  } catch (err) {
-    console.error('[API TRACKER] rollup auto-start failed:', err.message);
-  }
-});
+// Not under Jest: the deferred require fired after a test file's environment was torn
+// down and printed "You are trying to import a file after the Jest environment has been
+// torn down" on every suite that loads this module (2026-09-06).
+if (!process.env.JEST_WORKER_ID) {
+  setImmediate(() => {
+    try {
+      require('./api-usage-rollup').start();
+    } catch (err) {
+      console.error('[API TRACKER] rollup auto-start failed:', err.message);
+    }
+  });
+}
 
 tracker.installOn = installOn;
 tracker.deriveTarget = deriveTarget;

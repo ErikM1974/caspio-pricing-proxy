@@ -35,7 +35,7 @@ const DOMAIN = process.env.CASPIO_ACCOUNT_DOMAIN;
 // This account is v2-only: /rest/v3 404s for BOTH table design AND records, on new and
 // existing tables alike (verified 2026-07-25 against Sales_Reps_2026 / Commission_Payouts).
 // config.caspio.apiBaseUrl is v2 for the same reason — keep everything on v2 here.
-const V2 = `https://${DOMAIN}/rest/v2`;
+const V2 = `https://${DOMAIN}/integrations/rest/v3`;
 
 async function getToken() {
     const r = await axios.post(`https://${DOMAIN}/oauth/token`, new URLSearchParams({

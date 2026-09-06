@@ -90,7 +90,9 @@ test('discardResults streams rows to pageCallback without accumulating them', as
     });
     expect(rows).toEqual([]);
     expect(seen).toHaveLength(10);
-    expect(axios).toHaveBeenCalledTimes(3);
+    // 2026-09-06: the known total now stops the loop EXACTLY — the third (empty) page
+    // the full-page heuristic used to request is gone. Was 3.
+    expect(axios).toHaveBeenCalledTimes(2);
 });
 
 test('discardResults still surfaces strict truncation', async () => {

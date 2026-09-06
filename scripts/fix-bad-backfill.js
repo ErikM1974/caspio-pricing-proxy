@@ -18,7 +18,7 @@ require('dotenv').config();
 const axios = require('axios');
 const fs = require('fs');
 
-const CASPIO_BASE = 'https://c3eku948.caspio.com/rest/v2';
+const CASPIO_BASE = 'https://c3eku948.caspio.com/integrations/rest/v3';
 const CASPIO_CLIENT_ID = process.env.CASPIO_CLIENT_ID;
 const CASPIO_CLIENT_SECRET = process.env.CASPIO_CLIENT_SECRET;
 const TABLE = 'ManageOrders_Orders';

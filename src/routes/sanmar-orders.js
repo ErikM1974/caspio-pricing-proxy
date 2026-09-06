@@ -41,7 +41,7 @@ const {
 const { makeCaspioRequest, fetchAllCaspioPages } = require('../utils/caspio');
 // Batched reads + diff-before-write for every SanMar_Orders / _Order_Items /
 // _Shipments writer in this file (2026-09-06 Caspio quota reduction).
-const { SanmarBatch, loadSanmarBatch, buildShipmentRow } = require('../utils/sanmar-caspio-batch');
+const { SanmarBatch, loadSanmarBatch, buildShipmentRow, inClause } = require('../utils/sanmar-caspio-batch');
 
 // Cache: 15 min for allOpen (SanMar recommends max 3x/day)
 const orderCache = new NodeCache({ stdTTL: 900, checkperiod: 120 });
@@ -499,53 +499,57 @@ router.get('/lookup', async (req, res) => {
     if (style && orders.length === 0) {
       try {
         const baseStyle = style.replace(/_\d?[xX]+$/i, '').toUpperCase();
-        const itemResult = await makeCaspioRequest('GET',
+        // makeCaspioRequest already unwraps Caspio's Result envelope — it returns the ARRAY.
+        // The old `.Result` checks here were never true, so a style search silently found
+        // nothing (fixed 2026-09-06).
+        const itemRows = await makeCaspioRequest('GET',
           `/tables/${TABLES.items}/records`,
           { 'q.where': `Style='${xmlEscape(baseStyle)}'`, 'q.select': 'SanMar_PO', 'q.limit': 50 }
         );
-        if (itemResult && itemResult.Result) {
-          const pos = [...new Set(itemResult.Result.map(r => r.SanMar_PO))];
-          if (pos.length > 0) {
-            const poWhere = pos.map(p => `SanMar_PO='${xmlEscape(p)}'`).join(' OR ');
-            const orderResult = await makeCaspioRequest('GET',
-              `/tables/${TABLES.orders}/records`,
-              { 'q.where': poWhere, 'q.orderBy': 'Order_Date DESC' }
-            );
-            if (orderResult && orderResult.Result) {
-              orders = orderResult.Result;
-            }
-          }
+        const pos = [...new Set((Array.isArray(itemRows) ? itemRows : []).map(r => r.SanMar_PO).filter(Boolean))];
+        if (pos.length > 0) {
+          const orderRows = await makeCaspioRequest('GET',
+            `/tables/${TABLES.orders}/records`,
+            { 'q.where': inClause('SanMar_PO', pos), 'q.orderBy': 'Order_Date DESC' }
+          );
+          if (Array.isArray(orderRows)) orders = orderRows;
         }
       } catch (styleErr) {
         console.log('Style search error:', styleErr.message);
       }
     }
 
-    // For each order, fetch items and shipments
-    const enrichedOrders = [];
-    for (const order of orders.slice(0, 20)) {
-      const poNumber = order.SanMar_PO;
-      let items = [];
-      let shipments = [];
-
+    // Enrich the page with items + shipments: TWO reads for the whole page (SanMar_PO IN (...)),
+    // not two per order — a company search used to cost up to 41 calls (2026-09-06). The same
+    // `.Result` bug as above meant items and shipments always came back EMPTY before.
+    const page = orders.slice(0, 20);
+    const pagePos = [...new Set(page.map(o => o && o.SanMar_PO).filter(Boolean))];
+    const itemsByPo = new Map();
+    const shipmentsByPo = new Map();
+    if (pagePos.length > 0) {
       try {
-        const itemResult = await makeCaspioRequest('GET',
-          `/tables/${TABLES.items}/records`,
-          { 'q.where': `SanMar_PO='${xmlEscape(poNumber)}'` }
-        );
-        if (itemResult && itemResult.Result) items = itemResult.Result;
+        const itemRows = await fetchAllCaspioPages(`/tables/${TABLES.items}/records`,
+          { 'q.where': inClause('SanMar_PO', pagePos), 'q.orderBy': 'PK_ID', 'q.limit': 1000 });
+        for (const r of (itemRows || [])) {
+          if (!itemsByPo.has(r.SanMar_PO)) itemsByPo.set(r.SanMar_PO, []);
+          itemsByPo.get(r.SanMar_PO).push(r);
+        }
       } catch (e) { /* no items yet */ }
-
       try {
-        const shipResult = await makeCaspioRequest('GET',
-          `/tables/${TABLES.shipments}/records`,
-          { 'q.where': `SanMar_PO='${xmlEscape(poNumber)}'` }
-        );
-        if (shipResult && shipResult.Result) shipments = shipResult.Result;
+        const shipRows = await fetchAllCaspioPages(`/tables/${TABLES.shipments}/records`,
+          { 'q.where': inClause('SanMar_PO', pagePos), 'q.orderBy': 'PK_ID', 'q.limit': 1000 });
+        for (const r of (shipRows || [])) {
+          if (!shipmentsByPo.has(r.SanMar_PO)) shipmentsByPo.set(r.SanMar_PO, []);
+          shipmentsByPo.get(r.SanMar_PO).push(r);
+        }
       } catch (e) { /* no shipments yet */ }
-
-      enrichedOrders.push({ ...order, items, shipments });
     }
+    const enrichedOrders = page.map(order => ({
+      ...order,
+      items: itemsByPo.get(order.SanMar_PO) || [],
+      shipments: shipmentsByPo.get(order.SanMar_PO) || []
+    }));
+
 
     res.json({ orders: enrichedOrders, count: enrichedOrders.length });
   } catch (error) {
@@ -2342,20 +2346,27 @@ router.get('/backfill-status', (req, res) => {
 // ── GET /status-summary — Monitoring: table counts, sync health, data quality ──
 router.get('/status-summary', async (req, res) => {
   try {
+    // Exact counts via COUNT(*) — ONE small read per table (2026-09-06). This used to read
+    // up to 1,000 PK_IDs per table and report .length, which silently capped every count at
+    // 1,000; two of these tables are already past that.
     const tableNames = [
       'SanMar_Orders', 'SanMar_Order_Items', 'SanMar_Shipments',
       'SanMar_Invoices', 'SanMar_Invoice_Items'
     ];
-
-    // Fetch a small set from each table to get counts
+    const countOf = async (t, where) => {
+      const rows = await makeCaspioRequest('GET', `/tables/${t}/records`,
+        Object.assign({ 'q.select': 'COUNT(*) AS N' }, where ? { 'q.where': where } : {}));
+      const n = Array.isArray(rows) && rows[0] ? parseInt(rows[0].N, 10) : NaN;
+      if (!Number.isFinite(n)) throw new Error(`COUNT(*) on ${t} returned ${JSON.stringify(rows).slice(0, 120)}`);
+      return n;
+    };
     const tableResults = await Promise.all(
       tableNames.map(t =>
-        makeCaspioRequest('GET', `/tables/${t}/records`, { 'q.select': 'PK_ID', 'q.limit': '1000' })
-          .then(r => ({ table: t, count: Array.isArray(r) ? r.length : 0, error: null }))
+        countOf(t)
+          .then(count => ({ table: t, count, error: null }))
           .catch(e => ({ table: t, count: 0, error: e.message }))
       )
     );
-
     const tables = {};
     for (const r of tableResults) {
       tables[r.table] = { rows: r.count, error: r.error };
@@ -2372,32 +2383,28 @@ router.get('/status-summary', async (req, res) => {
       }
     } catch (e) { /* ignore */ }
 
-    // Get order status distribution
+    // Order status distribution — one GROUP BY read, exact, instead of 1,000 rows tallied in JS.
     const statusCounts = {};
     try {
-      const allOrders = await makeCaspioRequest('GET', `/tables/${TABLES.orders}/records`, {
-        'q.select': 'SanMar_Status', 'q.limit': '1000'
+      const groups = await makeCaspioRequest('GET', `/tables/${TABLES.orders}/records`, {
+        'q.select': 'SanMar_Status, COUNT(*) AS N', 'q.groupBy': 'SanMar_Status'
       });
-      if (Array.isArray(allOrders)) {
-        for (const o of allOrders) {
-          const s = o.SanMar_Status || 'Unknown';
-          statusCounts[s] = (statusCounts[s] || 0) + 1;
-        }
+      for (const g of (Array.isArray(groups) ? groups : [])) {
+        const s = g.SanMar_Status || 'Unknown';
+        statusCounts[s] = (statusCounts[s] || 0) + (parseInt(g.N, 10) || 0);
       }
     } catch (e) { /* ignore */ }
 
-    // Data quality: items missing Unit_Price
+    // Data quality: items missing Unit_Price — an exact COUNT, not a capped page.
     let itemsMissingPrice = 0;
     try {
-      const missing = await makeCaspioRequest('GET', `/tables/${TABLES.items}/records`, {
-        'q.where': 'Unit_Price IS NULL', 'q.select': 'PK_ID', 'q.limit': '1000'
-      });
-      itemsMissingPrice = Array.isArray(missing) ? missing.length : 0;
+      itemsMissingPrice = await countOf(TABLES.items, 'Unit_Price IS NULL');
     } catch (e) { /* ignore */ }
 
     res.json({
       tables,
       lastSync,
+
       orderStatusDistribution: statusCounts,
       dataQuality: { itemsMissingUnitPrice: itemsMissingPrice },
       backfill: {
