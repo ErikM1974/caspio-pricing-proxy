@@ -18,7 +18,11 @@
 
 const express = require('express');
 const router = express.Router();
-const { fetchAllCaspioPages } = require('../utils/caspio');
+// Table reads go through the shared 15-min row cache (2026-09-06): this 143-row
+// table was read 456 times in one 14-hour window because only a CDN header
+// guarded it. ?refresh=true bypasses; /api/product-cache/clear empties it.
+const { readTopSellerRows } = require('../utils/top-sellers-cache');
+const { shouldBypass } = require('../utils/ttl-cache');
 
 const TABLE_NAME = 'DTG_Top_Sellers_2026';
 const RESOURCE = `/tables/${TABLE_NAME}/records`;
@@ -134,7 +138,7 @@ router.get('/dtg/top-sellers', async (req, res) => {
         // and within each style the most popular color first).
         params['q.orderBy'] = 'style_rank ASC, color_rank ASC';
 
-        const rawRecords = await fetchAllCaspioPages(RESOURCE, params);
+        const rawRecords = await readTopSellerRows(RESOURCE, params, { force: shouldBypass(req) });
         let records = rawRecords.map(shape);
 
         // Apply limit on STYLE rank (not row count) — limit=5 means top 5 styles
@@ -171,7 +175,7 @@ router.get('/dtg/top-sellers/styles', async (req, res) => {
         }
         params['q.orderBy'] = 'style_rank ASC, color_rank ASC';
 
-        const raw = await fetchAllCaspioPages(RESOURCE, params);
+        const raw = await readTopSellerRows(RESOURCE, params, { force: shouldBypass(req) });
 
         // Aggregate per-style — first occurrence (color_rank=1) holds the
         // top color which we expose as the "hero". Also accumulate top
@@ -258,7 +262,7 @@ router.get('/dtg/top-sellers/styles', async (req, res) => {
 // GET /api/dtg/top-sellers/categories — distinct categories with counts
 router.get('/dtg/top-sellers/categories', async (req, res) => {
     try {
-        const raw = await fetchAllCaspioPages(RESOURCE, { 'q.orderBy': 'style_rank ASC' });
+        const raw = await readTopSellerRows(RESOURCE, { 'q.orderBy': 'style_rank ASC' }, { force: shouldBypass(req) });
 
         const byCat = new Map();
         const stylesPerCat = new Map();
