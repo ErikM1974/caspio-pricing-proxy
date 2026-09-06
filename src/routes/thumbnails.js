@@ -8,7 +8,7 @@ const router = express.Router();
 const axios = require('axios');
 const multer = require('multer');
 const FormData = require('form-data');
-const { makeCaspioRequest, fetchAllCaspioPages, getCaspioAccessToken } = require('../utils/caspio');
+const { makeCaspioRequest, fetchAllCaspioPages, getCaspioAccessToken, postBulk } = require('../utils/caspio');
 const { uploadFileToBox } = require('../utils/box-client');
 const config = require('../../config');
 
@@ -1258,6 +1258,7 @@ router.post('/thumbnails/metadata-sync', async (req, res) => {
 
     let inserted = 0, updated = 0, errored = 0;
     const errors = [];
+    const toInsert = []; // rows the PUT did not match — inserted in one bulk call below
     const CONC = 5; // parallel waves — balance Heroku 30s router timeout vs Caspio API rate limit (429 at ~10+ calls/s burst, 2026-07-17)
 
     for (let i = 0; i < rows.length; i += CONC) {
@@ -1273,15 +1274,16 @@ router.post('/thumbnails/metadata-sync', async (req, res) => {
           { headers: H, params: { 'q.where': `ID_Serial=${id}` }, timeout: 15000 });
         if (((put.data && put.data.RecordsAffected) || 0) > 0) return { action: 'updated' };
 
-        // INSERT new record (Caspio PUT no-match = 200 RecordsAffected:0)
+        // NEW record (Caspio PUT no-match = 200 RecordsAffected:0): queue it — all the
+        // new rows go in ONE v4 bulk POST after the waves (2026-09-06), not one POST each.
         const orig = (raw.FileName == null ? '' : String(raw.FileName)).trim();
         const insertBody = Object.assign({ ID_Serial: id }, meta);
         if (orig) insertBody.FileName = thumbClean('FileName', `${id}_${orig}`);
-        await axios.post(`${base}/tables/${THUMB_TABLE}/records`, insertBody, { headers: H, timeout: 15000 });
-        return { action: 'inserted' };
+        toInsert.push(insertBody);
+        return { action: 'queued' };
       }));
       settled.forEach((s, j) => {
-        if (s.status === 'fulfilled') { s.value.action === 'inserted' ? inserted++ : updated++; }
+        if (s.status === 'fulfilled') { if (s.value.action === 'updated') updated++; }
         else {
           errored++;
           const e = s.reason;
@@ -1293,6 +1295,21 @@ router.post('/thumbnails/metadata-sync', async (req, res) => {
       // Inter-wave throttle: keep Caspio call rate ~7-8/s (429 at ~30/s burst, 2026-07-17).
       // 50-row chunks × 10 waves × ~1s ≈ 10-15s, safely under Heroku's 30s router limit.
       if (i + CONC < rows.length) await new Promise(r => setTimeout(r, 500));
+    }
+    if (toInsert.length) {
+      try {
+        const bulk = await postBulk(THUMB_TABLE, toInsert);
+        inserted += bulk.inserted;
+        for (const fail of bulk.failures) {
+          errored++;
+          errors.push({ ID_Serial: fail.row && fail.row.ID_Serial, error: String(fail.error || `status ${fail.status}`).slice(0, 300) });
+          console.error(`[thumb-meta] bulk insert row ${fail.row && fail.row.ID_Serial} failed:`, fail.error);
+        }
+      } catch (e) {
+        errored += toInsert.length;
+        errors.push({ ID_Serial: null, error: String(e.message).slice(0, 300) });
+        console.error('[thumb-meta] bulk insert failed:', e.message);
+      }
     }
 
     // Heartbeat (shared Sync_Heartbeats table; own Sync_Name)
