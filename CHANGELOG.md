@@ -1,3 +1,7 @@
+## v2026.09.06.5 (2026.09.06)
+
+- Correctness + call-budget sweep: lookup/status-summary bugs, v2 retired, route attribution, exact paging
+
 ## v2026.09.06.4 (2026.09.06)
 
 - Caspio v4 bulk insert: postBulk() helper, five insert loops now one request per 1,000 rows
