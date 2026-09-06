@@ -102,9 +102,17 @@ describe('the route and the writers implement it', () => {
         expect(block).toMatch(/dropship: totals\.dropship/);
     });
 
-    test('BOTH shipment writers persist city/state/zip, not just the street', () => {
-        // The route can only classify what the writer stored.
-        expect((SRC.match(/Ship_To_Zip: /g) || []).length).toBeGreaterThanOrEqual(2);
-        expect((SRC.match(/Ship_To_City: /g) || []).length).toBeGreaterThanOrEqual(2);
+    test('EVERY shipment writer persists city/state/zip, not just the street', () => {
+        // The route can only classify what the writer stored. Since 2026-09-06 the
+        // daily-sync and backfill writers build their row through ONE shared builder
+        // (utils/sanmar-caspio-batch.js buildShipmentRow); the OSN sweep still inlines
+        // its row. Pin all three: the builder carries the whole destination, both
+        // delegating writers actually call it, and the inline writer still has the keys.
+        const { buildShipmentRow } = require('../../src/utils/sanmar-caspio-batch');
+        const row = buildShipmentRow('113977', { trackingNumber: '1Z' }, {}, { address1: '10 Main', city: 'Sequim', region: 'WA', postalCode: '98382' });
+        expect(row).toMatchObject({ Ship_To_Address: '10 Main', Ship_To_City: 'Sequim', Ship_To_State: 'WA', Ship_To_Zip: '98382' });
+        expect((SRC.match(/buildShipmentRow\(/g) || []).length).toBeGreaterThanOrEqual(2); // pullAndStoreShipments + backfill Phase 5
+        expect((SRC.match(/Ship_To_Zip: /g) || []).length).toBeGreaterThanOrEqual(1);       // sweepRecentShipments (inline)
+        expect((SRC.match(/Ship_To_City: /g) || []).length).toBeGreaterThanOrEqual(1);
     });
 });
