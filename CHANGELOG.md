@@ -1,3 +1,7 @@
+## v2026.09.06.6 (2026.09.06)
+
+- policies: 5-minute cache on the public read routes, cleared by any admin write
+
 ## v2026.09.06.5 (2026.09.06)
 
 - Correctness + call-budget sweep: lookup/status-summary bugs, v2 retired, route attribution, exact paging
