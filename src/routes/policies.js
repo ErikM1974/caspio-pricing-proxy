@@ -11,6 +11,16 @@ const express = require('express');
 const axios = require('axios');
 const config = require('../../config');
 const { getCaspioAccessToken, fetchAllCaspioPages } = require('../utils/caspio');
+const { createTtlCache, shouldBypass, makeKey } = require('../utils/ttl-cache');
+
+// Public reads are cached for 5 minutes (2026-09-06). The staff dashboard's policy
+// page reads /api/policies-public/:policyId on every open — 46 Caspio reads in the
+// first hour of a dyno, one per request, for content that changes a few times a
+// week. Any successful admin write (POST/PUT/DELETE/move on /api/policies) clears
+// the whole cache, so an edit shows on the very next public read; a direct edit in
+// Caspio lands within five minutes. ?refresh=true bypasses; registered with
+// ttl-cache so /api/product-cache/clear empties it too. 404s are never cached.
+const publicCache = createTtlCache({ name: 'policies-public', ttlMs: 5 * 60 * 1000, maxEntries: 300 });
 
 const caspioApiBaseUrl = config.caspio.apiBaseUrl;
 const TABLE_NAME = 'Policies';
@@ -140,41 +150,62 @@ function buildTree(records) {
 function buildRouter({ publicOnly }) {
     const router = express.Router();
 
+    // Serve a cached payload for a public read, or build + cache it. `build` returns the
+    // payload, or null when it has already answered (a 404). Only the public router
+    // caches; the admin router always reads fresh.
+    async function respondCached(req, res, key, build) {
+        if (publicOnly && !shouldBypass(req)) {
+            const hit = publicCache.get(key);
+            if (hit !== undefined) return res.json(hit);
+        }
+        const payload = await build();
+        if (payload === null) return;
+        if (publicOnly) publicCache.set(key, payload);
+        return res.json(payload);
+    }
+
+    if (!publicOnly) {
+        // Any successful mutation through the admin router invalidates the public cache.
+        router.use((req, res, next) => {
+            if (['POST', 'PUT', 'DELETE'].includes(req.method)) {
+                res.on('finish', () => { if (res.statusCode < 300) publicCache.clear(); });
+            }
+            next();
+        });
+    }
+
     // GET /  - List policies with optional filters
     router.get('/', async (req, res) => {
         try {
-            const resource = `/tables/${TABLE_NAME}/records`;
-            const params = {};
-            const whereConditions = [];
-
-            if (publicOnly) {
-                whereConditions.push(`Status='Published'`);
-                whereConditions.push(`Is_Active=1`);
-            } else if (req.query.status) {
-                whereConditions.push(`Status='${sqlEscape(req.query.status)}'`);
-            }
-
-            if (req.query.category) {
-                whereConditions.push(`Category='${sqlEscape(req.query.category)}'`);
-            }
-
-            if (req.query.parent === 'null' || req.query.parent === '') {
-                whereConditions.push(`(Parent_Policy_ID IS NULL OR Parent_Policy_ID='')`);
-            } else if (req.query.parent) {
-                whereConditions.push(`Parent_Policy_ID='${sqlEscape(req.query.parent)}'`);
-            }
-
-            if (whereConditions.length > 0) {
-                params['q.where'] = whereConditions.join(' AND ');
-            }
-
-            params['q.orderBy'] = 'Category ASC, Sort_Order ASC, Title ASC';
-
-            const records = await fetchAllCaspioPages(resource, params);
-            res.json({
-                success: true,
-                count: records.length,
-                policies: records.map(toListShape)
+            const key = makeKey({ r: 'list', status: req.query.status || '', category: req.query.category || '', parent: req.query.parent ?? '' });
+            await respondCached(req, res, key, async () => {
+                const resource = `/tables/${TABLE_NAME}/records`;
+                const params = {};
+                const whereConditions = [];
+                if (publicOnly) {
+                    whereConditions.push(`Status='Published'`);
+                    whereConditions.push(`Is_Active=1`);
+                } else if (req.query.status) {
+                    whereConditions.push(`Status='${sqlEscape(req.query.status)}'`);
+                }
+                if (req.query.category) {
+                    whereConditions.push(`Category='${sqlEscape(req.query.category)}'`);
+                }
+                if (req.query.parent === 'null' || req.query.parent === '') {
+                    whereConditions.push(`(Parent_Policy_ID IS NULL OR Parent_Policy_ID='')`);
+                } else if (req.query.parent) {
+                    whereConditions.push(`Parent_Policy_ID='${sqlEscape(req.query.parent)}'`);
+                }
+                if (whereConditions.length > 0) {
+                    params['q.where'] = whereConditions.join(' AND ');
+                }
+                params['q.orderBy'] = 'Category ASC, Sort_Order ASC, Title ASC';
+                const records = await fetchAllCaspioPages(resource, params);
+                return {
+                    success: true,
+                    count: records.length,
+                    policies: records.map(toListShape)
+                };
             });
         } catch (error) {
             console.error('[policies] list error:', error.message);
@@ -182,27 +213,26 @@ function buildRouter({ publicOnly }) {
         }
     });
 
-    // GET /tree  - Hierarchical view
+
     router.get('/tree', async (req, res) => {
         try {
-            const resource = `/tables/${TABLE_NAME}/records`;
-            const params = {};
-            const whereConditions = [];
-
-            if (publicOnly) {
-                whereConditions.push(`Status='Published'`);
-                whereConditions.push(`Is_Active=1`);
-            }
-
-            if (whereConditions.length > 0) {
-                params['q.where'] = whereConditions.join(' AND ');
-            }
-
-            const records = await fetchAllCaspioPages(resource, params);
-            res.json({
-                success: true,
-                count: records.length,
-                tree: buildTree(records)
+            await respondCached(req, res, makeKey({ r: 'tree' }), async () => {
+                const resource = `/tables/${TABLE_NAME}/records`;
+                const params = {};
+                const whereConditions = [];
+                if (publicOnly) {
+                    whereConditions.push(`Status='Published'`);
+                    whereConditions.push(`Is_Active=1`);
+                }
+                if (whereConditions.length > 0) {
+                    params['q.where'] = whereConditions.join(' AND ');
+                }
+                const records = await fetchAllCaspioPages(resource, params);
+                return {
+                    success: true,
+                    count: records.length,
+                    tree: buildTree(records)
+                };
             });
         } catch (error) {
             console.error('[policies] tree error:', error.message);
@@ -210,7 +240,7 @@ function buildRouter({ publicOnly }) {
         }
     });
 
-    // GET /search?q=foo  - Title + Body_Plain LIKE search
+
     router.get('/search', async (req, res) => {
         const q = String(req.query.q || '').trim();
         if (!q) {
@@ -254,27 +284,25 @@ function buildRouter({ publicOnly }) {
     router.get('/:policyId', async (req, res) => {
         try {
             const policyId = sqlEscape(req.params.policyId);
-            const params = { 'q.where': `${PRIMARY_KEY}='${policyId}'`, 'q.limit': 1 };
-
-            if (publicOnly) {
-                params['q.where'] += ` AND Status='Published' AND Is_Active=1`;
-            }
-
-            const records = await fetchAllCaspioPages(`/tables/${TABLE_NAME}/records`, params);
-            if (records.length === 0) {
-                return res.status(404).json({ success: false, error: 'Policy not found' });
-            }
-            res.json({ success: true, policy: records[0] });
+            await respondCached(req, res, makeKey({ r: 'detail', id: policyId }), async () => {
+                const params = { 'q.where': `${PRIMARY_KEY}='${policyId}'`, 'q.limit': 1 };
+                if (publicOnly) {
+                    params['q.where'] += ` AND Status='Published' AND Is_Active=1`;
+                }
+                const records = await fetchAllCaspioPages(`/tables/${TABLE_NAME}/records`, params);
+                if (records.length === 0) {
+                    res.status(404).json({ success: false, error: 'Policy not found' });
+                    return null; // never cache a miss — the policy may be published a minute later
+                }
+                return { success: true, policy: records[0] };
+            });
         } catch (error) {
             console.error('[policies] detail error:', error.message);
             res.status(500).json({ success: false, error: 'Failed to fetch policy' });
         }
     });
 
-    // ------------------------------------------------------------------------
-    // Write operations — only available on the admin-mounted router.
-    // The publicOnly router rejects these to keep responsibilities clear.
-    // ------------------------------------------------------------------------
+
     if (publicOnly) {
         router.post('/', (req, res) => res.status(403).json({ success: false, error: 'Read-only endpoint' }));
         router.put('/:policyId', (req, res) => res.status(403).json({ success: false, error: 'Read-only endpoint' }));
