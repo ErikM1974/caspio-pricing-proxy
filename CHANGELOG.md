@@ -1,3 +1,7 @@
+## v2026.09.06.2 (2026.09.06)
+
+- SanMar sync: batched Caspio reads + diff-before-write for orders, items, cartons
+
 ## v2026.09.06.1 (2026.09.06)
 
 - Caspio quota: cache the top-sellers tables and the four uncached Embroidery_Costs routes
