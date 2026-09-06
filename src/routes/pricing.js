@@ -8,7 +8,8 @@ const { createTtlCache, shouldBypass, makeKey } = require('../utils/ttl-cache');
 const {
   getSizeUpchargeRows, getSizeDisplayOrderRows,
   getPricingTierRows, getPricingRuleRows, getLocationRows,
-  getTransferFreightRows, getCostTableRows
+  getTransferFreightRows, getCostTableRows,
+  getEmbroideryCostRows, clearEmbroideryCostCache
 } = require('../utils/caspio-static-tables');
 
 // Rate limiter scoped to pricing routes only (not all /api routes)
@@ -220,9 +221,9 @@ router.get('/embroidery-costs', async (req, res) => {
 
   try {
     const whereClause = `ItemType='${itemType}' AND StitchCount=${stitchCountInt}`;
-    const records = await fetchAllCaspioPages('/tables/Embroidery_Costs/records', {
-      'q.where': whereClause
-    });
+    // 15-min cached read (2026-09-06): same query, one Caspio call per window
+    // per (itemType, stitchCount) instead of one per request. ?refresh=true bypasses.
+    const records = await getEmbroideryCostRows(whereClause, { force: shouldBypass(req) });
     console.log(`Embroidery costs: ${records.length} record(s) found`);
     res.json(records);
   } catch (error) {
@@ -238,6 +239,7 @@ router.post('/embroidery-costs', async (req, res) => {
   try {
     const result = await makeCaspioRequest('post', '/tables/Embroidery_Costs/records', {}, req.body);
     console.log('Embroidery cost record created:', result);
+    clearEmbroideryCostCache(); // the four cached GETs must see this row on their next read
     res.status(201).json(result);
   } catch (error) {
     console.error('Error creating embroidery cost record:', error.message);
@@ -255,6 +257,7 @@ router.put('/embroidery-costs/:id', async (req, res) => {
     const result = await makeCaspioRequest('put', '/tables/Embroidery_Costs/records',
       { 'q.where': `EmbroideryCostID=${id}` }, req.body);
     console.log('Embroidery cost record updated:', result);
+    clearEmbroideryCostCache();
     res.json({ message: 'Embroidery cost record updated successfully', updated: result });
   } catch (error) {
     console.error('Error updating embroidery cost record:', error.message);
@@ -271,6 +274,7 @@ router.delete('/embroidery-costs/:id', async (req, res) => {
     const result = await makeCaspioRequest('delete', '/tables/Embroidery_Costs/records',
       { 'q.where': `EmbroideryCostID=${id}` });
     console.log('Embroidery cost record deleted:', result);
+    clearEmbroideryCostCache();
     res.json({ message: 'Embroidery cost record deleted successfully', recordsAffected: result.RecordsAffected || 0 });
   } catch (error) {
     console.error('Error deleting embroidery cost record:', error.message);
@@ -287,11 +291,12 @@ router.get('/contract-pricing', async (req, res) => {
   console.log('GET /api/contract-pricing requested');
 
   try {
-    // Fetch CTR pricing from Embroidery_Costs table
+    // Fetch CTR pricing from Embroidery_Costs table (15-min cached read, 2026-09-06)
     // ItemType: CTR-Garmt (garments), CTR-Cap (caps), CTR-FB (full back)
-    const records = await fetchAllCaspioPages('/tables/Embroidery_Costs/records', {
-      'q.where': "ItemType='CTR-Garmt' OR ItemType='CTR-Cap' OR ItemType='CTR-FB'"
-    });
+    const records = await getEmbroideryCostRows(
+      "ItemType='CTR-Garmt' OR ItemType='CTR-Cap' OR ItemType='CTR-FB'",
+      { force: shouldBypass(req) }
+    );
 
     // If no CTR records exist in Caspio, return 404 error (no silent fallbacks!)
     if (records.length === 0) {
@@ -385,9 +390,11 @@ router.get('/decg-pricing', async (req, res) => {
     // Fetch DECG pricing from Embroidery_Costs table
     // ItemType can be: DECG-Garmt, DECG-Cap, DECG-FB (Full Back)
     // Note: Caspio REST API doesn't support LIKE with wildcards, so use explicit OR conditions
-    const records = await fetchAllCaspioPages('/tables/Embroidery_Costs/records', {
-      'q.where': "ItemType='DECG-Garmt' OR ItemType='DECG-Cap' OR ItemType='DECG-FB'"
-    });
+    // 15-min cached read (2026-09-06) — this route alone was ~8% of all proxy requests.
+    const records = await getEmbroideryCostRows(
+      "ItemType='DECG-Garmt' OR ItemType='DECG-Cap' OR ItemType='DECG-FB'",
+      { force: shouldBypass(req) }
+    );
 
     // If no DECG records exist in Caspio, return 404 error (no silent fallbacks!)
     if (records.length === 0) {
@@ -447,10 +454,11 @@ router.get('/al-pricing', async (req, res) => {
 
   try {
     // Fetch AL pricing from Embroidery_Costs table
-    // ItemType can be: AL, AL-CAP, CB, CS, FB
-    const records = await fetchAllCaspioPages('/tables/Embroidery_Costs/records', {
-      'q.where': "ItemType='AL' OR ItemType='AL-CAP' OR ItemType='CB' OR ItemType='CS' OR ItemType='FB'"
-    });
+    // ItemType can be: AL, AL-CAP, CB, CS, FB (15-min cached read, 2026-09-06)
+    const records = await getEmbroideryCostRows(
+      "ItemType='AL' OR ItemType='AL-CAP' OR ItemType='CB' OR ItemType='CS' OR ItemType='FB'",
+      { force: shouldBypass(req) }
+    );
 
     // If no AL records exist in Caspio, return 404 error (no silent fallbacks!)
     if (records.length === 0) {

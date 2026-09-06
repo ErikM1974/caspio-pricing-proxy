@@ -19,7 +19,11 @@
 
 const express = require('express');
 const router = express.Router();
-const { fetchAllCaspioPages } = require('../utils/caspio');
+// Table reads go through the shared 15-min row cache (2026-09-06): this 15-row
+// table was read 557 times in one 14-hour window because only a CDN header
+// guarded it. ?refresh=true bypasses; /api/product-cache/clear empties it.
+const { readTopSellerRows } = require('../utils/top-sellers-cache');
+const { shouldBypass } = require('../utils/ttl-cache');
 
 const TABLE_NAME = 'Safety_Stripe_Top_Sellers_2026';
 const RESOURCE = `/tables/${TABLE_NAME}/records`;
@@ -105,7 +109,7 @@ router.get('/safety-stripes/top-sellers', async (req, res) => {
     if (where.length) params['q.where'] = where.join(' AND ');
     params['q.orderBy'] = 'style_rank ASC, color_rank ASC';
 
-    let records = (await fetchAllCaspioPages(RESOURCE, params)).filter(isActiveRow).map(shape);
+    let records = (await readTopSellerRows(RESOURCE, params, { force: shouldBypass(req) })).filter(isActiveRow).map(shape);
 
     const limit = parseInt(req.query.limit, 10);
     if (Number.isFinite(limit) && limit > 0) {
@@ -134,7 +138,7 @@ router.get('/safety-stripes/top-sellers/styles', async (req, res) => {
     if (req.query.category) params['q.where'] = `category='${sanitize(req.query.category)}'`;
     params['q.orderBy'] = 'style_rank ASC, color_rank ASC';
 
-    const raw = (await fetchAllCaspioPages(RESOURCE, params)).filter(isActiveRow);
+    const raw = (await readTopSellerRows(RESOURCE, params, { force: shouldBypass(req) })).filter(isActiveRow);
 
     // Aggregate per style; carry up to 3 safety colors inline so the card can
     // render swatches without a second round-trip.

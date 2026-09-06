@@ -181,19 +181,58 @@ async function getCostTableRows(costMethod, opts = {}) {
   return cachedBundleRows(`cost:${costMethod}`, spec[0], spec[1], opts);
 }
 
+// ---------------------------------------------------------------------------
+// Embroidery_Costs reads for the four /api/pricing routes that had NO cache
+// (2026-09-06 Caspio quota reduction): /embroidery-costs, /contract-pricing,
+// /decg-pricing, /al-pricing. Every other consumer of this table (the bundle
+// cost-table above, catalog-display-price, decorated-cap-prices, the full-back
+// ladder) was already cached, and the table was still the single largest on the
+// meter — 2,209 reads in one 14-hour window for a 237-row table.
+//
+// Keyed on the exact WHERE clause the route sends, so Caspio does the filtering
+// and a filtered read can never serve another filter's rows. 15-min TTL
+// (PRICE_TABLE_TTL_MS): these are the rows Erik edits, same promise as the bundle.
+// The proxy's own POST/PUT/DELETE /embroidery-costs handlers clear this cache so
+// an edit made THROUGH the proxy shows on the next read; an edit made directly in
+// Caspio lands within the window, as it already did for the bundle.
+const embroideryCostCache = new Map(); // where -> { rows, timestamp }
+
+async function getEmbroideryCostRows(where, { force = false } = {}) {
+  const now = Date.now();
+  if (!force) {
+    const hit = embroideryCostCache.get(where);
+    if (hit && (now - hit.timestamp) < PRICE_TABLE_TTL_MS) return hit.rows;
+  }
+  const rows = await fetchAllCaspioPages('/tables/Embroidery_Costs/records', { 'q.where': where });
+  // Only pin non-empty reads — the routes 404 on an empty set by design, and that
+  // answer must come from Caspio each time, not from a pinned miss.
+  if (Array.isArray(rows) && rows.length > 0) {
+    embroideryCostCache.set(where, { rows, timestamp: now });
+  }
+  return rows;
+}
+
+function clearEmbroideryCostCache() {
+  const dropped = embroideryCostCache.size;
+  embroideryCostCache.clear();
+  return dropped;
+}
+
 function clearStaticTableCaches() {
   const cleared = {
     'standard-size-upcharges': upchargeCache ? 1 : 0,
     'size-display-order': sizeOrderCache ? 1 : 0,
     'dtg-pricing-tiers': dtgTierCache ? 1 : 0,
     'dtg-costs': dtgCostCache ? 1 : 0,
-    'pricing-bundle-tables': bundleTableCache.size
+    'pricing-bundle-tables': bundleTableCache.size,
+    'embroidery-costs': embroideryCostCache.size
   };
   upchargeCache = null;
   sizeOrderCache = null;
   dtgTierCache = null;
   dtgCostCache = null;
   bundleTableCache.clear();
+  embroideryCostCache.clear();
   return cleared;
 }
 
@@ -207,5 +246,7 @@ module.exports = {
   getLocationRows,
   getTransferFreightRows,
   getCostTableRows,
+  getEmbroideryCostRows,
+  clearEmbroideryCostCache,
   clearStaticTableCaches
 };

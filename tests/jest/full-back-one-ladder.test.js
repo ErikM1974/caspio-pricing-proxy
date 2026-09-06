@@ -22,6 +22,7 @@ jest.mock('../../src/utils/caspio', () => ({
 const express = require('express');
 const pricingRouter = require('../../src/routes/pricing');
 const { getFullBackLadder } = pricingRouter;
+const { clearStaticTableCaches } = require('../../src/utils/caspio-static-tables');
 
 /** The live DECG-FB rows, verified against Caspio 2026-08-15. */
 const DECG_FB_ROWS = [
@@ -40,8 +41,10 @@ const DECG_GARMENT_ROWS = [
 
 beforeEach(() => {
   mockFetchAllCaspioPages.mockReset();
-  // Bust the module-level 15-min ladder cache between tests.
-  jest.isolateModules(() => {});
+  // Bust the 15-min Embroidery_Costs read cache between tests (2026-09-06): the
+  // decg / contract / al routes now read through caspio-static-tables, and the
+  // "LTM comes from Caspio" test below feeds DIFFERENT rows to the same query.
+  clearStaticTableCaches();
 });
 
 // The contract and AL endpoints 404 early if their own ItemTypes return nothing, so
