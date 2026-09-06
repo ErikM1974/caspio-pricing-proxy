@@ -374,7 +374,12 @@ function installOn(instance) {
       // traffic and must never be able to trigger more metering.
       // (api-usage-rollup counts its own writes separately, outside the tracker.)
       if (url && isCaspioUrl(url) && !cfg._skipMeter) {
-        const { endpoint, table } = deriveTarget(url);
+        // v4 paths carry a six-character tableId, not the name. A caller that knows
+        // the name tags the request with `_caspioTable` so the breakdown stays by
+        // table name (utils/caspio.js postBulk does this).
+        const { endpoint, table } = cfg._caspioTable
+          ? { endpoint: `/tables/${cfg._caspioTable}/records/bulk`, table: cfg._caspioTable }
+          : deriveTarget(url);
         tracker.trackCall(endpoint, table, (cfg.method || 'get').toUpperCase());
       }
     } catch (err) {

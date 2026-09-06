@@ -8,13 +8,16 @@
 //   4023 Gamma  — stored 75 / 1 but no 2026 orders any more → reset to 0 → CHANGED.
 // Archive window (days 55-60): Beta's 57d order is already archived, Alpha's 58d is not.
 // Expect: 2 per-row PUTs, ONE bulk stamp PUT for Beta, one archive range read,
-// one archive POST, and no per-customer archive GETs.
+// ONE bulk insert carrying the one missing customer-day, and no per-customer
+// archive GETs or POSTs.
 
 const mockFetchAllCaspioPages = jest.fn();
 const mockMakeCaspioRequest = jest.fn();
+const mockPostBulk = jest.fn();
 jest.mock('../../src/utils/caspio', () => ({
   fetchAllCaspioPages: (...a) => mockFetchAllCaspioPages(...a),
   makeCaspioRequest: (...a) => mockMakeCaspioRequest(...a),
+  postBulk: (...a) => mockPostBulk(...a),
   getCaspioAccessToken: jest.fn(async () => 'tok'),
 }));
 
@@ -63,6 +66,8 @@ beforeEach(() => {
   mockFetchAllCaspioPages.mockReset();
   mockMakeCaspioRequest.mockReset();
   mockMakeCaspioRequest.mockResolvedValue({ RecordsAffected: 1 });
+  mockPostBulk.mockReset();
+  mockPostBulk.mockImplementation(async (table, rows) => ({ table, calls: 1, inserted: rows.length, failed: 0, failures: [], pkIds: [] }));
   mockAxios.mockClear();
   mockFetchOrders.mockReset();
   serve({
@@ -88,7 +93,7 @@ const puts = () => mockAxios.mock.calls.map(([c]) => c).filter(c => c.method ===
 const posts = () => mockAxios.mock.calls.map(([c]) => c).filter(c => c.method === 'post');
 const stamps = () => mockMakeCaspioRequest.mock.calls.filter(([m]) => m === 'put');
 
-test('changed accounts are PUT one by one; the unchanged one is bulk-stamped; archive is deduped by one read', async () => {
+test('changed accounts are PUT one by one; the unchanged one is bulk-stamped; archive is one read + one bulk insert', async () => {
   const r = await post('/api/taneisha-accounts/sync-sales');
   expect(r.status).toBe(200);
   expect(r.body.success).toBe(true);
@@ -108,19 +113,22 @@ test('changed accounts are PUT one by one; the unchanged one is bulk-stamped; ar
   expect(stamps()[0][2]['q.where']).toBe('ID_Customer IN (4022)');
   expect(Object.keys(stamps()[0][3])).toEqual(['Last_Sync_Date']);
 
-  // Archive step: the YTD-totals read plus ONE range read, zero per-customer existence GETs,
-  // and only the not-yet-archived customer-day (Alpha, 58d) is POSTed.
+  // Archive step: the YTD-totals read plus ONE range read, zero per-customer GETs, zero per-row POSTs,
+  // and ONE bulk insert carrying only the not-yet-archived customer-day (Alpha, 58d).
   const archiveReads = mockFetchAllCaspioPages.mock.calls.filter(([res]) => res.includes('Daily_Sales_By_Account'));
   expect(archiveReads.map(([, prm]) => prm['q.select'])).toEqual([undefined, 'SalesDate,CustomerID']);
-  expect(posts()).toHaveLength(1);
-  expect(posts()[0].data).toMatchObject({ SalesDate: mockDaysAgo(58), CustomerID: '4021', CustomerName: 'Alpha Co', Revenue: 100, OrderCount: 1 });
+  expect(posts()).toHaveLength(0);
+  expect(mockPostBulk).toHaveBeenCalledTimes(1);
+  const [archiveTable, archiveRows] = mockPostBulk.mock.calls[0];
+  expect(archiveTable).toBe('Taneisha_Daily_Sales_By_Account');
+  expect(archiveRows).toEqual([{ SalesDate: mockDaysAgo(58), CustomerID: '4021', CustomerName: 'Alpha Co', Revenue: 100, OrderCount: 1 }]);
 
   // Reported counts: processed = changed + stamped (what the nightly script reads), plus the split.
   expect(r.body).toMatchObject({ accountsUpdated: 3, accountsChanged: 2, accountsUnchanged: 1, accountsFailed: 0, customerRecordsArchived: 1 });
   expect(r.body.caspio).toEqual({ accountPuts: 2, stampCalls: 1, archiveReads: 1 });
 });
 
-test('a quiet day (nothing moved) is one stamp call, and accountsUpdated still counts every account', async () => {
+test('a quiet day (nothing moved, everything archived) is one stamp call and no insert', async () => {
   serve({
     accounts: [ALPHA, BETA],
     orders: BASE_ORDERS,
@@ -130,6 +138,7 @@ test('a quiet day (nothing moved) is one stamp call, and accountsUpdated still c
   expect(r.status).toBe(200);
   expect(puts()).toHaveLength(0);
   expect(posts()).toHaveLength(0);
+  expect(mockPostBulk).not.toHaveBeenCalled();
   expect(stamps()).toHaveLength(1);
   expect(stamps()[0][2]['q.where']).toBe('ID_Customer IN (4021,4022)');
   expect(r.body).toMatchObject({ accountsUpdated: 2, accountsChanged: 0, accountsUnchanged: 2, customerRecordsArchived: 0 });
@@ -142,4 +151,11 @@ test('a failed bulk stamp is reported as a failure, not swallowed', async () => 
   expect(r.body.success).toBe(false);
   expect(r.body.accountsFailed).toBe(1);
   expect(r.body.accountsUpdated).toBe(2); // the two per-row PUTs still counted; the stamped one is not
+});
+
+test('a partial archive insert (207) reports the inserted count honestly', async () => {
+  mockPostBulk.mockResolvedValue({ calls: 1, inserted: 0, failed: 1, failures: [{ index: 0, status: 400, error: 'bad' }], pkIds: [] });
+  const r = await post('/api/taneisha-accounts/sync-sales');
+  expect(r.status).toBe(200);
+  expect(r.body.customerRecordsArchived).toBe(0);
 });

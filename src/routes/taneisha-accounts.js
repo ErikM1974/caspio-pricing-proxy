@@ -5,7 +5,7 @@ const express = require('express');
 const axios = require('axios');
 const router = express.Router();
 const config = require('../../config');
-const { getCaspioAccessToken, fetchAllCaspioPages } = require('../utils/caspio');
+const { getCaspioAccessToken, fetchAllCaspioPages, postBulk } = require('../utils/caspio');
 // sync-sales: PUT only accounts whose numbers changed, bulk-stamp Last_Sync_Date on the
 // rest, dedupe the archive step with one range read (2026-09-06 Caspio quota reduction).
 const { accountChanged, stampLastSync, loadArchivedKeys, archiveKey } = require('../utils/crm-sales-sync');
@@ -914,6 +914,7 @@ router.post('/taneisha-accounts/sync-sales', express.json(), async (req, res) =>
         try {
             // What is already archived for days 55-60 — ONE range read, not a GET per customer-day.
             const archivedKeys = await loadArchivedKeys(ARCHIVE_TABLE, getDateDaysAgo(60), getDateDaysAgo(55));
+            const archiveRows = []; // every not-yet-archived customer-day → ONE bulk POST below
 
             // Archive days 55-60
             for (let daysAgo = 55; daysAgo <= 60; daysAgo++) {
@@ -937,23 +938,13 @@ router.post('/taneisha-accounts/sync-sales', express.json(), async (req, res) =>
                         for (const customer of customersToArchive) {
                             // Already archived? (archivedKeys — one read per run, see above)
                             if (!archivedKeys.has(archiveKey(archiveDate, customer.customerId))) {
-                                await axios({
-                                    method: 'post',
-                                    url: `${caspioApiBaseUrl}/tables/${ARCHIVE_TABLE}/records`,
-                                    headers: {
-                                        'Authorization': `Bearer ${token}`,
-                                        'Content-Type': 'application/json'
-                                    },
-                                    data: {
-                                        SalesDate: archiveDate,
-                                        CustomerID: String(customer.customerId),
-                                        CustomerName: customer.customerName,
-                                        Revenue: customer.revenue,
-                                        OrderCount: customer.orderCount
-                                    },
-                                    timeout: 10000
+                                archiveRows.push({
+                                    SalesDate: archiveDate,
+                                    CustomerID: String(customer.customerId),
+                                    CustomerName: customer.customerName,
+                                    Revenue: customer.revenue,
+                                    OrderCount: customer.orderCount
                                 });
-                                customersArchived++;
                                 archivedKeys.add(archiveKey(archiveDate, customer.customerId));
                             }
                         }
@@ -963,6 +954,12 @@ router.post('/taneisha-accounts/sync-sales', express.json(), async (req, res) =>
                         console.warn(`Could not archive ${archiveDate}:`, archivePostError.message);
                     }
                 }
+            }
+            // One v4 bulk insert for every queued customer-day (2026-09-06), not a POST each.
+            if (archiveRows.length > 0) {
+                const bulk = await postBulk(ARCHIVE_TABLE, archiveRows);
+                customersArchived = bulk.inserted;
+                if (bulk.failed > 0) console.warn(`Archive bulk insert: ${bulk.failed} of ${archiveRows.length} rows failed`, bulk.failures.slice(0, 3));
             }
         } catch (archiveError) {
             console.warn('Error during archiving (continuing):', archiveError.message);

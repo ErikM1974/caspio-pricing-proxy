@@ -6,7 +6,7 @@ const express = require('express');
 const axios = require('axios');
 const router = express.Router();
 const config = require('../../config');
-const { getCaspioAccessToken, fetchAllCaspioPages } = require('../utils/caspio');
+const { getCaspioAccessToken, fetchAllCaspioPages, postBulk } = require('../utils/caspio');
 // sync-sales archive step: one range read instead of a GET per customer-day (2026-09-06).
 const { loadArchivedKeys, archiveKey } = require('../utils/crm-sales-sync');
 
@@ -384,6 +384,7 @@ router.post('/house-accounts/sync-sales', express.json(), async (req, res) => {
             const token = await getCaspioAccessToken();
             // What is already archived for days 55-60 — ONE range read, not a GET per customer-day.
             const archivedKeys = await loadArchivedKeys(ARCHIVE_TABLE, getDateDaysAgo(60), getDateDaysAgo(55));
+            const archiveRows = []; // every not-yet-archived customer-day → ONE bulk POST below
 
             for (let daysAgo = 55; daysAgo <= 60; daysAgo++) {
                 const archiveDate = getDateDaysAgo(daysAgo);
@@ -394,24 +395,14 @@ router.post('/house-accounts/sync-sales', express.json(), async (req, res) => {
                         try {
                             // Already archived? (archivedKeys — one read per run, see above)
                             if (!archivedKeys.has(archiveKey(archiveDate, custId))) {
-                                await axios({
-                                    method: 'post',
-                                    url: `${caspioApiBaseUrl}/tables/${ARCHIVE_TABLE}/records`,
-                                    headers: {
-                                        'Authorization': `Bearer ${token}`,
-                                        'Content-Type': 'application/json'
-                                    },
-                                    data: {
-                                        SalesDate: archiveDate,
-                                        CustomerID: String(custId),
-                                        CustomerName: data.customerName,
-                                        AssignedTo: data.assignedTo,
-                                        Revenue: data.revenue,
-                                        OrderCount: data.orderCount
-                                    },
-                                    timeout: 10000
+                                archiveRows.push({
+                                    SalesDate: archiveDate,
+                                    CustomerID: String(custId),
+                                    CustomerName: data.customerName,
+                                    AssignedTo: data.assignedTo,
+                                    Revenue: data.revenue,
+                                    OrderCount: data.orderCount
                                 });
-                                customersArchived++;
                                 archivedKeys.add(archiveKey(archiveDate, custId));
                             }
                         } catch (archivePostError) {
@@ -421,6 +412,12 @@ router.post('/house-accounts/sync-sales', express.json(), async (req, res) => {
                     daysArchived++;
                     console.log(`Archived ${archiveDate}: ${customersForDay.size} customers`);
                 }
+            }
+            // One v4 bulk insert for every queued customer-day (2026-09-06), not a POST each.
+            if (archiveRows.length > 0) {
+                const bulk = await postBulk(ARCHIVE_TABLE, archiveRows);
+                customersArchived = bulk.inserted;
+                if (bulk.failed > 0) console.warn(`Archive bulk insert: ${bulk.failed} of ${archiveRows.length} rows failed`, bulk.failures.slice(0, 3));
             }
         } catch (archiveError) {
             console.warn('Error during archiving (continuing):', archiveError.message);

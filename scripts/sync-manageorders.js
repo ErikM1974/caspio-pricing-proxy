@@ -31,6 +31,8 @@ if (process.env.CASPIO_ACCOUNT_DOMAIN) {
 }
 
 const axios = require('axios');
+// v4 bulk insert for the line-item repost (one call per 1,000 rows instead of one per row).
+const { postBulk } = require('../src/utils/caspio');
 
 const BASE_URL = process.env.BASE_URL || 'https://caspio-pricing-proxy-ab30a049961a.herokuapp.com';
 const CASPIO_BASE = 'https://c3eku948.caspio.com/rest/v2';
@@ -412,10 +414,20 @@ async function syncLineItems(orderId, existingRows, order) {
     );
   } catch (e) { /* OK if none exist */ }
 
+  const rows = [];
   for (const li of items) {
     const row = mapLineItem(li, orderId);
     if (LINEITEMS_EXTENDED) Object.assign(row, await extendedLineFields(li, orderId, order));
-    await caspioRequest('/tables/ManageOrders_LineItems/records', 'POST', row);
+    rows.push(row);
+  }
+  // ONE v4 bulk insert for the order's line items (2026-09-06). A per-row failure
+  // still throws, as the per-row POST did, so the caller's error handling is unchanged.
+  if (rows.length) {
+    const bulk = await postBulk('ManageOrders_LineItems', rows);
+    if (bulk.failed > 0) {
+      throw new Error(`Caspio bulk POST ManageOrders_LineItems (order ${orderId}): ${bulk.failed} of ${rows.length} rows failed: ` +
+        bulk.failures.slice(0, 3).map(x => `row ${x.index} status ${x.status} ${x.error || ''}`).join('; '));
+    }
   }
   return { count: items.length, skipped: false };
 }

@@ -409,9 +409,115 @@ async function putWithRecordsAffected(resourcePath, where, data) {
   return response.data || {};
 }
 
+// ─── v4 bulk insert (2026-09-06 Caspio quota reduction) ─────────────────────
+// The ONE thing REST v4 adds that removes billed calls: POST /v4/tables/{id}/
+// records/bulk takes an ARRAY of up to 1,000 rows in one request. v3's POST body
+// is a single object, so every insert loop in this proxy paid one call per row.
+// Everything else stays on v3 — v4 reads cost the same and would need every call
+// site to switch from table names to six-character table ids.
+//
+// v4 quirks this helper absorbs (all verified live 2026-09-06):
+//   • the path takes the tableId, never the name → resolved from GET /v4/tables
+//     (one call per process, refreshed once on a miss) and refused if unknown
+//   • 201 = every row created, body { PK_ID: [...] }
+//   • 207 = partial, body adds data[] with per-row { status, PK_ID, error }
+//   • the same bearer token works on v3 and v4
+// The request config carries _caspioTable so the meter attributes the call to
+// the table NAME instead of the id (see utils/api-tracker.js countFrom).
+const V4_BASE = () => `https://${config.caspio.domain}/integrations/rest/v4`;
+const BULK_MAX_ROWS = 1000;
+let tableIdCache = null; // Map lower-cased name -> tableId
+
+async function loadTableIds() {
+  const token = await getCaspioAccessToken();
+  const resp = await axios({
+    method: 'get',
+    url: `${V4_BASE()}/tables?pageSize=1000`,
+    headers: { Authorization: `Bearer ${token}` },
+    timeout: config.timeouts.perRequest,
+    _caspioTable: '__v4_tables__'
+  });
+  const map = new Map();
+  for (const t of ((resp.data && resp.data.data) || [])) {
+    if (t && t.name && t.tableId) map.set(String(t.name).toLowerCase(), t.tableId);
+  }
+  tableIdCache = map;
+  return map;
+}
+
+// Name -> six-character v4 tableId. A wrong id would write the WRONG TABLE
+// silently, so an unknown name throws instead of guessing.
+async function resolveTableId(tableName) {
+  const key = String(tableName || '').toLowerCase();
+  if (!key) throw new Error('resolveTableId: table name is required');
+  let map = tableIdCache || await loadTableIds();
+  if (!map.has(key)) map = await loadTableIds();          // created since this process started?
+  const id = map.get(key);
+  if (!id) throw new Error(`No Caspio table named "${tableName}" (v4 table list has ${map.size} tables)`);
+  return id;
+}
+
+/**
+ * Insert many rows with one request per 1,000 rows.
+ * @param {string} tableName  Caspio table NAME (resolved to the v4 id here)
+ * @param {object[]} rows     flat field/value objects, editable fields only
+ * @param {{chunkSize?: number, echo?: boolean}} [opts]
+ * @returns {{table, tableId, calls, inserted, failed, pkIds: string[], failures: {index,status,error,row}[]}}
+ *   Per-row failures (a 207) are RETURNED, not thrown, so a caller can report
+ *   them row by row. A whole-request failure (400/401/404/5xx) throws with the
+ *   response body in the message.
+ */
+async function postBulk(tableName, rows, { chunkSize = BULK_MAX_ROWS, echo = false } = {}) {
+  if (!Array.isArray(rows)) throw new Error('postBulk: rows must be an array');
+  const size = Math.min(Math.max(parseInt(chunkSize, 10) || BULK_MAX_ROWS, 1), BULK_MAX_ROWS);
+  const out = { table: tableName, tableId: null, calls: 0, inserted: 0, failed: 0, pkIds: [], failures: [] };
+  if (rows.length === 0) return out;
+  out.tableId = await resolveTableId(tableName);
+  const token = await getCaspioAccessToken();
+  const url = `${V4_BASE()}/tables/${out.tableId}/records/bulk${echo ? '?echo=true' : ''}`;
+  for (let i = 0; i < rows.length; i += size) {
+    const chunk = rows.slice(i, i + size);
+    let resp;
+    try {
+      resp = await axios({
+        method: 'post',
+        url,
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        data: chunk,
+        timeout: config.timeouts.perRequest,
+        validateStatus: (s) => s === 201 || s === 207,
+        _caspioTable: tableName
+      });
+    } catch (err) {
+      const status = err.response && err.response.status;
+      const body = err.response && err.response.data ? JSON.stringify(err.response.data).slice(0, 500) : err.message;
+      throw new Error(`postBulk ${tableName} rows ${i}-${i + chunk.length - 1}: ${status || 'no response'} ${body}`);
+    }
+    out.calls++;
+    const body = resp.data || {};
+    const pkIds = Array.isArray(body.PK_ID) ? body.PK_ID : [];
+    out.pkIds.push(...pkIds);
+    if (Array.isArray(body.data) && body.data.length) {
+      body.data.forEach((item, j) => {
+        if (item && item.status === 201) out.inserted++;
+        else { out.failed++; out.failures.push({ index: i + j, status: item && item.status, error: item && item.error, row: chunk[j] }); }
+      });
+    } else {
+      out.inserted += resp.status === 201 ? chunk.length : pkIds.length;
+    }
+  }
+  return out;
+}
+
+// Tests only — forget the cached name->id map.
+function _resetTableIdCache() { tableIdCache = null; }
+
 module.exports = {
   getCaspioAccessToken,
   makeCaspioRequest,
   fetchAllCaspioPages,
-  putWithRecordsAffected
+  putWithRecordsAffected,
+  postBulk,
+  resolveTableId,
+  _resetTableIdCache
 };

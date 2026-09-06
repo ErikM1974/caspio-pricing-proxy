@@ -19,7 +19,7 @@
 
 const express = require('express');
 const router = express.Router();
-const { makeCaspioRequest, fetchAllCaspioPages } = require('../utils/caspio');
+const { makeCaspioRequest, fetchAllCaspioPages, postBulk } = require('../utils/caspio');
 
 const TABLE = '/tables/Quote_Change_Log/records';
 
@@ -106,9 +106,8 @@ router.post('/quote_change_log', express.json({ limit: '1mb' }), async (req, res
   try {
     const body = req.body;
     const items = Array.isArray(body) ? body : [body];
-
-    const results = [];
     const errors = [];
+    const rows = [];
     for (const item of items) {
       // Minimal validation — QuoteID + FieldName + ChangedAt required
       if (!item.QuoteID || !item.FieldName || !item.ChangedAt) {
@@ -118,16 +117,24 @@ router.post('/quote_change_log', express.json({ limit: '1mb' }), async (req, res
       // Strip any client-sent PK_ID (Caspio auto-generates)
       const data = { ...item };
       delete data.PK_ID;
+      rows.push(data);
+    }
+    // One v4 bulk insert for the whole body (≤1,000 rows per call) instead of a
+    // POST per row (2026-09-06). Per-row failures come back as 207 items.
+    let created = 0;
+    if (rows.length) {
       try {
-        const result = await makeCaspioRequest('post', TABLE, {}, data);
-        results.push(result);
+        const result = await postBulk('Quote_Change_Log', rows);
+        created = result.inserted;
+        for (const fail of result.failures) errors.push({ item: fail.row, error: fail.error || `status ${fail.status}` });
       } catch (e) {
-        errors.push({ item, error: e.message });
+        for (const row of rows) errors.push({ item: row, error: e.message });
       }
     }
+
     res.status(errors.length === 0 ? 201 : 207).json({
       success: errors.length === 0,
-      created: results.length,
+      created,
       errorCount: errors.length,
       errors: errors.length ? errors : undefined,
     });
