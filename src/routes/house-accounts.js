@@ -7,6 +7,8 @@ const axios = require('axios');
 const router = express.Router();
 const config = require('../../config');
 const { getCaspioAccessToken, fetchAllCaspioPages } = require('../utils/caspio');
+// sync-sales archive step: one range read instead of a GET per customer-day (2026-09-06).
+const { loadArchivedKeys, archiveKey } = require('../utils/crm-sales-sync');
 
 const caspioApiBaseUrl = config.caspio.apiBaseUrl;
 const TABLE_NAME = 'House_Accounts';
@@ -380,6 +382,8 @@ router.post('/house-accounts/sync-sales', express.json(), async (req, res) => {
 
         try {
             const token = await getCaspioAccessToken();
+            // What is already archived for days 55-60 — ONE range read, not a GET per customer-day.
+            const archivedKeys = await loadArchivedKeys(ARCHIVE_TABLE, getDateDaysAgo(60), getDateDaysAgo(55));
 
             for (let daysAgo = 55; daysAgo <= 60; daysAgo++) {
                 const archiveDate = getDateDaysAgo(daysAgo);
@@ -388,13 +392,8 @@ router.post('/house-accounts/sync-sales', express.json(), async (req, res) => {
                 if (customersForDay && customersForDay.size > 0) {
                     for (const [custId, data] of customersForDay) {
                         try {
-                            // Check if already archived
-                            const existing = await fetchAllCaspioPages(`/tables/${ARCHIVE_TABLE}/records`, {
-                                'q.where': `SalesDate='${archiveDate}' AND CustomerID='${custId}'`,
-                                'q.limit': 1
-                            });
-
-                            if (existing.length === 0) {
+                            // Already archived? (archivedKeys — one read per run, see above)
+                            if (!archivedKeys.has(archiveKey(archiveDate, custId))) {
                                 await axios({
                                     method: 'post',
                                     url: `${caspioApiBaseUrl}/tables/${ARCHIVE_TABLE}/records`,
@@ -413,6 +412,7 @@ router.post('/house-accounts/sync-sales', express.json(), async (req, res) => {
                                     timeout: 10000
                                 });
                                 customersArchived++;
+                                archivedKeys.add(archiveKey(archiveDate, custId));
                             }
                         } catch (archivePostError) {
                             console.warn(`Could not archive ${archiveDate}/${custId}:`, archivePostError.message);
