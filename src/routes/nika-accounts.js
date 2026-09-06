@@ -6,6 +6,9 @@ const axios = require('axios');
 const router = express.Router();
 const config = require('../../config');
 const { getCaspioAccessToken, fetchAllCaspioPages } = require('../utils/caspio');
+// sync-sales: PUT only accounts whose numbers changed, bulk-stamp Last_Sync_Date on the
+// rest, dedupe the archive step with one range read (2026-09-06 Caspio quota reduction).
+const { accountChanged, stampLastSync, loadArchivedKeys, archiveKey } = require('../utils/crm-sales-sync');
 
 const caspioApiBaseUrl = config.caspio.apiBaseUrl;
 const TABLE_NAME = 'Nika_All_Accounts_Caspio';
@@ -816,7 +819,9 @@ router.post('/nika-accounts/sync-sales', express.json(), async (req, res) => {
         const token = await getCaspioAccessToken();
         const today = getTodayDate();
         const syncTimestamp = new Date().toISOString(); // Full timestamp for Last_Sync_Date
-        let updatedCount = 0;
+        let updatedCount = 0;   // accounts processed (changed PUTs + bulk-stamped) — what the nightly script reads
+        let changedCount = 0;   // accounts whose YTD / count / last-order actually moved
+        const unchangedIds = []; // stamped with Last_Sync_Date in bulk below, no per-row PUT
         let errorCount = 0;
 
         // Get all customer IDs that have either archived or fresh data
@@ -855,6 +860,14 @@ router.post('/nika-accounts/sync-sales', express.json(), async (req, res) => {
                     updateData.Last_Order_Date = fresh.lastOrderDate;
                 }
 
+                // Unchanged since the last run (cents / count / calendar day) → no per-row
+                // PUT. Last_Sync_Date is refreshed for these in one bulk PUT after the loop.
+                if (!accountChanged(accountMap.get(customerId), updateData)) {
+                    unchangedIds.push(customerId);
+                    continue;
+                }
+                changedCount++;
+
                 const url = `${caspioApiBaseUrl}/tables/${TABLE_NAME}/records?q.where=${PRIMARY_KEY}=${customerId}`;
 
                 await axios({
@@ -875,12 +888,30 @@ router.post('/nika-accounts/sync-sales', express.json(), async (req, res) => {
             }
         }
 
+        // Step 5b: one where-clause PUT per 200 unchanged accounts refreshes their
+        // Last_Sync_Date (the dashboards read it as "last synced"), instead of a PUT each.
+        let stampCalls = 0;
+        if (unchangedIds.length > 0) {
+            try {
+                const stamp = await stampLastSync(TABLE_NAME, PRIMARY_KEY, unchangedIds, syncTimestamp);
+                stampCalls = stamp.calls;
+                updatedCount += unchangedIds.length;
+            } catch (stampError) {
+                console.error('Bulk Last_Sync_Date stamp failed:', stampError.message);
+                errorCount++;
+            }
+        }
+        console.log(`Accounts: ${changedCount} changed (PUT each), ${unchangedIds.length} unchanged (${stampCalls} bulk stamp call(s))`);
+
         // Step 6: Archive days 55-60 (soon to expire from ManageOrders)
         let daysArchived = 0;
         let customersArchived = 0;
         console.log('Step 6: Archiving days 55-60 (before they expire from ManageOrders)...');
 
         try {
+            // What is already archived for days 55-60 — ONE range read, not a GET per customer-day.
+            const archivedKeys = await loadArchivedKeys(ARCHIVE_TABLE, getDateDaysAgo(60), getDateDaysAgo(55));
+
             // Archive days 55-60
             for (let daysAgo = 55; daysAgo <= 60; daysAgo++) {
                 const archiveDate = getDateDaysAgo(daysAgo);
@@ -901,13 +932,8 @@ router.post('/nika-accounts/sync-sales', express.json(), async (req, res) => {
                     // Post to archive table
                     try {
                         for (const customer of customersToArchive) {
-                            // Check if already archived
-                            const existing = await fetchAllCaspioPages(`/tables/${ARCHIVE_TABLE}/records`, {
-                                'q.where': `SalesDate='${archiveDate}' AND CustomerID='${customer.customerId}'`,
-                                'q.limit': 1
-                            });
-
-                            if (existing.length === 0) {
+                            // Already archived? (archivedKeys — one read per run, see above)
+                            if (!archivedKeys.has(archiveKey(archiveDate, customer.customerId))) {
                                 await axios({
                                     method: 'post',
                                     url: `${caspioApiBaseUrl}/tables/${ARCHIVE_TABLE}/records`,
@@ -925,6 +951,7 @@ router.post('/nika-accounts/sync-sales', express.json(), async (req, res) => {
                                     timeout: 10000
                                 });
                                 customersArchived++;
+                                archivedKeys.add(archiveKey(archiveDate, customer.customerId));
                             }
                         }
                         daysArchived++;
@@ -950,6 +977,9 @@ router.post('/nika-accounts/sync-sales', express.json(), async (req, res) => {
                 : 'Hybrid sales sync completed (Archive + Fresh = True YTD)',
             ordersProcessed: orders.length,
             accountsUpdated: updatedCount,
+            accountsChanged: changedCount,
+            accountsUnchanged: unchangedIds.length,
+            caspio: { accountPuts: changedCount, stampCalls, archiveReads: 1 },
             accountsFailed: errorCount,
             archivedCustomers: archivedByCustomer.size,
             freshCustomers: freshSalesByCustomer.size,
