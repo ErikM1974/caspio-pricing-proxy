@@ -1,3 +1,7 @@
+## v2026.09.06.1 (2026.09.06)
+
+- Caspio quota: cache the top-sellers tables and the four uncached Embroidery_Costs routes
+
 ## v2026.09.05.3 (2026.09.05)
 
 - customer-portal-access: POST /touch-login stamps LastLogin on a customer magic-link sign-in (mirrors vendor-portal-access) — the staff console's Have Signed In / Last Sign-In had been 0 / Never since launch
