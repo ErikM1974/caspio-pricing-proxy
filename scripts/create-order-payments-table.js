@@ -19,7 +19,7 @@ const axios = require('axios');
 
 const DOMAIN = process.env.CASPIO_ACCOUNT_DOMAIN;
 const V3 = `https://${DOMAIN}/rest/v3`;
-const V2 = `https://${DOMAIN}/rest/v2`;
+const V2 = `https://${DOMAIN}/integrations/rest/v3`;
 
 async function getToken() {
   const r = await axios.post(`https://${DOMAIN}/oauth/token`, new URLSearchParams({

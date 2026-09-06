@@ -1534,29 +1534,25 @@ router.delete('/art-requests/:designId/analysis/:mockupSlot', async (req, res) =
             return res.json({ deleted: 0, message: 'No analysis found for this slot' });
         }
 
+        // Two where-clause DELETEs (2026-09-06): every print location for this design + slot
+        // (by parent id OR by the fallback design+slot keys), then every analysis row. Caspio
+        // answers RecordsAffected, so the counts are exact — 2 calls instead of 2 + N + M.
         let deletedAnalysis = 0;
         let deletedLocations = 0;
-
-        // Delete ALL child print locations for this Design_ID + slot (catches both PK_ID and fallback format)
+        const sq = (v) => String(v == null ? '' : v).replace(/'/g, "''");
+        const slotWhere = `Design_ID='${sq(designId)}' AND Mockup_Slot='${sq(mockupSlot)}'`;
         try {
-            const allLocations = await fetchAllCaspioPages('/tables/Mockup_Print_Locations/records', {
-                'q.where': `Design_ID='${designId}' AND Mockup_Slot='${mockupSlot}'`,
-                'q.select': 'PK_ID'
-            }, { maxPages: 1 });
-
-            for (const loc of allLocations) {
-                await makeCaspioRequest('delete', `/tables/Mockup_Print_Locations/records`, { 'q.where': `PK_ID=${loc.PK_ID}` });
-                deletedLocations++;
-            }
+            const analysisIds = analyses.map(a => String(a.PK_ID)).filter(id => id && id !== 'undefined');
+            const locWhere = analysisIds.length
+                ? `(${slotWhere}) OR Analysis_ID IN (${analysisIds.map(id => `'${sq(id)}'`).join(',')})`
+                : slotWhere;
+            const r = await makeCaspioRequest('delete', '/tables/Mockup_Print_Locations/records', { 'q.where': locWhere });
+            deletedLocations = (r && r.RecordsAffected) || 0;
         } catch (e) {
             console.warn('Could not delete print locations for slot', mockupSlot, e.message);
         }
-
-        // Delete all analysis records for this slot
-        for (const record of analyses) {
-            await makeCaspioRequest('delete', `/tables/Mockup_AI_Analysis/records`, { 'q.where': `PK_ID=${record.PK_ID}` });
-            deletedAnalysis++;
-        }
+        const r2 = await makeCaspioRequest('delete', '/tables/Mockup_AI_Analysis/records', { 'q.where': slotWhere });
+        deletedAnalysis = (r2 && r2.RecordsAffected) || 0;
 
         console.log(`Deleted ${deletedAnalysis} analysis record(s) and ${deletedLocations} print location(s)`);
         res.json({ deleted: deletedAnalysis, deletedLocations });

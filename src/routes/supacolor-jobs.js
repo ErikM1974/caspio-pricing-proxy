@@ -303,12 +303,15 @@ async function updateJob(token, idJob, data) {
     const clean = stripFields(data, READ_ONLY_JOB_FIELDS);
     // Status is a free-form string (see insertJob comment).
     if (Object.keys(clean).length === 0) return null;
-    const url = `${caspioApiBaseUrl}/tables/${TABLE_JOBS}/records?q.where=ID_Job=${parseInt(idJob, 10)}`;
-    await axios.put(url, clean, {
+    // ?response=rows makes the PUT return the updated row, so there is no read-back GET
+    // (2026-09-06): every update used to cost two calls. A fetch only if Caspio omits the row.
+    const url = `${caspioApiBaseUrl}/tables/${TABLE_JOBS}/records?q.where=ID_Job=${parseInt(idJob, 10)}&response=rows`;
+    const resp = await axios.put(url, clean, {
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
         timeout: 15000
     });
-    return await fetchJobById(token, idJob);
+    const updated = (resp.data && Array.isArray(resp.data.Result) && resp.data.Result[0]) || null;
+    return updated || await fetchJobById(token, idJob);
 }
 
 // ── Job CRUD ──────────────────────────────────────────────────────────
@@ -415,20 +418,22 @@ router.get('/supacolor-jobs/stats', async (req, res) => {
         }
 
         const resource = `/tables/${TABLE_JOBS}/records`;
-        const records = await fetchAllCaspioPages(resource, {
-            'q.select': 'Status',
-            'q.orderBy': 'PK_ID', // stable pagination — table crossed 1,000 rows; unordered reads drop rows
-            'q.pageSize': 1000
+        // One GROUP BY read (2026-09-06) instead of a full paginated scan of every row
+        // (2+ pages every cache miss) just to produce three counters.
+        const groups = await fetchAllCaspioPages(resource, {
+            'q.select': 'Status, COUNT(*) AS N',
+            'q.groupBy': 'Status'
         });
-        // Active = anything that isn't Closed or Cancelled (covers Open, Ganged,
-        // In Production, Ready to Ship, and any other status Supacolor uses).
         const stats = { Active: 0, Closed: 0, Cancelled: 0 };
-        records.forEach(r => {
-            if (r.Status === 'Closed') stats.Closed++;
-            else if (r.Status === 'Cancelled') stats.Cancelled++;
-            else stats.Active++;
-        });
-        const payload = { success: true, stats, total: records.length };
+        let total = 0;
+        for (const g of (groups || [])) {
+            const n = parseInt(g.N, 10) || 0;
+            total += n;
+            if (g.Status === 'Closed') stats.Closed += n;
+            else if (g.Status === 'Cancelled') stats.Cancelled += n;
+            else stats.Active += n;
+        }
+        const payload = { success: true, stats, total };
         statsCache.set(STATS_CACHE_KEY, payload);
         res.json(payload);
     } catch (error) {

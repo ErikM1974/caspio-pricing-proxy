@@ -22,7 +22,9 @@ function getClient() {
 }
 
 // Caspio helper (reuse from caspio.js)
-const { makeCaspioRequest } = require('./caspio');
+const { makeCaspioRequest , postBulk } = require('./caspio');
+// SQL string escape for the where-clauses below (a design id or slot with a quote must not break them).
+const sq = (v) => String(v == null ? '' : v).replace(/'/g, "''");
 
 const VISION_PROMPT = `Analyze this apparel mockup image. This is a production mockup created by a custom apparel company.
 
@@ -200,42 +202,29 @@ async function analyzeMockupImage(imageBuffer, mimeType, metadata) {
             console.warn(`[Vision] ${validationNotes}`);
         }
 
-        // Clean up old analysis + print locations for this Design_ID + slot before inserting new
+        // Clean up old analysis + print locations for this Design_ID + slot before inserting new.
+        // (2026-09-06) Two where-clause DELETEs instead of 2 reads + a DELETE per row. The old
+        // code read `.Result` off makeCaspioRequest, which already unwraps it, so this cleanup
+        // had silently never run — every re-analysis stacked another set of rows.
         try {
-            const oldRecords = await makeCaspioRequest('get', `/tables/${ANALYSIS_TABLE}/records`, {
-                'q.where': `Design_ID='${designId}' AND Mockup_Slot='${slotField}'`,
+            const slotWhere = `Design_ID='${sq(designId)}' AND Mockup_Slot='${sq(slotField)}'`;
+            const oldAnalyses = await makeCaspioRequest('get', `/tables/${ANALYSIS_TABLE}/records`, {
+                'q.where': slotWhere,
                 'q.select': 'PK_ID'
             });
-            const oldAnalyses = (oldRecords && oldRecords.Result) || [];
-            for (const old of oldAnalyses) {
-                // Delete child print locations first
-                try {
-                    const oldLocs = await makeCaspioRequest('get', `/tables/${PRINT_LOCATIONS_TABLE}/records`, {
-                        'q.where': `Analysis_ID='${old.PK_ID}'`,
-                        'q.select': 'PK_ID'
-                    });
-                    const locRecords = (oldLocs && oldLocs.Result) || [];
-                    for (const loc of locRecords) {
-                        await makeCaspioRequest('delete', `/tables/${PRINT_LOCATIONS_TABLE}/records`, { 'q.where': `PK_ID=${loc.PK_ID}` });
-                    }
-                } catch (e) { /* ignore */ }
-                // Also clean up fallback-format Analysis_IDs in print locations
-                try {
-                    const fallbackLocs = await makeCaspioRequest('get', `/tables/${PRINT_LOCATIONS_TABLE}/records`, {
-                        'q.where': `Design_ID='${designId}' AND Mockup_Slot='${slotField}'`,
-                        'q.select': 'PK_ID'
-                    });
-                    const fbRecords = (fallbackLocs && fallbackLocs.Result) || [];
-                    for (const loc of fbRecords) {
-                        await makeCaspioRequest('delete', `/tables/${PRINT_LOCATIONS_TABLE}/records`, { 'q.where': `PK_ID=${loc.PK_ID}` });
-                    }
-                } catch (e) { /* ignore */ }
-                // Delete old parent
-                await makeCaspioRequest('delete', `/tables/${ANALYSIS_TABLE}/records`, { 'q.where': `PK_ID=${old.PK_ID}` });
+            const oldIds = (Array.isArray(oldAnalyses) ? oldAnalyses : []).map(r => String(r.PK_ID)).filter(id => id && id !== 'undefined');
+            // Children: by parent id (real Analysis_IDs) OR by design + slot (the fallback-format ids).
+            const locWhere = oldIds.length
+                ? `(${slotWhere}) OR Analysis_ID IN (${oldIds.map(id => `'${sq(id)}'`).join(',')})`
+                : slotWhere;
+            const locDel = await makeCaspioRequest('delete', `/tables/${PRINT_LOCATIONS_TABLE}/records`, { 'q.where': locWhere });
+            const parentDel = await makeCaspioRequest('delete', `/tables/${ANALYSIS_TABLE}/records`, { 'q.where': slotWhere });
+            const removedParents = (parentDel && parentDel.RecordsAffected) || 0;
+            const removedLocs = (locDel && locDel.RecordsAffected) || 0;
+            if (removedParents > 0 || removedLocs > 0) {
+                console.log(`[Vision] Cleaned up ${removedParents} old analysis record(s) and ${removedLocs} print location(s) for Design #${designId} slot ${slotField}`);
             }
-            if (oldAnalyses.length > 0) {
-                console.log(`[Vision] Cleaned up ${oldAnalyses.length} old analysis record(s) for Design #${designId} slot ${slotField}`);
-            }
+
         } catch (cleanupErr) {
             console.warn('[Vision] Cleanup of old records failed (non-blocking):', cleanupErr.message);
         }
@@ -273,45 +262,47 @@ async function analyzeMockupImage(imageBuffer, mimeType, metadata) {
             PMS_Colors: extracted.pms_colors_all || ''
         };
 
-        const parentResult = await makeCaspioRequest('post', `/tables/${ANALYSIS_TABLE}/records`, {}, analysisRecord);
+        // { response: 'rows' } makes Caspio return the created row, so the children can link
+        // to the REAL PK_ID (2026-09-06). The old `.Result.PK_ID` read was never populated,
+        // which is why every location ever written carries the "<design>_<timestamp>" fallback id.
+        const parentResult = await makeCaspioRequest('post', `/tables/${ANALYSIS_TABLE}/records`, { response: 'rows' }, analysisRecord);
         console.log(`[Vision] Saved parent analysis to Caspio for Design #${designId} (${elapsed}ms)`);
 
-        // Get the parent PK_ID for linking child records
-        var parentId = '';
-        if (parentResult && parentResult.Result && parentResult.Result.PK_ID) {
-            parentId = String(parentResult.Result.PK_ID);
-        } else {
-            // Fallback: use designId + timestamp as a unique key
-            parentId = designId + '_' + Date.now();
-        }
+        // Get the parent PK_ID for linking child records — from the returned row; the
+        // design+timestamp fallback only if Caspio omitted it.
+        var parentId = (parentResult && parentResult.PK_ID) ? String(parentResult.PK_ID) : (designId + '_' + Date.now());
+
 
         // Save child records to Mockup_Print_Locations (if screen print)
         const locations = extracted.print_locations || [];
         if (locations.length > 0) {
             console.log(`[Vision] Saving ${locations.length} print location(s) for Design #${designId}`);
-            for (const loc of locations) {
-                try {
-                    const locationRecord = {
-                        Analysis_ID: parentId,
-                        Design_ID: String(designId),
-                        Mockup_Slot: slotField || '',
-                        Placement: (loc.placement || '').substring(0, 255),
-                        Ink_Colors: (loc.ink_colors || '').substring(0, 255),
-                        Num_Colors: String(loc.num_colors || ''),
-                        Screens: (loc.screens || '').toString(),
-                        Prints: (loc.prints || '').toString(),
-                        Flashes: (loc.flashes || '').toString(),
-                        PMS_Colors: (loc.pms_colors || '').substring(0, 255),
-                        Has_Flash: loc.has_flash || '',
-                        Print_Order: (loc.print_order || '').substring(0, 255)
-                    };
-                    await makeCaspioRequest('post', `/tables/${PRINT_LOCATIONS_TABLE}/records`, {}, locationRecord);
-                    console.log(`[Vision]   → Saved location: ${loc.placement} (${loc.ink_colors})`);
-                } catch (locErr) {
-                    console.warn(`[Vision]   → Failed to save location ${loc.placement}:`, locErr.message);
+            const rows = locations.map(loc => ({
+                Analysis_ID: parentId,
+                Design_ID: String(designId),
+                Mockup_Slot: slotField || '',
+                Placement: (loc.placement || '').substring(0, 255),
+                Ink_Colors: (loc.ink_colors || '').substring(0, 255),
+                Num_Colors: String(loc.num_colors || ''),
+                Screens: (loc.screens || '').toString(),
+                Prints: (loc.prints || '').toString(),
+                Flashes: (loc.flashes || '').toString(),
+                PMS_Colors: (loc.pms_colors || '').substring(0, 255),
+                Has_Flash: loc.has_flash || '',
+                Print_Order: (loc.print_order || '').substring(0, 255)
+            }));
+            // One v4 bulk insert for every location (2026-09-06), not a POST each.
+            try {
+                const bulk = await postBulk(PRINT_LOCATIONS_TABLE, rows);
+                for (const fail of bulk.failures) {
+                    console.warn(`[Vision]   → Failed to save location ${fail.row && fail.row.Placement}:`, fail.error);
                 }
+                console.log(`[Vision]   → Saved ${bulk.inserted} location(s)`);
+            } catch (locErr) {
+                console.warn('[Vision]   → Failed to save print locations:', locErr.message);
             }
         }
+
 
         return analysisRecord;
 

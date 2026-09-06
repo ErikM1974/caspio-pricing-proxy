@@ -51,6 +51,10 @@ app.use(pinoHttp({
   },
   redact: ['req.headers.authorization', 'req.headers.cookie', "req.headers['x-crm-api-secret']"],
 }));
+// Caspio call attribution by route (2026-09-06): every Caspio call made while this
+// request is handled is counted under its route pattern in /api/admin/metrics?full=1
+// (callsByRoute + routeTableCrosstab). See src/utils/api-tracker.js.
+app.use(require('./src/utils/api-tracker').routeContextMiddleware());
 
 // Extract configuration values
 const PORT = config.server.port;

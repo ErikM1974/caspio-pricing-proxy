@@ -8,7 +8,7 @@ require('dotenv').config();
 const axios = require('axios');
 
 const DOMAIN = process.env.CASPIO_ACCOUNT_DOMAIN;
-const V2 = `https://${DOMAIN}/rest/v2`;
+const V2 = `https://${DOMAIN}/integrations/rest/v3`;
 
 // Initial value 10 business days for every method — matches the public site
 // copy "ships in 7-10 business days". Conservative on purpose; tune down in Caspio.

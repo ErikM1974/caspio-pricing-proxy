@@ -22,8 +22,9 @@ const express = require('express');
 const axios = require('axios');
 const router = express.Router();
 
-// NOTE: use src/config (v3 base `/integrations/rest/v3`), NOT proxy-root config.js
-// (which is `/rest/v2`). The dataImportExportTasks management API only exists on v3.
+// NOTE: use src/config (v3 base `/integrations/rest/v3`). The proxy-root config.js
+// moved to the same v3 base on 2026-09-06 (it was `/rest/v2`); the
+// dataImportExportTasks management API only exists on v3 either way.
 const config = require('../config');
 const { getCaspioAccessToken } = require('../utils/caspio');
 

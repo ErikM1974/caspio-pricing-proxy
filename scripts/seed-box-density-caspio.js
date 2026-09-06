@@ -31,7 +31,7 @@ if (!DOMAIN || !CLIENT_ID || !CLIENT_SECRET) {
   console.error('Missing CASPIO_ACCOUNT_DOMAIN / CASPIO_CLIENT_ID / CASPIO_CLIENT_SECRET in .env');
   process.exit(1);
 }
-const BASE = `https://${DOMAIN}/rest/v2`;
+const BASE = `https://${DOMAIN}/integrations/rest/v3`;
 
 const UI_STEPS = `
   Could not create the table via API. Do the 2-minute UI import instead:

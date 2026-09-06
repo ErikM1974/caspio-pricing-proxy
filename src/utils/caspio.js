@@ -87,12 +87,19 @@ async function makeCaspioRequest(method, resourcePath, params = {}, data = null)
 
     // Handle different response types based on HTTP method and status
     if (method.toLowerCase() === 'post' && response.status === 201) {
-      // POST operations return 201 with empty body or location header
-      return { 
-        success: true, 
+      // POST answers 201 with an empty body, unless the caller passed { response: 'rows' }
+      // in params — then Caspio returns the created row in Result[]. Surface it: PK_ID
+      // from the row when present (the Location header is not always sent), the row
+      // itself under Result. Existing callers see the same {success,status,location,PK_ID}.
+      const rows = response.data && Array.isArray(response.data.Result) ? response.data.Result : null;
+      const created = rows && rows[0] ? rows[0] : null;
+      const fromLocation = response.headers.location ? response.headers.location.split('/').pop() : null;
+      return {
+        success: true,
         status: response.status,
         location: response.headers.location,
-        PK_ID: response.headers.location ? response.headers.location.split('/').pop() : null
+        PK_ID: created && created.PK_ID != null ? String(created.PK_ID) : fromLocation,
+        ...(rows ? { Result: rows } : {})
       };
     } else if (method.toLowerCase() === 'delete' && (response.status === 200 || response.status === 204)) {
       // DELETE — Caspio answers 200 {"RecordsAffected": N} even when q.where
@@ -174,6 +181,10 @@ async function fetchAllCaspioPages(resourcePath, initialParams = {}, options = {
   if (pageable) {
     params['q.pageSize'] = pageSize;
     params['q.pageNumber'] = 1;
+    // Ask Caspio for the true row count with page 1 (2026-09-06). It lets the loop
+    // stop EXACTLY: a result set that is a whole multiple of the page size used to cost
+    // one extra empty page, and the strict-mode truncation guard had to guess.
+    params['q.getPaginationInfo'] = true;
   } else {
     // Too small for Caspio to page. Ask once, return what comes back.
     params['q.limit'] = pageSize;
@@ -297,17 +308,24 @@ async function fetchAllCaspioPages(resourcePath, initialParams = {}, options = {
           }
         }
 
-        if (response.data && response.data.TotalRecords !== undefined) {
-          const totalRecords = response.data.TotalRecords;
-          const fetchedSoFar = fetchedCount;
-          console.log(`Page ${pageCount}: Fetched ${fetchedSoFar}/${totalRecords} records for ${resourcePath}`);
-          if (fetchedSoFar >= totalRecords) {
+        // The true total: v3 returns it as Pagination.TotalCount when q.getPaginationInfo
+        // is sent (TotalRecords is kept for any caller that shapes a response that way).
+        const knownTotal = response.data && response.data.Pagination
+          && Number.isFinite(response.data.Pagination.TotalCount)
+          ? response.data.Pagination.TotalCount
+          : (response.data && response.data.TotalRecords !== undefined ? response.data.TotalRecords : undefined);
+        if (knownTotal !== undefined) {
+          console.log(`Page ${pageCount}: Fetched ${fetchedCount}/${knownTotal} records for ${resourcePath}`);
+          if (fetchedCount >= knownTotal) {
             morePages = false;
           }
         }
 
         if (response.data && response.data.NextPageUrl) {
           nextPageUrl = response.data.NextPageUrl;
+        } else if (knownTotal !== undefined) {
+          // The total decided it above — no full-page guessing, no trailing empty call.
+          if (morePages) nextPageUrl = `${config.caspio.apiBaseUrl}${resourcePath}`;
         } else {
           // Fallback pagination for Caspio v3 API
           const resultsThisPage = response.data.Result ? response.data.Result.length : 0;
@@ -326,6 +344,7 @@ async function fetchAllCaspioPages(resourcePath, initialParams = {}, options = {
             morePages = false;
           }
         }
+
 
       } catch (pageError) {
         const status = pageError.response?.status;
