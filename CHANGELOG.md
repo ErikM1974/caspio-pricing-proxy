@@ -1,3 +1,7 @@
+## v2026.09.06.4 (2026.09.06)
+
+- Caspio v4 bulk insert: postBulk() helper, five insert loops now one request per 1,000 rows
+
 ## v2026.09.06.3 (2026.09.06)
 
 - CRM sync-sales: write only changed accounts, bulk-stamp Last_Sync_Date, dedupe the archive read
