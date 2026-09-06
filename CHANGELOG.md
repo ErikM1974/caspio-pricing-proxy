@@ -1,3 +1,7 @@
+## v2026.09.06.3 (2026.09.06)
+
+- CRM sync-sales: write only changed accounts, bulk-stamp Last_Sync_Date, dedupe the archive read
+
 ## v2026.09.06.2 (2026.09.06)
 
 - SanMar sync: batched Caspio reads + diff-before-write for orders, items, cartons
