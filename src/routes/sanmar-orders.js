@@ -39,6 +39,9 @@ const {
   parseInvoiceResponse
 } = require('../utils/sanmar-soap');
 const { makeCaspioRequest, fetchAllCaspioPages } = require('../utils/caspio');
+// Batched reads + diff-before-write for every SanMar_Orders / _Order_Items /
+// _Shipments writer in this file (2026-09-06 Caspio quota reduction).
+const { SanmarBatch, loadSanmarBatch, buildShipmentRow } = require('../utils/sanmar-caspio-batch');
 
 // Cache: 15 min for allOpen (SanMar recommends max 3x/day)
 const orderCache = new NodeCache({ stdTTL: 900, checkperiod: 120 });
@@ -120,8 +123,7 @@ const SANMAR_STATE_RANK = { shipped: 5, partial: 4, complete: 3, confirmed: 2, c
 // SAME logic the order-loop used inline — extracted so the catch-up can re-run it
 // for orders whose order-status never changed (and so were skipped by the
 // incremental order sync) but whose blanks have actually shipped.
-async function pullAndStoreShipments(po) {
-  let added = 0;
+async function pullAndStoreShipments(po, batch) {
   const shipSoapBody = buildShipmentRequest(1, { referenceNumber: po });
   const shipXml = await makeSoapRequest(ENDPOINTS.shipmentNotification, shipSoapBody, {
     timeout: 30000,
@@ -130,42 +132,21 @@ async function pullAndStoreShipments(po) {
   const shipError = checkSoapError(shipXml);
   if (shipError) return 0; // 160 = no shipments; any error → nothing to store
   const shipData = parseShipmentResponse(shipXml);
+  // ONE read of the cartons Caspio already holds for this PO — or none at all when the
+  // caller preloaded them into `batch` — then POST only the missing ones. This used to
+  // be an existence GET per package (2026-09-06 Caspio quota reduction).
+  const b = batch || new SanmarBatch();
+  await b.loadShipments([po]);
+  let added = 0;
   for (const shipment of shipData) {
     for (const so of shipment.salesOrders) {
       for (const loc of so.locations) {
         for (const pkg of loc.packages) {
           if (!pkg.trackingNumber) continue;
           try {
-            const trackWhere = `SanMar_PO='${xmlEscape(po)}' AND Tracking_Number='${xmlEscape(pkg.trackingNumber)}'`;
-            const existingTrack = await makeCaspioRequest('GET',
-              `/tables/${TABLES.shipments}/records`, { 'q.where': trackWhere });
-            if (Array.isArray(existingTrack) && existingTrack.length > 0) continue;
-            await makeCaspioRequest('POST', `/tables/${TABLES.shipments}/records`, {}, {
-              SanMar_PO: po,
-              Tracking_Number: pkg.trackingNumber,
-              Carrier: pkg.carrier || '',
-              Ship_Method: pkg.shipmentMethod || '',
-              Ship_Date: pkg.shipmentDate ? pkg.shipmentDate.split('T')[0] : '',
-              Ship_From_Warehouse: loc.shipFrom.city || '',
-              Ship_From_City: loc.shipFrom.city || '',
-              Ship_From_State: loc.shipFrom.region || '',
-              Ship_From_Zip: loc.shipFrom.postalCode || '',
-              Ship_From_Address: loc.shipFrom.address1 || '',
-              Ship_To_Address: loc.shipTo.address1 || '',
-              // The WHOLE destination, not just the street (2026-08-18). A drop-ship
-              // goes straight to the customer and never reaches Milton, so it must not
-              // sit on the receiving sheet as an expected arrival — PO 113977 (Inland
-              // Beef) shipped to Sequim and was listed here as inbound. The street alone
-              // is a brittle key: our own address is stored as both '2025 Freeman Rd'
-              // and '2025 FREEMAN RD E'. The ZIP is what the board matches on.
-              Ship_To_City: loc.shipTo.city || '',
-              Ship_To_State: loc.shipTo.region || '',
-              Ship_To_Zip: loc.shipTo.postalCode || '',
-              Package_Weight: pkg.weight || '',
-              Package_Dimensions: pkg.dimensions || '',
-              Package_Class: pkg.packageClass || ''
-            });
-            added++;
+            // Stored under the PO we ASKED for (as before), with the full row incl. the
+            // whole ship-to (the board matches drop-ships on Ship_To_Zip).
+            if (await b.storeCarton(buildShipmentRow(po, pkg, loc.shipFrom || {}, loc.shipTo || {}))) added++;
           } catch (e) {
             console.error(`Failed to save tracking ${pkg.trackingNumber} for ${po}:`, e.message);
           }
@@ -1896,15 +1877,20 @@ router.post('/sync', async (req, res) => {
 
     syncLog.ordersFound = orders.length;
 
-    // Upsert orders to Caspio
+    // Upsert orders to Caspio — BATCHED (2026-09-06 Caspio quota reduction).
+    // One chunked read per table for every PO in this run replaces the GET-then-write
+    // pair per order and per line item. Orders are still written every run (their
+    // Last_Sync_Date is the freshness signal /status-summary and the stale-order
+    // discovery read); items are written only when qty/status changed; cartons are
+    // deduped against the preloaded (PO, tracking) set. See utils/sanmar-caspio-batch.js.
     let upserted = 0;
     let shipmentsUpdated = 0;
+    const batch = await loadSanmarBatch(orders.map(o => o.purchaseOrderNumber).filter(Boolean));
 
     for (const order of orders) {
       const po = order.purchaseOrderNumber;
       if (!po) continue;
 
-      // Determine overall status from details
       const statuses = order.details.map(d => d.status).filter(Boolean);
       const overallStatus = statuses.includes('Shipped') ? 'Shipped'
         : statuses.includes('Partially Shipped') ? 'Partially Shipped'
@@ -1915,11 +1901,9 @@ router.post('/sync', async (req, res) => {
 
       const salesOrderNum = order.details[0]?.salesOrderNumber || '';
       const validTimestamp = order.details[0]?.validTimestamp || '';
-
-      // Auto-extract ShopWorks PO from SanMar PO (strip initials like BW, EM, TC, NL)
       const shopworksPO = extractPONumber(po);
 
-      // Collect issue details and estimated delivery from all details
+      // Issue_Details feeds the inbound board's backorder/hold flag (deriveIssueFlags).
       const allIssues = [];
       let estDelivery = '';
       for (const detail of order.details) {
@@ -1929,7 +1913,6 @@ router.post('/sync', async (req, res) => {
         }
       }
 
-      // Upsert order record
       const orderData = {
         SanMar_PO: po,
         ShopWorks_PO: shopworksPO || '',
@@ -1942,65 +1925,37 @@ router.post('/sync', async (req, res) => {
       };
 
       try {
-        const existing = await makeCaspioRequest('GET',
-          `/tables/${TABLES.orders}/records`,
-          { 'q.where': `SanMar_PO='${xmlEscape(po)}'` }
-        );
-
-        if (Array.isArray(existing) && existing.length > 0) {
-          await makeCaspioRequest('PUT',
-            `/tables/${TABLES.orders}/records`,
-            { 'q.where': `SanMar_PO='${xmlEscape(po)}'` },
-            orderData
-          );
-        } else {
-          await makeCaspioRequest('POST',
-            `/tables/${TABLES.orders}/records`,
-            {},
-            { ...orderData, Matched_By: 'sync' }
-          );
-        }
+        // Matched_By: 'sync' on INSERT only — a PUT must not overwrite a manual/PO-table match.
+        await batch.upsertOrder(orderData, { insertFields: { Matched_By: 'sync' } });
         upserted++;
       } catch (e) {
         console.error(`Failed to upsert order ${po}:`, e.message);
       }
 
-      // Upsert line items from product details
       for (const detail of order.details) {
         for (const product of detail.products) {
           if (!product.productId) continue;
           try {
-            const itemWhere = `SanMar_PO='${xmlEscape(po)}' AND Style='${xmlEscape(product.productId)}' AND Part_ID='${xmlEscape(product.partId || '')}'`;
-            const existingItem = await makeCaspioRequest('GET',
-              `/tables/${TABLES.items}/records`,
-              { 'q.where': itemWhere }
-            );
-
-            const itemData = {
+            await batch.upsertItem({
               SanMar_PO: po,
               Style: product.productId,
               Part_ID: product.partId || '',
               Qty_Ordered: parseInt(product.qtyOrdered) || 0,
               Qty_Shipped: parseInt(product.qtyShipped) || 0,
               Item_Status: product.status || detail.status || ''
-            };
-
-            if (Array.isArray(existingItem) && existingItem.length > 0) {
-              await makeCaspioRequest('PUT', `/tables/${TABLES.items}/records`, { 'q.where': itemWhere }, itemData);
-            } else {
-              await makeCaspioRequest('POST', `/tables/${TABLES.items}/records`, {}, itemData);
-            }
+            });
           } catch (e) {
             console.error(`Failed to upsert item ${product.productId} for ${po}:`, e.message);
           }
         }
       }
 
+
       // Fetch shipments for open orders (shared helper — same logic the
       // /sync-shipments catch-up pass re-runs for status-unchanged orders).
       if (!['Complete', 'Canceled'].includes(overallStatus)) {
         try {
-          shipmentsUpdated += await pullAndStoreShipments(po);
+          shipmentsUpdated += await pullAndStoreShipments(po, batch);
         } catch (e) {
           console.error(`Failed to fetch shipments for ${po}:`, e.message);
         }
@@ -2009,6 +1964,7 @@ router.post('/sync', async (req, res) => {
 
     syncLog.ordersUpserted = upserted;
     syncLog.shipmentsUpdated = shipmentsUpdated;
+    syncLog.caspio = batch.stats; // reads / puts / posts / unchanged — the cost of this run
 
     // Auto-match unlinked orders using Caspio tables (fast, no live API calls)
     try {
@@ -2156,8 +2112,10 @@ router.post('/sync-shipments', async (req, res) => {
     const offset = Math.max(parseInt(req.query.offset) || 0, 0);
     const batch = pending.slice(offset, offset + cap);
     let added = 0;
+    const cartonBatch = new SanmarBatch();
+    await cartonBatch.loadShipments(batch); // one read for the round, not one per PO
     for (const po of batch) {
-      try { added += await pullAndStoreShipments(po); }
+      try { added += await pullAndStoreShipments(po, cartonBatch); }
       catch (e) { console.error(`[sync-shipments] ${po}:`, e.message); }
     }
     log.openConfirmed = pos.length;
@@ -2316,12 +2274,13 @@ async function runRecentCompletedBackground(daysBack) {
     recentCompletedStatus.progress.deferred = queued.length - pending.length;
 
     let ingested = 0, shipmentsAdded = 0, errors = 0;
+    const catchupBatch = await loadSanmarBatch(pending); // orders + items + cartons, chunked
     for (const po of pending) {
       try {
         const order = byPo.get(po) || await fetchOrderByPO(po); // poSearch only when needed
         if (!order) continue;
-        await upsertOrderToCaspio(po, order, 'invoice-catchup'); // PUT preserves id_Order/Company_Name
-        shipmentsAdded += await pullAndStoreShipments(po);
+        await upsertOrderToCaspio(po, order, 'invoice-catchup', catchupBatch); // PUT preserves id_Order/Company_Name
+        shipmentsAdded += await pullAndStoreShipments(po, catchupBatch);
         ingested++;
         recentCompletedStatus.progress.ingested = ingested;
         recentCompletedStatus.progress.shipmentsAdded = shipmentsAdded;
@@ -2589,13 +2548,14 @@ function getOverallStatus(order) {
 }
 
 // ── Helper: Upsert a single order + its line items to Caspio ──
-async function upsertOrderToCaspio(po, order, matchedBy) {
+// `batch` (utils/sanmar-caspio-batch.js) carries what Caspio already holds for the POs of
+// a whole run, so the backfill and the invoice catch-up pay a few chunked reads instead of
+// a GET per order and per line item (2026-09-06). Without one, the helper loads this PO's
+// rows itself (two reads, still not one per item). Orders are always written —
+// Last_Sync_Date is read as a freshness signal — items only when qty/status changed.
+async function upsertOrderToCaspio(po, order, matchedBy, batch) {
   const overallStatus = getOverallStatus(order);
-
-  const existing = await makeCaspioRequest('GET',
-    `/tables/${TABLES.orders}/records`,
-    { 'q.where': `SanMar_PO='${xmlEscape(po)}'` }
-  );
+  const b = batch || await loadSanmarBatch([po], { shipments: false });
 
   // The inbound board reads Issue_Details and renders a backorder/hold flag from it
   // (deriveIssueFlags). This writer used to omit the field entirely while /sync wrote
@@ -2624,40 +2584,28 @@ async function upsertOrderToCaspio(po, order, matchedBy) {
     Matched_By: matchedBy
   };
 
-  if (Array.isArray(existing) && existing.length > 0) {
-    await makeCaspioRequest('PUT', `/tables/${TABLES.orders}/records`,
-      { 'q.where': `SanMar_PO='${xmlEscape(po)}'` }, orderData);
-  } else {
-    await makeCaspioRequest('POST', `/tables/${TABLES.orders}/records`, {}, orderData);
-  }
+  await b.upsertOrder(orderData);
 
-  // Upsert line items
+  // Upsert line items — written only when Qty_Ordered / Qty_Shipped / Item_Status changed.
   for (const detail of order.details) {
     for (const product of detail.products) {
       if (!product.productId) continue;
       try {
-        const itemWhere = `SanMar_PO='${xmlEscape(po)}' AND Style='${xmlEscape(product.productId)}' AND Part_ID='${xmlEscape(product.partId || '')}'`;
-        const existingItem = await makeCaspioRequest('GET',
-          `/tables/${TABLES.items}/records`, { 'q.where': itemWhere });
-        const itemData = {
+        await b.upsertItem({
           SanMar_PO: po,
           Style: product.productId,
           Part_ID: product.partId || '',
           Qty_Ordered: parseInt(product.qtyOrdered) || 0,
           Qty_Shipped: parseInt(product.qtyShipped) || 0,
           Item_Status: product.status || detail.status || ''
-        };
-        if (Array.isArray(existingItem) && existingItem.length > 0) {
-          await makeCaspioRequest('PUT', `/tables/${TABLES.items}/records`, { 'q.where': itemWhere }, itemData);
-        } else {
-          await makeCaspioRequest('POST', `/tables/${TABLES.items}/records`, {}, itemData);
-        }
+        });
       } catch (e) {
         console.error(`Upsert item ${product.productId} for ${po}:`, e.message);
       }
     }
   }
 }
+
 
 // ── Background backfill runner ──
 async function runBackfillBackground(daysBack) {
@@ -2742,10 +2690,12 @@ async function runBackfillBackground(daysBack) {
 
     // Phase 4: Save each order + items to Caspio
     backfillStatus.progress.phase = 'saving orders to Caspio';
+    // One batch for the whole run: a few chunked reads instead of a GET per order + per item.
+    const caspioBatch = await loadSanmarBatch([...allOrders.keys()], { shipments: false });
     let saved = 0;
     for (const [po, order] of allOrders) {
       try {
-        await upsertOrderToCaspio(po, order, 'backfill');
+        await upsertOrderToCaspio(po, order, 'backfill', caspioBatch);
         saved++;
         backfillStatus.progress.ordersSaved = saved;
         if (saved % 10 === 0) {
@@ -2757,6 +2707,7 @@ async function runBackfillBackground(daysBack) {
       }
     }
     console.log(`[Backfill] Phase 4: ${saved} orders saved`);
+    console.log('[Backfill] Phase 4 Caspio:', JSON.stringify(caspioBatch.stats));
 
     // Phase 5: Fetch shipments (7-day windows)
     backfillStatus.progress.phase = 'fetching shipments';
@@ -2778,34 +2729,15 @@ async function runBackfillBackground(daysBack) {
 
         const shipError = checkSoapError(shipXml);
         if (!shipError) {
-          const shipments = parseShipmentResponse(shipXml);
-          for (const shipment of shipments) {
-            for (const so of shipment.salesOrders) {
-              for (const loc of so.locations) {
-                for (const pkg of loc.packages) {
-                  if (!pkg.trackingNumber) continue;
-                  try {
-                    const trackWhere = `SanMar_PO='${xmlEscape(shipment.purchaseOrderNumber)}' AND Tracking_Number='${xmlEscape(pkg.trackingNumber)}'`;
-                    const existingTrack = await makeCaspioRequest('GET',
-                      `/tables/${TABLES.shipments}/records`, { 'q.where': trackWhere });
-                    if (!Array.isArray(existingTrack) || existingTrack.length === 0) {
-                      await makeCaspioRequest('POST', `/tables/${TABLES.shipments}/records`, {}, {
-                        SanMar_PO: shipment.purchaseOrderNumber,
-                        Tracking_Number: pkg.trackingNumber,
-                        Carrier: pkg.carrier || '',
-                        Ship_Method: pkg.shipmentMethod || '',
-                        Ship_Date: pkg.shipmentDate ? pkg.shipmentDate.split('T')[0] : '',
-                        Ship_From_Warehouse: loc.shipFrom.city || '',
-                        Ship_From_City: loc.shipFrom.city || '',
-                        Ship_From_State: loc.shipFrom.region || '',
-                        Ship_From_Zip: loc.shipFrom.postalCode || ''
-                      });
-                      totalShipments++;
-                    }
-                  } catch (e) { /* may already exist */ }
-                }
-              }
-            }
+          // One row per carton, deduped against a per-window read of what Caspio holds
+          // for those POs — not an existence GET per package (2026-09-06). Rows now carry
+          // the full field set (ship-to + package), same as the daily sync writes.
+          const cartons = flattenShipmentCartons(parseShipmentResponse(shipXml));
+          await caspioBatch.loadShipments([...new Set(cartons.map(c => c.po))]);
+          for (const { po, pkg, shipFrom, shipTo } of cartons) {
+            try {
+              if (await caspioBatch.storeCarton(buildShipmentRow(po, pkg, shipFrom, shipTo))) totalShipments++;
+            } catch (e) { /* may already exist */ }
           }
         }
       } catch (e) {
@@ -3760,3 +3692,6 @@ module.exports.RUSH_MAX_PRODUCTION_DAYS = RUSH_MAX_PRODUCTION_DAYS;
 module.exports.moLabelFields = moLabelFields;
 module.exports.rushFieldsFor = rushFieldsFor;
 module.exports.labelRushAnchor = labelRushAnchor;
+// Sync writers (2026-09-06) — exported so the batched upsert path is testable directly.
+module.exports.pullAndStoreShipments = pullAndStoreShipments;
+module.exports.upsertOrderToCaspio = upsertOrderToCaspio;
