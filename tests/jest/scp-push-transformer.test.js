@@ -371,3 +371,23 @@ describe('SCP push transformer — Swagger field enrichment (2026-07-10)', () =>
     expect(order.Designs[0].ForProductColor).toBe('Navy, Red'); // ALL distinct CATALOG_COLOR codes
   });
 });
+
+describe('SCP push transformer — an item of an unrecognised EmbellishmentType is never silent (2026-09-07)', () => {
+  test("a 'customer-supplied' row lands as an UNBILLED note; garments still push; no phantom line", () => {
+    const supplied = {
+      EmbellishmentType: 'customer-supplied', StyleNumber: 'CUSTOMER-SUPPLIED',
+      ProductName: "Customer's own hoodies — 2-color front", Quantity: 24, FinalUnitPrice: 9.5, LineTotal: 228,
+    };
+    const order = transformQuoteToOrder(baseSession(), [garment(), supplied], { isTest: true });
+    expect(order.LinesOE.some((l) => l.PartNumber === 'CUSTOMER-SUPPLIED')).toBe(false);
+    expect(lineByPart(order, 'PC54').length).toBeGreaterThan(0);
+    const orderNotes = order.Notes.filter((n) => n.Type === NOTE_TYPES.ORDER).map((n) => n.Note).join('\n');
+    expect(orderNotes).toContain("UNBILLED ITEM [customer-supplied] — add manually: Customer's own hoodies — 2-color front $228.00 (24 x $9.50)");
+  });
+
+  test('a row with no EmbellishmentType at all is still ignored quietly (legacy blank rows)', () => {
+    const order = transformQuoteToOrder(baseSession(), [garment(), { StyleNumber: 'X', Quantity: 1 }], { isTest: true });
+    const orderNotes = order.Notes.filter((n) => n.Type === NOTE_TYPES.ORDER).map((n) => n.Note).join('\n');
+    expect(orderNotes).not.toContain('UNBILLED ITEM');
+  });
+});
