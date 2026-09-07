@@ -51,6 +51,10 @@ const styleSearchCache = createTtlCache({ name: 'stylesearch', ttlMs: 60 * 1000,
 const productDetailsCache = createTtlCache({ name: 'product-details', ttlMs: 10 * 60 * 1000, maxEntries: 150 });
 const colorSwatchesCache = createTtlCache({ name: 'color-swatches', ttlMs: 15 * 60 * 1000, maxEntries: 200 });
 const productColorsCache = createTtlCache({ name: 'product-colors', ttlMs: 15 * 60 * 1000, maxEntries: 200 });
+// Whole-catalog head map for /api/product-heads/:style (see the route). ONE entry
+// (the Map itself, ~3.6 MB for 4,513 styles measured 2026-09-07), 24 h, registered
+// so /api/product-cache/clear drops it like every other product cache.
+const productHeadsCache = createTtlCache({ name: 'product-heads', ttlMs: 24 * 60 * 60 * 1000, maxEntries: 1 });
 
 // GET /api/product-cache/clear
 // Flushes every registered TTL response cache (products + pricing + inventory
@@ -239,6 +243,107 @@ router.get('/all-styles', async (req, res) => {
   } catch (error) {
     console.error('Error fetching all styles:', error.message);
     res.status(502).json({ error: 'Failed to fetch style list' });
+  }
+});
+
+// GET /api/product-heads/:style — the compact per-style "head" record the main
+// site's SEO injector (teamnwca.com lib/product-seo.js) needs to render a product
+// page's <title>/meta/OG/JSON-LD: title, brand, description, category, images.
+//
+// Why (2026-09-07): search-engine crawlers (Semrush, Amazonbot, Googlebot, bingbot)
+// walk every /product.html?style= URL overnight at ~50 pages an hour, and each page
+// view was a server-side /api/product-details fetch — a full every-colour Sanmar_Bulk
+// read per style. The product-details cache (150 styles, 10 min) cannot hold a
+// 4,500-style catalog walk, so that was ~1,000–1,500 Caspio calls a day, all for
+// bots (0 humans in a 5-hour overnight sample of 251 product-page hits).
+//
+// The whole catalog's head data is ONE query: `PK_ID IN (SELECT MIN(PK_ID) … GROUP
+// BY STYLE)` returns exactly one row per style (measured on production: 4,513
+// styles, 5 pages, 1.1 s, 3.6 MB), so the map costs FIVE Caspio calls per 24 h
+// instead of one per crawled page. Concurrent cold requests share one build. The
+// Product_Copy overlay is applied per request on a clone (same 10-min map that
+// product-details uses, so Erik's copy edits show within 10 min); styles absent
+// from SanMar fall back to the rep-added Non_SanMar_Products rows (5-min cached).
+// An empty catalog read is an error, never pinned (the 2026-07-25 all-brands
+// lesson). ?refresh=true rebuilds. Descriptions are capped at 2,000 chars (max
+// seen 985) to bound the map's heap.
+const PRODUCT_HEAD_FIELDS = ['STYLE', 'PRODUCT_TITLE', 'BRAND_NAME', 'PRODUCT_DESCRIPTION', 'CATEGORY_NAME', 'PRODUCT_IMAGE', 'FRONT_MODEL', 'PRODUCT_STATUS'];
+let productHeadsBuild = null; // in-flight build promise shared by concurrent cold requests
+
+async function buildProductHeadsMap() {
+  const rows = await fetchAllCaspioPages('/tables/Sanmar_Bulk_251816_Feb2024/records', {
+    'q.where': 'PK_ID IN (SELECT MIN(PK_ID) FROM Sanmar_Bulk_251816_Feb2024 GROUP BY STYLE)',
+    'q.select': PRODUCT_HEAD_FIELDS.join(', '),
+    'q.orderBy': 'STYLE', // stable paging — unordered multi-page reads drop rows
+    'q.pageSize': 1000,
+  }, { maxPages: 20 });
+  const map = new Map();
+  for (const r of rows) {
+    const style = String(r.STYLE || '').trim();
+    if (!style) continue;
+    map.set(style.toUpperCase(), {
+      STYLE: style,
+      PRODUCT_TITLE: r.PRODUCT_TITLE || '',
+      BRAND_NAME: r.BRAND_NAME || '',
+      PRODUCT_DESCRIPTION: String(r.PRODUCT_DESCRIPTION || '').slice(0, 2000),
+      CATEGORY_NAME: r.CATEGORY_NAME || '',
+      PRODUCT_IMAGE: r.PRODUCT_IMAGE || '',
+      FRONT_MODEL: r.FRONT_MODEL || '',
+      PRODUCT_STATUS: r.PRODUCT_STATUS || '',
+    });
+  }
+  if (map.size === 0) throw new Error('catalog head query returned no rows');
+  return map;
+}
+
+async function getProductHeadsMap(force) {
+  if (!force) {
+    const hit = productHeadsCache.get('map');
+    if (hit) return hit;
+  }
+  if (!productHeadsBuild) {
+    productHeadsBuild = buildProductHeadsMap()
+      .then((map) => {
+        productHeadsCache.set('map', map);
+        console.log(`[product-heads] map built: ${map.size} styles`);
+        return map;
+      })
+      .finally(() => { productHeadsBuild = null; });
+  }
+  return productHeadsBuild;
+}
+
+router.get('/product-heads/:style', async (req, res) => {
+  const safeStyle = sanitizeStyleNumber(String(req.params.style || ''));
+  if (!safeStyle) return res.status(400).json({ error: 'Invalid style number format' });
+  const key = safeStyle.toUpperCase();
+  try {
+    const map = await getProductHeadsMap(shouldBypass(req));
+    let head = map.get(key);
+    let source = 'sanmar';
+    if (!head) {
+      const ns = (await getNonSanmarCatalogRows()).find((r) => String(r.StyleNumber || '').trim().toUpperCase() === key);
+      if (ns) {
+        source = 'non-sanmar';
+        head = {
+          STYLE: String(ns.StyleNumber).trim(),
+          PRODUCT_TITLE: ns.ProductName || ns.StyleNumber,
+          BRAND_NAME: ns.Brand || '',
+          PRODUCT_DESCRIPTION: ns.Notes || '',
+          CATEGORY_NAME: ns.Category || '',
+          PRODUCT_IMAGE: ns.ImageURL || '',
+          FRONT_MODEL: ns.ImageURL || '',
+          PRODUCT_STATUS: 'Active',
+        };
+      }
+    }
+    if (!head) return res.status(404).json({ error: 'Product not found' });
+    const [row] = await applyProductCopy([{ ...head }]); // overlay on a clone — the map row stays pristine
+    res.set('Cache-Control', 'public, max-age=3600');
+    res.json({ ...row, source });
+  } catch (error) {
+    console.error(`[product-heads] ${safeStyle}:`, error.message);
+    res.status(502).json({ error: 'Failed to load product head' });
   }
 });
 
