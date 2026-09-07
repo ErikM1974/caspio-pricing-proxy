@@ -1,3 +1,7 @@
+## v2026.09.07.1 (2026.09.07)
+
+- Deploy v2026.09.07.1: SCP + DTF push transformers surface an unrecognised EmbellishmentType as an UNBILLED order note instead of dropping the item silently (ported from the EMB transformer; the contract calculators already write customer-supplied items)
+
 ## v2026.09.06.6 (2026.09.06)
 
 - policies: 5-minute cache on the public read routes, cleared by any admin write
