@@ -1,3 +1,7 @@
+## v2026.09.07.2 (2026.09.07)
+
+- product-heads: one-query catalog head map for the site's SEO injector (replaces a Sanmar_Bulk read per crawled product page)
+
 ## v2026.09.07.1 (2026.09.07)
 
 - Deploy v2026.09.07.1: SCP + DTF push transformers surface an unrecognised EmbellishmentType as an UNBILLED order note instead of dropping the item silently (ported from the EMB transformer; the contract calculators already write customer-supplied items)
