@@ -150,3 +150,17 @@ describe('DTF push transformer — Swagger field enrichment (2026-07-10)', () =>
     expect(order.LinesOE[0].Color).toBe('BrillOrng');
   });
 });
+
+describe('DTF push transformer — an item of an unrecognised EmbellishmentType is never silent (2026-09-07)', () => {
+  test("a 'customer-supplied' row lands as an UNBILLED note; the dtf garment still pushes", () => {
+    const supplied = {
+      EmbellishmentType: 'customer-supplied', StyleNumber: 'CUSTOMER-SUPPLIED',
+      ProductName: "Customer's own tees — full front transfer", Quantity: 12, FinalUnitPrice: 8, LineTotal: 96,
+    };
+    const order = transformQuoteToOrder(baseSession(), [garment(), supplied], { isTest: true });
+    expect(order.LinesOE.some((l) => l.PartNumber === 'CUSTOMER-SUPPLIED')).toBe(false);
+    expect(order.LinesOE.some((l) => l.PartNumber === 'ST350')).toBe(true);
+    expect(notesOfType(order, NOTE_TYPES.ORDER).join('\n'))
+      .toContain("UNBILLED ITEM [customer-supplied] — add manually: Customer's own tees — full front transfer $96.00 (12 x $8.00)");
+  });
+});
