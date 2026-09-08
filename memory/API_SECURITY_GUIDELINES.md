@@ -107,3 +107,15 @@ Set `CRM_SECRET` in your Postman environment variables.
 
 - [CRM Security](CRM_SECURITY.md) - Full server-to-server auth details
 - [Endpoint Creation Guide](ENDPOINT_CREATION_GUIDE.md) - How to create new endpoints
+# Transfer/Supacolor boundary update (2026-09-08)
+
+Pending the coordinated rollout in [the review checklist](PROXY_REVIEW_FIXES_2026_09_07.md),
+all methods under `/api/transfer-orders`, `/api/transfer-order-notes` and
+`/api/supacolor-jobs` require `X-CRM-API-Secret`. The three vision routes
+`/api/vision/extract-supacolor`, `/api/vision/extract-supacolor-jobs-list` and
+`/api/vision/extract-supacolor-job-detail` use the same boundary. The Pricing Index
+browser calls its own staff-session relay; it never receives the secret.
+Vendor portal requests keep their existing session and job-ownership checks.
+Both Supacolor scheduler commands require the same CRM_API_SECRET configuration.
+Deploy frontend relays/callers before these proxy gates. Do not use a permitted
+Origin as proof of authentication.
