@@ -1,5 +1,15 @@
 # Backend review fixes — 2026-09-07
 
+## User-requested stopping point — 2026-09-08
+
+Final boot probe FAILED: the local server did not answer /api/version on port 3113 within 45 seconds. The preceding build/lint/types/unit/DOM/axe/parity/CSS/browser checks passed, but the overall gate exited 1. Startup was not investigated because Erik requested a stop. Diagnose and rerun the boot probe before preparing a release; do not claim all release gates passed.
+
+PAUSED at Erik's request so he can shut down his laptop and resume later. Current live proxy remains v2026.09.07.4 / Heroku 1129 / actual slug cc8eda5c72160e65ec7f38791d4d4a6d0ac045f7. Implementation d5fd4f242f17926da88ac5e881106fb89135466f is saved on develop and NOT deployed; 136 suites / 1,777 unit tests pass, including 48 focused auth/vision checks.
+
+The frontend's 28 relays, six browser caller migrations, authenticated vision parser and staff detail HTML gate are implemented and tested: 4,961 unit tests and 66 browser tests pass. Credential equality was verified without displaying or changing values. The coordinated change MUST deploy the frontend callers FIRST, then this proxy's gates and both scheduler scripts. Neither half is live yet. No further deployment was begun for this pause. Preserve the preexisting untracked .agents/ and AGENTS.md.
+
+The authoritative cross-project resume checklist is ../Pricing Index File 2025/memory/HANDOVER_FOLLOWUPS_2026-09.md, first section. It contains live release references, release preparation steps, verification and the remaining application-wide CSS scope. Exact saved commit IDs and final boot outcome are in C:/Users/erik/.codex/visualizations/2026/09/07/01a07d90-9a4c-7e70-9e4e-c196377b7c6b/pause-checkpoint-2026-09-08.json. Resume only when Erik returns.
+
 ## Checklist
 - [x] Inspect the affected proxy routes and frontend callers.
 - [x] Require the CRM secret for legacy cart CRUD, both contact APIs, and ShipStation outbound APIs.
