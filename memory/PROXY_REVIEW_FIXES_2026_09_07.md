@@ -56,3 +56,25 @@ the real middleware/route registrations, not production endpoints. Coverage incl
 spoofed Origin headers, GET/HEAD reads, contact writes, malicious numeric IDs,
 quoted session IDs, strict 500/429/timeout behavior, stale refresh retries, and
 11 MB payroll JSON bodies. Existing non-strict pagination behavior is retained.
+
+## Transfer/Supacolor follow-through — 2026-09-08
+
+Read-only caller audit confirmed that transfer-orders, separate transfer-order-notes,
+and supacolor-jobs have no authentication before their router mounts. CORS and
+query validation do not establish caller identity. Supacolor's three vision
+extraction browser callers also need matching staff relays before proxy gates.
+This follow-through is covered by the user's existing review/fix/deploy approval.
+
+- [x] Audit browser, vendor, scheduler and Python Inksoft callers without business API probes.
+- [ ] Add same-origin staff relays and migrate the six browser controllers; staff-gate Supacolor Job Detail HTML.
+- [ ] Preserve vendor session/ownership checks, including the separate notes write; customer mockup approval must not fetch staff transfer data.
+- [ ] Gate all three resource prefixes and the three related vision extraction paths before router mounts.
+- [ ] Authenticate both scheduled Supacolor jobs; fail before sending when the credential is absent.
+- [ ] Verify mount order, anonymous/spoofed-origin/wrong-secret denial, authenticated forwarding and cron behavior with mocked upstream calls.
+- [ ] Verify matching credential configuration without displaying secrets. Deploy frontend callers FIRST, then proxy gates and cron headers together.
+- [ ] Verify release identity, anonymous denials and scheduler logs. Do not trigger live sync, recovery, notifications or test-record writes.
+
+The current public customer mockup view does not call these transfer APIs.
+Vendor routes already send the CRM secret and enforce job ownership. Python
+Inksoft's supacolor-po-index is a distinct, already gated API; no caller change
+is needed there. The remaining vision extract-mockup-info boundary is separate.
