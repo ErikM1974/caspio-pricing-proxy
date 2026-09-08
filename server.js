@@ -919,6 +919,9 @@ app.use('/api', boxWebhookRoutes);
 console.log('✓ Box webhook routes loaded');
 
 // Transfer Orders Routes (Bradley's Supacolor workflow — heat-transfer subcontractor)
+// Browser callers use staff-session relays; vendor callers retain their ownership
+// checks. Deploy those callers FIRST. Notes live at a separate write prefix.
+app.use(['/api/transfer-orders', '/api/transfer-order-notes', '/api/supacolor-jobs'], requireCrmApiSecret);
 const transferOrdersRoutes = require('./src/routes/transfer-orders');
 app.use('/api', transferOrdersRoutes);
 console.log('✓ Transfer Orders routes loaded');
@@ -1744,21 +1747,12 @@ const visionLimiter = rateLimit({
 // unauthenticated endpoint here is also an open tab on our bill — the same finding
 // already written up for the AI chats in the app's server.js.
 //
-// Gated SURGICALLY, not wholesale, because a blanket gate would 401 four working
-// staff tools. These routes have LIVE browser callers that hit the proxy directly
-// with API_BASE and carry no secret:
-//     /extract-supacolor             pages/js/transfer-detail.js:1090
-//     /extract-supacolor-jobs-list   dashboards/js/supacolor-orders.js:280
-//     /extract-supacolor-job-detail  dashboards/js/supacolor-orders.js:303,
-//                                    pages/js/supacolor-job-detail.js:137
-//     /extract-mockup-info           (referenced by the transfer flow)
-// Closing those needs an app-side SAML forwarder per caller first — tracked separately.
-//
-// /extract-shopworks has NO browser caller: the 253Gear Publisher reaches it through
-// the app's requirePageAccess forwarder, so it can be closed today.
-app.use('/api/vision/extract-shopworks', requireCrmApiSecret);
+// The Supacolor callers now use staff-session relays. Deploy the Pricing Index
+// relay/caller release FIRST. Publisher already uses its page-access relay.
+// /extract-mockup-info is outside this caller migration; keep its boundary separate.
+app.use(['/api/vision/extract-shopworks', '/api/vision/extract-supacolor', '/api/vision/extract-supacolor-jobs-list', '/api/vision/extract-supacolor-job-detail'], requireCrmApiSecret);
 app.use('/api/vision', visionLimiter, visionRoutes);
-console.log('✓ Vision routes loaded (rate limited: 10 req/min; extract-shopworks secret-gated)');
+console.log('✓ Vision routes loaded (rate limited: 10 req/min; ShopWorks/Supacolor extraction secret-gated)');
 
 // --- Admin Metrics Endpoint ---
 // Caspio quota meter. `?full=1` returns the COMPLETE per-table/per-endpoint

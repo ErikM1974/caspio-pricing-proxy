@@ -34,8 +34,10 @@ const TIMEOUT_MS = 30000;
 async function main() {
     const started = Date.now();
     try {
+        const secret = process.env.CRM_API_SECRET;
+        if (!secret) throw new Error('CRM_API_SECRET is required for Supacolor health checks');
         const resp = await axios.post(`${BASE_URL}${ALERT_PATH}`, {}, {
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'X-CRM-API-Secret': secret },
             timeout: TIMEOUT_MS
         });
         const d = resp.data || {};

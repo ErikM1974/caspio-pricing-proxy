@@ -29,8 +29,10 @@ const TIMEOUT_MS = 30000; // Matches Heroku HTTP timeout
 async function main() {
     const started = Date.now();
     try {
+        const secret = process.env.CRM_API_SECRET;
+        if (!secret) throw new Error('CRM_API_SECRET is required for Supacolor sync');
         const resp = await axios.post(`${BASE_URL}${SYNC_PATH}`, {}, {
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'X-CRM-API-Secret': secret },
             timeout: TIMEOUT_MS
         });
         const d = resp.data || {};

@@ -68,9 +68,9 @@ This follow-through is covered by the user's existing review/fix/deploy approval
 - [x] Audit browser, vendor, scheduler and Python Inksoft callers without business API probes.
 - [ ] Add same-origin staff relays and migrate the six browser controllers; staff-gate Supacolor Job Detail HTML.
 - [ ] Preserve vendor session/ownership checks, including the separate notes write; customer mockup approval must not fetch staff transfer data.
-- [ ] Gate all three resource prefixes and the three related vision extraction paths before router mounts.
-- [ ] Authenticate both scheduled Supacolor jobs; fail before sending when the credential is absent.
-- [ ] Verify mount order, anonymous/spoofed-origin/wrong-secret denial, authenticated forwarding and cron behavior with mocked upstream calls.
+- [x] Gate all three resource prefixes and the three related vision extraction paths before router mounts (implemented, not deployed).
+- [x] Authenticate both scheduled Supacolor jobs; fail before sending when the credential is absent.
+- [x] Verify backend mount order, anonymous/spoofed-origin/wrong-secret denial, real-handler access and cron behavior with mocked upstream calls: 48 focused checks and all 136 backend unit suites / 1,777 tests pass. Frontend relay tests are separate.
 - [ ] Verify matching credential configuration without displaying secrets. Deploy frontend callers FIRST, then proxy gates and cron headers together.
 - [ ] Verify release identity, anonymous denials and scheduler logs. Do not trigger live sync, recovery, notifications or test-record writes.
 
@@ -78,3 +78,9 @@ The current public customer mockup view does not call these transfer APIs.
 Vendor routes already send the CRM secret and enforce job ownership. Python
 Inksoft's supacolor-po-index is a distinct, already gated API; no caller change
 is needed there. The remaining vision extract-mockup-info boundary is separate.
+
+Existing production CRM_API_SECRET configuration is present and equal on both
+apps (including proxy-app scheduler configuration), verified without displaying
+or changing values. The backend source remains held from deployment until the
+frontend relay/caller release is live. Validation excludes the integration suites
+that create production test records; no business writes or notifications were run.
