@@ -1,3 +1,8 @@
+## v2026.09.07.3 (2026.09.07)
+
+- Product_Copy: seed BC3501 (blog autopilot 2026-09-07)
+- Harden private APIs, cart filters, strict pagination and payroll parsing
+
 ## v2026.09.07.2 (2026.09.07)
 
 - product-heads: one-query catalog head map for the site's SEO injector (replaces a Sanmar_Bulk read per crawled product page)
