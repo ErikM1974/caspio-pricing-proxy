@@ -1,105 +1,52 @@
-// /api/vision auth posture.
-//
-// Every call here spends Anthropic tokens, so an unauthenticated route is an open tab
-// on the bill as well as an open endpoint — the finding already written up for the AI
-// chats. But a blanket gate would 401 four working staff tools, so the gating is
-// deliberately surgical and this test pins BOTH halves of that decision:
-//
-//   - extract-shopworks IS gated, and the gate is registered ABOVE the router mount
-//     (registered below, express never runs it and the gate silently does nothing).
-//   - the four routes with live browser callers are NOT gated, on purpose.
-//
-// The last test is the important one: a NEW vision route fails this suite until
-// somebody classifies it. That is how a route stops being accidentally anonymous.
-
+// Every vision route must have an explicit authentication classification.
+// Supacolor browser calls now use staff-session relays; ship those callers first.
 const fs = require('fs');
 const path = require('path');
+const vm = require('vm');
+const SERVER = fs.readFileSync(path.join(__dirname, '../../server.js'), 'utf8');
+const VISION_ROUTE = fs.readFileSync(path.join(__dirname, '../../src/routes/vision.js'), 'utf8');
+const GATED = ['/extract-shopworks', '/extract-supacolor', '/extract-supacolor-jobs-list', '/extract-supacolor-job-detail'];
+const OPEN_BY_DESIGN = { '/extract-mockup-info': 'existing transfer extraction boundary, outside this caller migration' };
+const gateLines = SERVER.split('\n').filter(line => /^app\.use\(/.test(line) && line.includes('/api/vision/') && line.includes('requireCrmApiSecret'));
+const strictGate = Symbol('requireCrmApiSecret');
+const registered = [];
+vm.runInNewContext(gateLines.join('\n'), { requireCrmApiSecret: strictGate, app: { use(paths, ...handlers) {
+    for (const route of [paths].flat()) registered.push({ route, handlers });
+} } });
 
-const SERVER = fs.readFileSync(path.join(__dirname, '..', '..', 'server.js'), 'utf8');
-const VISION_ROUTE = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'routes', 'vision.js'), 'utf8');
-
-// Gated: no browser caller, reached only through the app's SAML forwarder.
-const GATED = ['/extract-shopworks'];
-
-// Deliberately open: each has a live browser caller that hits the proxy directly with
-// API_BASE and carries no secret. Closing one means writing an app-side forwarder and
-// repointing its caller FIRST.
-const OPEN_BY_DESIGN = {
-    '/extract-supacolor': 'pages/js/transfer-detail.js:1090',
-    '/extract-supacolor-jobs-list': 'dashboards/js/supacolor-orders.js:280',
-    '/extract-supacolor-job-detail': 'dashboards/js/supacolor-orders.js:303, pages/js/supacolor-job-detail.js:137',
-    '/extract-mockup-info': 'transfer flow (see src/routes/transfer-orders.js:464)'
-};
-
-describe('extract-shopworks is gated', () => {
-    test('a secret gate is registered for it', () => {
-        expect(SERVER).toMatch(/app\.use\(\s*['"]\/api\/vision\/extract-shopworks['"]\s*,\s*requireCrmApiSecret\s*\)/);
+describe.each(GATED)('%s is secret-gated', route => {
+    test('the production registration applies the strict secret check', () => {
+        expect(registered).toContainEqual({ route: '/api/vision' + route, handlers: [strictGate] });
     });
-
-    test('the gate is registered ABOVE the router mount', () => {
-        // Registered below the mount, express would reach the handler first and the
-        // gate would be dead code that still reads as protection.
-        const gateAt = SERVER.indexOf("app.use('/api/vision/extract-shopworks'");
+    test('the gate runs before the router can handle a request', () => {
+        const line = gateLines.find(value => value.includes("'/api/vision" + route + "'"));
+        expect(line).toBeDefined();
         const mountAt = SERVER.indexOf("app.use('/api/vision', visionLimiter");
-        expect(gateAt).toBeGreaterThan(-1);
         expect(mountAt).toBeGreaterThan(-1);
-        expect(gateAt).toBeLessThan(mountAt);
-    });
-
-    test('the gate is the real secret check, not the softer origin check', () => {
-        const line = SERVER.split('\n').find((l) => l.includes("app.use('/api/vision/extract-shopworks'"));
-        expect(line).toContain('requireCrmApiSecret');
-        // requireCrmSecretOrBrowserOrigin is explicitly not a cryptographic boundary.
-        expect(line).not.toContain('requireCrmSecretOrBrowserOrigin');
-        // guardReadsOnly would be wrong too: these are all POSTs.
-        expect(line).not.toContain('guardReadsOnly');
+        expect(SERVER.indexOf(line)).toBeLessThan(mountAt);
     });
 });
 
-describe('the routes with live browser callers stay open, on purpose', () => {
-    test('there is no blanket gate over the whole /api/vision prefix', () => {
+describe('remaining extraction boundary', () => {
+    test('there is no blanket secret gate over /api/vision', () => {
         expect(SERVER).not.toMatch(/app\.use\(\s*['"]\/api\/vision['"]\s*,\s*requireCrmApiSecret/);
     });
-
-    test.each(Object.entries(OPEN_BY_DESIGN))('%s is not individually gated (caller: %s)', (route) => {
-        const gatePattern = new RegExp(`app\\.use\\(\\s*['"]/api/vision${route}['"]\\s*,\\s*require`);
-        expect(SERVER).not.toMatch(gatePattern);
+    test.each(Object.keys(OPEN_BY_DESIGN))('%s remains outside this migration', route => {
+        expect(registered.map(item => item.route)).not.toContain('/api/vision' + route);
     });
-
-    test('the reason they are open is written down where the next person will look', () => {
-        const context = SERVER.slice(
-            Math.max(0, SERVER.indexOf("app.use('/api/vision/extract-shopworks'") - 1600),
-            SERVER.indexOf("app.use('/api/vision', visionLimiter")
-        );
-        expect(context).toMatch(/browser caller/i);
-        expect(context).toMatch(/transfer-detail|supacolor-orders/);
+    test('the deployment order and remaining boundary are documented at the mount', () => {
+        const context = SERVER.slice(SERVER.indexOf('// SECURITY (2026-08-07)'), SERVER.indexOf("app.use('/api/vision', visionLimiter"));
+        expect(context).toMatch(/staff-session relays/);
+        expect(context).toMatch(/FIRST/);
+        expect(context).toMatch(/extract-mockup-info/);
     });
-});
-
-describe('no vision route may be accidentally anonymous', () => {
-    test('every route declared in vision.js is classified as gated or open-by-design', () => {
-        const declared = Array.from(VISION_ROUTE.matchAll(/router\.(get|post|put|patch|delete)\(\s*['"]([^'"]+)['"]/g))
-            .map((m) => m[2]);
-
+    test('every declared vision route has an explicit classification', () => {
+        const declared = [...VISION_ROUTE.matchAll(/router\.(get|post|put|patch|delete)\(\s*['"]([^'"]+)['"]/g)].map(match => match[2]);
         expect(declared.length).toBeGreaterThan(0);
-
         const classified = new Set([...GATED, ...Object.keys(OPEN_BY_DESIGN)]);
-        const unclassified = declared.filter((r) => !classified.has(r));
-
-        // If this fails you added a vision route. Decide its auth story, then add it to
-        // GATED (and gate it in server.js) or to OPEN_BY_DESIGN with the caller that
-        // requires it to stay open. Do not just append it to the open list.
-        expect(unclassified).toEqual([]);
+        expect(declared.filter(route => !classified.has(route))).toEqual([]);
     });
-
-    test('every route named in GATED actually has a gate in server.js', () => {
-        for (const route of GATED) {
-            expect(SERVER).toContain(`app.use('/api/vision${route}', requireCrmApiSecret)`);
-        }
-    });
-
-    test('the rate limiter is still mounted for the ungated routes', () => {
-        // It is the only thing standing between an anonymous caller and the token spend.
+    test('all extraction routes retain their rate limiter', () => {
         expect(SERVER).toMatch(/app\.use\(\s*['"]\/api\/vision['"]\s*,\s*visionLimiter\s*,\s*visionRoutes\s*\)/);
     });
 });
@@ -126,6 +73,7 @@ describe('runtime probe — the gate actually fires', () => {
     const visionRoutes = require('../../src/routes/vision');
 
     const SECRET = 'test-secret-for-the-gate-probe';
+    const originalSecret = process.env.CRM_API_SECRET;
     let server;
     let port;
 
@@ -134,15 +82,19 @@ describe('runtime probe — the gate actually fires', () => {
 
         const app = express();
         app.use(express.json({ limit: '10mb' }));
-        // The SAME two lines as server.js, in the same order.
-        app.use('/api/vision/extract-shopworks', requireCrmApiSecret);
+        // Execute the real gates rather than a copied registration.
+        vm.runInNewContext(gateLines.join('\n'), { app, requireCrmApiSecret });
         app.use('/api/vision', visionRoutes);
 
         server = http.createServer(app);
         server.listen(0, '127.0.0.1', () => { port = server.address().port; done(); });
     });
 
-    afterAll((done) => { server.close(done); });
+    afterAll((done) => {
+        if (originalSecret === undefined) delete process.env.CRM_API_SECRET;
+        else process.env.CRM_API_SECRET = originalSecret;
+        server.close(done);
+    });
 
     function post(pathname, { secret } = {}) {
         return new Promise((resolve, reject) => {
@@ -178,7 +130,7 @@ describe('runtime probe — the gate actually fires', () => {
         expect(res.body).toMatch(/Missing image field/i);
     });
 
-    test('the routes with browser callers are still reachable anonymously (400, not 401)', async () => {
+    test('the remaining unmodified extraction boundary still reaches its validation', async () => {
         for (const route of Object.keys(OPEN_BY_DESIGN)) {
             const res = await post(`/api/vision${route}`);
             expect({ route, status: res.status }).toEqual({ route, status: 400 });

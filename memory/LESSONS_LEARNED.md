@@ -4,6 +4,23 @@ A running log of problems solved and gotchas discovered. Add new entries at the 
 
 ---
 
+## Route-family gates must include notes, image downloads and scheduled callers
+**Date:** 2026-09-08
+**Problem/root cause:** Transfer/Supacolor routers were mounted without authentication;
+CORS and query validation did not protect them. The notes write uses a different
+prefix, and two scheduler jobs had no credential header.
+**Solution:** Gate all three resource prefixes and the three Supacolor vision
+extraction paths. Browser callers first move to staff-session relays; both cron
+jobs send X-CRM-API-Secret and fail before sending if configuration is missing.
+Existing vendor ownership/session checks remain the external-vendor boundary.
+**Prevention:** Execute the actual server mounts in order with real routers and
+mocked services, checking anonymous/spoofed-origin/wrong-secret denial and valid
+handler access. Execute both actual cron functions with their HTTP client mocked.
+**Rollout:** Frontend caller release FIRST, then backend gates and cron headers.
+This entry records the implemented/tested fix; deployment is tracked separately.
+
+---
+
 ## Quote synchronization also needs authentication in the reverse direction
 **Date:** 2026-09-07
 **Problem/root cause:** The proxy protected its own quote/ShipStation APIs, but
