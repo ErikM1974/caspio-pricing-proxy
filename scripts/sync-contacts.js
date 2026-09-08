@@ -40,6 +40,7 @@ async function syncContacts() {
             {},
             {
                 params: { hours: SYNC_HOURS },
+                headers: { 'X-CRM-API-Secret': process.env.CRM_API_SECRET },
                 timeout: TIMEOUT
             }
         );

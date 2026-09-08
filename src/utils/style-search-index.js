@@ -127,7 +127,12 @@ async function getStyleSearchIndex(fetchAllCaspioPages) {
       });
   }
   // stale copy available → serve it now, let the rebuild land in background
-  if (_cache.index) return _cache.index;
+  if (_cache.index) {
+    // Background refresh has no awaiting caller. Observe its rejection while
+    // preserving rejection for cold-start callers that need a usable index.
+    _cache.building.catch(() => { /* logged above; keep the previous index */ });
+    return _cache.index;
+  }
   return _cache.building;
 }
 

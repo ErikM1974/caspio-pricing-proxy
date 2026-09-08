@@ -102,3 +102,38 @@ test('discardResults still surfaces strict truncation', async () => {
         maxPages: 2, strict: true, discardResults: true, pageCallback: () => { }
     })).rejects.toMatchObject({ code: 'CASPIO_PAGINATION_TRUNCATED' });
 });
+
+test.each([500, 429, 'timeout'])('strict reads reject a mid-stream %s instead of returning partials', async (status) => {
+    const failure = new Error(status === 'timeout' ? 'request timeout' : 'upstream failed');
+    if (status === 'timeout') failure.code = 'ECONNABORTED';
+    else failure.response = { status };
+    axios.mockResolvedValueOnce(FULL_PAGE).mockRejectedValueOnce(failure);
+    await expect(fetchAllCaspioPages('/tables/Fake/records', { 'q.limit': 5 },
+        { strict: true })).rejects.toThrow();
+});
+
+test('strict streamed reads reject timeouts even when rows are not accumulated', async () => {
+    const failure = Object.assign(new Error('request timeout'), { code: 'ECONNABORTED' });
+    axios.mockResolvedValueOnce(FULL_PAGE).mockRejectedValueOnce(failure);
+    const seen = [];
+    await expect(fetchAllCaspioPages('/tables/Fake/records', { 'q.limit': 5 }, {
+        strict: true, discardResults: true, pageCallback: rows => seen.push(...rows)
+    })).rejects.toThrow('request timeout');
+    expect(seen).toHaveLength(5);
+});
+
+test('strict reads reject expiration of the overall pagination deadline', async () => {
+    let now = 1000;
+    const clock = jest.spyOn(Date, 'now').mockImplementation(() => now);
+    axios.mockImplementation(async () => { now += 200; return FULL_PAGE; });
+    try {
+        await expect(fetchAllCaspioPages('/tables/Fake/records', { 'q.limit': 5 },
+            { strict: true, totalTimeout: 100 })).rejects.toMatchObject({ code: 'CASPIO_PAGINATION_TIMEOUT' });
+        expect(axios).toHaveBeenCalledTimes(1);
+    } finally { clock.mockRestore(); }
+});
+
+test('strict timeout before the first page returns no fabricated empty success', async () => {
+    axios.mockRejectedValue(Object.assign(new Error('request timeout'), { code: 'ECONNABORTED' }));
+    await expect(fetchAllCaspioPages('/tables/Fake/records', {}, { strict: true })).rejects.toThrow('timeout');
+});
