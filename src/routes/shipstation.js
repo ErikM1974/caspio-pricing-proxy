@@ -35,6 +35,7 @@
 
 const express = require('express');
 const axios = require('axios');
+const { pricingIndexHeaders } = require('../utils/pricing-index-auth');
 
 const router = express.Router();
 const webhookRouter = express.Router(); // mounted at /api/webhooks for the inbound endpoint
@@ -327,7 +328,7 @@ async function forwardToTrackingCallback(payload) {
         || 'https://sanmar-inventory-app-4cd7b252508d.herokuapp.com';
     const target = `${callbackUrl}/api/quote-sessions/${encodeURIComponent(payload.quoteId)}/shipstation-tracking`;
     try {
-        await axios.post(target, payload, { timeout: 15000 });
+        await axios.post(target, payload, { headers: pricingIndexHeaders(), timeout: 15000 });
         console.log(`[webhook/shipstation] forwarded ${payload.quoteId} tracking to pricing-index`);
     } catch (err) {
         console.warn(`[webhook/shipstation] forward FAILED for ${payload.quoteId}:`, err.message);

@@ -35,6 +35,7 @@
  */
 
 const axios = require('axios');
+const { pricingIndexHeaders } = require('../src/utils/pricing-index-auth');
 
 // The sync-back endpoints live on pricing-index, not the proxy — keep the same
 // env-var/default convention as sync-quote-sessions-from-shopworks.js.
@@ -47,7 +48,7 @@ async function main() {
   const started = Date.now();
   try {
     const resp = await axios.post(`${PRICING_INDEX_BASE}${ALERT_PATH}`, {}, {
-      headers: { 'Content-Type': 'application/json' },
+      headers: pricingIndexHeaders({ 'Content-Type': 'application/json' }),
       timeout: TIMEOUT_MS,
     });
     const d = resp.data || {};

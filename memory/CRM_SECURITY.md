@@ -155,3 +155,13 @@ curl -H "X-CRM-API-Secret: YOUR_SECRET" \
 - [Nika Accounts API](NIKA_ACCOUNTS_API.md)
 - [House Accounts API](HOUSE_ACCOUNTS_API.md)
 - [Rep Account Management](REP_ACCOUNT_MANAGEMENT.md)
+
+## Pricing Index scheduled-sync authentication (2026-09-07)
+The shared credential also protects proxy-to-Pricing-Index traffic. The two bulk
+sync scripts, quote-health alert poll and ShipStation tracking callback use
+`src/utils/pricing-index-auth.js` to attach `X-CRM-API-Secret`. The helper resolves
+the environment at request time and fails closed when it is missing. Existing
+JSON bodies, timeouts and destinations are preserved. Deploy these callers before
+enforcing the receiving app's staff/shared-secret gates. Contract coverage:
+`tests/jest/pricing-index-sync-auth.test.js` (all transport intercepted).
+Verification: nine intercepted authentication contracts and the full 144-suite / 1,822-test proxy suite passed; local boot returned HTTP200. Live integration suites use uniquely named test resources with cleanup. Rollout target: v2026.09.07.4.

@@ -44,6 +44,7 @@
 'use strict';
 
 const https = require('https');
+const { pricingIndexHeaders } = require('../src/utils/pricing-index-auth');
 
 const PRICING_INDEX_BASE = process.env.PRICING_INDEX_BASE_URL
   || 'https://sanmar-inventory-app-4cd7b252508d.herokuapp.com';
@@ -66,10 +67,10 @@ async function callBulkSync(payload) {
         hostname: url.hostname,
         path: url.pathname,
         port: url.port || 443,
-        headers: {
+        headers: pricingIndexHeaders({
           'Content-Type': 'application/json',
           'Content-Length': Buffer.byteLength(data),
-        },
+        }),
         timeout: 600000, // 10 min — bulk sync can take a while with many candidates
       },
       (res) => {
