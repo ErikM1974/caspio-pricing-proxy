@@ -1,3 +1,7 @@
+## v2026.09.07.4 (2026.09.07)
+
+- Authenticate scheduled quote sync and tracking callbacks
+
 ## v2026.09.07.3 (2026.09.07)
 
 - Product_Copy: seed BC3501 (blog autopilot 2026-09-07)
