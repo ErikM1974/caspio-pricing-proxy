@@ -4,6 +4,19 @@ A running log of problems solved and gotchas discovered. Add new entries at the 
 
 ---
 
+## Quote synchronization also needs authentication in the reverse direction
+**Date:** 2026-09-07
+**Problem/root cause:** The proxy protected its own quote/ShipStation APIs, but
+scheduled jobs and tracking callbacks called the Pricing Index app without a credential.
+Its sync handlers could therefore not enforce an equivalent gate safely.
+**Solution:** Send X-CRM-API-Secret through pricingIndexHeaders for both bulk-sync
+jobs, the health alert poll and tracking callback. Missing configuration fails before sending.
+**Prevention:** pricing-index-sync-auth.test.js executes each actual request function
+with intercepted HTTP/HTTPS and verifies both the header and missing-secret behavior.
+**Rollout:** Deploy this proxy caller update FIRST, then the Pricing Index gates;
+verify existing CRM_API_SECRET matches on both apps without displaying its value.
+
+---
 ## Problem: Proxy review found open data routes and incomplete-success paths
 **Date:** 2026-09-07
 **Root causes:** Legacy cart IDs were interpolated into write filters; contacts
