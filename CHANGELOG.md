@@ -1,3 +1,11 @@
+## v2026.09.08.1 (2026.09.08)
+
+- Record transfer and Supacolor authentication rollout plan
+- Document coordinated transfer authentication boundary
+- Require authenticated transfer and Supacolor callers
+- Save user-requested pause and coordinated rollout resume notes
+- Resume coordinated transfer authentication release
+
 ## v2026.09.07.4 (2026.09.07)
 
 - Authenticate scheduled quote sync and tracking callbacks
