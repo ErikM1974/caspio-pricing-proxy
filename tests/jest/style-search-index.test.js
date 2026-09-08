@@ -82,6 +82,24 @@ describe('searchIndex — LIKE-parity semantics', () => {
 describe('getStyleSearchIndex — cache behavior', () => {
   beforeEach(() => _resetCacheForTests());
 
+  test('a failed stale refresh is observed, keeps the old index, and retries successfully', async () => {
+    let now = 1000;
+    const clock = jest.spyOn(Date, 'now').mockImplementation(() => now);
+    try {
+      const original = await getStyleSearchIndex(async () => rows);
+      now += 31 * 60 * 1000;
+      expect(await getStyleSearchIndex(async () => { throw new Error('refresh failed'); })).toBe(original);
+      // Let an unhandled rejection surface: the old implementation fails this test.
+      await new Promise(resolve => setImmediate(resolve));
+      const replacement = [{ STYLE: 'NEW', PRODUCT_TITLE: 'New shirt' }];
+      expect(await getStyleSearchIndex(async () => replacement)).toBe(original);
+      await new Promise(resolve => setImmediate(resolve));
+      const latest = await getStyleSearchIndex(async () => { throw new Error('must be cached'); });
+      expect(latest).toHaveLength(1);
+      expect(searchIndex(latest, 'NEW')).toEqual(['NEW']);
+    } finally { clock.mockRestore(); }
+  });
+
   test('builds once, serves from cache on the second call', async () => {
     let calls = 0;
     const fetcher = async () => { calls++; return rows; };

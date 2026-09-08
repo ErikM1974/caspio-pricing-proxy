@@ -72,6 +72,8 @@ let tokenExpiryTime = 0;
 // `verify` stashes raw bytes on req.rawBody so signature-checking routes
 // (e.g. /api/box/webhook for Box webhooks v2) can recompute the HMAC.
 // Trivial overhead for non-signed routes.
+// Must run before the global 10 MB parser; a later parser cannot raise its limit.
+app.use('/api/payroll/parse', requireCrmApiSecret, express.json({ limit: '40mb' }));
 app.use(express.json({
     limit: '10mb',
     verify: (req, res, buf) => { req.rawBody = buf; }
@@ -482,6 +484,8 @@ console.log('✓ Caps catalog routes loaded');
 
 // Cart Routes
 const cartRoutes = require('./src/routes/cart');
+// Legacy cart CRUD is staff-only through the app's authenticated relays.
+app.use(['/api/cart-sessions', '/api/cart-items', '/api/cart-item-sizes'], requireCrmApiSecret);
 app.use('/api', cartRoutes);
 console.log('✓ Cart routes loaded');
 
@@ -1093,13 +1097,10 @@ console.log('✓ ManageOrders PUSH routes loaded');
 // router is mounted at /api/webhooks so the URL stays canonical regardless
 // of internal reorg.
 const shipstationRoutes = require('./src/routes/shipstation');
-// #9 side-door gate (2026-06-29): gate WRITES — anon POST /create-order injects a
-// live warehouse order, DELETE /orders/:id deletes one. GET reads (orders, shipments,
-// test-auth) stay public — the FE shipment-sync calls GET /shipments without a secret.
-// The front-end's server-side write callers now send x-crm-api-secret (deployed first).
+// Orders and shipments contain customer data. All outbound methods require the
+// secret; the app's shipment sync sends it too (deploy the app change first).
 // The /api/webhooks mount (ShipStation inbound) is separate + stays public (host-validated).
-app.use('/api/shipstation', gateWritesOnly);
-app.use('/api/shipstation', shipstationRoutes.router);
+app.use('/api/shipstation', requireCrmApiSecret, shipstationRoutes.router);
 app.use('/api/webhooks',    shipstationRoutes.webhookRouter);
 console.log('✓ ShipStation routes loaded');
 
@@ -1548,6 +1549,7 @@ console.log('✓ Assignment History routes loaded');
 
 // Company Contacts Routes (customer lookup for quote builders)
 const companyContactsRoutes = require('./src/routes/company-contacts');
+app.use(['/api/company-contacts', '/api/company-contacts-2026'], requireCrmApiSecret);
 app.use('/api', companyContactsRoutes);
 console.log('✓ Company Contacts routes loaded');
 
@@ -1653,10 +1655,8 @@ console.log('✓ RBAC admin CRUD loaded [CRM-gated]');
 // Payroll — the most sensitive data in the account. requireCrmApiSecret here; the
 // front-end reaches it ONLY through createCrmProxy('payroll', ['admin']), so a call needs
 // the secret AND an admin session. Read endpoints never return pay rates or salaries.
-// The parse route carries a base64 PDF, so it gets its own larger body parser (the global
-// one is 10mb) — scoped to that single path, not raised app-wide.
+// The scoped 40 MB parser is registered BEFORE the global parser near server startup.
 const payrollRoutes = require('./src/routes/payroll');
-app.use('/api/payroll/parse', express.json({ limit: '40mb' }));
 app.use('/api/payroll', requireCrmApiSecret, payrollRoutes);
 console.log('✓ Payroll routes loaded [CRM-gated, admin-only via crm-proxy]');
 
@@ -1941,7 +1941,13 @@ app.use((err, req, res, next) => {
     let statusCode = 500;
     let errorMessage = 'An unexpected error occurred';
     
-    if (err.response?.status === 401) {
+    if (err.type === 'entity.too.large') {
+        statusCode = 413;
+        errorMessage = 'Request body too large';
+    } else if (err.type === 'entity.parse.failed') {
+        statusCode = 400;
+        errorMessage = 'Invalid JSON request body';
+    } else if (err.response?.status === 401) {
         statusCode = 401;
         errorMessage = 'Caspio authentication failed';
     } else if (err.response?.status === 404) {

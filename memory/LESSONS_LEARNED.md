@@ -4,6 +4,26 @@ A running log of problems solved and gotchas discovered. Add new entries at the 
 
 ---
 
+## Problem: Proxy review found open data routes and incomplete-success paths
+**Date:** 2026-09-07
+**Root causes:** Legacy cart IDs were interpolated into write filters; contacts
+and ShipStation reads lacked secret gates; strict pagination only rejected page
+caps; stale search refreshes rethrew without an awaiting caller; the payroll
+40 MB parser ran after a smaller global parser in BOTH applications.
+**Solutions:** Secret-gate cart/contact/ShipStation APIs and staff-gate their app
+relays; migrate browser contacts to same-origin calls and add the secret to server
+reads/sync. Validate cart numeric IDs, quote text literals, and encode session
+filters separately from URLs. Strict reads reject upstream errors and deadlines.
+Observe background refresh rejection. Mount payroll parsers before global parsers,
+after access checks; preserve 413 for oversized bodies and 400 for malformed JSON.
+**Prevention:** Tests must cover anonymous AND authenticated calls, errors after
+page one, stale-cache refresh failures, and actual parser registration order.
+**Release order:** Pricing Index FIRST, proxy second. See
+[review fix checklist](PROXY_REVIEW_FIXES_2026_09_07.md). No production changes made
+while implementing or testing these fixes.
+
+---
+
 ## Problem: A safety guard emptied the production table it was written to protect
 **Date:** 2026-08-05
 **Symptoms:** `node scripts/sync-design-lookup.js --live` printed `❌ ABORTED — delete failed:

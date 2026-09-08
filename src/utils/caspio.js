@@ -196,8 +196,8 @@ async function fetchAllCaspioPages(resourcePath, initialParams = {}, options = {
     earlyExitCondition: null,
     pageCallback: null,
     totalTimeout: config.timeouts.totalPagination,
-    // strict: throw instead of returning a silently-truncated page cap. See the
-    // truncation guard at the end of this function.
+    // strict: reject incomplete reads (page caps, deadlines, and upstream
+    // failures). Callers can then keep their previous complete cache or fail.
     strict: false,
     // discardResults: stream-only mode — rows reach pageCallback but are never
     // accumulated, so a 150k-row scan doesn't hold the whole table in dyno
@@ -361,6 +361,7 @@ async function fetchAllCaspioPages(resourcePath, initialParams = {}, options = {
           error.statusCode = 429;
           throw error;
         } else if (pageError.code === 'ECONNABORTED' || pageError.message.includes('timeout')) {
+          if (mergedOptions.strict) throw pageError;
           console.log(`Timeout on page ${pageCount} for ${resourcePath}, continuing with collected data`);
           morePages = false;
         } else {
@@ -370,6 +371,11 @@ async function fetchAllCaspioPages(resourcePath, initialParams = {}, options = {
     }
 
     if (checkTotalTimeout()) {
+      if (mergedOptions.strict && morePages) {
+        const error = new Error(`Caspio pagination timed out before completion on ${resourcePath}`);
+        error.code = 'CASPIO_PAGINATION_TIMEOUT';
+        throw error;
+      }
       console.log(`Returning ${allResults.length} results collected before timeout for ${resourcePath}`);
     }
 
@@ -395,9 +401,9 @@ async function fetchAllCaspioPages(resourcePath, initialParams = {}, options = {
 
   } catch (error) {
     console.error(`Error fetching all pages from ${resourcePath}:`, error.message);
-    // A strict-mode truncation must reach the caller — the partial-return
+    // Every strict-mode failure must reach the caller — the partial-return
     // below is exactly the silent incompleteness strict:true opts out of.
-    if (error.code === 'CASPIO_PAGINATION_TRUNCATED') {
+    if (mergedOptions.strict || error.code === 'CASPIO_PAGINATION_TRUNCATED') {
       throw error;
     }
     if (allResults.length > 0) {

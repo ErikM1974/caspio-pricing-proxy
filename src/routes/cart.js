@@ -6,6 +6,39 @@ const axios = require('axios');
 const { getCaspioAccessToken, fetchAllCaspioPages } = require('../utils/caspio');
 const config = require('../config');
 
+const positiveId = value => typeof value === 'string' && /^[1-9]\d*$/.test(value)
+    && Number.isSafeInteger(Number(value));
+const quoteValue = value => String(value).replace(/'/g, "''");
+
+router.param('id', (req, res, next, id) => {
+    const valid = req.route.path.startsWith('/cart-sessions/')
+        ? typeof id === 'string' && id.length > 0 && id.length <= 255
+        : positiveId(id);
+    if (!valid) return res.status(400).json({ error: 'Invalid cart record ID' });
+    next();
+});
+
+// Validate scalar filter types before they reach any WHERE clause. Text values
+// are escaped at interpolation; Axios encodes query parameters separately.
+router.use((req, res, next) => {
+    const numeric = ['userID', 'orderID', 'cartItemID', 'CartItemID', 'cartitemid'];
+    const text = ['sessionID', 'productID', 'styleNumber', 'color', 'cartStatus', 'size'];
+    for (const key of numeric) {
+        if (req.query[key] !== undefined && !positiveId(req.query[key])) {
+            return res.status(400).json({ error: `Invalid ${key}` });
+        }
+    }
+    for (const key of text) {
+        if (req.query[key] !== undefined && (typeof req.query[key] !== 'string' || req.query[key].length > 255)) {
+            return res.status(400).json({ error: `Invalid ${key}` });
+        }
+    }
+    if (req.query.isActive !== undefined && !/^(?:0|1|true|false)$/.test(String(req.query.isActive))) {
+        return res.status(400).json({ error: 'Invalid isActive' });
+    }
+    next();
+});
+
 // GET /api/cart-sessions
 router.get('/cart-sessions', async (req, res) => {
     try {
@@ -21,7 +54,7 @@ router.get('/cart-sessions', async (req, res) => {
             
             // Handle common filter fields
             if (req.query.sessionID) {
-                whereConditions.push(`SessionID='${req.query.sessionID}'`);
+                whereConditions.push(`SessionID='${quoteValue(req.query.sessionID)}'`);
             }
             if (req.query.userID) {
                 whereConditions.push(`UserID=${req.query.userID}`);
@@ -110,7 +143,7 @@ router.put('/cart-sessions/:id', express.json(), async (req, res) => {
     
     try {
         console.log(`Updating cart session with ID: ${id}`);
-        const resource = `/tables/Cart_Sessions/records?q.where=SessionID='${id}'`;
+        const resource = '/tables/Cart_Sessions/records';
         
         const cartSessionData = {};
         
@@ -127,6 +160,7 @@ router.put('/cart-sessions/:id', express.json(), async (req, res) => {
         const config_req = {
             method: 'put',
             url: url,
+            params: { 'q.where': `SessionID='${quoteValue(id)}'` },
             headers: {
                 'Authorization': `Bearer ${token}`,
                 'Content-Type': 'application/json'
@@ -157,7 +191,7 @@ router.delete('/cart-sessions/:id', async (req, res) => {
     
     try {
         console.log(`Deleting cart session with ID: ${id}`);
-        const resource = `/tables/Cart_Sessions/records?q.where=SessionID='${id}'`;
+        const resource = '/tables/Cart_Sessions/records';
         
         const token = await getCaspioAccessToken();
         const url = `${config.caspio.apiBaseUrl}${resource}`;
@@ -165,6 +199,7 @@ router.delete('/cart-sessions/:id', async (req, res) => {
         const config_req = {
             method: 'delete',
             url: url,
+            params: { 'q.where': `SessionID='${quoteValue(id)}'` },
             headers: {
                 'Authorization': `Bearer ${token}`
             },
@@ -196,19 +231,19 @@ router.get('/cart-items', async (req, res) => {
             const whereConditions = [];
             
             if (req.query.sessionID) {
-                whereConditions.push(`SessionID='${req.query.sessionID}'`);
+                whereConditions.push(`SessionID='${quoteValue(req.query.sessionID)}'`);
             }
             if (req.query.productID) {
-                whereConditions.push(`ProductID='${req.query.productID}'`);
+                whereConditions.push(`ProductID='${quoteValue(req.query.productID)}'`);
             }
             if (req.query.styleNumber) {
-                whereConditions.push(`StyleNumber='${req.query.styleNumber}'`);
+                whereConditions.push(`StyleNumber='${quoteValue(req.query.styleNumber)}'`);
             }
             if (req.query.color) {
-                whereConditions.push(`Color='${req.query.color}'`);
+                whereConditions.push(`Color='${quoteValue(req.query.color)}'`);
             }
             if (req.query.cartStatus) {
-                whereConditions.push(`CartStatus='${req.query.cartStatus}'`);
+                whereConditions.push(`CartStatus='${quoteValue(req.query.cartStatus)}'`);
             }
             if (req.query.orderID) {
                 whereConditions.push(`OrderID=${req.query.orderID}`);
@@ -452,7 +487,7 @@ router.get('/cart-item-sizes', async (req, res) => {
             }
             
             if (req.query.size) {
-                whereConditions.push(`Size='${req.query.size}'`);
+                whereConditions.push(`Size='${quoteValue(req.query.size)}'`);
             }
             
             if (whereConditions.length > 0) {

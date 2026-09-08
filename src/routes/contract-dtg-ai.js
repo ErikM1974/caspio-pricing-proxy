@@ -61,7 +61,7 @@ async function searchContacts(query) {
     if (trimmed.length < 2) return [];
     try {
         const url = `${INTERNAL_API_BASE}/api/company-contacts/search?q=${encodeURIComponent(trimmed)}&limit=5`;
-        const r = await fetch(url);
+        const r = await fetch(url, { headers: { 'X-CRM-API-Secret': process.env.CRM_API_SECRET } });
         if (!r.ok) return [];
         const data = await r.json();
         return data.contacts || [];
