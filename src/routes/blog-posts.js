@@ -19,8 +19,45 @@ const express = require('express');
 const router = express.Router();
 const { makeCaspioRequest, fetchAllCaspioPages, putWithRecordsAffected } = require('../utils/caspio');
 const { S, nowIso, validSlug, validatePost, toRecord, toApi } = require('../utils/blog-post-helpers');
+const { createTtlCache, shouldBypass } = require('../utils/ttl-cache');
 
 const PATH = '/tables/Blog_Posts/records';
+
+// Whole-table cache for the public reads (2026-09-09). The site caches list and
+// post 5 minutes itself and still read this table through here 439 times in 19
+// hours: crawlers walk every /blog/<slug> the same way they walk products, each
+// site dyno expires on its own clock, and each of the site's ~17 deploys a day
+// starts cold. The table is a few dozen rows, so ONE read holds every post (all
+// statuses, full bodies) for 10 minutes and list/detail/404 are all answered
+// from memory — at most 144 reads a day no matter how hard the blog is crawled.
+// A successful POST/PUT through this router clears it, so the Blog Editor's
+// publish shows on the very next read; a direct edit in Caspio lands within ten
+// minutes. ?refresh=true bypasses; /api/product-cache/clear drops it too.
+// Concurrent cold requests share one load; an empty read is never pinned.
+const postsCache = createTtlCache({ name: 'blog-posts', ttlMs: 10 * 60 * 1000, maxEntries: 1 });
+let postsLoad = null;
+
+async function loadAllPosts(force) {
+  if (!force) {
+    const hit = postsCache.get('all');
+    if (hit) return hit;
+  }
+  if (!postsLoad) {
+    postsLoad = fetchAllCaspioPages(PATH, { 'q.orderBy': 'Post_ID', 'q.pageSize': 100 }, { maxPages: 10 })
+      .then((rows) => {
+        const all = rows || [];
+        if (all.length) postsCache.set('all', all);
+        return all;
+      })
+      .finally(() => { postsLoad = null; });
+  }
+  return postsLoad;
+}
+
+const publishedAtMs = (r) => {
+  const t = Date.parse(r.Published_At || '');
+  return Number.isFinite(t) ? t : 0;
+};
 
 const hasSecret = (req) => {
   const expected = process.env.CRM_API_SECRET;
@@ -31,18 +68,15 @@ const hasSecret = (req) => {
 router.get('/', async (req, res) => {
   try {
     const wantAll = req.query.status === 'all' && hasSecret(req);
-    const category = S(req.query.category, 60).replace(/['"\\%_]/g, '');
-    const where = [
-      wantAll ? '' : "Status='Published'",
-      category ? `Category='${category}'` : '',
-    ].filter(Boolean).join(' AND ');
-
-    const rows = await fetchAllCaspioPages(PATH, {
-      'q.where': where || undefined,
-      'q.select': 'Post_ID,Title,Meta_Description,Category,Hero_Image_URL,Video_URL,Author,Status,Featured,Published_At,Updated_At',
-      'q.sort': 'Published_At DESC',
-      'q.pageSize': 100,
-    }, { maxPages: 3 });
+    const category = S(req.query.category, 60).replace(/['"\\%_]/g, '').toLowerCase();
+    const all = await loadAllPosts(shouldBypass(req));
+    // Same filters the Caspio WHERE used to apply (SQL Server compares text
+    // case-insensitively, so the category match stays case-insensitive),
+    // newest first by Published_At.
+    const rows = all
+      .filter((r) => wantAll || r.Status === 'Published')
+      .filter((r) => !category || String(r.Category || '').toLowerCase() === category)
+      .sort((a, b) => publishedAtMs(b) - publishedAtMs(a));
 
     const limit = Math.min(parseInt(req.query.limit, 10) || 100, 100);
     res.json({ posts: rows.slice(0, limit).map((r) => toApi(r, { includeBody: false })) });
@@ -57,11 +91,8 @@ router.get('/:slug', async (req, res) => {
   const slug = req.params.slug;
   if (!validSlug(slug)) return res.status(400).json({ error: 'bad slug' });
   try {
-    const rows = await fetchAllCaspioPages(PATH, {
-      'q.where': `Post_ID='${slug}'`,
-      'q.pageSize': 5,
-    }, { maxPages: 1 });
-    const row = rows[0];
+    const all = await loadAllPosts(shouldBypass(req));
+    const row = all.find((r) => String(r.Post_ID || '').toLowerCase() === slug);
     if (!row) return res.status(404).json({ error: 'post not found' });
     if (row.Status !== 'Published' && !hasSecret(req)) return res.status(404).json({ error: 'post not found' });
     res.json({ post: toApi(row) });
@@ -88,6 +119,7 @@ router.post('/', async (req, res) => {
     rec.Updated_At = nowIso();
     rec.Published_At = rec.Status === 'Published' ? nowIso() : '';
     await makeCaspioRequest('post', PATH, {}, rec);
+    postsCache.clear(); // the next public read sees the new post
     console.log(`[blog-posts] created ${body.slug} (${rec.Status})`);
     res.status(201).json({ slug: body.slug, status: rec.Status });
   } catch (e) {
@@ -117,6 +149,7 @@ router.put('/:slug', async (req, res) => {
     }
     const result = await putWithRecordsAffected(PATH, `Post_ID='${slug}'`, rec);
     if (!result.RecordsAffected) return res.status(404).json({ error: 'post not found' });
+    postsCache.clear(); // the next public read sees the edit
     console.log(`[blog-posts] updated ${slug}${body.status ? ' → ' + body.status : ''}`);
     res.json({ slug, updated: true });
   } catch (e) {
