@@ -495,6 +495,14 @@ router.get('/files/:externalKey', async (req, res) => {
             res.setHeader('Content-Disposition', `attachment; filename="${dlName}"`);
         }
 
+        // A Caspio external key names ONE immutable file — a re-upload under the same name gets a
+        // fresh key (409 → timestamp-suffix retry above), so the bytes behind a key never change.
+        // Cache like the /sw.jpg variant already does (2026-09-15): the Policies Hub alone embeds
+        // ~290 slide images as <img src="/api/files/:key">, and without this every page view
+        // re-fetched every slide through Caspio's Files API. Set only on the success path — the
+        // 404/500 JSON below must stay uncached. Locked by tests/jest/files-get-cache-control.test.js.
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+
         // Stream the file to the client
         response.data.pipe(res);
 

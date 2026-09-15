@@ -4,6 +4,25 @@ A running log of problems solved and gotchas discovered. Add new entries at the 
 
 ---
 
+## Per-IP write limiters must not meter reads or secret-bearing internal callers
+**Date:** 2026-09-15
+**Problem/root cause:** `writeLimiter` (120 / 15 min per IP) was mounted on `/api/files` for
+EVERY method and exempted nobody. GET `/api/files/:key` is the `<img src>` on every quote,
+invoice and Policies Hub page, and the whole office shares ONE client IP behind the NAT, so
+image reads spent the upload budget (a GET answered `RateLimit-Policy: 120;w=900`). A
+secret-bearing batch upload (Policies Hub slides) then 429'd 100%, while five other
+limiters already exempted CRM-secret callers. The main file GET also sent no Cache-Control,
+so every page view re-fetched every slide.
+**Solution:** `hasCrmSecret` (timing-safe `skip`) + `meterWritesOnly` (GET/HEAD/OPTIONS pass
+through) in `src/middleware/index.js`, wired onto `writeLimiter`; `/api/embroidery-push` stays
+fully metered. File GETs send `public, max-age=31536000, immutable` on the success path only.
+**Prevention:** `tests/jest/files-write-limiter.test.js` (behaviour + server.js source lock,
+mount order included) and `tests/jest/files-get-cache-control.test.js`. When a client reports
+429s, probe once and read the limiter's own `RateLimit-*` headers before changing anything.
+Every `/api`-mounted limiter must state its method scope and its secret exemption.
+
+---
+
 ## Route-family gates must include notes, image downloads and scheduled callers
 **Date:** 2026-09-08
 **Problem/root cause:** Transfer/Supacolor routers were mounted without authentication;

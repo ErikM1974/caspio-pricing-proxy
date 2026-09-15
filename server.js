@@ -4,7 +4,7 @@ const express = require('express');
 const axios = require('axios');
 const rateLimit = require('express-rate-limit');
 const config = require('./config'); // Use unified configuration
-const { requireCrmApiSecret, requireCrmSecretOrBrowserOrigin, guardReadsOnly, quotePlaneGate } = require('./src/middleware');
+const { requireCrmApiSecret, requireCrmSecretOrBrowserOrigin, guardReadsOnly, quotePlaneGate, hasCrmSecret, meterWritesOnly } = require('./src/middleware');
 
 // #9 side-door: gate WRITE methods (POST/PUT/DELETE) on a path prefix while leaving
 // GET reads public — for endpoints that mix a public read (pricing/catalog, Rule 9)
@@ -772,16 +772,27 @@ console.log('✓ Emblem pricing route loaded');
 // [C1] (audit 2026-06-06): rate-limit the real-money push + file-upload routes (were unlimited). Generous
 // per-IP cap (120 / 15 min) — a busy office won't hit it, but it blocks scripted abuse. Mounted at the exact
 // sub-paths so it ONLY counts /api/embroidery-push/* and /api/files/* — never read/pricing traffic.
+//
+// 2026-09-15 (Erik): two scoping fixes, both surfaced by a Policies Hub batch upload that 429'd 100%.
+//   1. skip: hasCrmSecret — server-to-server callers holding the CRM secret are exempt, the rule the
+//      sanmar/digitized/monograms/rosters/pricingRead limiters already apply. The anonymous cap is
+//      unchanged for the ~20 public upload surfaces (storefronts, garment designer, JDS/sticker forms).
+//   2. meterWritesOnly on /api/files — GET /api/files/:key is the <img src> on every quote, invoice and
+//      Policies Hub page, and the whole office shares ONE client IP behind the NAT. Reads were counted
+//      against the same 120 as uploads (a GET answered RateLimit-Policy: 120;w=900), so a few staff
+//      reading slide-heavy policies could break images with no batch job running at all.
+//   Locked by tests/jest/files-write-limiter.test.js.
 const writeLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 120,
   standardHeaders: true,
   legacyHeaders: false,
   trustProxy: true,
+  skip: hasCrmSecret,
   message: { error: 'Too many requests — please slow down and try again shortly.' }
 });
 app.use('/api/embroidery-push', writeLimiter);
-app.use('/api/files', writeLimiter);
+app.use('/api/files', meterWritesOnly(writeLimiter));
 
 // #9 side-door gate (2026-06-29): DELETE /api/files/:externalKey could delete ANY
 // corporate art file by key. Gate DELETE only — GET (public <img src> on quote/
