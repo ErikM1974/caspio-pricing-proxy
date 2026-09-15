@@ -139,4 +139,28 @@ describe('buildSubmissionId — per-form prefixes', () => {
     expect(DEFAULT_STATUS['pto-request']).toBe('Pending');
     expect(DEFAULT_STATUS['injury-report']).toBe('Open');
   });
+
+  test('garment-waiver (e-signed, 2026-09-15): GLW prefix, Signed default, server audit stamp, no lead ping', () => {
+    const { DEFAULT_STATUS, LEAD_NOTIFY_FORMS, SIGNED_FORMS, withSignatureAudit } = require('../../src/utils/form-submission-helpers');
+    expect(validateSubmission({ formId: 'garment-waiver', company: 'Drain Pro', payload: { signature: { typedName: 'Mike Rowe' }, checks: ['Agreed'] } })).toEqual([]);
+    // no typed name / no consent → not a signature → rejected before it can be stored as 'Signed'
+    expect(validateSubmission({ formId: 'garment-waiver', company: 'Drain Pro', payload: {} })).toHaveLength(2);
+    expect(validateSubmission({ formId: 'garment-waiver', company: 'Drain Pro', payload: { signature: { typedName: '  ' }, checks: ['Agreed'] } })).toHaveLength(1);
+    expect(validateSubmission({ formId: 'garment-drop-off', company: 'Drain Pro', payload: {} })).toEqual([]); // other forms unaffected
+    expect(buildSubmissionId('garment-waiver')).toMatch(/^GLW\d{4}-\d{4}$/);
+    expect(DEFAULT_STATUS['garment-waiver']).toBe('Signed');
+    expect(LEAD_NOTIFY_FORMS.has('garment-waiver')).toBe(false);
+    expect(SIGNED_FORMS.has('garment-waiver')).toBe(true);
+    const stamped = withSignatureAudit({ signature: { typedName: 'Mike Rowe' }, notes: [] }, { ip: '203.0.113.9', userAgent: 'Mozilla/5.0 (test)', receivedAt: '2026-09-15T18:00:00.000Z' });
+    expect(stamped.signature).toEqual({ typedName: 'Mike Rowe' });
+    expect(stamped.audit).toEqual({ ip: '203.0.113.9', userAgent: 'Mozilla/5.0 (test)', receivedAt: '2026-09-15T18:00:00.000Z', textSha256: '', recordedBy: 'caspio-pricing-proxy' });
+    const hashed = withSignatureAudit({ notes: [['Garments Supplied', 'x'], ['Waiver Text (as signed)', 'abc']] }, { ip: '203.0.113.9' });
+    expect(hashed.audit.textSha256).toBe(require('crypto').createHash('sha256').update('abc').digest('hex'));
+    // single-line fields flatten CR/LF so a company name cannot forge a log line
+    const { S } = require('../../src/utils/form-submission-helpers');
+    expect(S('Acme\n[form-submissions] saved GLW0915-0001\tfor "Victim"')).toBe('Acme [form-submissions] saved GLW0915-0001 for "Victim"');
+    // a client cannot pre-seed its own audit block — the server's stamp replaces it
+    expect(withSignatureAudit({ audit: { ip: 'forged' } }, { ip: '198.51.100.4' }).audit.ip).toBe('198.51.100.4');
+    expect(withSignatureAudit(null, { ip: '198.51.100.4' }).audit.receivedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  });
 });

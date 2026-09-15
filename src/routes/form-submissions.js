@@ -21,7 +21,7 @@ const { fetchAllCaspioPages, makeCaspioRequest, putWithRecordsAffected: caspioPu
 // Pure helpers live in utils/form-submission-helpers.js (no caspio-utils import)
 // so the jest suite can test them without inheriting api-tracker's open timer.
 const {
-  FORM_PREFIX, DEFAULT_STATUS, CARD_STRIPPED_FORMS, LEAD_NOTIFY_FORMS, stripCardFields, sanitizeId, sanitizeLike,
+  FORM_PREFIX, DEFAULT_STATUS, CARD_STRIPPED_FORMS, LEAD_NOTIFY_FORMS, SIGNED_FORMS, withSignatureAudit, stripCardFields, sanitizeId, sanitizeLike,
   isoDay, nowIso, S, buildSubmissionId, validateSubmission,
 } = require('../utils/form-submission-helpers');
 const { notifyFormLead } = require('../utils/slack-form-lead-notify');
@@ -58,6 +58,8 @@ router.post('/', submitLimiter, async (req, res) => {
   const formId = body.formId;
   let payload = body.payload;
   if (CARD_STRIPPED_FORMS.has(formId)) payload = stripCardFields(payload);
+  // E-signed waivers: server-side audit stamp (trust proxy is on, so req.ip is the client, not Heroku's router)
+  if (SIGNED_FORMS.has(formId)) payload = withSignatureAudit(payload, { ip: req.ip, userAgent: req.get('user-agent'), receivedAt: nowIso() });
 
   const record = {
     Submission_ID: buildSubmissionId(formId),
@@ -185,7 +187,8 @@ router.post('/', submitLimiter, async (req, res) => {
       });
     }
 
-    res.status(201).json({ submissionId: record.Submission_ID });
+    // receivedAt = the server's receipt time (the e-signed forms show it as the time of record)
+    res.status(201).json({ submissionId: record.Submission_ID, receivedAt: record.Submitted_At });
   } catch (e) {
     if (parentSaved) {
       // The submission ITSELF was stored; only a sample-item row (or later step)
@@ -333,6 +336,15 @@ router.put('/:submissionId', async (req, res) => {
   updates.Updated_At = nowIso();
 
   try {
+    // An e-signed row is evidence: who signed (Contact_Name/Company/Email/Summary) is immutable after the fact.
+    const IDENTITY = ['Contact_Name', 'Company', 'Email', 'Phone', 'Summary'];
+    if (IDENTITY.some((k) => updates[k] !== undefined)) {
+      const rows = await fetchAllCaspioPages(SUBMISSIONS_PATH, { 'q.where': `Submission_ID='${id}'`, 'q.pageSize': 1 }, { maxPages: 1 });
+      const row = Array.isArray(rows) ? rows[0] : null;
+      if (row && SIGNED_FORMS.has(row.Form_ID)) {
+        return res.status(403).json({ error: `Signer identity on an e-signed ${row.Form_ID} row cannot be edited` });
+      }
+    }
     const result = await caspioPut(SUBMISSIONS_PATH, `Submission_ID='${id}'`, updates);
     if (!result.RecordsAffected) return res.status(404).json({ error: `Submission '${id}' not found` });
     res.json({ updated: id, fields: updates });
