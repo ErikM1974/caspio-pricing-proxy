@@ -1,3 +1,7 @@
+## v2026.09.15.1 (2026.09.15)
+
+- Accept e-signed garment waivers (garment-waiver, GLW) with a server audit stamp
+
 ## v2026.09.09.1 (2026.09.09)
 
 - blog-posts: public reads from one cached table read (10 min, writes clear); staff-page-access: 10-min cache
