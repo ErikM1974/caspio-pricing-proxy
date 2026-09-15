@@ -1,3 +1,7 @@
+## v2026.09.15.2 (2026.09.15)
+
+- files write limiter: meter writes only on /api/files, skip CRM-secret callers, cache file GETs
+
 ## v2026.09.15.1 (2026.09.15)
 
 - Accept e-signed garment waivers (garment-waiver, GLW) with a server audit stamp
