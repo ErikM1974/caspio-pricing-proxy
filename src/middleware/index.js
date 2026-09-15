@@ -152,6 +152,26 @@ const applyMiddleware = (app) => {
   app.use(corsMiddleware);
 };
 
+// ── Rate-limit scoping helpers (2026-09-15) ─────────────────────────────────
+// `skip` predicate for express-rate-limit: server-to-server callers holding the
+// CRM secret are not the anonymous abuse a per-IP limiter guards against (bandit
+// syncs, crons, the app dyno, staff batch tools). The office NAT puts every staff
+// browser AND every internal script behind ONE client IP, so a secret-bearing
+// batch job used to exhaust the shared bucket and 429 the browsers beside it.
+// Timing-safe, same as the gates above. Five limiters in server.js already
+// applied this rule inline; use this instead of another `===` copy.
+const hasCrmSecret = (req) =>
+  secretsMatch(req.headers['x-crm-api-secret'], process.env.CRM_API_SECRET);
+
+// Wrap a limiter so it meters WRITES only. Safe methods pass straight through —
+// never counted, never 429'd. For a family whose GETs are <img src> / public
+// reads a browser fans out by the dozen: a read must never spend the write
+// budget of the whole office.
+const meterWritesOnly = (limiter) => (req, res, next) =>
+  (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS')
+    ? next()
+    : limiter(req, res, next);
+
 module.exports = {
   corsMiddleware,
   errorHandler,
@@ -159,5 +179,7 @@ module.exports = {
   requireCrmApiSecret,
   requireCrmSecretOrBrowserOrigin,
   guardReadsOnly,
-  quotePlaneGate
+  quotePlaneGate,
+  hasCrmSecret,
+  meterWritesOnly
 };
