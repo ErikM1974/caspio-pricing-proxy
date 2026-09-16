@@ -116,8 +116,8 @@ router.get('/supacolor-po-index', async (req, res) => {
 // record by Reference_ID ('R' + the BoA reference digits): found -> PUT (update), else POST
 // (insert). Safeguards:
 //   - id_Vendor is a Caspio FORMULA field -> never written (Caspio rejects it).
-//   - GL_Account and (on update) Reconciled are NEVER overwritten -> human edits preserved.
-//   - Never deletes. Rows with a blank Reference_ID are skipped (can't dedup).
+//   - GL_Account, existing POs and (on update) Reconciled are preserved.
+//   - Never deletes. Invalid rows and duplicate refs block the entire batch before writes.
 // Writes run in small parallel batches to stay well under Heroku's 30s request limit.
 //
 // Reference_ID MUST be Text in Caspio, never a numeric type. A BoA reference is 23 digits —
@@ -154,7 +154,48 @@ async function ccWriteWithRetry(fn, maxRetries = 3) {
 // 'M/D/YYYY' -> 'YYYY-MM-DD' (Caspio Date/Time). Returns null if unparseable.
 function mdyToIso(s) {
     const m = String(s || '').trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-    return m ? `${m[3]}-${m[1].padStart(2, '0')}-${m[2].padStart(2, '0')}` : null;
+    if (!m) return null;
+    const iso = `${m[3]}-${m[1].padStart(2, '0')}-${m[2].padStart(2, '0')}`;
+    const date = new Date(`${iso}T00:00:00Z`);
+    return !isNaN(date) && date.toISOString().slice(0, 10) === iso ? iso : null;
+}
+
+// Reject the entire batch before any read/write rather than silently dropping money.
+function validateCCRows(rows) {
+    const errors = [];
+    const seen = new Set();
+    rows.forEach((row, index) => {
+        const fail = message => errors.push(`Row ${index + 1}: ${message}`);
+        if (!row || typeof row !== 'object' || Array.isArray(row)) {
+            fail('invalid transaction'); return;
+        }
+        const ref = typeof row.Reference_ID === 'string' ? row.Reference_ID.trim() : '';
+        if (!/^(?:R|Ref:\s*)?\d{15,}$/i.test(ref) || ref.length > 255) {
+            fail('a complete bank reference stored as text is required');
+        } else {
+            const key = refKey(ref);
+            if (seen.has(key)) fail('duplicate bank reference in this upload');
+            seen.add(key);
+        }
+        for (const field of ['PayableDate', 'PayableDueDateOverride']) {
+            if (!mdyToIso(row[field])) fail(`${field} must be a valid M/D/YYYY date`);
+        }
+        const amount = String(row.Amount == null ? '' : row.Amount).trim();
+        if (!/^-?\d+(?:\.\d{1,2})?$/.test(amount) || !Number.isFinite(Number(amount))) {
+            fail('Amount must be a finite number with at most two decimal places');
+        }
+        for (const field of ['InvoiceNumber', 'Vendor_Charged_To', 'Month_Reconciled']) {
+            if (typeof row[field] !== 'string' || !row[field].trim() || row[field].length > 255) {
+                fail(`${field} must contain 1–255 characters`);
+            }
+        }
+        const vendor = String(row.id_Vendor_Charge == null ? '' : row.id_Vendor_Charge).trim();
+        if (vendor && (!/^\d+$/.test(vendor) || !Number.isSafeInteger(Number(vendor)))) {
+            fail('id_Vendor_Charge must be a vendor number or blank');
+        }
+        if (row.PONumber != null && String(row.PONumber).length > 255) fail('PONumber exceeds 255 characters');
+    });
+    return errors;
 }
 
 // Comparison key for a Reference_ID: the bare digit run, so 'R2401…' (current) and
@@ -175,7 +216,7 @@ function refKey(value) {
 
 // Build a Caspio-typed payload from a formatter row. Excludes id_Vendor (formula) and
 // GL_Account (preserved). Reconciled is set only on insert (preserved on update).
-function ccPayload(row, isInsert) {
+function ccPayload(row, isInsert, existingPO = '') {
     const p = {};
     const pd = mdyToIso(row.PayableDate); if (pd) p.PayableDate = pd;
     const dd = mdyToIso(row.PayableDueDateOverride); if (dd) p.PayableDueDateOverride = dd;
@@ -185,7 +226,10 @@ function ccPayload(row, isInsert) {
     if (row.Vendor_Charged_To != null) p.Vendor_Charged_To = String(row.Vendor_Charged_To);
     const vc = String(row.id_Vendor_Charge == null ? '' : row.id_Vendor_Charge).trim();
     if (/^\d+$/.test(vc)) p.id_Vendor_Charge = parseInt(vc, 10);
-    if (row.PONumber != null) p.PONumber = String(row.PONumber);
+    // Keep an existing PO, including a human correction. A failed lookup or a new
+    // candidate must never erase/replace it. Blank incoming values do not clear POs.
+    const incomingPO = String(row.PONumber == null ? '' : row.PONumber).trim();
+    if (isInsert || (!String(existingPO || '').trim() && incomingPO)) p.PONumber = incomingPO;
     if (row.Month_Reconciled != null) p.Month_Reconciled = String(row.Month_Reconciled);
     // Always write the canonical 'R'-prefixed form, so a legacy bare-digit row is
     // migrated in place the first time it is touched.
@@ -200,44 +244,47 @@ router.post('/creditcard-atmos/upsert', async (req, res) => {
     if (!Array.isArray(rows) || rows.length === 0) {
         return res.status(400).json({ success: false, error: 'Body must be { rows: [...], dryRun }' });
     }
+    const validationErrors = validateCCRows(rows);
+    if (validationErrors.length) {
+        return res.status(400).json({ success: false,
+            error: 'Import blocked. Fix the invalid transactions and try again.',
+            validationErrors: validationErrors.slice(0, 100), errorCount: validationErrors.length });
+    }
     try {
         // One bulk read of existing non-blank Reference_IDs (the table is mostly blank-ref
         // historically, so this set is small and grows only as we insert).
         const existingRows = await fetchAllCaspioPages(`/tables/${TABLE_CC}/records`, {
             'q.where': "Reference_ID IS NOT NULL AND Reference_ID<>''",
-            'q.select': 'Reference_ID',
+            'q.select': 'Reference_ID,PONumber',
             'q.orderBy': 'PK_ID', // stable pagination — a dropped row here defeats the dup-guard (duplicate CC rows inserted)
             'q.pageSize': 1000
         });
-        // Index by bare digits, but remember the value as STORED so the PUT below can
+        // Index by bare digits, but remember the value and PO as STORED so the PUT below can
         // target a legacy bare-digit row (its q.where must match what's in the table).
         const existingByDigits = new Map();
         for (const r of existingRows) {
             const d = refDigits(r.Reference_ID);
-            if (d && !existingByDigits.has(d)) existingByDigits.set(d, String(r.Reference_ID));
+            if (d && !existingByDigits.has(d)) existingByDigits.set(d, r);
         }
 
-        // Classify. Entries are {row, storedRef} — storedRef is null for inserts.
+        // Classify. Entries include storedRef and existingPO for updates.
         let skipped = 0;
         const inserts = [], updates = [];
-        const seenInBatch = new Map();
         for (const row of rows) {
             const digits = refDigits(row.Reference_ID);
             if (!digits) { skipped++; continue; }
-            const stored = existingByDigits.has(digits) ? existingByDigits.get(digits)
-                         : seenInBatch.has(digits) ? seenInBatch.get(digits)
-                         : null;
-            if (stored !== null) updates.push({ row, storedRef: stored });
+            const stored = existingByDigits.get(digits);
+            if (stored) updates.push({ row, storedRef: String(stored.Reference_ID), existingPO: stored.PONumber });
             else {
                 inserts.push({ row, storedRef: null });
-                seenInBatch.set(digits, refKey(digits));
             }
         }
+        const preservedPOs = updates.filter(entry => String(entry.existingPO || '').trim()).length;
 
         if (dryRun) {
             return res.json({
                 success: true, dryRun: true, total: rows.length,
-                toInsert: inserts.length, toUpdate: updates.length, skipped
+                toInsert: inserts.length, toUpdate: updates.length, skipped, preservedPOs
             });
         }
 
@@ -261,13 +308,13 @@ router.post('/creditcard-atmos/upsert', async (req, res) => {
             }
         }
 
-        await runBatched(updates, async ({ row, storedRef }) => {
+        await runBatched(updates, async ({ row, storedRef, existingPO }) => {
             // Target the row by the value CURRENTLY stored (may be a legacy bare-digit
             // key); ccPayload rewrites it to the canonical 'R' form.
             const ref = String(storedRef).replace(/'/g, "''");
             await ccWriteWithRetry(() => axios.put(
                 `${caspioApiBaseUrl}/tables/${TABLE_CC}/records?q.where=Reference_ID='${ref}'`,
-                ccPayload(row, false),
+                ccPayload(row, false, existingPO),
                 { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, timeout: 15000 }
             ));
             updated++;
@@ -284,7 +331,7 @@ router.post('/creditcard-atmos/upsert', async (req, res) => {
 
         res.json({
             success: errors.length === 0, dryRun: false, total: rows.length,
-            inserted, updated, skipped, errorCount: errors.length, errors: errors.slice(0, 20)
+            inserted, updated, skipped, preservedPOs, errorCount: errors.length, errors: errors.slice(0, 20)
         });
     } catch (error) {
         console.error('Error upserting credit-card charges:', error.response ? JSON.stringify(error.response.data) : error.message);
