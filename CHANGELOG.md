@@ -1,3 +1,7 @@
+## v2026.09.16.1 (2026.09.16)
+
+- Deploy v2026.09.16.1: protect Atmos purchase orders and validate statement imports
+
 ## v2026.09.15.2 (2026.09.15)
 
 - files write limiter: meter writes only on /api/files, skip CRM-secret callers, cache file GETs
