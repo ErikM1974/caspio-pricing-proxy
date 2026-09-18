@@ -1,3 +1,7 @@
+## v2026.09.17.1 (2026.09.17)
+
+- Fix: every Quote_Sessions write invalidates the 5-minute read cache
+
 ## v2026.09.16.1 (2026.09.16)
 
 - Deploy v2026.09.16.1: protect Atmos purchase orders and validate statement imports
