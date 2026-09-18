@@ -22,6 +22,7 @@ const express = require('express');
 const router = express.Router();
 const axios = require('axios');
 const { fetchAllCaspioPages, makeCaspioRequest } = require('../utils/caspio');
+const quoteSessionsCache = require('../utils/quote-sessions-cache');
 const { getTokenForEndpoint } = require('../../lib/manageorders-push-auth');
 const { transformQuoteToOrder } = require('../../lib/scp-push-transformer');
 const { SCP_BASE_URL, generateScpExtOrderID } = require('../../config/manageorders-scp-config');
@@ -109,6 +110,9 @@ router.post('/scp-push/push-quote', express.json(), async (req, res) => {
         { 'q.where': `PK_ID=${session.PK_ID}` },
         { PushedToShopWorks: timestamp }
       );
+      // Every Quote_Sessions writer invalidates — else cached reads report this
+      // quote as un-pushed for up to 5 more minutes.
+      quoteSessionsCache.invalidate(`SCP push stamped ${quoteId}`);
       console.log(`[SCP Push] Updated PushedToShopWorks for ${quoteId} at PK_ID=${session.PK_ID}`);
     } catch (updateError) {
       console.error(`[SCP Push] WARNING: Push succeeded but failed to update PushedToShopWorks:`, updateError.message);

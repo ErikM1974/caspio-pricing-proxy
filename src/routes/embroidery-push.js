@@ -19,6 +19,7 @@ const express = require('express');
 const router = express.Router();
 const axios = require('axios');
 const { fetchAllCaspioPages, makeCaspioRequest } = require('../utils/caspio');
+const quoteSessionsCache = require('../utils/quote-sessions-cache');
 const { getTokenForEndpoint } = require('../../lib/manageorders-push-auth');
 const { transformQuoteToOrder, parseImportNotes } = require('../../lib/embroidery-push-transformer');
 const { EMB_BASE_URL, generateEmbExtOrderID } = require('../../config/manageorders-emb-config');
@@ -223,6 +224,10 @@ router.post('/embroidery-push/push-quote', express.json(), async (req, res) => {
           { PushedToShopWorks: timestamp }
         );
         dedupFlagSet = true;
+        // Cached GET /api/quote_sessions reads would keep reporting this quote as
+        // un-pushed for up to 5 more minutes (stale "Sent ✓" state in the builder
+        // and Quote Management). Every Quote_Sessions writer invalidates.
+        quoteSessionsCache.invalidate(`EMB push stamped ${quoteId}`);
         console.log(`[EMB Push] Updated PushedToShopWorks for ${quoteId} at PK_ID=${session.PK_ID}`);
       } catch (updateError) {
         console.error(`[EMB Push] WARNING (attempt ${attempt}/2): push succeeded but failed to set PushedToShopWorks:`, updateError.message);

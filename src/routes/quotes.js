@@ -54,9 +54,11 @@ function parsePkId(id) {
   return pk;
 }
 
-// Cache for quote sessions (5 minute TTL)
-const quoteSessionsCache = new Map();
-const QUOTE_SESSIONS_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+// Cache for quote sessions (5 minute TTL) — shared with the ShopWorks push
+// routes, which also write Quote_Sessions. EVERY writer must invalidate;
+// see src/utils/quote-sessions-cache.js for why that rule exists.
+const quoteSessionsCache = require('../utils/quote-sessions-cache');
+const invalidateQuoteSessionsCache = quoteSessionsCache.invalidate;
 
 // Quote Analytics Routes
 // GET /api/quote_analytics
@@ -554,9 +556,9 @@ router.get('/quote_sessions', async (req, res) => {
       const cacheKey = whereConditions.sort().join('|');
       const cached = quoteSessionsCache.get(cacheKey);
 
-      if (cached && Date.now() - cached.timestamp < QUOTE_SESSIONS_CACHE_TTL) {
-        console.log(`Cache HIT for quote_sessions: ${cacheKey} (${cached.data.length} records)`);
-        return res.json(cached.data);
+      if (cached) {
+        console.log(`Cache HIT for quote_sessions: ${cacheKey} (${cached.length} records)`);
+        return res.json(cached);
       }
     }
 
@@ -590,17 +592,8 @@ router.get('/quote_sessions', async (req, res) => {
     // Store in cache
     if (whereConditions.length > 0) {
       const cacheKey = whereConditions.sort().join('|');
-      quoteSessionsCache.set(cacheKey, {
-        data: records,
-        timestamp: Date.now()
-      });
+      quoteSessionsCache.set(cacheKey, records);
       console.log(`Cache MISS - stored quote_sessions: ${cacheKey}`);
-
-      // Limit cache size (keep last 100 entries)
-      if (quoteSessionsCache.size > 100) {
-        const firstKey = quoteSessionsCache.keys().next().value;
-        quoteSessionsCache.delete(firstKey);
-      }
     }
 
     res.json(records);
@@ -651,6 +644,9 @@ router.post('/quote_sessions', quoteBodyJson, quoteWriteGuard('quote_sessions'),
     const sessionData = { ...req.body };
 
     const result = await makeCaspioRequest('post', '/tables/Quote_Sessions/records', {}, sessionData);
+    // A just-saved quote must be findable IMMEDIATELY — the Leads workspace
+    // reads by CustomerEmail right after the rep saves (see the helper).
+    invalidateQuoteSessionsCache(`created ${QuoteID}`);
     console.log('Quote session created successfully');
     res.status(201).json(result);
   } catch (error) {
@@ -680,6 +676,8 @@ router.put('/quote_sessions/:id', quoteBodyJson, quoteWriteGuard('quote_sessions
       updates
     );
     
+    // Status/total edits must not be served stale either (pipeline $ reads this).
+    invalidateQuoteSessionsCache(`updated PK_ID=${pk}`);
     console.log('Quote session updated successfully');
     res.json(result);
   } catch (error) {
@@ -704,7 +702,7 @@ router.delete('/quote_sessions/:id', async (req, res) => {
     if (httpStatus === 200) {
       // Drop cached list reads so a deleted session can't be served as a
       // ghost for up to 5 more minutes (builder loadQuote reads are cached).
-      quoteSessionsCache.clear();
+      invalidateQuoteSessionsCache(`deleted PK_ID=${pk}`);
       console.log('Quote session deleted successfully');
     } else {
       console.log(`Quote session delete matched no row (PK_ID=${pk})`);
