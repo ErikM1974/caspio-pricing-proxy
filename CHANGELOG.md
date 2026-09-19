@@ -1,3 +1,8 @@
+## v2026.09.19.1 (2026.09.19)
+
+- Docs: sibling repo paths after the move off OneDrive
+- Deploy v2026.09.19.1: align local scripts and parity checks with relocated repositories
+
 ## v2026.09.17.1 (2026.09.17)
 
 - Fix: every Quote_Sessions write invalidates the 5-minute read cache
