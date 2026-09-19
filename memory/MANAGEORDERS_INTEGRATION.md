@@ -803,3 +803,11 @@ async function getCustomerByName(name) {
 - ✅ Customer deduplication
 - ✅ Production deployment to Heroku
 - ✅ Successfully tested with 389 unique customers from 912 orders
+
+
+### WQ embroidery preview / push (2026-09-19; release target v2026.09.19.2)
+
+- `POST /api/web-quote-push/preview`: CRM-secret protected; requires `quoteId` and active `customerNumber`. Returns exact saved rows/subtotal, company confirmation, warnings and a preview hash. No writes.
+- `POST /api/web-quote-push/push-quote`: same protection plus matching `previewToken`; fresh server reads, atomic `PushedToShopWorks` reservation, no force retry. Accepted payloads use `NWCA-{WQ QuoteID}`, existing EMB mapping and `OnHold: 1`.
+- Only embroidery/cap web-cart groups and known fees are supported initially; recorded online payments and incomplete mappings block. Review tax, shipping, artwork/design and payment before releasing in ShopWorks.
+- `WQ-REVIEW:{UUID}` means submission may be in flight or uncertain; never clear it for an automatic retry. Verify ManageOrders/ShopWorks first. Authoritative detailed procedure: `C:/dev/pricing-index/memory/MANAGEORDERS_COMPLETE_REFERENCE.md`.

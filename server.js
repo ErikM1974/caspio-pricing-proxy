@@ -1731,6 +1731,8 @@ app.use('/api', digitizedDesignsRoutes);
 console.log('✓ Digitized Designs routes loaded (rate limited: 180 req/min)');
 
 // Embroidery Push Routes (push saved quotes to ShopWorks via ManageOrders PUSH API)
+// Web quote preview/push: secret-gated, frozen totals, persistent duplicate guard.
+app.use('/api/web-quote-push', writeLimiter, require('./src/routes/web-quote-push'));
 const embroideryPushRoutes = require('./src/routes/embroidery-push');
 app.use('/api', embroideryPushRoutes);
 console.log('✓ Embroidery Push routes loaded');
