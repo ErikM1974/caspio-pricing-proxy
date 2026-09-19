@@ -126,7 +126,7 @@ C:\Users\erik\AppData\Roaming\Claude\claude_desktop_config.json
   "mcpServers": {
     "nwca-accounts": {
       "command": "node",
-      "args": ["C:/Users/erik/OneDrive - Northwest Custom Apparel/2025/caspio-pricing-proxy/mcp-server/index.js"]
+      "args": ["C:/dev/caspio-pricing-proxy/mcp-server/index.js"]
     }
   }
 }
@@ -206,7 +206,7 @@ Look for the 🔨 hammer icon. Click it to see available tools.
 
 Test the server manually:
 ```bash
-cd C:\Users\erik\OneDrive - Northwest Custom Apparel\2025\caspio-pricing-proxy\mcp-server
+cd C:\dev\caspio-pricing-proxy\mcp-server
 node index.js
 ```
 

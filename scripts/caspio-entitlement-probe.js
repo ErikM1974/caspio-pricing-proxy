@@ -3,7 +3,7 @@
  * --------------------------------------------------------------
  * Purpose: confirm which Caspio REST v3 capability groups THIS account's
  * plan actually exposes, so the capability reference
- * (../Pricing Index File 2025/memory/CASPIO_REST_API_REFERENCE.md) can state
+ * (../pricing-index/memory/CASPIO_REST_API_REFERENCE.md) can state
  * "available / not entitled" instead of "likely plan-gated, verify first".
  *
  * Safety: GETs only. No POST/PUT/DELETE. Never logs the token or secret.

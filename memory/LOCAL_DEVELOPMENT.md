@@ -42,7 +42,7 @@ http://172.20.132.206:3002/api/order-dashboard
 ### Method 1: Recommended (Helper Script)
 
 ```bash
-cd /mnt/c/Users/erik/OneDrive\ -\ Northwest\ Custom\ Apparel/2025/caspio-pricing-proxy
+cd /mnt/c/dev/caspio-pricing-proxy
 node start-test-server.js
 ```
 
@@ -74,7 +74,7 @@ curl http://localhost:3002/api/health
 ## Running the Server (Manual Method)
 
 ```bash
-cd /mnt/c/Users/erik/OneDrive\ -\ Northwest\ Custom\ Apparel/2025/caspio-pricing-proxy
+cd /mnt/c/dev/caspio-pricing-proxy
 PORT=3002 node server.js
 ```
 
@@ -96,7 +96,7 @@ PORT=3002 node server.js
 
 ```bash
 # Navigate to project directory
-cd /mnt/c/Users/erik/OneDrive\ -\ Northwest\ Custom\ Apparel/2025/caspio-pricing-proxy
+cd /mnt/c/dev/caspio-pricing-proxy
 
 # Start with explicit port
 PORT=3002 node server.js

@@ -13,7 +13,7 @@ const path = require('path');
 const CANONICAL = path.join(__dirname, '../../lib/dtg-canonical-pricing.js');
 const VENDORED = path.join(
   __dirname,
-  '../../../Pricing Index File 2025/shared_components/js/dtg-canonical-pricing.js'
+  '../../../pricing-index/shared_components/js/dtg-canonical-pricing.js'
 );
 
 describe('dtg-canonical-pricing vendored parity (proxy-side mirror)', () => {

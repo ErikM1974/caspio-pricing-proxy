@@ -1,6 +1,6 @@
 # Atmos import validation and repeat-import safety
 
-Implemented locally 2026-09-16 across this proxy and `../Python Inksoft`.
+Implemented locally 2026-09-16 across this proxy and `../inksoft-transform`.
 
 ## Proxy import contract
 

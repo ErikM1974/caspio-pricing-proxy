@@ -5,7 +5,7 @@
 **Purpose**: Document server-to-server authentication for CRM endpoints
 
 **See also:** For the complete three-layer security model (including Caspio authentication and Express sessions), see the frontend documentation:
-`../Pricing Index File 2025/memory/CRM_DASHBOARD_AUTH.md`
+`../pricing-index/memory/CRM_DASHBOARD_AUTH.md`
 
 ---
 

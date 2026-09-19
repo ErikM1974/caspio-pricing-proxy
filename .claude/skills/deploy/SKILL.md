@@ -7,7 +7,7 @@ description: Deploy current develop branch of caspio-pricing-proxy to production
 
 Automates the deploy pipeline for the Caspio Pricing Proxy API server: `develop` → `main` → Heroku app `caspio-pricing-proxy`. Fast, non-interactive, traceable.
 
-**Sibling skill**: A parallel deploy skill exists in the Pricing Index repo (`../Pricing Index File 2025/.claude/skills/deploy/SKILL.md`). Both follow the same structure; only constants and verification path differ.
+**Sibling skill**: A parallel deploy skill exists in the Pricing Index repo (`../pricing-index/.claude/skills/deploy/SKILL.md`). Both follow the same structure; only constants and verification path differ.
 
 ## What This Skill Does
 
@@ -76,7 +76,7 @@ If `git remote get-url heroku` fails → abort: "No heroku remote — run `herok
 ### Step 0.5 — MEMORY.md size gate
 
 ```bash
-MEMFILE="$HOME/.claude/projects/c--Users-erik-OneDrive---Northwest-Custom-Apparel-2025-caspio-pricing-proxy/memory/MEMORY.md"
+MEMFILE="$HOME/.claude/projects/C--dev-caspio-pricing-proxy/memory/MEMORY.md"
 LINES=$(wc -l < "$MEMFILE" 2>/dev/null || echo 0)
 
 if [ "$LINES" -gt 180 ]; then
