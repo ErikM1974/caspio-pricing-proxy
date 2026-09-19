@@ -424,7 +424,7 @@ Before testing locally, verify the query works in Caspio:
 STEP 2: START LOCAL SERVER
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-cd /mnt/c/Users/erik/OneDrive\ -\ Northwest\ Custom\ Apparel/2025/caspio-pricing-proxy
+cd /mnt/c/dev/caspio-pricing-proxy
 node start-test-server.js
 
 Look for:

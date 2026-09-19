@@ -3,9 +3,9 @@
 ## Cross-Project Knowledge Hub
 
 **For documentation spanning all 3 NWCA projects, see:**
-- **[CROSS_PROJECT_HUB.md](../Pricing%20Index%20File%202025/memory/CROSS_PROJECT_HUB.md)** - Entry point for all projects
-- **[GLOSSARY.md](../Pricing%20Index%20File%202025/memory/GLOSSARY.md)** - Shared terminology
-- **[LESSONS_LEARNED.md](../Pricing%20Index%20File%202025/memory/LESSONS_LEARNED.md)** - Master lessons (all projects)
+- **[CROSS_PROJECT_HUB.md](../pricing-index/memory/CROSS_PROJECT_HUB.md)** - Entry point for all projects
+- **[GLOSSARY.md](../pricing-index/memory/GLOSSARY.md)** - Shared terminology
+- **[LESSONS_LEARNED.md](../pricing-index/memory/LESSONS_LEARNED.md)** - Master lessons (all projects)
 
 ---
 
@@ -15,8 +15,8 @@ This API server is consumed by two frontend projects:
 
 | Project | Location | Relationship |
 |---------|----------|--------------|
-| **Pricing Index File 2025** | `../Pricing Index File 2025` | Primary frontend - quote builders, calculators consume all pricing APIs |
-| **Python Inksoft** | `../Python Inksoft` | Flask app (Python 3.11) — transforms InkSoft orders → ShopWorks OnSite. Uses `/api/manageorders/*`, `/api/designs/*`, `/api/gift-certificates/*`, `/api/thumbnails/*` |
+| **Pricing Index File 2025** | `../pricing-index` | Primary frontend - quote builders, calculators consume all pricing APIs |
+| **Python Inksoft** | `../inksoft-transform` | Flask app (Python 3.11) — transforms InkSoft orders → ShopWorks OnSite. Uses `/api/manageorders/*`, `/api/designs/*`, `/api/gift-certificates/*`, `/api/thumbnails/*` |
 
 When modifying API endpoints, check if these projects need updates.
 
@@ -24,7 +24,7 @@ When modifying API endpoints, check if these projects need updates.
 
 For **comprehensive ManageOrders documentation** (PULL + PUSH APIs), see the master file in the Pricing Index project:
 
-**`../Pricing Index File 2025/memory/MANAGEORDERS_COMPLETE_REFERENCE.md`**
+**`../pricing-index/memory/MANAGEORDERS_COMPLETE_REFERENCE.md`**
 
 This is the single source of truth covering:
 - All 7 PULL API endpoints with response schemas
@@ -45,7 +45,7 @@ This ensures documentation stays current and nothing is forgotten.
 
 For the **underlying Caspio REST API** this proxy calls (the Swagger surface — tables, views, files, **Outgoing Webhooks**, **Directories / end-user logins**, Data Import/Export Tasks, Bridge Apps), see the master file in the Pricing Index project:
 
-**`../Pricing Index File 2025/memory/CASPIO_REST_API_REFERENCE.md`**
+**`../pricing-index/memory/CASPIO_REST_API_REFERENCE.md`**
 
 Single source of truth covering:
 - 70 operations / 7 capability groups, with paths + key schemas
@@ -57,7 +57,7 @@ Single source of truth covering:
 
 Distinct from `memory/CASPIO_API_CORE.md`, which documents **this proxy's own** API. A dated raw spec snapshot lives beside the master; re-fetch the live spec any time at `https://c3eku948.caspio.com/integrations/rest/v3/swagger/documentation`.
 
-**REST API v4 (opt-in superset, 2026-07):** newer API version — bulk ops (resp `Result[]`), T-SQL `where/select`, single-call schema discovery, webhook CRUD w/ HMAC-SHA256 signatures, AI manifest. **This proxy still runs v3**; adopt v4 per-endpoint only where a specific power pays off (migrate = drop `q.`, list resp `data[]`). v4 delta + the live account inventory (163 tables/19 views/14 bridge apps/24 webhooks): `../Pricing Index File 2025/memory/CASPIO_REST_API_V4_REFERENCE.md` + `.../caspio-v4-live-inventory-2026-07-09.md`. ⚠️ Caspio 73.0 now enforces granular perms → **403 on v2/v3 missing object-perm** (this proxy VERIFIED healthy 2026-07-09).
+**REST API v4 (opt-in superset, 2026-07):** newer API version — bulk ops (resp `Result[]`), T-SQL `where/select`, single-call schema discovery, webhook CRUD w/ HMAC-SHA256 signatures, AI manifest. **This proxy still runs v3**; adopt v4 per-endpoint only where a specific power pays off (migrate = drop `q.`, list resp `data[]`). v4 delta + the live account inventory (163 tables/19 views/14 bridge apps/24 webhooks): `../pricing-index/memory/CASPIO_REST_API_V4_REFERENCE.md` + `.../caspio-v4-live-inventory-2026-07-09.md`. ⚠️ Caspio 73.0 now enforces granular perms → **403 on v2/v3 missing object-perm** (this proxy VERIFIED healthy 2026-07-09).
 **Schema introspection is now exposed BY this proxy** (no bearer token needed): `GET /api/caspio-schema/*` → `memory/CASPIO_SCHEMA_INTROSPECTION_API.md`.
 
 **Before committing**, if you discovered Caspio platform-API patterns (new endpoints, plan entitlements, webhook/directory behavior):

@@ -6,7 +6,7 @@ Frontend v2026.09.08.7 / Heroku 2066 / c20d424b142c3e5e275cab891c8ad13e0be22fc2 
 
 Backend v2026.09.08.1 / Heroku 1130 / d06aee3e4d25c5e1410241ea8007cdc8339aa3fa followed only after that verification. Actual slug identity matches, /api/health returns healthy, eight anonymous API checks return 401, and a credentialed image request without a URL reaches the expected 400 validation without contacting a vendor. All 136 backend unit suites / 1,777 tests passed on unchanged implementation code. Both scheduled Supacolor scripts carry the existing secret; no scheduler log lines newer than release were present at the first check, so no natural post-release run is yet claimed. No business writes, syncs, notifications or test records were triggered.
 
-The earlier pause and pending-deployment paragraphs below are history. The boot probe passed unchanged on resume; its earlier timeout was not reproduced and the cause is unconfirmed. Backend dependency/runtime findings remain a separate backlog; this release did not upgrade them. Continue CSS work using the plan in ../Pricing Index File 2025/memory/CSS_UNIFICATION_2026-09.md.
+The earlier pause and pending-deployment paragraphs below are history. The boot probe passed unchanged on resume; its earlier timeout was not reproduced and the cause is unconfirmed. Backend dependency/runtime findings remain a separate backlog; this release did not upgrade them. Continue CSS work using the plan in ../pricing-index/memory/CSS_UNIFICATION_2026-09.md.
 
 ## Resumed — 2026-09-08
 
@@ -20,7 +20,7 @@ PAUSED at Erik's request so he can shut down his laptop and resume later. Curren
 
 The frontend's 28 relays, six browser caller migrations, authenticated vision parser and staff detail HTML gate are implemented and tested: 4,961 unit tests and 66 browser tests pass. Credential equality was verified without displaying or changing values. The coordinated change MUST deploy the frontend callers FIRST, then this proxy's gates and both scheduler scripts. Neither half is live yet. No further deployment was begun for this pause. Preserve the preexisting untracked .agents/ and AGENTS.md.
 
-The authoritative cross-project resume checklist is ../Pricing Index File 2025/memory/HANDOVER_FOLLOWUPS_2026-09.md, first section. It contains live release references, release preparation steps, verification and the remaining application-wide CSS scope. Exact saved commit IDs and final boot outcome are in C:/Users/erik/.codex/visualizations/2026/09/07/01a07d90-9a4c-7e70-9e4e-c196377b7c6b/pause-checkpoint-2026-09-08.json. Resume only when Erik returns.
+The authoritative cross-project resume checklist is ../pricing-index/memory/HANDOVER_FOLLOWUPS_2026-09.md, first section. It contains live release references, release preparation steps, verification and the remaining application-wide CSS scope. Exact saved commit IDs and final boot outcome are in C:/Users/erik/.codex/visualizations/2026/09/07/01a07d90-9a4c-7e70-9e4e-c196377b7c6b/pause-checkpoint-2026-09-08.json. Resume only when Erik returns.
 
 ## Checklist
 - [x] Inspect the affected proxy routes and frontend callers.

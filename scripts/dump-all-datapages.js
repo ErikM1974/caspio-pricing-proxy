@@ -66,7 +66,7 @@ async function get(p) {
         }
     }
 
-    const out = path.join(__dirname, '..', '..', 'Pricing Index File 2025', 'tests', 'caspio-datapages.json');
+    const out = path.join(__dirname, '..', '..', 'pricing-index', 'tests', 'caspio-datapages.json');
     fs.writeFileSync(out, JSON.stringify(allDataPages, null, 2));
     console.log(`\nTotal DataPages: ${allDataPages.length}`);
     console.log(`Saved to: ${out}`);

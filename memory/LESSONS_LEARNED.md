@@ -4,6 +4,14 @@ A running log of problems solved and gotchas discovered. Add new entries at the 
 
 ---
 
+## Local sibling rename can silently disable pricing parity (2026-09-18)
+
+- Problem: DTG vendored parity returned early after the frontend moved to `C:\dev\pricing-index`.
+- Root cause: the test still looked for `../Pricing Index File 2025`.
+- Solution: use `../pricing-index`; update the DataPage dump destination and active local setup references too. All 1,829 offline unit tests pass with the sibling present.
+- Prevention: verify cross-repo checks actually resolve their sibling after a directory move; preserve the optional-sibling behavior for standalone CI.
+
+
 ## Per-IP write limiters must not meter reads or secret-bearing internal callers
 **Date:** 2026-09-15
 **Problem/root cause:** `writeLimiter` (120 / 15 min per IP) was mounted on `/api/files` for

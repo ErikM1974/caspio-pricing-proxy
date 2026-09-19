@@ -4,7 +4,7 @@ echo "Deploying Screen Print API fix to production..."
 echo "============================================="
 
 # Ensure we're in the right directory
-cd /mnt/c/Users/erik/OneDrive\ -\ Northwest\ Custom\ Apparel/2025/caspio-pricing-proxy
+cd -- "$(dirname -- "${BASH_SOURCE[0]}")" || exit 1
 
 # Show current status
 echo "Current branch:"
